@@ -62,18 +62,13 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import tempfile
 import time
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
-try:
-    import filelock  # type: ignore
-    _HAVE_FILELOCK = True
-except ImportError:
-    _HAVE_FILELOCK = False
+from lib.cache_io import atomic_write_bytes, exclusive_lock, link_or_copy_atomic
 
 
 # Default 20 GB cap. Overridable via OPENMONTAGE_CACHE_MAX_GB.
@@ -213,46 +208,9 @@ class ClipCache:
 
     @contextmanager
     def _locked(self, timeout: float = 60.0) -> Iterator[None]:
-        """Acquire an exclusive lock for the duration of the block.
-
-        Prefers ``filelock.FileLock`` (proper cross-platform, timeout
-        support, reentrant). Falls back to a naive O_EXCL create-file
-        lock with polling retry so the cache still works if filelock
-        is somehow unavailable. The fallback is not reentrant — don't
-        nest ``_locked()`` blocks.
-        """
-        if _HAVE_FILELOCK:
-            lock = filelock.FileLock(str(self.lock_path), timeout=timeout)
-            with lock:
-                yield
-            return
-
-        # Fallback: O_EXCL create-file lock.
-        deadline = time.time() + timeout
-        acquired = False
-        while time.time() < deadline:
-            try:
-                fd = os.open(
-                    str(self.lock_path),
-                    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                )
-                os.close(fd)
-                acquired = True
-                break
-            except FileExistsError:
-                time.sleep(0.05)
-        if not acquired:
-            raise TimeoutError(
-                f"ClipCache: could not acquire lock at {self.lock_path} "
-                f"after {timeout}s"
-            )
-        try:
+        """Acquire the shared cross-process cache lock."""
+        with exclusive_lock(self.lock_path, timeout_seconds=timeout):
             yield
-        finally:
-            try:
-                os.unlink(self.lock_path)
-            except OSError:
-                pass
 
     # ------------------------------------------------------------------
     # Manifest I/O (caller holds the lock)
@@ -294,22 +252,11 @@ class ClipCache:
         atomic on both POSIX and Windows. A crash between write and
         replace leaves the old manifest intact.
         """
-        tmp_fd, tmp_name = tempfile.mkstemp(
-            prefix="cache_manifest.", suffix=".tmp", dir=str(self.cache_dir)
-        )
-        try:
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                for entry in entries.values():
-                    f.write(json.dumps(entry.to_dict(), ensure_ascii=False) + "\n")
-            os.replace(tmp_name, self.manifest_path)
-        except Exception:
-            # Best-effort cleanup of the tmpfile if replace failed
-            try:
-                if os.path.exists(tmp_name):
-                    os.unlink(tmp_name)
-            except OSError:
-                pass
-            raise
+        payload = "".join(
+            json.dumps(entry.to_dict(), ensure_ascii=False) + "\n"
+            for entry in entries.values()
+        ).encode("utf-8")
+        atomic_write_bytes(self.manifest_path, payload)
 
     # ------------------------------------------------------------------
     # Public API — try_link, ingest, stats
@@ -468,7 +415,7 @@ class ClipCache:
             "misses_this_session": self.misses,
             "evictions_this_session": self.evictions_count,
             "bytes_evicted_this_session": self.bytes_evicted,
-            "filelock_backend": "filelock" if _HAVE_FILELOCK else "o_excl_fallback",
+            "filelock_backend": "o_excl_fallback",
         }
 
     # ------------------------------------------------------------------
@@ -529,17 +476,10 @@ def _link_or_copy(src: Path, dst: Path) -> bool:
     copy the bytes instead. Returns ``True`` on success, ``False`` if
     both link and copy failed.
     """
-    src = Path(src)
-    dst = Path(dst)
     try:
-        os.link(str(src), str(dst))
+        link_or_copy_atomic(Path(src), Path(dst))
         return True
-    except (OSError, NotImplementedError):
-        pass
-    try:
-        shutil.copy2(str(src), str(dst))
-        return True
-    except (OSError, shutil.SameFileError):
+    except (OSError, NotImplementedError, shutil.SameFileError):
         return False
 
 

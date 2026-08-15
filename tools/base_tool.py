@@ -228,6 +228,25 @@ def _instrument_execute(fn: Callable) -> Callable:
                 "cost_usd": cost if isinstance(cost, (int, float)) else None,
                 "duration_s": round(time.monotonic() - started, 2),
             })
+            result_data = getattr(result, "data", None)
+            cache_status = (
+                result_data.get("cache_status") if isinstance(result_data, dict) else None
+            )
+            if cache_status in {"hit", "miss"}:
+                emit_event(
+                    project_dir,
+                    {
+                        "event": f"cache_{cache_status}",
+                        "tool": tool_name,
+                        "scene_id": scene_id,
+                        "depth": depth,
+                        "cache_key": result_data.get("cache_key"),
+                        "reused_from": result_data.get("reused_from"),
+                        "saved_seconds": result_data.get("saved_seconds", 0.0),
+                        "cost_usd": 0.0 if cache_status == "hit" else None,
+                    },
+                    preserve_nulls=True,
+                )
         return result
 
     wrapper._backlot_instrumented = True  # type: ignore[attr-defined]

@@ -74,7 +74,12 @@ def infer_project_dir(inputs: Any) -> Optional[Path]:
     return None
 
 
-def emit_event(project_dir: Path | str, payload: dict[str, Any]) -> None:
+def emit_event(
+    project_dir: Path | str,
+    payload: dict[str, Any],
+    *,
+    preserve_nulls: bool = False,
+) -> None:
     """Append one event to the project's events.jsonl. Never raises.
 
     Writes only into an EXISTING project directory — a typo'd path must not
@@ -85,7 +90,9 @@ def emit_event(project_dir: Path | str, payload: dict[str, Any]) -> None:
         if not project_dir.is_dir():
             return
         entry = {"ts": datetime.now(timezone.utc).isoformat()}
-        entry.update({k: v for k, v in payload.items() if v is not None})
+        entry.update(
+            payload if preserve_nulls else {k: v for k, v in payload.items() if v is not None}
+        )
         path = project_dir / EVENTS_FILENAME
         line = json.dumps(entry, default=str)
         with _write_lock:
