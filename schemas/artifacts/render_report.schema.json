@@ -58,6 +58,12 @@
       "description": "Path or inline reference to the final_review artifact produced by post-render self-review. Provides durable audit linkage between the render output and its quality inspection."
     },
     "metadata": { "type": "object" }
+    ,"render_plan_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+    ,"render_mode": { "type": "string", "enum": ["sample", "full", "mux_only"] }
+    ,"video_master_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+    ,"profile_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+    ,"visual_timeline_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+    ,"remotion_invoked": { "type": "boolean" }
   },
   "additionalProperties": false
 }

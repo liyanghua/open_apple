@@ -94,6 +94,7 @@ class VideoCompose(BaseTool):
             },
             "input_path": {"type": "string"},
             "output_path": {"type": "string"},
+            "render_plan": {"type": "object", "description": "Validated fastline render plan (sample, full, or mux_only)."},
             "edit_decisions": {
                 "type": "object",
                 "description": "Full edit_decisions artifact (required for compose/render)",
@@ -425,6 +426,10 @@ class VideoCompose(BaseTool):
                     success=False,
                     error=f"Audio mux completed but output file is missing: {temp_output}",
                 )
+            from lib.render_plan import probe_media
+            mux_probe = probe_media(temp_output)
+            if not any(stream.get("codec_type") == "video" for stream in mux_probe.get("streams", [])):
+                return ToolResult(success=False, error="Audio mux output has no video stream")
             temp_output.replace(video_path)
         except Exception as exc:
             return ToolResult(success=False, error=f"Could not mux mixed audio: {exc}")
@@ -1518,6 +1523,40 @@ class VideoCompose(BaseTool):
                     f"render_runtime must be set at proposal stage."
                 ),
             )
+
+        render_plan = inputs.get("render_plan")
+        if isinstance(render_plan, dict) and render_plan.get("mode") == "mux_only":
+            from lib.render_plan import validate_video_master
+            validation = validate_video_master(render_plan)
+            if not validation.ok:
+                return ToolResult(
+                    success=False,
+                    data={"requires_full_render": True, "reasons": list(validation.reasons), "remotion_invoked": False},
+                    error="mux_only master validation failed: " + "; ".join(validation.reasons),
+                )
+            master_path = Path(render_plan["video_master"]["path"]).resolve()
+            output_path = Path(inputs.get("output_path", "renders/output.mp4")).resolve()
+            audio_path = (render_plan.get("audio") or {}).get("path") or inputs.get("audio_path")
+            if not audio_path or not Path(audio_path).is_file():
+                return ToolResult(success=False, data={"requires_full_render": True, "remotion_invoked": False}, error="mux_only audio path is missing")
+            if master_path == output_path:
+                return ToolResult(success=False, data={"requires_full_render": True, "remotion_invoked": False}, error="mux_only output must not overwrite video master")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copyfile(master_path, output_path)
+                mux_result = self._mux_external_audio(output_path, audio_path)
+                if not mux_result.success:
+                    output_path.unlink(missing_ok=True)
+                    return mux_result
+                mux_result.data.update({
+                    "render_mode": "mux_only", "requires_full_render": False,
+                    "remotion_invoked": False, "video_master_sha256": render_plan["video_master"].get("sha256"),
+                    "render_plan_hash": render_plan.get("semantic_sha256"),
+                })
+                return mux_result
+            except OSError as exc:
+                output_path.unlink(missing_ok=True)
+                return ToolResult(success=False, data={"requires_full_render": True, "remotion_invoked": False}, error=f"mux_only copy failed: {exc}")
 
         # --- Atelier (bespoke) mode -------------------------------------
         # Hand-authored, project-local Remotion composition. Deliberately
