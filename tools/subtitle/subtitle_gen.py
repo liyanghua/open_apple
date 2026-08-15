@@ -8,6 +8,7 @@ the standard library.
 from __future__ import annotations
 
 import json
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -69,6 +70,13 @@ class SubtitleGen(BaseTool):
                     "Example: {\"cloud\": \"Claude\", \"co-pilot\": \"Copilot\"}."
                 ),
             },
+            "language": {"type": "string", "default": "zh-CN"},
+            "strip_trailing_punctuation": {"type": "boolean", "default": False},
+            "safe_zone": {"type": "object", "additionalProperties": True},
+            "emphasis_rules": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": True},
+            },
         },
     }
 
@@ -78,6 +86,33 @@ class SubtitleGen(BaseTool):
     user_visible_verification = [
         "Play video with generated subtitles and verify timing",
     ]
+
+    def idempotency_key(self, inputs: dict[str, Any]) -> str:
+        from lib.cache_keys import canonical_digest
+        return canonical_digest({
+            "tool": self.name,
+            "tool_version": self.version,
+            "segments": inputs.get("segments", []),
+            "format": inputs.get("format", "srt"),
+            "max_words_per_cue": inputs.get("max_words_per_cue", 8),
+            "max_chars_per_line": inputs.get("max_chars_per_line", 42),
+            "language": inputs.get("language", "zh-CN"),
+            "strip_trailing_punctuation": bool(inputs.get("strip_trailing_punctuation", False)),
+            "safe_zone": inputs.get("safe_zone", {}),
+            "emphasis_rules": inputs.get("emphasis_rules", []),
+            "highlight_style": inputs.get("highlight_style", "none"),
+            "corrections": inputs.get("corrections", {}),
+        })
+
+    def _cache_context(self, inputs: dict[str, Any]):
+        if not inputs.get("output_path") or not (inputs.get("project_dir") or inputs.get("cache_dir")):
+            return None
+        from lib.artifact_cache import ArtifactCache
+        output = Path(inputs["output_path"])
+        name = f"output{output.suffix or '.srt'}"
+        root = Path(inputs.get("cache_dir") or Path(inputs["project_dir"]) / ".cache" / "subtitles")
+        cache = ArtifactCache(root, validators={name: lambda path: path.is_file() and path.stat().st_size > 0})
+        return cache, self.idempotency_key(inputs), name, output
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         segments = inputs["segments"]
@@ -89,6 +124,22 @@ class SubtitleGen(BaseTool):
         corrections = inputs.get("corrections")
 
         start = time.time()
+
+        cache_context = self._cache_context(inputs)
+        if cache_context is not None:
+            cache, key, name, output = cache_context
+            lookup = cache.lookup(key, [name])
+            if lookup.hit:
+                try:
+                    cache.materialize(lookup, {name: output})
+                    return ToolResult(
+                        success=True,
+                        data={"format": inputs.get("format", "srt"), "output": str(output),
+                              "cache_status": "hit", "cache_hit": True},
+                        artifacts=[str(output)], cost_usd=0.0,
+                    )
+                except (OSError, ValueError):
+                    pass
 
         # Apply word corrections if provided
         if corrections:
@@ -117,12 +168,23 @@ class SubtitleGen(BaseTool):
 
         elapsed = time.time() - start
 
+        if cache_context is not None:
+            cache, key, name, output = cache_context
+            with tempfile.TemporaryDirectory(dir=cache.root) as temp:
+                staged = Path(temp) / name
+                staged.write_bytes(out.read_bytes())
+                cache.store(key, [staged], {"tool": self.name, "version": self.version})
+            result_cache = {"cache_status": "miss", "cache_hit": False}
+        else:
+            result_cache = {}
+
         return ToolResult(
             success=True,
             data={
                 "format": fmt,
                 "cue_count": len(cues),
                 "output": str(out),
+                **result_cache,
             },
             artifacts=[str(out)],
             duration_seconds=round(elapsed, 2),

@@ -13,6 +13,34 @@ from tools.cost_tracker import CostTracker
 
 
 class CostTrackerGovernanceTests(unittest.TestCase):
+    def test_assert_reserved_checks_tool_operation_amount_and_status(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tracker = CostTracker(
+                mode=BudgetMode.OBSERVE,
+                require_approval_for_new_paid_tool=False,
+                cost_log_path=Path(temp_dir) / "cost.json",
+            )
+            entry_id = tracker.estimate("fake_tts", "generate", 0.01)
+            tracker.reserve(entry_id)
+            tracker.assert_reserved(entry_id, "fake_tts", "generate", 0.01)
+            with self.assertRaises(ValueError):
+                tracker.assert_reserved(entry_id, "other", "generate", 0.01)
+            with self.assertRaises(ValueError):
+                tracker.assert_reserved(entry_id, "fake_tts", "generate", 0.02)
+
+    def test_record_reuse_persists_zero_cost_savings(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "cost.json"
+            tracker = CostTracker(cost_log_path=path)
+            tracker.record_reuse("fake_tts", "abc", "cache-entry", 12.5)
+            entry = json.loads(path.read_text())["entries"][0]
+            self.assertEqual(entry["operation"], "reuse")
+            self.assertEqual(entry["actual_usd"], 0.0)
+            self.assertEqual(entry["cache_key"], "abc")
+            self.assertEqual(entry["saved_seconds"], 12.5)
+
     def test_warn_mode_marks_over_budget_reservation(self) -> None:
         with self.subTest("warning is recorded and persisted"):
             import tempfile

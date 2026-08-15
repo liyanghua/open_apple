@@ -11,6 +11,7 @@ from typing import Any
 
 from tools.base_tool import (
     BaseTool,
+    CacheArtifactSpec,
     Determinism,
     ExecutionMode,
     ResourceProfile,
@@ -174,6 +175,7 @@ class DoubaoTTS(BaseTool):
     QUERY_URL = "https://openspeech.bytedance.com/api/v3/tts/query"
     DEFAULT_RESOURCE_ID = "seed-tts-2.0"
     DEFAULT_VOICE_ENV = "DOUBAO_SPEECH_VOICE_TYPE"
+    RESOURCE_REVISION = "seed-tts-2.0-v1"
 
     def get_status(self) -> ToolStatus:
         if os.environ.get("DOUBAO_SPEECH_API_KEY"):
@@ -184,6 +186,59 @@ class DoubaoTTS(BaseTool):
         # Volcengine bills Doubao Speech 2.0 by characters. Keep this conservative
         # and prefer provider-returned usage when available.
         return round(len(inputs.get("text", "")) * 0.000015, 4)
+
+    def canonical_request(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        voice_id = inputs.get("voice_id") or os.environ.get(self.DEFAULT_VOICE_ENV)
+        return {
+            "provider": self.provider,
+            "endpoint": self.SUBMIT_URL,
+            "query_endpoint": self.QUERY_URL,
+            "tool_version": self.version,
+            "resource_revision": self.RESOURCE_REVISION,
+            "resource_id": inputs.get("resource_id", self.DEFAULT_RESOURCE_ID),
+            "text": inputs.get("text", ""),
+            "voice_id": voice_id,
+            "user_id": inputs.get("user_id", "openmontage"),
+            "audio_params": {
+                "format": inputs.get("format", "mp3"),
+                "sample_rate": inputs.get("sample_rate", 24000),
+                "speech_rate": inputs.get("speech_rate", 0),
+                "enable_timestamp": bool(inputs.get("enable_timestamp", True)),
+            },
+            "additions": {
+                "disable_markdown_filter": bool(inputs.get("disable_markdown_filter", False)),
+            },
+            "return_usage": bool(inputs.get("return_usage", True)),
+        }
+
+    def idempotency_key(self, inputs: dict[str, Any]) -> str:
+        from lib.cache_keys import canonical_digest
+        return canonical_digest(self.canonical_request(inputs))
+
+    def cache_artifact_contract(self, inputs: dict[str, Any]) -> list[CacheArtifactSpec]:
+        fmt = inputs.get("format", "mp3")
+        suffix = ".ogg" if fmt == "ogg_opus" else ".pcm" if fmt == "pcm" else ".mp3"
+        return [
+            CacheArtifactSpec("audio", suffix, True, self._validate_audio),
+            CacheArtifactSpec("metadata", ".json", True, self._validate_metadata(inputs)),
+        ]
+
+    @staticmethod
+    def _validate_audio(path: Path) -> bool:
+        return path.is_file() and path.stat().st_size > 0
+
+    @staticmethod
+    def _validate_metadata(inputs: dict[str, Any]):
+        def validate(path: Path) -> bool:
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                if not bool(inputs.get("enable_timestamp", True)):
+                    return True
+                data = payload.get("data", payload)
+                return isinstance(data.get("sentences"), list)
+            except (OSError, ValueError, TypeError):
+                return False
+        return validate
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         api_key = os.environ.get("DOUBAO_SPEECH_API_KEY")

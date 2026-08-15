@@ -156,6 +156,39 @@ class CostTracker:
         entry["timestamp"] = self._now()
         self._save()
 
+    def assert_reserved(
+        self, entry_id: str, tool: str, operation: str, estimated_usd: float
+    ) -> None:
+        """Verify a reservation still authorizes the exact paid operation."""
+        entry = self._find(entry_id)
+        if entry.get("status") != EntryStatus.RESERVED.value:
+            raise ValueError("cost reservation is not active")
+        if entry.get("tool") != tool or entry.get("operation") != operation:
+            raise ValueError("cost reservation does not match tool or operation")
+        if abs(float(entry.get("estimated_usd", 0.0)) - float(estimated_usd)) > 1e-9:
+            raise ValueError("cost reservation amount does not match estimate")
+
+    def record_reuse(
+        self, tool: str, cache_key: str, reused_from: str, saved_seconds: float
+    ) -> str:
+        """Record a zero-cost cache reuse without reserving paid budget."""
+        entry_id = self._new_id()
+        self.entries.append({
+            "id": entry_id,
+            "tool": tool,
+            "operation": "reuse",
+            "status": EntryStatus.COMPLETED.value,
+            "estimated_usd": 0.0,
+            "reserved_usd": 0.0,
+            "actual_usd": 0.0,
+            "cache_key": cache_key,
+            "reused_from": reused_from,
+            "saved_seconds": round(float(saved_seconds), 3),
+            "timestamp": self._now(),
+        })
+        self._save()
+        return entry_id
+
     def approve_tool(self, tool: str) -> None:
         """Mark a tool as approved for paid operations."""
         self._approved_tools.add(tool)

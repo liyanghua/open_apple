@@ -7,6 +7,7 @@ not installed.
 
 from __future__ import annotations
 
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -202,6 +203,44 @@ class AudioMixer(BaseTool):
         "Listen to mixed output and verify speech clarity and music ducking",
     ]
 
+    def _ffmpeg_revision(self) -> str:
+        from lib.cache_keys import ffmpeg_revision
+        return ffmpeg_revision()
+
+    def idempotency_key(self, inputs: dict[str, Any]) -> str:
+        from lib.cache_keys import canonical_digest, file_identity
+
+        def normalize(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {
+                    key: normalize(child)
+                    for key, child in value.items()
+                    if key not in {"output_path", "metadata_path"}
+                }
+            if isinstance(value, list):
+                return [normalize(child) for child in value]
+            if isinstance(value, str):
+                return file_identity(value)
+            return value
+
+        return canonical_digest({
+            "tool": self.name,
+            "tool_version": self.version,
+            "ffmpeg_revision": self._ffmpeg_revision(),
+            "inputs": normalize(inputs),
+        })
+
+    def _cache_context(self, inputs: dict[str, Any]):
+        if not inputs.get("output_path") or not (inputs.get("project_dir") or inputs.get("cache_dir")):
+            return None
+        from lib.artifact_cache import ArtifactCache
+        output = Path(inputs["output_path"])
+        name = f"output{output.suffix or '.wav'}"
+        root = Path(inputs.get("cache_dir") or Path(inputs["project_dir"]) / ".cache" / "audio")
+        cache = ArtifactCache(root, validators={name: lambda path: path.is_file() and path.stat().st_size > 0})
+        key = self.idempotency_key(inputs)
+        return cache, key, name, output
+
     @staticmethod
     def _loudnorm_filter(inputs: dict[str, Any], in_label: str, out_label: str) -> str:
         """Build a loudnorm filter graph edge honoring the per-call LUFS target.
@@ -258,6 +297,22 @@ class AudioMixer(BaseTool):
         operation = inputs["operation"]
         start = time.time()
 
+        cache_context = self._cache_context(inputs)
+        if cache_context is not None:
+            cache, key, name, output = cache_context
+            lookup = cache.lookup(key, [name])
+            if lookup.hit:
+                try:
+                    cache.materialize(lookup, {name: output})
+                    return ToolResult(
+                        success=True,
+                        data={"operation": operation, "output": str(output),
+                              "cache_status": "hit", "cache_hit": True},
+                        artifacts=[str(output)], cost_usd=0.0,
+                    )
+                except (OSError, ValueError):
+                    pass
+
         try:
             if operation == "mix":
                 result = self._mix(inputs)
@@ -275,6 +330,15 @@ class AudioMixer(BaseTool):
             return ToolResult(success=False, error=str(e))
 
         result.duration_seconds = round(time.time() - start, 2)
+        if cache_context is not None and result.success:
+            cache, key, name, output = cache_context
+            source = Path(result.data.get("output", output))
+            if source.is_file() and source.stat().st_size > 0:
+                with tempfile.TemporaryDirectory(dir=cache.root) as temp:
+                    staged = Path(temp) / name
+                    staged.write_bytes(source.read_bytes())
+                    cache.store(key, [staged], {"tool": self.name, "version": self.version})
+                result.data.update({"cache_status": "miss", "cache_hit": False})
         return result
 
     def _mix(self, inputs: dict[str, Any]) -> ToolResult:

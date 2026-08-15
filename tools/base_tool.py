@@ -138,6 +138,16 @@ class ToolResult:
     model: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class CacheArtifactSpec:
+    """Description of a provider artifact that may be reused safely."""
+
+    role: str
+    suffix: str
+    required: bool = True
+    validator: Optional[Callable[[Path], bool]] = None
+
+
 import threading as _threading
 
 # Shared nesting counter for instrumented execute() calls (thread-local so
@@ -382,6 +392,14 @@ class BaseTool(ABC):
         return 0.0
 
     # ---- Idempotency ----
+
+    def canonical_request(self, inputs: dict[str, Any]) -> dict[str, Any] | None:
+        """Return a fully-defaulted, secret-free provider request for caching."""
+        return None
+
+    def cache_artifact_contract(self, inputs: dict[str, Any]) -> list[CacheArtifactSpec]:
+        """Opt into cross-run caching by declaring verifiable output artifacts."""
+        return []
 
     def idempotency_key(self, inputs: dict[str, Any]) -> str:
         """Compute a cache key from idempotency fields."""

@@ -7,9 +7,15 @@ the tool file in tools/audio/; no changes to this selector are needed.
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
 from typing import Any
 
-from tools.base_tool import BaseTool, ToolResult, ToolRuntime, ToolStability, ToolTier, ToolStatus
+from lib.artifact_cache import ArtifactCache
+from lib.cache_io import link_or_copy_atomic
+from tools.base_tool import (
+    BaseTool, CacheArtifactSpec, ToolResult, ToolRuntime, ToolStability, ToolTier, ToolStatus,
+)
 
 
 class TTSSelector(BaseTool):
@@ -124,11 +130,17 @@ class TTSSelector(BaseTool):
             },
             "operation": {
                 "type": "string",
-                "enum": ["generate", "rank"],
+                "enum": ["generate", "rank", "prepare", "materialize"],
                 "default": "generate",
-                "description": "Operation mode. 'rank' returns scored provider rankings without generating.",
+                "description": "rank selects providers; prepare checks cache; materialize reuses cache; generate may call the provider.",
             },
             "output_path": {"type": "string"},
+            "metadata_path": {"type": "string"},
+            "project_dir": {"type": "string"},
+            "cache_dir": {"type": "string"},
+            "cache_key": {"type": "string"},
+            "cost_log_path": {"type": "string"},
+            "reservation_id": {"type": "string"},
         },
     }
 
@@ -188,8 +200,55 @@ class TTSSelector(BaseTool):
         if tool is None:
             return ToolResult(success=False, error="No TTS provider available.")
 
+        plan = self._cache_plan(inputs, tool)
+        operation = inputs.get("operation", "generate")
+        if operation == "prepare":
+            return ToolResult(success=True, data={
+                "provider": tool.provider,
+                "selected_tool": tool.name,
+                "cache_enabled": plan["enabled"],
+                "cache_status": "hit" if plan["lookup"] is not None and plan["lookup"].hit else "miss",
+                "cache_hit": bool(plan["lookup"] is not None and plan["lookup"].hit),
+                "cache_key": plan["key"],
+                "estimated_cost_usd": tool.estimate_cost(inputs),
+                "provider_called": False,
+            })
+        if operation == "materialize":
+            return self._materialize(inputs, tool, plan)
+
+        estimated = float(tool.estimate_cost(inputs))
+        if estimated > 0:
+            cost_path = inputs.get("cost_log_path")
+            reservation_id = inputs.get("reservation_id")
+            if not cost_path or not reservation_id:
+                return ToolResult(
+                    success=False,
+                    data={"cache_status": "miss", "cache_hit": False, "provider_called": False},
+                    error="Paid TTS generation requires cost_log_path and reservation_id",
+                )
+            try:
+                from tools.cost_tracker import CostTracker
+                CostTracker(cost_log_path=Path(cost_path)).assert_reserved(
+                    reservation_id, tool.name, "generate", estimated
+                )
+            except (KeyError, ValueError, OSError) as exc:
+                return ToolResult(
+                    success=False,
+                    data={"cache_status": "miss", "cache_hit": False, "provider_called": False},
+                    error=f"Invalid TTS cost reservation: {exc}",
+                )
+
         result = tool.execute(inputs)
         if result.success:
+            if plan["enabled"]:
+                try:
+                    self._store_cache(plan, tool, result)
+                except (OSError, ValueError) as exc:
+                    return ToolResult(
+                        success=False,
+                        data={"cache_status": "miss", "cache_hit": False, "provider_called": True},
+                        error=f"TTS cache store failed: {exc}",
+                    )
             result.data.setdefault("selected_tool", tool.name)
             result.data["selected_provider"] = tool.provider
             result.data["selection_reason"] = score.explain() if score else f"Selected {tool.provider} ({tool.name})"
@@ -200,7 +259,86 @@ class TTSSelector(BaseTool):
                 t.name for t in candidates
                 if t.name != tool.name and t.get_status().value == "available"
             ]
+            result.data.update({
+                "cache_status": "miss",
+                "cache_hit": False,
+                "cache_key": plan["key"],
+                "provider_called": True,
+            })
         return result
+
+    def _cache_plan(self, inputs: dict[str, Any], tool: BaseTool) -> dict[str, Any]:
+        from lib.cache_keys import canonical_digest
+
+        canonical = tool.canonical_request(inputs)
+        specs = tool.cache_artifact_contract(inputs)
+        enabled = canonical is not None and bool(specs) and bool(inputs.get("project_dir") or inputs.get("cache_dir"))
+        key = canonical_digest({
+            "selector_version": self.version,
+            "provider": tool.provider,
+            "tool": tool.name,
+            "tool_version": tool.version,
+            "canonical_request": canonical,
+        }) if canonical is not None else ""
+        root = Path(inputs.get("cache_dir") or Path(inputs["project_dir"]) / ".cache" / "tts") if enabled else Path(".")
+        names = tuple(f"{spec.role}{spec.suffix}" for spec in specs)
+        validators = {name: spec.validator for name, spec in zip(names, specs) if spec.validator}
+        cache = ArtifactCache(root, validators=validators) if enabled else None
+        lookup = cache.lookup(key, names) if cache is not None else None
+        return {"enabled": enabled, "key": key, "specs": specs, "names": names, "cache": cache, "lookup": lookup, "canonical": canonical}
+
+    def _materialize(self, inputs: dict[str, Any], tool: BaseTool, plan: dict[str, Any]) -> ToolResult:
+        lookup = plan["lookup"]
+        if inputs.get("cache_key") and inputs["cache_key"] != plan["key"]:
+            lookup = None
+        if not plan["enabled"] or lookup is None or not lookup.hit:
+            return ToolResult(success=False, data={
+                "cache_status": "miss", "cache_hit": False, "provider_called": False,
+                "cache_key": plan["key"], "selected_tool": tool.name,
+            }, error="TTS cache miss; provider call is not allowed during materialize")
+        output_path = inputs.get("output_path")
+        metadata_path = inputs.get("metadata_path")
+        destinations = {}
+        for name in plan["names"]:
+            if name.startswith("audio"):
+                if not output_path:
+                    return ToolResult(success=False, data={"cache_status": "miss", "provider_called": False}, error="output_path required")
+                destinations[name] = Path(output_path)
+            elif name.startswith("metadata"):
+                if not metadata_path:
+                    return ToolResult(success=False, data={"cache_status": "miss", "provider_called": False}, error="metadata_path required")
+                destinations[name] = Path(metadata_path)
+        try:
+            paths = plan["cache"].materialize(lookup, destinations)
+        except (OSError, ValueError) as exc:
+            return ToolResult(success=False, data={
+                "cache_status": "miss", "cache_hit": False, "provider_called": False,
+                "cache_key": plan["key"], "selected_tool": tool.name,
+            }, error=f"TTS cache invalid during materialize: {exc}")
+        return ToolResult(success=True, data={
+            "provider": tool.provider, "selected_tool": tool.name,
+            "cache_status": "hit", "cache_hit": True, "cache_key": plan["key"],
+            "provider_called": False, "output": str(output_path), "metadata_path": str(metadata_path),
+        }, artifacts=list(paths), cost_usd=0.0)
+
+    def _store_cache(self, plan: dict[str, Any], tool: BaseTool, result: ToolResult) -> None:
+        sources = {"audio": result.data.get("output"), "metadata": result.data.get("metadata_path")}
+        with tempfile.TemporaryDirectory(dir=plan["cache"].root) as temp:
+            staged = []
+            for name, spec in zip(plan["names"], plan["specs"]):
+                source = sources.get(spec.role)
+                if not source and spec.required:
+                    raise ValueError(f"provider result missing {spec.role} artifact")
+                if source:
+                    source_path = Path(source)
+                    if spec.validator and not spec.validator(source_path):
+                        raise ValueError(f"provider {spec.role} artifact failed validation")
+                    destination = Path(temp) / name
+                    link_or_copy_atomic(source_path, destination)
+                    staged.append(destination)
+            plan["cache"].store(plan["key"], staged, {
+                "tool": tool.name, "provider": tool.provider, "canonical_request": plan["canonical"]
+            })
 
     def _select_best_tool(
         self,
