@@ -6,7 +6,7 @@
   "type": "object",
   "required": ["version", "output_path", "status", "checks"],
   "properties": {
-    "version": { "type": "string", "const": "1.0" },
+    "version": { "type": "string", "enum": ["1.0", "2.0"] },
     "output_path": {
       "type": "string",
       "description": "Path to the rendered output file that was reviewed"
@@ -150,7 +150,10 @@
             "art_direction": { "type": ["string", "null"] },
             "issues": { "type": "array", "items": { "type": "string" } }
           }
-        }
+        },
+        "media_integrity": { "type": "object" },
+        "audio_loudness": { "type": "object" },
+        "caption_render": { "type": "object" }
       },
       "additionalProperties": false
     },
@@ -166,5 +169,6 @@
     },
     "metadata": { "type": "object" }
   },
+  "allOf": [{"if": {"properties": {"version": {"const": "2.0"}}}, "then": {"properties": {"checks": {"required": ["media_integrity", "audio_loudness", "caption_render"]}}}}],
   "additionalProperties": false
 }
