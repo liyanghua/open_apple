@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openmontage.local/schemas/backlot/generation_manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "project_id", "generation_id", "base_generation_id",
+    "status", "write_set", "action", "result", "audit", "draft_transition", "outbox"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "project_id": {"type": "string", "minLength": 1},
+    "generation_id": {"type": "string", "pattern": "^generation-[0-9]{6}$"},
+    "base_generation_id": {"type": ["string", "null"]},
+    "status": {"enum": ["prepared", "committed"]},
+    "write_set": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["relative_path", "operation", "descriptor", "before_missing", "before_sha256", "after_sha256"],
+        "properties": {
+          "relative_path": {"type": "string", "minLength": 1},
+          "operation": {"enum": ["write", "delete"]},
+          "descriptor": {"type": ["string", "null"]},
+          "before_missing": {"type": "boolean"},
+          "before_sha256": {"type": "string", "minLength": 1},
+          "after_sha256": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "action": {"type": "object"},
+    "result": {"type": "object"},
+    "audit": {"type": "object"},
+    "draft_transition": {"type": ["object", "null"]},
+    "business_diff": {"type": "array", "items": {"type": "string"}},
+    "outbox": {"type": "array", "items": {"type": "object"}}
+  }
+}
