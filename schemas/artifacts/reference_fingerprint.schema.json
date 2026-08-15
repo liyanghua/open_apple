@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/reference_fingerprint",
+  "title": "Reference Fingerprint",
+  "type": "object",
+  "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "content_sha256", "analysis_depth", "analyzer_version", "canonical_request", "output_digest", "abstract_structure"],
+  "properties": {
+    "version": {"type": "string"}, "project_id": {"type": "string", "minLength": 1}, "created_at": {"type": "string", "format": "date-time"}, "producer": {"type": "string", "minLength": 1},
+    "input_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "analysis_depth": {"type": "string", "enum": ["transcript_only", "standard", "deep"]}, "analyzer_version": {"type": "string", "minLength": 1},
+    "canonical_request": {"type": "object", "additionalProperties": true}, "output_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "abstract_structure": {"type": "object", "additionalProperties": true}
+  },
+  "additionalProperties": false
+}

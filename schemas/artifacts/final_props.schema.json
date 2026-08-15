@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openmontage.local/schemas/artifacts/final_props.schema.json",
+  "title": "Final render properties",
+  "type": "object",
+  "required": ["compositionId", "fps", "width", "height", "durationInFrames", "footage", "scenes", "captions", "audio"],
+  "properties": {
+    "compositionId": {"type": "string", "minLength": 1},
+    "fps": {"type": "integer", "exclusiveMinimum": 0},
+    "width": {"type": "integer", "exclusiveMinimum": 0},
+    "height": {"type": "integer", "exclusiveMinimum": 0},
+    "durationInFrames": {"type": "integer", "exclusiveMinimum": 0},
+    "footage": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string", "minLength": 1}},
+    "scenes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/scene"}},
+    "captions": {"type": "array", "items": {"type": "object", "required": ["text", "startMs", "endMs"], "properties": {"text": {"type": "string"}, "startMs": {"type": "number", "minimum": 0}, "endMs": {"type": "number", "exclusiveMinimum": 0}}, "additionalProperties": true}},
+    "audio": {"type": "object", "required": ["mix"], "properties": {"mix": {"type": "string", "minLength": 1}}, "additionalProperties": true}
+  },
+  "$defs": {
+    "scene": {
+      "type": "object",
+      "required": ["id", "assetId", "footageKey", "fromFrame", "toFrameExclusive", "durationInFrames"],
+      "properties": {
+        "id": {"type": "string"},
+        "assetId": {"type": "string"},
+        "footageKey": {"type": "string"},
+        "fromFrame": {"type": "integer", "minimum": 0},
+        "toFrameExclusive": {"type": "integer", "exclusiveMinimum": 0},
+        "durationInFrames": {"type": "integer", "exclusiveMinimum": 0},
+        "sourceInSeconds": {"type": "number", "minimum": 0},
+        "sourceOutSeconds": {"type": "number", "exclusiveMinimum": 0},
+        "playbackRate": {"type": "number", "exclusiveMinimum": 0},
+        "playbackMode": {"enum": ["normal", "loop", "hold"]},
+        "segments": {"type": "array", "items": {"$ref": "#/$defs/scene"}}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

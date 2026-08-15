@@ -170,6 +170,14 @@ def get_stage_skill(manifest: dict, stage_name: str) -> Optional[str]:
     return None
 
 
+def get_stage_produces(manifest: dict, stage_name: str) -> list[str]:
+    """Return every artifact declared as produced by a stage."""
+    for stage in manifest.get("stages", []):
+        if stage.get("name") == stage_name:
+            return list(stage.get("produces", []))
+    return []
+
+
 def get_stage_human_approval_default(manifest: dict, stage_name: str) -> Optional[bool]:
     """Whether a stage gates on human approval. None if the stage isn't declared.
 

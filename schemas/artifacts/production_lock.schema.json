@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/production_lock",
+  "title": "Production Lock",
+  "type": "object",
+  "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "lock_version", "locked_values", "decision_revision_ids"],
+  "properties": {
+    "version": {"type": "string"}, "project_id": {"type": "string", "minLength": 1}, "created_at": {"type": "string", "format": "date-time"}, "producer": {"type": "string", "minLength": 1},
+    "input_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "lock_version": {"type": "integer", "minimum": 1},
+    "locked_values": {"type": "object", "required": ["script", "narration", "tts", "bgm", "mix", "font", "captions", "cta", "platform", "output", "render_runtime", "composition_mode"], "additionalProperties": false, "properties": {
+      "script": {}, "narration": {}, "tts": {}, "bgm": {}, "mix": {}, "font": {}, "captions": {}, "cta": {}, "platform": {}, "output": {},
+      "render_runtime": {"type": "string", "enum": ["remotion", "hyperframes", "ffmpeg"]}, "composition_mode": {"type": "string", "enum": ["templated", "atelier"]}
+    }},
+    "decision_revision_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+  },
+  "additionalProperties": false
+}

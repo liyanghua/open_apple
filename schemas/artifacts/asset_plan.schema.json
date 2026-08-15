@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/asset_plan",
+  "title": "Asset Plan",
+  "type": "object",
+  "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "planned_assets", "paid_generation_approved"],
+  "properties": {
+    "version": {"type": "string"}, "project_id": {"type": "string", "minLength": 1}, "created_at": {"type": "string", "format": "date-time"}, "producer": {"type": "string", "minLength": 1},
+    "input_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "planned_assets": {"type": "array", "items": {"type": "object", "required": ["id", "type", "provider", "model", "cost_estimate_usd", "paid", "output_path", "source_stage"], "additionalProperties": false, "properties": {
+      "id": {"type": "string", "minLength": 1}, "type": {"type": "string", "minLength": 1}, "provider": {"type": "string", "minLength": 1}, "model": {"type": "string", "minLength": 1},
+      "cost_estimate_usd": {"type": "number", "minimum": 0}, "paid": {"type": "boolean"}, "output_path": {"type": "string", "minLength": 1}, "source_stage": {"type": "string", "minLength": 1}, "exists": {"type": "boolean"}
+    }}},
+    "paid_generation_approved": {"type": "boolean"}
+  },
+  "allOf": [{
+    "if": {"properties": {"paid_generation_approved": {"const": false}}, "required": ["paid_generation_approved"]},
+    "then": {"properties": {"planned_assets": {"items": {"not": {"properties": {"paid": {"const": true}, "exists": {"const": true}}, "required": ["paid", "exists"]}}}}}
+  }],
+  "additionalProperties": false
+}

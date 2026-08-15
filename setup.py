@@ -10,6 +10,7 @@ setup(
         "pyyaml>=6.0",
         "pydantic>=2.0",
         "jsonschema>=4.20",
+        "rfc8785>=0.1.4,<1",
         "python-dotenv>=1.0",
         "Pillow>=10.0",
         "requests>=2.31",

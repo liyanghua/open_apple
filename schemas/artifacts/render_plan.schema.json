@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/render_plan",
+  "title": "Render Plan",
+  "type": "object",
+  "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "mode", "profile", "previous_timeline_hash", "current_timeline_hash", "audio"],
+  "properties": {
+    "version": {"type": "string"}, "project_id": {"type": "string", "minLength": 1}, "created_at": {"type": "string", "format": "date-time"}, "producer": {"type": "string", "minLength": 1},
+    "input_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "mode": {"type": "string", "enum": ["sample", "full", "mux_only"]},
+    "profile": {"type": "string", "enum": ["youtube_landscape", "youtube_4k", "youtube_shorts", "instagram_reels", "instagram_feed", "tiktok", "linkedin", "cinematic", "generic_hd"]},
+    "previous_timeline_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "current_timeline_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "audio": {"type": "object", "required": ["path", "sha256"], "additionalProperties": false, "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}},
+    "video_master": {"type": "object", "required": ["path", "sha256", "profile_hash", "visual_timeline_hash"], "additionalProperties": false, "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "profile_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "visual_timeline_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}},
+    "sample": {"type": "object", "required": ["startFrame", "endFrameExclusive", "scale", "qaMode"], "additionalProperties": false, "properties": {"startFrame": {"type": "integer", "minimum": 0}, "endFrameExclusive": {"type": "integer", "minimum": 1}, "scale": {"type": "number", "const": 0.5}, "qaMode": {"type": "string", "const": "quick"}}}
+  },
+  "allOf": [
+    {"if": {"properties": {"mode": {"const": "mux_only"}}, "required": ["mode"]}, "then": {"required": ["video_master"]}},
+    {"if": {"properties": {"mode": {"const": "sample"}}, "required": ["mode"]}, "then": {"required": ["sample"]}}
+  ],
+  "additionalProperties": false
+}
