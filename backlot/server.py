@@ -18,6 +18,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from backlot.operator_state import load_operator_state
 from backlot.state import PROJECTS_DIR, REPO_ROOT, list_projects, load_board_state, summarize_project
 from backlot.state_cache import invalidate_state_cache
 
@@ -73,6 +74,43 @@ class ChangeHub:
 
 
 hub = ChangeHub()
+
+
+async def _project_event_stream(
+    project_id: str,
+    request: Request,
+    *,
+    business_facing: bool,
+):
+    """Yield one project's change events for legacy and operator consumers."""
+    q = hub.subscribe(project_id)
+    try:
+        hello = {"type": "hello", "project_id": project_id}
+        if business_facing:
+            hello["message"] = "已连接项目进度"
+        yield _sse(hello)
+        while True:
+            if await request.is_disconnected():
+                return
+            try:
+                await asyncio.wait_for(q.get(), timeout=SSE_HEARTBEAT_SECONDS)
+            except asyncio.TimeoutError:
+                heartbeat = {"type": "heartbeat", "ts": time.time()}
+                if business_facing:
+                    heartbeat["message"] = "项目进度连接正常"
+                yield _sse(heartbeat)
+                continue
+            while not q.empty():
+                try:
+                    q.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            change = {"type": "change", "project_id": project_id}
+            if business_facing:
+                change["message"] = "项目进度已更新"
+            yield _sse(change)
+    finally:
+        hub.unsubscribe(q)
 
 # Library summaries are expensive to derive (full state parse per project);
 # cache per project and invalidate from the watcher.
@@ -182,33 +220,31 @@ def create_app() -> FastAPI:
         project_dir = _safe_project_dir(project_id)
         return await asyncio.to_thread(load_board_state, project_dir)
 
+    @app.get("/api/v2/projects/{project_id}/operator-state")
+    async def operator_project_state(project_id: str) -> dict:
+        project_dir = _safe_project_dir(project_id)
+        return await asyncio.to_thread(load_operator_state, project_dir)
+
     @app.get("/api/project/{project_id}/events")
     async def project_events(project_id: str, request: Request) -> StreamingResponse:
         _safe_project_dir(project_id)  # 404 early for unknown projects
+        return StreamingResponse(_project_event_stream(
+            project_id,
+            request,
+            business_facing=False,
+        ), media_type="text/event-stream", headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        })
 
-        async def stream():
-            q = hub.subscribe(project_id)
-            try:
-                yield _sse({"type": "hello", "project_id": project_id})
-                while True:
-                    if await request.is_disconnected():
-                        return
-                    try:
-                        await asyncio.wait_for(q.get(), timeout=SSE_HEARTBEAT_SECONDS)
-                    except asyncio.TimeoutError:
-                        yield _sse({"type": "heartbeat", "ts": time.time()})
-                        continue
-                    # Coalesce bursts: drain anything else queued.
-                    while not q.empty():
-                        try:
-                            q.get_nowait()
-                        except asyncio.QueueEmpty:
-                            break
-                    yield _sse({"type": "change", "project_id": project_id})
-            finally:
-                hub.unsubscribe(q)
-
-        return StreamingResponse(stream(), media_type="text/event-stream", headers={
+    @app.get("/api/v2/projects/{project_id}/events")
+    async def operator_project_events(project_id: str, request: Request) -> StreamingResponse:
+        _safe_project_dir(project_id)
+        return StreamingResponse(_project_event_stream(
+            project_id,
+            request,
+            business_facing=True,
+        ), media_type="text/event-stream", headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
         })
@@ -279,6 +315,14 @@ def create_app() -> FastAPI:
 
     # ---- UI ------------------------------------------------------------
 
+    @app.get("/diagnostics/p/{project_id}")
+    async def diagnostic_board_page(project_id: str) -> HTMLResponse:
+        return _ui_html("board.html", ("board.css", "board.js"))
+
+    @app.get("/diagnostics/p/{project_path:path}")
+    async def diagnostic_board_page_path(project_path: str) -> HTMLResponse:
+        return _ui_html("board.html", ("board.css", "board.js"))
+
     @app.get("/p/{project_id}")
     async def board_page(project_id: str) -> HTMLResponse:
         return _ui_html("board.html", ("board.css", "board.js"))
@@ -302,7 +346,12 @@ def create_app() -> FastAPI:
     async def ui_no_cache(request, call_next):
         response = await call_next(request)
         path = request.url.path
-        if path == "/" or path.startswith("/ui") or path.startswith("/p/"):
+        if (
+            path == "/"
+            or path.startswith("/ui")
+            or path.startswith("/p/")
+            or path.startswith("/diagnostics/")
+        ):
             response.headers["Cache-Control"] = "no-cache"
         return response
 

@@ -273,8 +273,9 @@ Expected: FAIL，endpoint 返回 404。
 - 新增 `GET /api/v2/projects/{id}/operator-state`；
 - 新增 `GET /api/v2/projects/{id}/events`，与旧 project SSE 调用同一个私有 stream
   helper 和 `ChangeHub`，hello/change payload 只含稳定业务 ID 和中文 message；
-- `/p/{id}` 返回 `operator.html`；
 - `/diagnostics/p/{id}` 返回现有 `board.html`；
+- Task 3 保持 `/p/{id}` 仍返回旧页面，避免引用尚未创建的 UI；Task 4 在
+  `operator.html` 与资源就绪的同一提交中原子切换默认路由；
 - 原 `/api/project/{id}/state`、SSE、media、thumb 保持行为不变；
 - `_ui_html()` 同时对 operator 资源加 mtime query；
 - no-cache middleware 覆盖 `/diagnostics/`；
@@ -308,6 +309,7 @@ git commit -m "feat: expose Backlot operator API and routes"
 - Create: `backlot/ui/operator/language.js`
 - Create: `backlot/ui/operator/styles.css`
 - Create: `tests/backlot/test_operator_ui_contract.py`
+- Modify: `backlot/server.py`（运营资源就绪后切换 `/p/{id}`）
 
 - [ ] **Step 1: 写静态合同失败测试**
 
