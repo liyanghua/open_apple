@@ -485,6 +485,9 @@ def write_checkpoint(
     cost_snapshot: Optional[dict] = None,
     error: Optional[str] = None,
     metadata: Optional[dict] = None,
+    approval_group: Optional[str] = None,
+    approval_bundle_id: Optional[str] = None,
+    approval_bundle_version: Optional[int] = None,
 ) -> Path:
     """Write a checkpoint file for a pipeline stage."""
     # Backfill identity fields from the project marker so omitted kwargs
@@ -573,6 +576,12 @@ def write_checkpoint(
         checkpoint["error"] = error
     if metadata is not None:
         checkpoint["metadata"] = metadata
+    if approval_group is not None:
+        checkpoint["approval_group"] = approval_group
+    if approval_bundle_id is not None:
+        checkpoint["approval_bundle_id"] = approval_bundle_id
+    if approval_bundle_version is not None:
+        checkpoint["approval_bundle_version"] = approval_bundle_version
 
     # Merge decision_log: if this checkpoint carries new decisions,
     # append them to the project-level decision log file, then write the

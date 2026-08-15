@@ -22,6 +22,9 @@
     "checkpoint_policy": { "type": "string", "enum": ["guided", "manual_all", "auto_noncreative"] },
     "human_approval_required": { "type": "boolean" },
     "human_approved": { "type": "boolean" },
+    "approval_group": { "type": "string" },
+    "approval_bundle_id": { "type": "string" },
+    "approval_bundle_version": { "type": "integer", "minimum": 1 },
     "artifacts": {
       "type": "object",
       "description": "Map of artifact name to legacy data/path or verified v2 envelope",
