@@ -44,7 +44,36 @@ def _bundle_state(project_dir: Path, bundle_id: str) -> tuple[Path, dict[str, An
         try: states.append((path, json.loads(path.read_text(encoding="utf-8"))))
         except (OSError, json.JSONDecodeError): continue
     if not states: raise ValueError(f"approval bundle files are unreadable: {bundle_id}")
-    return states[-1]
+    precedence = {"awaiting_human": 0, "approved": 1, "rejected": 1, "superseded": 2}
+    return max(
+        states,
+        key=lambda item: (
+            int(item[1].get("bundle_version", 0)),
+            precedence.get(str(item[1].get("status")), -1),
+            item[0].stat().st_mtime_ns,
+        ),
+    )
+
+
+def _approval_input_hash(checkpoint: dict[str, Any]) -> str:
+    """Hash creative inputs while ignoring mutable gate bookkeeping.
+
+    The terminal checkpoint is necessarily written twice: once as an
+    ``in_progress`` draft so the bundle can be built, and again as
+    ``awaiting_human``/``completed`` with the bundle reference.  Gate status,
+    timestamps and the bundle artifact itself are not creative inputs and
+    must not make that two-phase write self-supersede.
+    """
+    stable = dict(checkpoint)
+    for key in (
+        "status", "timestamp", "human_approved", "human_approval_required",
+        "approval_group", "approval_bundle_id", "approval_bundle_version",
+    ):
+        stable.pop(key, None)
+    artifacts = dict(stable.get("artifacts") or {})
+    artifacts.pop("approval_bundle", None)
+    stable["artifacts"] = artifacts
+    return semantic_sha256(stable)
 
 
 def build_approval_bundle(project_dir: Path, manifest: dict[str, Any], group_name: str) -> dict[str, Any]:
@@ -59,7 +88,7 @@ def build_approval_bundle(project_dir: Path, manifest: dict[str, Any], group_nam
         if not checkpoint_path.is_file():
             raise ValueError(f"approval group {group_name} missing member checkpoint: {stage}")
         checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-        input_hashes[stage] = semantic_sha256(checkpoint)
+        input_hashes[stage] = _approval_input_hash(checkpoint)
         for name, artifact in (checkpoint.get("artifacts") or {}).items():
             if isinstance(artifact, dict) and {"path", "semantic_sha256", "artifact_sha256"} <= artifact.keys():
                 refs.append({"name": name, "path": artifact["path"], "semantic_sha256": artifact["semantic_sha256"], "artifact_sha256": artifact["artifact_sha256"]})
@@ -98,7 +127,7 @@ def reconcile_bundle(project_dir: Path, terminal_checkpoint: dict[str, Any]) -> 
     bundle_id = terminal_checkpoint.get("approval_bundle_id")
     if not bundle_id: return {"status": "missing"}
     _, bundle = _bundle_state(project_dir, bundle_id)
-    current_hash = semantic_sha256(terminal_checkpoint)
+    current_hash = _approval_input_hash(terminal_checkpoint)
     expected = (bundle.get("input_hashes") or {}).get(bundle.get("terminal_stage"))
     if expected and expected != current_hash:
         body = {k: v for k, v in bundle.items() if k not in {"semantic_sha256", "artifact_sha256", "status", "superseded_by"}}

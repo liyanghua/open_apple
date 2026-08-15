@@ -57,7 +57,20 @@ def load_schema(name: str) -> dict:
 def validate_artifact(name: str, data: dict[str, Any]) -> None:
     """Validate artifact data against its schema. Raises on failure."""
     schema = load_schema(name)
-    jsonschema.validate(instance=data, schema=schema)
+    properties = schema.get("properties", {})
+    # Contract-v2 envelopes attach integrity hashes to every artifact.  Older
+    # business schemas predate those common fields and often use
+    # additionalProperties=false, so validate their business payload without
+    # the envelope-only hashes.  New fastline schemas declare and validate the
+    # fields directly.
+    instance = data
+    if "semantic_sha256" not in properties:
+        instance = {
+            key: value
+            for key, value in data.items()
+            if key not in {"semantic_sha256", "artifact_sha256"}
+        }
+    jsonschema.validate(instance=instance, schema=schema)
     if name == "media_index":
         ranges = (
             item

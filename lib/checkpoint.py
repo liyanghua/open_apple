@@ -468,12 +468,17 @@ def _merge_decision_log(
     if not isinstance(existing, dict):
         raise CheckpointValidationError("Decision log must be a JSON object")
 
+    new_log_data = (
+        new_log["data"]
+        if isinstance(new_log.get("data"), dict)
+        else new_log
+    )
     existing_ids = {
         d.get("decision_id")
         for d in existing.get("decisions", [])
         if isinstance(d, dict) and d.get("decision_id")
     }
-    for decision in new_log.get("decisions", []):
+    for decision in new_log_data.get("decisions", []):
         if isinstance(decision, dict) and decision.get("decision_id") not in existing_ids:
             existing["decisions"].append(decision)
             existing_ids.add(decision["decision_id"])

@@ -126,3 +126,40 @@ def test_awaiting_then_approved_archives_history_without_gate_skip(tmp_path):
     assert assets.get("gate_skipped") in (None, False)
     assert assets["versions"] == 2
     assert assets["history_entries"][0]["status"] == "awaiting_human"
+
+
+def test_cinematic_fast_board_exposes_exactly_two_human_gates(tmp_path):
+    project = tmp_path / "fastline"
+    _write(
+        project / "project.json",
+        {
+            "version": "1.0",
+            "project_id": "fastline",
+            "title": "Fastline",
+            "pipeline_type": "cinematic-fast",
+        },
+    )
+    for stage in ("assets", "sample"):
+        _write(
+            project / f"checkpoint_{stage}.json",
+            {
+                "version": "1.0",
+                "project_id": "fastline",
+                "pipeline_type": "cinematic-fast",
+                "stage": stage,
+                "status": "awaiting_human",
+                "timestamp": "2026-08-15T00:00:00Z",
+                "artifacts": {},
+            },
+        )
+
+    state = load_board_state(project)
+    assert [stage["name"] for stage in state["stages"] if stage["gated"]] == [
+        "assets",
+        "sample",
+    ]
+    assert [
+        stage["name"]
+        for stage in state["stages"]
+        if stage["status"] == "awaiting_human"
+    ] == ["assets", "sample"]
