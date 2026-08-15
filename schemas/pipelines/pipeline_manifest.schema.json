@@ -50,6 +50,8 @@
         "required": ["name"],
         "properties": {
           "name": { "type": "string" },
+          "approval_group": { "type": "string" },
+          "approval_group_terminal": { "type": "boolean", "default": false },
           "agent": { "type": "string", "description": "Legacy: class name for Python-driven stages" },
           "skill": { "type": "string", "description": "Skill path for instruction-driven stages (e.g., pipelines/explainer/idea-director)" },
           "required_artifacts_in": {
@@ -121,6 +123,19 @@
         "additionalProperties": false
       },
       "minItems": 1
+    },
+    "approval_groups": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["members", "terminal_stage", "required_artifacts"],
+        "properties": {
+          "members": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"type": "string"}},
+          "terminal_stage": {"type": "string"},
+          "required_artifacts": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+        },
+        "additionalProperties": false
+      }
     },
     "default_checkpoint_policy": {
       "type": "string",

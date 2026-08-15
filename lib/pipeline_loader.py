@@ -12,6 +12,10 @@ from typing import Any, Optional
 import yaml
 import jsonschema
 
+
+class PipelineManifestError(ValueError):
+    """Raised when a manifest passes JSON Schema but violates workflow semantics."""
+
 PIPELINE_DEFS_DIR = Path(__file__).resolve().parent.parent / "pipeline_defs"
 SCHEMA_PATH = (
     Path(__file__).resolve().parent.parent
@@ -66,8 +70,51 @@ def load_pipeline(name: str, defs_dir: Optional[Path] = None) -> dict[str, Any]:
 
     schema = _load_manifest_schema()
     jsonschema.validate(instance=manifest, schema=schema)
+    _validate_approval_groups(manifest)
 
     return manifest
+
+
+def _validate_approval_groups(manifest: dict[str, Any]) -> None:
+    groups = manifest.get("approval_groups", {}) or {}
+    stages = {stage["name"]: stage for stage in manifest.get("stages", [])}
+    ownership: dict[str, str] = {}
+    for group_name, group in groups.items():
+        members = group["members"]
+        terminal = group["terminal_stage"]
+        if terminal not in members:
+            raise PipelineManifestError(f"pipeline {manifest.get('name')} approval group {group_name}: terminal stage is not a member")
+        if not stages.get(terminal, {}).get("approval_group_terminal", False):
+            raise PipelineManifestError(f"pipeline {manifest.get('name')} approval group {group_name}: terminal stage {terminal} is not marked terminal")
+        for member in members:
+            if member not in stages:
+                raise PipelineManifestError(f"pipeline {manifest.get('name')} approval group {group_name}: unknown stage {member}")
+            if member in ownership and ownership[member] != group_name:
+                raise PipelineManifestError(f"pipeline {manifest.get('name')} stage {member}: duplicated approval group ownership")
+            ownership[member] = group_name
+            if member != terminal and stages[member].get("human_approval_default", False):
+                raise PipelineManifestError(f"pipeline {manifest.get('name')} approval group {group_name}: non-terminal member {member} cannot gate independently")
+        produced = {artifact for member in members for artifact in stages[member].get("produces", [])}
+        missing = [artifact for artifact in group.get("required_artifacts", []) if artifact not in produced]
+        if missing:
+            raise PipelineManifestError(f"pipeline {manifest.get('name')} approval group {group_name}: required artifacts missing {missing}")
+
+
+def get_approval_group(manifest: dict[str, Any], stage_name: str) -> dict[str, Any] | None:
+    for name, group in (manifest.get("approval_groups", {}) or {}).items():
+        if stage_name in group.get("members", []):
+            return {"name": name, **group}
+    return None
+
+
+def get_approval_group_terminal(manifest: dict[str, Any], group_name: str) -> str | None:
+    group = (manifest.get("approval_groups", {}) or {}).get(group_name)
+    return group.get("terminal_stage") if group else None
+
+
+def stage_is_group_terminal(manifest: dict[str, Any], stage_name: str) -> bool:
+    group = get_approval_group(manifest, stage_name)
+    return bool(group and group.get("terminal_stage") == stage_name)
 
 
 def list_pipelines(defs_dir: Optional[Path] = None) -> list[str]:
