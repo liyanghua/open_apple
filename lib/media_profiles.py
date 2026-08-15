@@ -136,6 +136,13 @@ SOCIAL_VERTICAL_1080P30 = MediaProfile(
     notes="抖音/视频号/小红书竖屏快线交付 profile",
 )
 
+SOCIAL_VERTICAL_SAMPLE_540P30 = MediaProfile(
+    name="social_vertical_sample_540p30", width=540, height=960,
+    aspect_ratio=AspectRatio.PORTRAIT_9_16, fps=30, codec="libx264",
+    audio_codec="aac", crf=18, pixel_format="yuv420p", caption_format="srt",
+    notes="cinematic-fast 0.5x approval sample profile",
+)
+
 
 # ---- Profile registry ----
 
@@ -144,6 +151,7 @@ ALL_PROFILES: dict[str, MediaProfile] = {
         YOUTUBE_LANDSCAPE, YOUTUBE_4K, YOUTUBE_SHORTS,
         INSTAGRAM_REELS, INSTAGRAM_FEED,
         TIKTOK, LINKEDIN, CINEMATIC, GENERIC_HD, SOCIAL_VERTICAL_1080P30,
+        SOCIAL_VERTICAL_SAMPLE_540P30,
     ]
 }
 

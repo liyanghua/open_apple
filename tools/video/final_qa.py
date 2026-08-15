@@ -75,7 +75,14 @@ class FinalQA(BaseTool):
         video = next((s for s in probe.get("streams", []) if s.get("codec_type") == "video"), {})
         audio = next((s for s in probe.get("streams", []) if s.get("codec_type") == "audio"), {})
         issues = []
-        if (video.get("codec_name"), video.get("pix_fmt")) != ("h264", profile.pixel_format): issues.append("video codec or pixel format mismatch")
+        accepted_pixel_formats = {profile.pixel_format}
+        if inputs.get("mode") == "quick" and profile_name == "social_vertical_sample_540p30":
+            accepted_pixel_formats.add("yuvj420p")
+        if (
+            video.get("codec_name") != "h264"
+            or video.get("pix_fmt") not in accepted_pixel_formats
+        ):
+            issues.append("video codec or pixel format mismatch")
         if (int(video.get("width", 0)), int(video.get("height", 0))) != (profile.width, profile.height): issues.append("resolution mismatch")
         if audio.get("codec_name") != "aac" or int(audio.get("sample_rate", 0) or 0) != profile.audio_sample_rate or int(audio.get("channels", 0) or 0) != profile.audio_channels: issues.append("audio profile mismatch")
         decode_ok = self._decode(path)

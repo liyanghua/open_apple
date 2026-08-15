@@ -24,3 +24,12 @@ def test_fastline_ui_uses_ecommerce_business_language() -> None:
         assert label in javascript
     assert '.fastline-status' in stylesheet
     assert "overflow-wrap: anywhere" in stylesheet
+
+
+def test_activity_labels_cache_events_without_marking_them_running() -> None:
+    javascript = (UI_DIR / "board.js").read_text(encoding="utf-8")
+
+    assert 'ev.event === "cache_hit"' in javascript
+    assert 'ev.event === "cache_miss"' in javascript
+    assert "已复用" in javascript
+    assert "新处理" in javascript

@@ -624,12 +624,14 @@ function renderActivity(s) {
       slot.count += 1;
       slot.ev = ev;
       open.set(key, slot);
-    } else {
+    } else if (ev.event === "finish" || ev.event === "error") {
       const slot = open.get(key);
       if (slot) {
         slot.count -= 1;
         if (slot.count <= 0) open.delete(key);
       }
+      rows.push(ev);
+    } else {
       rows.push(ev);
     }
   }
@@ -640,6 +642,10 @@ function renderActivity(s) {
     if (ev.event === "finish") {
       statusEl = el("span", { class: `status ${ev.success === false ? "err" : "ok"}` },
         `${ev.success === false ? "✕" : "✓"}${ev.duration_s != null ? ` ${ev.duration_s.toFixed ? ev.duration_s.toFixed(1) : ev.duration_s}s` : ""}${ev.cost_usd ? ` ${fmtMoney(ev.cost_usd)}` : ""}`);
+    } else if (ev.event === "cache_hit") {
+      statusEl = el("span", { class: "status ok" }, "✓ 已复用");
+    } else if (ev.event === "cache_miss") {
+      statusEl = el("span", { class: "status" }, "• 新处理");
     } else if (ev.event === "error") {
       statusEl = el("span", { class: "status err" }, "✕");
     } else {

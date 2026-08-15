@@ -416,6 +416,8 @@ class VideoCompose(BaseTool):
                 "-c:v", "copy",
                 "-c:a", "aac",
                 "-b:a", "192k",
+                "-ar", "48000",
+                "-ac", "2",
                 "-af", "apad",
                 "-shortest",
                 "-movflags", "+faststart",
@@ -1000,6 +1002,8 @@ class VideoCompose(BaseTool):
             cmd.append(f"--crf={bespoke['crf']}")
         if bespoke.get("concurrency"):
             cmd.append(f"--concurrency={bespoke['concurrency']}")
+        if inputs.get("sample_frames"):
+            cmd.append(f"--frames={inputs['sample_frames']}")
 
         try:
             # Run from inside the composer dir so npx resolves the local
@@ -1069,10 +1073,9 @@ class VideoCompose(BaseTool):
 
         return ToolResult(success=True, data=data, artifacts=[str(output_path)])
 
-    # Source-file extensions that get staged into the composer tree at render time.
-    # Anything not in this set lives only under the real project dir (assets, renders,
-    # artifacts) and is referenced via --public-dir or absolute paths.
-    _ATELIER_STAGE_EXTS = {".tsx", ".ts", ".jsx", ".js", ".css"}
+    # Source modules staged into the composer tree at render time. Media remains
+    # under the real project dir and is referenced via --public-dir or absolute paths.
+    _ATELIER_STAGE_EXTS = {".tsx", ".ts", ".jsx", ".js", ".css", ".json"}
 
     def _stage_atelier_project(self, entry_path: Path, composer_dir: Path) -> Path:
         """Auto-stage a bespoke project under remotion-composer/projects/<slug>/.
@@ -1743,7 +1746,20 @@ class VideoCompose(BaseTool):
             "output_path": str(output_path), "profile": inputs.get("profile", "social_vertical_1080p30"),
             "sample_frames": f"{start}-{end - 1}", "remotion_width": 540, "remotion_height": 960,
         })
-        result = self._remotion_render(sample_inputs)
+        edit_decisions = sample_inputs.get("edit_decisions") or {}
+        atelier_sample = (
+            edit_decisions.get("render_runtime") == "remotion"
+            and (
+                edit_decisions.get("composition_mode") == "atelier"
+                or edit_decisions.get("renderer_family") == "bespoke"
+            )
+        )
+        if atelier_sample:
+            sample_decisions = json.loads(json.dumps(edit_decisions))
+            sample_decisions.setdefault("bespoke", {})["scale"] = 0.5
+            result = self._render_via_atelier(sample_inputs, sample_decisions)
+        else:
+            result = self._remotion_render(sample_inputs)
         if not result.success:
             result.data.update({"render_mode": "sample", "cache_key": key, "window": {"startFrame": start, "endFrameExclusive": end}, "remotion_invoked": True})
             return result
@@ -2816,10 +2832,18 @@ class VideoCompose(BaseTool):
         # Apply media profile if specified
         if profile_name:
             try:
-                from lib.media_profiles import get_profile, ffmpeg_output_args
+                from lib.media_profiles import get_profile
                 profile = get_profile(profile_name)
-                cmd.extend(["-s", f"{profile.width}x{profile.height}"])
+                cmd.extend([
+                    "-vf",
+                    f"scale={profile.width}:{profile.height}:in_range=auto:out_range=tv,"
+                    f"format={profile.pixel_format}",
+                ])
                 cmd.extend(["-r", str(profile.fps)])
+                cmd.extend(["-pix_fmt", profile.pixel_format])
+                cmd.extend(["-color_range", "tv"])
+                cmd.extend(["-ar", str(profile.audio_sample_rate)])
+                cmd.extend(["-ac", str(profile.audio_channels)])
             except (ImportError, ValueError):
                 pass  # proceed without profile
 

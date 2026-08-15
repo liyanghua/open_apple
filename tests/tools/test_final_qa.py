@@ -19,6 +19,36 @@ def test_quick_qa_accepts_social_profile(tmp_path: Path, monkeypatch):
     assert result.data["checks"]["media_integrity"]["decode_ok"]
 
 
+def test_quick_qa_accepts_half_scale_remotion_sample_profile(
+    tmp_path: Path, monkeypatch
+):
+    video = tmp_path / "sample.mp4"
+    video.write_bytes(b"video")
+    monkeypatch.setattr(FinalQA, "_probe", staticmethod(lambda path: {
+        "streams": [
+            {
+                "codec_type": "video", "codec_name": "h264",
+                "pix_fmt": "yuvj420p", "width": 540, "height": 960,
+                "r_frame_rate": "30/1",
+            },
+            {
+                "codec_type": "audio", "codec_name": "aac",
+                "sample_rate": "48000", "channels": 2,
+            },
+        ],
+        "format": {"duration": "12"},
+    }))
+    monkeypatch.setattr(FinalQA, "_decode", staticmethod(lambda path: True))
+
+    result = FinalQA().execute({
+        "mode": "quick",
+        "input_path": str(video),
+        "expected_profile": "social_vertical_sample_540p30",
+    })
+
+    assert result.success and result.data["status"] == "pass"
+
+
 def test_caption_source_file_without_render_declaration_does_not_prove_pixels(tmp_path: Path, monkeypatch):
     video = tmp_path / "final.mp4"; video.write_bytes(b"video")
     subtitle = tmp_path / "captions.srt"; subtitle.write_text("caption", encoding="utf-8")

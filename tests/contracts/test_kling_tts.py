@@ -9,6 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.audio.kling_tts import KlingTTS
+from tools.cost_tracker import CostTracker
 
 
 def test_registry_discovers_kling_tts(monkeypatch, isolated_tool_registry):
@@ -150,7 +151,7 @@ def test_execute_accepts_synchronous_create_response(monkeypatch, tmp_path):
     assert result.data["audio_duration_seconds"] == 2.5
 
 
-def test_tts_selector_prefers_kling_official(monkeypatch, isolated_tool_registry):
+def test_tts_selector_prefers_kling_official(monkeypatch, isolated_tool_registry, tmp_path):
     monkeypatch.setenv("KLING_API_KEY", "test-key")
     isolated_tool_registry.discover("tools")
 
@@ -160,12 +161,21 @@ def test_tts_selector_prefers_kling_official(monkeypatch, isolated_tool_registry
         return ToolResult(success=True, data={"output_path": "out.mp3"}, artifacts=["out.mp3"])
 
     monkeypatch.setattr(KlingTTS, "execute", fake_execute)
+    cost_log = tmp_path / "cost_log.json"
+    tracker = CostTracker(cost_log_path=cost_log)
+    tracker.approve_tool("kling_tts")
+    reservation = tracker.estimate(
+        "kling_tts", "generate", KlingTTS().estimate_cost({"text": "official speech"})
+    )
+    tracker.reserve(reservation)
     result = isolated_tool_registry.get("tts_selector").execute(
         {
             "text": "official speech",
             "voice_id": "voice-a",
             "preferred_provider": "kling_official",
             "allowed_providers": ["kling_official"],
+            "cost_log_path": str(cost_log),
+            "reservation_id": reservation,
         }
     )
     assert result.success
