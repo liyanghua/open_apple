@@ -17,6 +17,7 @@ from backlot.operator_revisions import RevisionService
 from backlot.operator_reviews import ReviewService
 from backlot.project_commit import ProjectCommitStore
 from backlot.project_creation import ProjectCreationService
+from backlot.skill_catalog import SkillCatalog
 from lib.artifact_hashing import semantic_sha256
 
 
@@ -44,6 +45,38 @@ def create_operator_router(
 
     def snapshot(project_dir: Path, stage: str) -> dict[str, Any]:
         return get_adapter(stage).load_snapshot(project_dir)
+
+    def catalog() -> SkillCatalog:
+        return SkillCatalog(Path(__file__).parents[1] / "skills" / "catalog")
+
+    @router.get("/skills")
+    async def list_skills(request: Request) -> list:
+        authenticate(request, None, "read")
+        return catalog().list()
+
+    @router.post("/projects")
+    async def create_project(request: Request) -> dict:
+        session = authenticate(request, None, "create_project", csrf=True)
+        payload = await body(request)
+        key = request.headers.get("idempotency-key", "").strip()
+        if not key:
+            raise OperatorError.validation_failed("缺少重复提交保护标识")
+        skill = catalog().resolve(str(payload.get("skill_id") or ""), payload.get("skill_version"))
+        intake = payload.get("intake") if isinstance(payload.get("intake"), dict) else {}
+        catalog().validate_intake(skill, intake)
+        project_id = str(payload.get("project_id") or "")
+        digest = semantic_sha256({"project_id": project_id, "skill": skill["digest"], "intake": intake})
+        result = ProjectCreationService(projects_dir(), auth_store()).create_from_skill(
+            project_id=project_id,
+            title=str(payload.get("title") or intake.get("product_name") or "未命名项目"),
+            owner_id=session.actor.user_id,
+            idempotency_key=key,
+            request_digest=digest,
+            resolved_skill=skill,
+            intake=intake,
+            snapshot_writer=catalog().write_snapshot,
+        )
+        return {**result, "skill": {"id": skill["id"], "version": skill["version"]}}
 
     @router.put("/projects/{project_id}/drafts/{stage}")
     async def save_draft(project_id: str, stage: str, request: Request) -> dict:

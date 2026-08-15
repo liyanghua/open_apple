@@ -14,9 +14,9 @@ from backlot.operator_errors import OperatorError
 SESSION_COOKIE = "backlot_session"
 
 SYSTEM_CAPABILITIES = {
-    "operator": {"read", "edit", "submit", "agent", "review", "fork", "manage_members"},
+    "operator": {"read", "edit", "submit", "agent", "review", "fork", "manage_members", "create_project"},
     "reviewer": {"read", "edit", "submit", "agent", "review", "fork"},
-    "admin": {"read", "edit", "submit", "agent", "review", "fork", "manage_members", "diagnostics"},
+    "admin": {"read", "edit", "submit", "agent", "review", "fork", "manage_members", "diagnostics", "create_project"},
 }
 PROJECT_CAPABILITIES = {
     "owner": {"read", "edit", "submit", "agent", "review", "fork", "manage_members"},

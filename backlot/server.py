@@ -216,7 +216,12 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
             from backlot.auth_store import AuthStore
 
             configured = os.environ.get("BACKLOT_DATA_DIR")
-            data_dir = Path(configured).expanduser() if configured else REPO_ROOT / ".backlot"
+            if configured:
+                data_dir = Path(configured).expanduser()
+            elif auth_mode == "test":
+                data_dir = PROJECTS_DIR.parent / ".backlot-test"
+            else:
+                data_dir = REPO_ROOT / ".backlot"
             auth_store = AuthStore(data_dir / "backlot.db")
             auth_store.initialize()
         return auth_store
@@ -229,17 +234,25 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
         csrf: bool = False,
     ):
         from backlot.auth import authorize_project, require_csrf, require_session
-        from backlot.auth_store import SessionRecord, UserRecord
+        from backlot.auth_store import SessionRecord
 
         if auth_mode == "test":
+            store = get_auth_store()
+            actor = store.authenticate("test-admin", "test-admin-password")
+            if actor is None:
+                actor = store.create_user("test-admin", "test-admin-password", "admin")
             return SessionRecord(
-                UserRecord("test-admin", "test-admin", "admin"),
+                actor,
                 "test-csrf",
                 "2999-01-01T00:00:00+00:00",
             )
         session = require_session(request, get_auth_store())
         if csrf:
             require_csrf(request, session)
+        if project_id is None:
+            from backlot.auth import SYSTEM_CAPABILITIES
+            if action not in SYSTEM_CAPABILITIES.get(session.actor.system_role, set()):
+                raise OperatorError("forbidden", "你没有执行该操作的权限", 403)
         if project_id is not None and not authorize_project(
             get_auth_store(), session.actor, project_id, action
         ):

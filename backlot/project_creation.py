@@ -82,6 +82,36 @@ class ProjectCreationService:
             ),
         )
 
+    def create_from_skill(
+        self,
+        *,
+        project_id: str,
+        title: str,
+        owner_id: str,
+        idempotency_key: str,
+        request_digest: str,
+        resolved_skill: dict[str, Any],
+        intake: dict[str, Any],
+        snapshot_writer: Callable[[Path, dict[str, Any], dict[str, Any]], None],
+    ) -> dict[str, Any]:
+        def initialize(directory: Path) -> None:
+            atomic_write_json(directory / "project.json", {
+                "project_id": project_id,
+                "title": title,
+                "pipeline_type": resolved_skill["manifest"]["pipeline"],
+                "skill": {"id": resolved_skill["id"], "version": resolved_skill["version"]},
+            })
+            snapshot_writer(directory, resolved_skill, intake)
+
+        return self._create(
+            project_id=project_id,
+            owner_id=owner_id,
+            idempotency_key=idempotency_key,
+            request_digest=request_digest,
+            source_project_id=None,
+            initializer=initialize,
+        )
+
     def _reserve(
         self,
         *,
