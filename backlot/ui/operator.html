@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>项目制作进度</title>
+<link rel="stylesheet" href="/ui/operator/styles.css">
+</head>
+<body>
+<div class="operator-shell" id="operator-shell" data-view-state="loading">
+  <header class="project-header">
+    <div class="project-identity">
+      <p class="eyebrow">视频制作项目</p>
+      <h1 id="project-title">正在读取项目</h1>
+    </div>
+    <dl class="project-metrics" aria-label="项目概况">
+      <div>
+        <dt>项目总进度</dt>
+        <dd id="progress-value">--</dd>
+      </div>
+      <div>
+        <dt>当前任务</dt>
+        <dd id="current-task">正在读取</dd>
+      </div>
+      <div>
+        <dt>预计时间</dt>
+        <dd id="estimated-time">暂未提供</dd>
+      </div>
+    </dl>
+  </header>
+
+  <main class="workbench">
+    <nav class="stage-panel" aria-labelledby="stage-heading">
+      <div class="panel-heading">
+        <p class="eyebrow">制作流程</p>
+        <h2 id="stage-heading">九个制作阶段</h2>
+      </div>
+      <div class="stage-list" id="stage-list"></div>
+      <a class="diagnostic-link" id="diagnostic-link" href="/diagnostics/p/">查看诊断信息</a>
+    </nav>
+
+    <section class="workspace-panel" aria-labelledby="workspace-title">
+      <div class="workspace-heading">
+        <div>
+          <p class="status-line" id="workspace-status">正在读取</p>
+          <h2 id="workspace-title">阶段内容</h2>
+        </div>
+        <span class="read-only-mark">只读预览</span>
+      </div>
+      <div class="view-message" id="view-message" role="status" aria-live="polite"></div>
+      <div class="workspace-content" id="workspace-content"></div>
+    </section>
+
+    <aside class="next-panel" aria-labelledby="next-heading">
+      <p class="eyebrow">下一步</p>
+      <h2 id="next-heading">当前需要处理</h2>
+      <p class="next-action" id="next-action">正在读取项目进度</p>
+      <div class="review-summary" id="review-summary"></div>
+    </aside>
+  </main>
+</div>
+<script type="module" src="/ui/operator/app.js"></script>
+</body>
+</html>

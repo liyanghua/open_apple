@@ -150,7 +150,8 @@ def test_diagnostics_route_preserves_the_engineering_board(
 
     project_response = backlot_client.get("/p/film")
     assert project_response.status_code == 200
-    assert 'src="/ui/board.js' in project_response.text
+    assert 'lang="zh-CN"' in project_response.text
+    assert 'src="/ui/operator/app.js' in project_response.text
 
     paths = {route.path for route in backlot_client.app.routes}
     assert "/diagnostics/p/{project_path:path}" not in paths
