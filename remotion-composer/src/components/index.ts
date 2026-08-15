@@ -5,6 +5,8 @@ export { CalloutBox } from "./CalloutBox";
 export { ComparisonCard } from "./ComparisonCard";
 export { BarChart, LineChart, PieChart, KPIGrid } from "./charts";
 export { CaptionOverlay } from "./CaptionOverlay";
+export { SafeCaptionTrack } from "./SafeCaptionTrack";
+export type { EmphasisRule, SafeCaptionProps, SafeZoneProfile } from "./SafeCaptionTrack";
 export { SectionTitle } from "./SectionTitle";
 export { StatReveal } from "./StatReveal";
 export { HeroTitle } from "./HeroTitle";

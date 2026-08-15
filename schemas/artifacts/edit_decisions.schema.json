@@ -165,9 +165,25 @@
         "outline_color": { "type": "string" },
         "background": { "type": "string", "description": "Background color with optional alpha (e.g. #00000088)" },
         "position": { "type": "string", "enum": ["top-center", "bottom-center", "center"] },
-        "max_words_per_line": { "type": "integer", "minimum": 1 }
+        "max_words_per_line": { "type": "integer", "minimum": 1 },
+        "trailing_punctuation": { "type": "boolean" },
+        "keyword_effect": { "type": "string" }
       },
       "additionalProperties": false
+    },
+    "caption_render_mode": {
+      "type": "string",
+      "enum": ["remotion_overlay", "ffmpeg_burn", "subtitle_stream"],
+      "description": "How captions are realized in the delivered video."
+    },
+    "caption_source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path or artifact reference used by the declared caption renderer."
+    },
+    "safe_zone_profile": {
+      "type": "string",
+      "enum": ["douyin_9_16", "wechat_9_16", "xiaohongshu_9_16"]
     },
     "music": {
       "type": "object",

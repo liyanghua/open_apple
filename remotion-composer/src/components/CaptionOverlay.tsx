@@ -6,6 +6,13 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
+import {
+  SAFE_ZONE_PROFILES,
+  fitCjkFontSize,
+  stripTrailingPunctuation as stripCuePunctuation,
+  type EmphasisRule,
+  type SafeZoneProfile,
+} from "./SafeCaptionTrack";
 
 // Word-level caption for TikTok-style highlight display
 export interface WordCaption {
@@ -14,7 +21,7 @@ export interface WordCaption {
   endMs: number;
 }
 
-type CaptionOverlayProps = {
+export type CaptionOverlayProps = {
   words: WordCaption[];
   // How many words to show at once in a "page"
   wordsPerPage?: number;
@@ -23,6 +30,12 @@ type CaptionOverlayProps = {
   highlightColor?: string;
   backgroundColor?: string;
   fontFamily?: string;
+  safeZoneProfile?: SafeZoneProfile;
+  fontMin?: number;
+  fontMax?: number;
+  maxWidth?: number;
+  stripTrailingPunctuation?: boolean;
+  emphasisRules?: EmphasisRule[];
 };
 
 interface CaptionPage {
@@ -52,7 +65,26 @@ const PageRenderer: React.FC<{
   highlightColor: string;
   backgroundColor: string;
   fontFamily: string;
-}> = ({ page, fontSize, color, highlightColor, backgroundColor, fontFamily }) => {
+  safeZoneProfile: SafeZoneProfile;
+  fontMin: number;
+  fontMax: number;
+  maxWidth: number;
+  stripTrailingPunctuation: boolean;
+  emphasisRules: EmphasisRule[];
+}> = ({
+  page,
+  fontSize,
+  color,
+  highlightColor,
+  backgroundColor,
+  fontFamily,
+  safeZoneProfile,
+  fontMin,
+  fontMax,
+  maxWidth,
+  stripTrailingPunctuation,
+  emphasisRules,
+}) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -64,13 +96,20 @@ const PageRenderer: React.FC<{
     fps,
     config: { damping: 18, stiffness: 120 },
   });
+  const profile = SAFE_ZONE_PROFILES[safeZoneProfile];
+  const pageText = page.words.map((word) => word.word).join(" ");
+  const fittedFontSize = fitCjkFontSize(pageText, {
+    fontMin: Math.min(fontMin, fontSize, fontMax),
+    fontMax: Math.min(fontSize, fontMax),
+    maxWidth: Math.min(maxWidth, profile.maxWidth),
+  });
 
   return (
     <AbsoluteFill
       style={{
         justifyContent: "flex-end",
         alignItems: "center",
-        paddingBottom: 80,
+        paddingBottom: profile.bottom,
       }}
     >
       <div
@@ -80,13 +119,13 @@ const PageRenderer: React.FC<{
           backgroundColor,
           borderRadius: 12,
           padding: "14px 28px",
-          maxWidth: "80%",
+          maxWidth: Math.min(maxWidth, profile.maxWidth),
           textAlign: "center",
         }}
       >
         <span
           style={{
-            fontSize,
+            fontSize: fittedFontSize,
             fontWeight: 700,
             fontFamily,
             lineHeight: 1.4,
@@ -96,18 +135,29 @@ const PageRenderer: React.FC<{
           {page.words.map((w, i) => {
             const isActive = w.startMs <= currentMs && w.endMs > currentMs;
             const isPast = w.endMs <= currentMs;
+            const emphasis = emphasisRules.find((rule) => w.word.includes(rule.term));
+            const displayWord = stripTrailingPunctuation && i === page.words.length - 1
+              ? stripCuePunctuation(w.word)
+              : w.word;
             return (
               <span
                 key={`${w.startMs}-${i}`}
                 style={{
                   color: isActive ? highlightColor : isPast ? color : `${color}99`,
                   transition: "none", // CSS transitions forbidden in Remotion
+                  borderBottom: emphasis?.effect === "underline"
+                    ? `4px solid ${emphasis.color}`
+                    : undefined,
+                  display: emphasis?.effect === "scale" ? "inline-block" : undefined,
+                  transform: emphasis?.effect === "scale" ? "scale(1.08)" : undefined,
                   textShadow: isActive
                     ? `0 0 20px ${highlightColor}66, 0 2px 4px rgba(0,0,0,0.5)`
                     : "0 2px 4px rgba(0,0,0,0.5)",
                 }}
               >
-                {w.word}{i < page.words.length - 1 ? " " : ""}
+                <span style={emphasis?.effect === "color" ? {color: emphasis.color} : undefined}>
+                  {displayWord}
+                </span>{i < page.words.length - 1 ? " " : ""}
               </span>
             );
           })}
@@ -125,6 +175,12 @@ export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
   highlightColor = "#22D3EE",
   backgroundColor = "rgba(15, 23, 42, 0.75)",
   fontFamily = "Space Grotesk, Inter, system-ui, sans-serif",
+  safeZoneProfile = "douyin_9_16",
+  fontMin = 44,
+  fontMax = 52,
+  maxWidth = 864,
+  stripTrailingPunctuation = true,
+  emphasisRules = [],
 }) => {
   const { fps } = useVideoConfig();
   const pages = buildPages(words, wordsPerPage);
@@ -148,6 +204,12 @@ export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
               highlightColor={highlightColor}
               backgroundColor={backgroundColor}
               fontFamily={fontFamily}
+              safeZoneProfile={safeZoneProfile}
+              fontMin={fontMin}
+              fontMax={fontMax}
+              maxWidth={maxWidth}
+              stripTrailingPunctuation={stripTrailingPunctuation}
+              emphasisRules={emphasisRules}
             />
           </Sequence>
         );

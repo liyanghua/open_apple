@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/brand_profile",
+  "title": "Brand Profile",
+  "description": "Optional user-approved defaults that may fill, but never silently override, production choices.",
+  "type": "object",
+  "required": ["version", "profile_id"],
+  "properties": {
+    "version": {"type": "string", "const": "1.0"},
+    "profile_id": {"type": "string", "minLength": 1},
+    "voice": {
+      "type": "object",
+      "properties": {
+        "provider": {"type": "string", "minLength": 1},
+        "resource": {"type": "string", "minLength": 1},
+        "voice": {"type": "string", "minLength": 1},
+        "rate": {"type": "number", "exclusiveMinimum": 0, "maximum": 4}
+      },
+      "additionalProperties": false
+    },
+    "bgm": {
+      "type": "object",
+      "properties": {"family": {"type": "string", "minLength": 1}},
+      "additionalProperties": false
+    },
+    "font": {
+      "type": "object",
+      "properties": {
+        "family": {"type": "string", "minLength": 1},
+        "fallbacks": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      },
+      "additionalProperties": false
+    },
+    "caption_profile": {
+      "type": "object",
+      "properties": {
+        "safe_zone_profile": {"type": "string", "enum": ["douyin_9_16", "wechat_9_16", "xiaohongshu_9_16"]},
+        "font_min": {"type": "integer", "minimum": 1},
+        "font_max": {"type": "integer", "minimum": 1},
+        "max_width": {"type": "integer", "minimum": 1, "maximum": 864},
+        "strip_trailing_punctuation": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "emphasis_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["term", "color", "effect"],
+        "properties": {
+          "term": {"type": "string", "minLength": 1},
+          "color": {"type": "string", "minLength": 1},
+          "effect": {"type": "string", "enum": ["scale", "underline", "color"]}
+        },
+        "additionalProperties": false
+      }
+    },
+    "cta_pattern": {"type": "string", "minLength": 1},
+    "platform_defaults": {
+      "type": "object",
+      "propertyNames": {"enum": ["douyin", "wechat", "xiaohongshu"]},
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "aspect_ratio": {"type": "string", "enum": ["9:16", "1:1", "16:9"]},
+          "resolution": {"type": "string", "pattern": "^[0-9]+x[0-9]+$"},
+          "fps": {"type": "integer", "minimum": 1, "maximum": 120}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -153,7 +153,29 @@
         },
         "media_integrity": { "type": "object" },
         "audio_loudness": { "type": "object" },
-        "caption_render": { "type": "object" }
+        "visual_anomalies": {
+          "type": "object",
+          "properties": {
+            "black_ranges": { "type": "array", "items": { "type": "object" } },
+            "freeze_ranges": { "type": "array", "items": { "type": "object" } }
+          },
+          "additionalProperties": false
+        },
+        "caption_render": {
+          "type": "object",
+          "required": ["declared", "caption_render_mode", "caption_source", "safe_zone_profile", "pixels_rendered", "safe_zone_passed", "computed_boxes", "props_hash"],
+          "properties": {
+            "declared": {"type": "boolean"},
+            "caption_render_mode": {"type": ["string", "null"], "enum": ["remotion_overlay", "ffmpeg_burn", "subtitle_stream", null]},
+            "caption_source": {"type": ["string", "null"]},
+            "safe_zone_profile": {"type": ["string", "null"], "enum": ["douyin_9_16", "wechat_9_16", "xiaohongshu_9_16", null]},
+            "pixels_rendered": {"type": "boolean"},
+            "safe_zone_passed": {"type": ["boolean", "null"]},
+            "computed_boxes": {"type": "array", "items": {"type": "object"}},
+            "props_hash": {"type": ["string", "null"]}
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },

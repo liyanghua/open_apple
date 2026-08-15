@@ -42,6 +42,7 @@ ARTIFACT_NAMES = [
     "render_plan",
     "final_props",
     "sample_report",
+    "brand_profile",
 ]
 
 

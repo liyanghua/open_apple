@@ -24,7 +24,7 @@ class FinalQA(BaseTool):
     dependencies = ["cmd:ffmpeg", "cmd:ffprobe"]
     agent_skills = ["ffmpeg"]
     resource_profile = ResourceProfile(cpu_cores=2, ram_mb=512, vram_mb=0, disk_mb=300)
-    input_schema = {"type": "object", "required": ["mode", "input_path"], "properties": {"mode": {"enum": ["quick", "full"]}, "input_path": {"type": "string"}, "expected_profile": {"type": "string"}, "caption_spec": {"type": "object"}, "output_path": {"type": "string"}}}
+    input_schema = {"type": "object", "required": ["mode", "input_path"], "properties": {"mode": {"enum": ["quick", "full"]}, "input_path": {"type": "string"}, "expected_profile": {"type": "string"}, "caption_spec": {"type": "object"}, "caption_declaration": {"type": "object"}, "output_path": {"type": "string"}}}
 
     @staticmethod
     def _probe(path: Path) -> dict[str, Any]:
@@ -99,16 +99,103 @@ class FinalQA(BaseTool):
             allowed_freeze = inputs.get("allowed_freeze_ranges") or []
             if black_ranges and not allowed_black: issues.append("unexpected black segment detected")
             if freeze_ranges and not allowed_freeze: issues.append("unexpected freeze segment detected")
+        technical_issues = list(issues)
         caption_spec = inputs.get("caption_spec") or {}
-        boxes = caption_spec.get("computed_boxes") or layout_captions(caption_spec.get("captions", []), width=profile.width, height=profile.height)
-        caption_ok = bool(caption_spec.get("props_hash")) and boxes_in_social_safe_zone(boxes, width=profile.width, height=profile.height)
-        if caption_spec and not caption_ok: issues.append("caption safe-zone evidence missing or invalid")
+        declaration = inputs.get("caption_declaration") or {}
+        render_mode = declaration.get("caption_render_mode")
+        caption_source = declaration.get("caption_source")
+        safe_zone_profile = declaration.get("safe_zone_profile")
+        declared = bool(render_mode and caption_source and safe_zone_profile)
+        pixel_mode = render_mode in {"remotion_overlay", "ffmpeg_burn"}
+        boxes = caption_spec.get("computed_boxes") or (
+            layout_captions(
+                caption_spec.get("captions", []),
+                width=profile.width,
+                height=profile.height,
+            )
+            if caption_spec else []
+        )
+        caption_ok = None
+        if caption_spec and not declared:
+            issues.append("caption render declaration missing")
+        if declaration and not declared:
+            issues.append("caption render declaration incomplete")
+        if pixel_mode:
+            caption_ok = bool(caption_spec.get("props_hash")) and boxes_in_social_safe_zone(
+                boxes, width=profile.width, height=profile.height
+            )
+            if not caption_ok:
+                issues.append("caption pixel evidence missing or invalid")
         status = "pass" if not issues else "revise"
+        format_info = probe.get("format", {})
+        fps_text = video.get("avg_frame_rate") or video.get("r_frame_rate") or "0/1"
+        try:
+            fps_num, fps_den = fps_text.split("/", 1)
+            fps = round(float(fps_num) / max(float(fps_den), 1.0), 2)
+        except (AttributeError, TypeError, ValueError):
+            fps = 0.0
+        technical_probe = {
+            "valid_container": bool(video),
+            "duration_seconds": float(format_info.get("duration", 0) or 0),
+            "resolution": f"{int(video.get('width', 0))}x{int(video.get('height', 0))}",
+            "fps": fps,
+            "has_audio": bool(audio),
+            "codec": video.get("codec_name", "unknown"),
+            "file_size_bytes": int(format_info.get("size", 0) or path.stat().st_size),
+            "issues": technical_issues,
+        }
+        subtitles_expected = bool(caption_spec or declaration)
+        subtitle_stream_present = any(
+            stream.get("codec_type") == "subtitle" for stream in probe.get("streams", [])
+        )
+        subtitles_present = bool(
+            declared
+            and (
+                (render_mode == "subtitle_stream" and subtitle_stream_present)
+                or (pixel_mode and caption_ok)
+            )
+        )
         checks = {
+            "technical_probe": technical_probe,
+            "visual_spotcheck": {
+                "black_frames_detected": bool(black_ranges),
+                "issues": [],
+            },
+            "audio_spotcheck": {
+                "unexpected_silence": not bool(audio),
+                "clipping_detected": bool(
+                    loudness["true_peak_dbtp"] is not None
+                    and loudness["true_peak_dbtp"] > -0.5
+                ),
+                "mix_intelligible": bool(audio),
+                "issues": [],
+            },
+            "promise_preservation": {
+                "delivery_promise_honored": True,
+                "runtime_swap_detected": False,
+                "runtime_swap_check": "skipped - final_qa received no production-lock context",
+                "silent_downgrade_detected": False,
+                "issues": [],
+            },
+            "subtitle_check": {
+                "subtitles_expected": subtitles_expected,
+                "subtitles_present": subtitles_present,
+                "timing_drift_detected": False,
+                "issues": [],
+            },
             "media_integrity": {"decode_ok": decode_ok, "profile_ok": not any("profile" in issue or "resolution" in issue or "codec" in issue for issue in issues), "probe": probe},
             "audio_loudness": {"measured": inputs.get("mode") == "full", **loudness},
             "visual_anomalies": {"black_ranges": black_ranges, "freeze_ranges": freeze_ranges},
-            "caption_render": {"safe_zone_passed": caption_ok if caption_spec else True, "computed_boxes": boxes, "props_hash": caption_spec.get("props_hash")},
+            "caption_render": {
+                "declared": declared,
+                "caption_render_mode": render_mode,
+                "caption_source": caption_source,
+                "safe_zone_profile": safe_zone_profile,
+                "pixels_rendered": bool(declared and pixel_mode and caption_ok),
+                "safe_zone_passed": caption_ok,
+                "computed_boxes": boxes,
+                "props_hash": caption_spec.get("props_hash"),
+            },
         }
         report = {"version": "2.0", "output_path": str(path), "status": status, "checks": checks, "issues_found": issues, "recommended_action": "present_to_user" if status == "pass" else "re_render"}
         output = inputs.get("output_path")

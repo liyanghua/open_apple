@@ -1,0 +1,43 @@
+{
+  "safe_zone": {
+    "width": 1080,
+    "height": 1920,
+    "left": 72,
+    "right": 72,
+    "top": 120,
+    "bottom": 300,
+    "max_width": 864,
+    "max_lines": 2,
+    "line_height": 1.24,
+    "font_min": 44,
+    "font_max": 52
+  },
+  "strip_cases": [
+    {"input": "餐桌更从容。", "expected": "餐桌更从容"},
+    {"input": "Easy clean!", "expected": "Easy clean"},
+    {"input": "不怕油污……", "expected": "不怕油污"},
+    {"input": "保留中间，标点", "expected": "保留中间，标点"}
+  ],
+  "layout_cases": [
+    {
+      "id": "short_max_52",
+      "text": "透明桌垫让餐桌更从容",
+      "expected": {"font_size": 52, "line_count": 1, "left": 280, "right": 800, "top": 1556, "bottom": 1620}
+    },
+    {
+      "id": "two_lines_at_max",
+      "text": "透明桌垫守住餐桌日常油污刮擦也能轻松打理",
+      "expected": {"font_size": 52, "line_count": 2, "left": 108, "right": 972, "top": 1491, "bottom": 1620}
+    },
+    {
+      "id": "shrink_to_48",
+      "text": "透明桌垫透明桌垫透明桌垫透明桌垫透明桌垫透明桌垫透明桌垫透明桌垫透明桌垫",
+      "expected": {"font_size": 48, "line_count": 2, "left": 108, "right": 972, "top": 1501, "bottom": 1620}
+    },
+    {
+      "id": "clamp_to_44",
+      "text": "透明桌垫透明桌垫透明桌垫透明桌垫透明桌垫透明桌垫透明桌垫透明桌垫透明桌垫透明桌",
+      "expected": {"font_size": 44, "line_count": 2, "left": 108, "right": 972, "top": 1511, "bottom": 1620}
+    }
+  ]
+}
