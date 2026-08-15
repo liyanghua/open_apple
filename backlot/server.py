@@ -15,10 +15,11 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from backlot.operator_state import load_operator_state
+from backlot.operator_errors import OperatorError
 from backlot.state import PROJECTS_DIR, REPO_ROOT, list_projects, load_board_state, summarize_project
 from backlot.state_cache import invalidate_state_cache
 
@@ -202,14 +203,104 @@ async def _lifespan(app: FastAPI):
             await task
 
 
-def create_app() -> FastAPI:
+def create_app(*, auth_store=None) -> FastAPI:
     app = FastAPI(title="Backlot", docs_url=None, redoc_url=None, lifespan=_lifespan)
+    login_attempts: dict[str, list[float]] = {}
+
+    def get_auth_store():
+        nonlocal auth_store
+        if auth_store is None:
+            import os
+            from backlot.auth_store import AuthStore
+
+            configured = os.environ.get("BACKLOT_DATA_DIR")
+            data_dir = Path(configured).expanduser() if configured else REPO_ROOT / ".backlot"
+            auth_store = AuthStore(data_dir / "backlot.db")
+            auth_store.initialize()
+        return auth_store
+
+    @app.exception_handler(OperatorError)
+    async def operator_error_handler(_request: Request, exc: OperatorError) -> JSONResponse:
+        return JSONResponse(exc.to_public_dict(), status_code=exc.status_code)
 
     # ---- API ----------------------------------------------------------
 
     @app.get("/api/health")
     async def health() -> dict:
         return {"ok": True, "app": "backlot"}
+
+    @app.post("/api/v2/auth/login")
+    async def auth_login(request: Request) -> JSONResponse:
+        from backlot.auth import SESSION_COOKIE, require_same_origin
+        from urllib.parse import parse_qs
+
+        require_same_origin(request)
+        now = time.monotonic()
+        client = request.client.host if request.client else "unknown"
+        recent = [stamp for stamp in login_attempts.get(client, []) if now - stamp < 60]
+        if len(recent) >= 6:
+            raise OperatorError("auth_required", "登录尝试过多，请稍后再试", 429)
+        recent.append(now)
+        login_attempts[client] = recent
+        if request.headers.get("content-type", "").split(";", 1)[0] == "application/x-www-form-urlencoded":
+            fields = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
+            body = {key: values[-1] for key, values in fields.items() if values}
+        else:
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+        if body.get("schema_version", body.get("version")) != "1.0":
+            raise OperatorError.validation_failed("登录信息格式不正确")
+        actor = get_auth_store().authenticate(
+            str(body.get("username") or ""), str(body.get("password") or "")
+        )
+        if actor is None:
+            raise OperatorError("auth_required", "用户名或密码不正确", 401)
+        credentials = get_auth_store().create_session(actor.user_id)
+        response = JSONResponse({
+            "user": {
+                "user_id": actor.user_id,
+                "username": actor.username,
+                "system_role": actor.system_role,
+            }
+        })
+        response.set_cookie(
+            SESSION_COOKIE,
+            credentials.session_token,
+            httponly=True,
+            samesite="strict",
+            secure=request.url.scheme == "https",
+            path="/",
+        )
+        return response
+
+    @app.get("/api/v2/auth/me")
+    async def auth_me(request: Request) -> dict:
+        from backlot.auth import require_session
+
+        session = require_session(request, get_auth_store())
+        return {
+            "user": {
+                "user_id": session.actor.user_id,
+                "username": session.actor.username,
+                "system_role": session.actor.system_role,
+            },
+            "csrf_token": session.csrf_token,
+            "expires_at": session.expires_at,
+        }
+
+    @app.post("/api/v2/auth/logout")
+    async def auth_logout(request: Request) -> JSONResponse:
+        from backlot.auth import SESSION_COOKIE, require_csrf, require_session
+
+        store = get_auth_store()
+        session = require_session(request, store)
+        require_csrf(request, session)
+        store.revoke_session(request.cookies.get(SESSION_COOKIE, ""))
+        response = JSONResponse({"status": "logged_out"})
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
 
     @app.get("/api/projects")
     async def projects() -> list:
@@ -314,6 +405,21 @@ def create_app() -> FastAPI:
         return FileResponse(target)
 
     # ---- UI ------------------------------------------------------------
+
+    @app.get("/login")
+    async def login_page() -> HTMLResponse:
+        return _ui_html("login.html", ("operator/styles.css", "operator/login.js"))
+
+    @app.get("/setup")
+    async def setup_page(request: Request) -> HTMLResponse:
+        client = request.client.host if request.client else ""
+        if client not in {"127.0.0.1", "::1", "testclient"} or get_auth_store().user_count() > 0:
+            raise HTTPException(status_code=404, detail="not found")
+        return HTMLResponse(
+            '<!DOCTYPE html><html lang="zh-CN"><meta charset="UTF-8">'
+            '<title>初始化项目工作台</title><body><main><h1>创建首个管理员</h1>'
+            '<p>请在本机终端运行 backlot users create-admin</p></main></body></html>'
+        )
 
     @app.get("/diagnostics/p/{project_id}")
     async def diagnostic_board_page(project_id: str) -> HTMLResponse:

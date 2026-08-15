@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录项目工作台</title>
+<link rel="stylesheet" href="/ui/operator/styles.css">
+</head>
+<body>
+<main class="auth-shell">
+  <form class="auth-form" id="login-form">
+    <p class="eyebrow">项目工作台</p>
+    <h1>登录</h1>
+    <label>用户名<input name="username" autocomplete="username" required></label>
+    <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
+    <p id="login-error" role="alert"></p>
+    <button type="submit">登录</button>
+  </form>
+</main>
+<script type="module" src="/ui/operator/login.js"></script>
+</body>
+</html>
