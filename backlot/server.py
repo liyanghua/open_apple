@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from backlot.state import PROJECTS_DIR, REPO_ROOT, list_projects, load_board_state, summarize_project
+from backlot.state_cache import invalidate_state_cache
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 THUMB_CACHE_DIR = REPO_ROOT / ".backlot" / "thumbs"
@@ -80,6 +81,7 @@ _summary_cache: dict[str, dict] = {}
 
 def _invalidate_summary(project_id: str) -> None:
     _summary_cache.pop(project_id, None)
+    invalidate_state_cache(PROJECTS_DIR / project_id)
 
 
 def _cached_summaries() -> list[dict]:

@@ -109,6 +109,16 @@ class TestBacklotServerApi:
         assert state_body["title"] == "Film"
         assert state_body["stages"]
 
+    def test_project_change_invalidation_refreshes_cached_media(self, client, projects_root):
+        project = _make_project(projects_root, "film")
+        assert client.get("/api/project/film/state").json()["media"]["renders"] == []
+
+        (project / "renders" / "final.mp4").write_bytes(b"video")
+        server_mod._invalidate_summary("film")
+
+        renders = client.get("/api/project/film/state").json()["media"]["renders"]
+        assert [item["path"] for item in renders] == ["renders/final.mp4"]
+
     @pytest.mark.parametrize(
         ("url", "status"),
         [

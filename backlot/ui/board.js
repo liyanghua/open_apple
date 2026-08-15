@@ -877,7 +877,129 @@ function renderNoState(s) {
       "Runs that follow the checkpoint protocol get the full board."));
 }
 
+function formatWorkTime(seconds, emptyLabel = "暂无法估算") {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) return emptyLabel;
+  if (value < 60) return value === 0 ? "已完成" : "不到 1 分钟";
+  const minutes = Math.ceil(value / 60);
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
+}
+
+function formatSavedTime(seconds) {
+  const value = Number(seconds);
+  return Number.isFinite(value) && value > 0 ? formatWorkTime(value, "0 分钟") : "0 分钟";
+}
+
+function fastlineGateLabel(gate) {
+  if (gate === "creative_lock") return "方案与素材待确认";
+  if (gate === "sample") return "样片效果待确认";
+  return "当前无需确认";
+}
+
+function fastlineBundleStatus(status) {
+  return ({
+    awaiting_human: "待确认",
+    approved: "已确认",
+    rejected: "需调整",
+    superseded: "内容已变化，需重新确认",
+  })[status] || "暂无确认包";
+}
+
+function renderFastlineStatus(s) {
+  const f = s.fastline;
+  if (!f) return null;
+  const cache = f.cache || {};
+  const render = f.render || {};
+  const eta = f.eta || {};
+  const bundle = f.bundle;
+  const details = f.details || {};
+  const reusedItems = details.reused_items || [];
+  const dirtyCount = (render.dirty_scene_ids || []).length;
+  const affected = render.mode === "mux_only"
+    ? "0 个镜头，仅声音"
+    : dirtyCount
+      ? `${dirtyCount} 个镜头`
+      : render.mode === "full_render" ? "整条视频" : "暂无画面变更";
+  const nextAction = f.next_action || "继续下一步制作";
+  const needsApproval = Boolean(f.gate || ["rejected", "superseded"].includes(bundle && bundle.status));
+  const metrics = [
+    ["是否需要确认", fastlineGateLabel(f.gate), needsApproval ? "attention" : "good"],
+    ["预计还需", `${formatWorkTime(eta.seconds)}${eta.confidence === "low" && eta.seconds != null ? " · 参考值" : ""}`, eta.confidence === "low" ? "muted" : ""],
+    ["已节省制作时间", cache.hits ? `${formatSavedTime(cache.saved_seconds)} · 复用 ${cache.hits} 项` : "暂未复用"],
+    ["本次修改影响", affected],
+    ["出片方式", render.business_label || "等待确定"],
+    ["下一步", nextAction, needsApproval ? "attention" : ""],
+  ];
+
+  const bundleArtifacts = bundle && (bundle.artifacts || []).length
+    ? el("div", { class: "fastline-artifact-list" },
+      (bundle.artifacts || []).map((artifact) => el("div", { class: "fastline-artifact" },
+        el("b", {}, artifact.name || "artifact"),
+        el("span", {}, artifact.path || ""),
+        artifact.semantic_sha256 ? el("code", {}, artifact.semantic_sha256) : null,
+      )))
+    : el("div", { class: "fastline-empty-detail" }, "当前没有方案确认包");
+
+  return el("section", { class: `fastline-status${f.blocker ? " has-blocker" : ""}` },
+    el("div", { class: "fastline-heading" },
+      el("div", {},
+        el("div", { class: "fastline-eyebrow" }, "制作进度"),
+        el("h2", {}, f.current_task || "正在准备视频"),
+      ),
+      el("span", { class: `fastline-state${needsApproval ? " attention" : ""}` },
+        f.blocker || "制作正常进行中"),
+    ),
+    el("div", { class: "fastline-metrics" }, metrics.map(([label, value, tone]) =>
+      el("div", { class: `fastline-metric ${tone || ""}` },
+        el("span", {}, label),
+        el("b", {}, value),
+      ))),
+    needsApproval ? el("div", { class: "fastline-confirm-note" },
+      "请回到任务中确认，Backlot 仅展示进度") : null,
+    el("details", { class: "fastline-details" },
+      el("summary", {}, "查看制作详情"),
+      el("div", { class: "fastline-detail-grid" },
+        el("div", {},
+          el("span", {}, "方案确认包"),
+          el("b", {}, bundle ? `第 ${bundle.version} 版 · ${fastlineBundleStatus(bundle.status)}` : "暂无"),
+          bundle && bundle.changed_artifacts && bundle.changed_artifacts.length
+            ? el("p", {}, `本版调整：${bundle.changed_artifacts.join("、")}`) : null,
+        ),
+        el("div", {},
+          el("span", {}, "缓存记录"),
+          el("b", {}, `${cache.hits || 0} 次复用 · ${cache.misses || 0} 次新建`),
+          el("p", {}, `累计节省 ${formatSavedTime(cache.saved_seconds)}`),
+        ),
+        el("div", {},
+          el("span", {}, "变更路由"),
+          el("b", {}, render.mode || "未确定"),
+          (render.dirty_scene_ids || []).length
+            ? el("p", {}, `影响镜头：${render.dirty_scene_ids.join("、")}`) : null,
+          (render.reasons || []).length
+            ? el("p", {}, `变更原因：${render.reasons.join("；")}`) : null,
+        ),
+        el("div", {},
+          el("span", {}, "已锁定制作配置"),
+          el("b", {}, details.production_lock_hash || "暂无锁定记录"),
+        ),
+      ),
+      reusedItems.length ? el("div", { class: "fastline-reuse-list" },
+        el("div", { class: "fastline-reuse-title" }, "内容复用明细"),
+        reusedItems.map((item) => el("div", { class: "fastline-reuse-item" },
+          el("b", {}, item.tool || "制作内容"),
+          el("span", {}, item.reused_from || item.cache_key || "本地缓存"),
+          el("span", {}, `节省 ${formatSavedTime(item.saved_seconds)}`),
+        ))) : null,
+      bundleArtifacts,
+    ),
+  );
+}
+
 function renderAwaitingNotice(s) {
+  if (s.fastline && s.fastline.gate) return null;
   const awaiting = s.stages.find((x) => x.status === "awaiting_human");
   if (!awaiting) return null;
   return el("div", { class: "notice" },
@@ -1060,6 +1182,8 @@ function render() {
   app.innerHTML = "";
   app.append(renderSlate(s));
   app.append(renderRail(s));
+  const fastlineStatus = renderFastlineStatus(s);
+  if (fastlineStatus) app.append(fastlineStatus);
   const replayBar = renderReplayBar(state);
   if (replayBar) app.append(replayBar);
   const drawer = renderDrawer(s);
@@ -1113,6 +1237,7 @@ function normalize(s) {
   s.media.snapshots = Array.isArray(s.media.snapshots) ? s.media.snapshots : [];
   s.media.music = Array.isArray(s.media.music) ? s.media.music : [];
   s.events = Array.isArray(s.events) ? s.events : [];
+  s.fastline = s.fastline || null;
   if (s.storyboard && Array.isArray(s.storyboard.scenes)) {
     for (const c of s.storyboard.scenes) {
       c.takes = Array.isArray(c.takes) ? c.takes : [];

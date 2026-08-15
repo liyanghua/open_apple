@@ -809,6 +809,92 @@ aside .panel:nth-of-type(1) { animation-delay: .32s } aside .panel:nth-of-type(2
 .findings .f.crit { color: var(--red); border-color: rgba(229,84,75,.35); }
 .findings .f.sugg { color: var(--amber); border-color: rgba(240,168,60,.3); }
 
+/* ---------- fastline production status ---------- */
+.fastline-status {
+  margin: 6px 0 22px;
+  padding: 20px 0 16px;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+.fastline-heading {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 18px;
+  margin-bottom: 18px;
+}
+.fastline-eyebrow {
+  color: var(--text-3); font-size: calc(10px * var(--fs-scale)); font-weight: 600;
+  line-height: 1.4; margin-bottom: 5px;
+}
+.fastline-heading h2 {
+  color: var(--text); font-size: calc(20px * var(--fs-scale)); font-weight: 650;
+  line-height: 1.35; overflow-wrap: anywhere;
+}
+.fastline-state {
+  flex: none; max-width: 42%; padding: 5px 9px;
+  border: 1px solid rgba(75,166,108,.35); color: var(--green);
+  font-size: calc(10.5px * var(--fs-scale)); font-weight: 600; line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.fastline-state.attention {
+  border-color: rgba(240,168,60,.42); color: var(--amber); background: var(--amber-dim);
+}
+.fastline-metrics {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--border-soft);
+}
+.fastline-metric {
+  min-width: 0; min-height: 82px; padding: 14px 16px 12px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.fastline-metric:not(:nth-child(3n + 1)) { padding-left: 16px; border-left: 1px solid var(--border-soft); }
+.fastline-metric span {
+  display: block; color: var(--text-3); font-size: calc(10.5px * var(--fs-scale));
+  margin-bottom: 7px;
+}
+.fastline-metric b {
+  display: block; color: var(--text-1); font-size: calc(13px * var(--fs-scale));
+  font-weight: 600; line-height: 1.45; overflow-wrap: anywhere;
+}
+.fastline-metric.attention b { color: var(--amber); }
+.fastline-metric.good b { color: var(--green); }
+.fastline-metric.muted b { color: var(--text-2); }
+.fastline-confirm-note {
+  padding-top: 12px; color: var(--amber); font-size: calc(11.5px * var(--fs-scale));
+}
+.fastline-details { margin-top: 13px; color: var(--text-2); }
+.fastline-details summary {
+  width: fit-content; cursor: pointer; color: var(--text-2);
+  font-size: calc(11px * var(--fs-scale)); font-weight: 600;
+}
+.fastline-details summary:hover { color: var(--amber); }
+.fastline-detail-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px;
+  padding: 15px 0 12px;
+}
+.fastline-detail-grid > div { min-width: 0; }
+.fastline-detail-grid span, .fastline-detail-grid b { display: block; overflow-wrap: anywhere; }
+.fastline-detail-grid span { color: var(--text-3); font-size: calc(10px * var(--fs-scale)); margin-bottom: 5px; }
+.fastline-detail-grid b { color: var(--text-2); font-size: calc(11.5px * var(--fs-scale)); }
+.fastline-detail-grid p { color: var(--text-3); font-size: calc(10.5px * var(--fs-scale)); margin-top: 4px; overflow-wrap: anywhere; }
+.fastline-artifact-list { border-top: 1px solid var(--border-soft); padding-top: 8px; }
+.fastline-reuse-list { border-top: 1px solid var(--border-soft); padding: 10px 0 8px; }
+.fastline-reuse-title { color: var(--text-3); font-size: calc(10px * var(--fs-scale)); margin-bottom: 4px; }
+.fastline-reuse-item {
+  display: grid; grid-template-columns: minmax(110px, .5fr) minmax(180px, 1.5fr) minmax(100px, .5fr);
+  gap: 12px; padding: 5px 0; color: var(--text-3); font-size: calc(10px * var(--fs-scale));
+}
+.fastline-reuse-item b, .fastline-reuse-item span { min-width: 0; overflow-wrap: anywhere; }
+.fastline-reuse-item b { color: var(--text-2); }
+.fastline-artifact {
+  display: grid; grid-template-columns: minmax(110px, .5fr) minmax(180px, 1fr) minmax(220px, 1.5fr);
+  gap: 12px; padding: 7px 0; color: var(--text-3); font-size: calc(10px * var(--fs-scale));
+}
+.fastline-artifact b, .fastline-artifact span, .fastline-artifact code {
+  min-width: 0; overflow-wrap: anywhere; word-break: break-word;
+}
+.fastline-artifact b { color: var(--text-2); }
+.fastline-artifact code { font-family: var(--mono); }
+.fastline-empty-detail { padding-top: 10px; color: var(--text-3); font-size: calc(10.5px * var(--fs-scale)); }
+
 /* ---------- modal ---------- */
 .modal-bg {
   position: fixed; inset: 0; background: var(--modal-backdrop); backdrop-filter: blur(6px);
@@ -983,6 +1069,14 @@ body:not(.first) .approval-review { animation: none; }
   .stage .sub { max-width: 76px; font-size: calc(9.5px * var(--fs-scale)); }
 
   .board { display: block; }
+  .fastline-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fastline-metric:not(:nth-child(3n + 1)) { padding-left: 0; border-left: 0; }
+  .fastline-metric:nth-child(even) { padding-left: 16px; border-left: 1px solid var(--border-soft); }
+  .fastline-detail-grid { grid-template-columns: 1fr; gap: 12px; }
+  .fastline-artifact { grid-template-columns: minmax(100px, .45fr) minmax(0, 1fr); }
+  .fastline-artifact code { grid-column: 1 / -1; }
+  .fastline-reuse-item { grid-template-columns: minmax(100px, .45fr) minmax(0, 1fr); }
+  .fastline-reuse-item span:last-child { grid-column: 2; }
   .main-col, aside { width: 100%; min-width: 0; }
   aside { margin-top: 20px; }
   aside .panel + .panel { margin-top: 14px; }
@@ -1018,6 +1112,19 @@ body:not(.first) .approval-review { animation: none; }
   .rail { margin: 0 -12px; padding-left: 12px; padding-right: 12px; }
   .stage { flex-basis: 74px; }
   .stage .name, .stage .sub { max-width: 68px; }
+
+  .fastline-status { margin-top: 2px; padding-top: 16px; }
+  .fastline-heading { display: block; }
+  .fastline-heading h2 { font-size: calc(17px * var(--fs-scale)); }
+  .fastline-state { display: block; max-width: 100%; width: fit-content; margin-top: 10px; }
+  .fastline-metrics { grid-template-columns: 1fr; }
+  .fastline-metric, .fastline-metric:not(:nth-child(3n + 1)), .fastline-metric:nth-child(even) {
+    min-height: 0; padding: 12px 0; border-left: 0;
+  }
+  .fastline-artifact { display: block; }
+  .fastline-artifact span, .fastline-artifact code { display: block; margin-top: 4px; }
+  .fastline-reuse-item { display: block; }
+  .fastline-reuse-item span { display: block; margin-top: 4px; }
 
   .script-card {
     padding: 24px 20px 28px;

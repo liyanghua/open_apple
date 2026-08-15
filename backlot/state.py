@@ -11,6 +11,7 @@ import json
 import re
 from functools import lru_cache
 from pathlib import Path
+from statistics import median
 from typing import Any, Optional
 
 from lib.events import read_events
@@ -240,6 +241,9 @@ ARTIFACT_FILES = {
     "final_review": "final_review.json",
     "publish_log": "publish_log.json",
     "decision_log": "decision_log.json",
+    "change_impact": "change_impact.json",
+    "render_plan": "render_plan.json",
+    "production_lock": "production_lock.json",
 }
 
 
@@ -582,10 +586,310 @@ def _last_activity(project_dir: Path) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Fastline production status
+# ---------------------------------------------------------------------------
+
+_BUNDLE_STATUS_PRECEDENCE = {
+    "awaiting_human": 0,
+    "approved": 1,
+    "rejected": 1,
+    "superseded": 2,
+}
+
+_STAGE_TASK_LABELS = {
+    "research": "正在分析参考视频和检查自有素材",
+    "proposal": "正在确定视频方向和卖点顺序",
+    "script": "正在优化口播和字幕文案",
+    "scene_plan": "正在安排镜头顺序和素材时间段",
+    "assets": "正在确认方案、素材和声音配置",
+    "sample": "正在制作样片",
+    "edit": "正在根据反馈调整视频",
+    "compose": "正在生成完整成片",
+    "publish": "正在整理交付文件",
+}
+
+
+def _collect_approval_bundles(project_dir: Path) -> list[dict[str, Any]]:
+    approvals = project_dir / "artifacts" / "approvals"
+    if not approvals.is_dir():
+        return []
+    bundles: list[dict[str, Any]] = []
+    for path in sorted(approvals.glob("*.json")):
+        data = _read_json(path)
+        if data is None or not data.get("bundle_id"):
+            continue
+        data = dict(data)
+        data["_path"] = _rel(project_dir, path)
+        try:
+            data["_mtime_ns"] = path.stat().st_mtime_ns
+        except OSError:
+            data["_mtime_ns"] = 0
+        bundles.append(data)
+    return bundles
+
+
+def _select_registered_bundle(
+    bundles: list[dict[str, Any]], checkpoints: dict[str, dict]
+) -> Optional[dict[str, Any]]:
+    registered: list[tuple[str, int]] = []
+    for checkpoint in checkpoints.values():
+        bundle_id = checkpoint.get("approval_bundle_id")
+        version = checkpoint.get("approval_bundle_version")
+        if isinstance(bundle_id, str) and isinstance(version, int):
+            registered.append((bundle_id, version))
+
+    candidates = bundles
+    if registered:
+        latest_id, latest_version = registered[-1]
+        matched = [
+            bundle for bundle in bundles
+            if bundle.get("bundle_id") == latest_id
+            and bundle.get("bundle_version") == latest_version
+        ]
+        if matched:
+            candidates = matched
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda bundle: (
+            int(bundle.get("bundle_version") or 0),
+            _BUNDLE_STATUS_PRECEDENCE.get(str(bundle.get("status")), -1),
+            int(bundle.get("_mtime_ns") or 0),
+        ),
+    )
+
+
+def _bundle_summary(
+    selected: Optional[dict[str, Any]], bundles: list[dict[str, Any]]
+) -> Optional[dict[str, Any]]:
+    if selected is None:
+        return None
+    version = int(selected.get("bundle_version") or 0)
+    bundle_id = selected.get("bundle_id")
+    previous_candidates = [
+        bundle for bundle in bundles
+        if bundle.get("bundle_id") == bundle_id
+        and int(bundle.get("bundle_version") or 0) < version
+    ]
+    previous = max(
+        previous_candidates,
+        key=lambda bundle: int(bundle.get("bundle_version") or 0),
+        default=None,
+    )
+    current_hashes = {
+        str(ref.get("name")): ref.get("semantic_sha256")
+        for ref in selected.get("artifact_refs") or []
+        if isinstance(ref, dict) and ref.get("name")
+    }
+    previous_hashes = {
+        str(ref.get("name")): ref.get("semantic_sha256")
+        for ref in (previous or {}).get("artifact_refs") or []
+        if isinstance(ref, dict) and ref.get("name")
+    }
+    changed = sorted(
+        name for name in set(current_hashes) | set(previous_hashes)
+        if current_hashes.get(name) != previous_hashes.get(name)
+    ) if previous else []
+    return {
+        "id": bundle_id,
+        "group": selected.get("group"),
+        "version": version,
+        "status": selected.get("status"),
+        "members": list(selected.get("members") or []),
+        "artifacts": [
+            {
+                "name": ref.get("name"),
+                "path": ref.get("path"),
+                "semantic_sha256": ref.get("semantic_sha256"),
+            }
+            for ref in selected.get("artifact_refs") or []
+            if isinstance(ref, dict)
+        ],
+        "changed_artifacts": changed,
+        "path": selected.get("_path"),
+        "rejected_reason": selected.get("rejected_reason"),
+        "superseded_by": selected.get("superseded_by"),
+    }
+
+
+def _cache_summary(events: list[dict[str, Any]]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    hits = misses = 0
+    saved_seconds = 0.0
+    reused: list[dict[str, Any]] = []
+    for event in events:
+        event_type = event.get("event")
+        cache_status = event.get("cache_status")
+        is_hit = event_type == "cache_hit" or cache_status == "hit" or event.get("cache_hit") is True
+        is_miss = event_type == "cache_miss" or cache_status == "miss" or event.get("cache_hit") is False
+        if is_hit:
+            hits += 1
+            saved = event.get("saved_seconds")
+            if isinstance(saved, (int, float)):
+                saved_seconds += max(0.0, float(saved))
+            reused.append({
+                "tool": event.get("tool"),
+                "cache_key": event.get("cache_key"),
+                "reused_from": event.get("reused_from"),
+                "saved_seconds": float(saved) if isinstance(saved, (int, float)) else 0.0,
+            })
+        elif is_miss:
+            misses += 1
+    return {
+        "hits": hits,
+        "misses": misses,
+        "saved_seconds": round(saved_seconds, 1),
+    }, reused[-5:]
+
+
+def _active_operation(events: list[dict[str, Any]]) -> Optional[str]:
+    open_counts: dict[str, int] = {}
+    for event in events:
+        operation = str(event.get("operation") or event.get("tool") or "")
+        if not operation:
+            continue
+        if event.get("event") == "start":
+            open_counts[operation] = open_counts.get(operation, 0) + 1
+        elif event.get("event") in {"finish", "error"} and open_counts.get(operation, 0):
+            open_counts[operation] -= 1
+    return next((name for name, count in reversed(list(open_counts.items())) if count > 0), None)
+
+
+def _eta_summary(events: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    explicit = next(
+        (
+            event for event in reversed(events)
+            if isinstance(event.get("eta_seconds"), (int, float))
+        ),
+        None,
+    )
+    if explicit is not None:
+        return {
+            "seconds": max(0, round(float(explicit["eta_seconds"]))),
+            "confidence": explicit.get("estimate_confidence") or "low",
+            "operation": explicit.get("operation") or explicit.get("tool"),
+        }
+
+    operation = _active_operation(events)
+    if not operation:
+        return None
+    durations = [
+        float(event["duration_s"])
+        for event in events
+        if event.get("event") == "finish"
+        and str(event.get("operation") or event.get("tool") or "") == operation
+        and isinstance(event.get("duration_s"), (int, float))
+        and float(event["duration_s"]) >= 0
+    ][-5:]
+    if not durations:
+        return None
+    return {
+        "seconds": round(median(durations)),
+        "confidence": "high" if len(durations) >= 3 else "low",
+        "operation": operation,
+    }
+
+
+def _current_gate(stages: list[dict[str, Any]], checkpoints: dict[str, dict]) -> Optional[str]:
+    awaiting = next((stage for stage in stages if stage.get("status") == "awaiting_human"), None)
+    if awaiting is None:
+        return None
+    checkpoint = checkpoints.get(str(awaiting.get("name"))) or {}
+    if checkpoint.get("approval_group"):
+        return str(checkpoint["approval_group"])
+    return "sample" if awaiting.get("name") == "sample" else str(awaiting.get("name"))
+
+
+def _task_summary(stages: list[dict[str, Any]], gate: Optional[str]) -> str:
+    if gate == "sample":
+        return "样片已准备好，等待确认效果"
+    if gate == "creative_lock":
+        return "方案与素材已整理好，等待确认"
+    active = next(
+        (stage for stage in stages if stage.get("status") in {"in_progress", "awaiting_human", "failed"}),
+        None,
+    )
+    if active:
+        return _STAGE_TASK_LABELS.get(str(active.get("name")), f"正在处理 {active.get('name')}")
+    pending = next((stage for stage in stages if stage.get("status") == "pending"), None)
+    if pending:
+        return _STAGE_TASK_LABELS.get(str(pending.get("name")), f"准备处理 {pending.get('name')}")
+    return "视频制作已完成"
+
+
+def _render_summary(artifacts: dict[str, dict]) -> dict[str, Any]:
+    impact = artifacts.get("change_impact") or {}
+    render_plan = artifacts.get("render_plan") or {}
+    raw_mode = render_plan.get("mode") or impact.get("route")
+    mode = "full_render" if raw_mode == "full" else raw_mode
+    labels = {
+        "no_render": "内容没有变化，无需重新出片",
+        "mux_only": "只更新声音，无需重做画面",
+        "sample": "正在制作样片",
+        "full_render": "画面有调整，需要重新出片",
+    }
+    return {
+        "mode": mode,
+        "business_label": labels.get(mode, "等待确定本次出片方式"),
+        "dirty_scene_ids": list(impact.get("dirty_scene_ids") or []),
+        "reasons": list(impact.get("reasons") or []),
+    }
+
+
+def _blocker_and_next_action(
+    gate: Optional[str], bundle: Optional[dict[str, Any]], stages: list[dict[str, Any]]
+) -> tuple[Optional[str], str]:
+    if bundle and bundle.get("status") == "superseded":
+        return "已确认内容发生变化，需要重新确认", "请回到任务中确认最新方案与素材"
+    if bundle and bundle.get("status") == "rejected":
+        return "方案与素材需要调整", "调整后重新提交确认"
+    if gate == "creative_lock":
+        return "等待确认方案与素材", "请回到任务中确认方案与素材"
+    if gate == "sample":
+        return "等待确认样片效果", "请回到任务中确认样片效果"
+    failed = next((stage for stage in stages if stage.get("status") == "failed" or stage.get("stalled")), None)
+    if failed:
+        return f"{_STAGE_TASK_LABELS.get(str(failed.get('name')), failed.get('name'))}遇到问题", "请在任务中查看失败原因"
+    pending = next((stage for stage in stages if stage.get("status") == "pending"), None)
+    if pending:
+        return None, _STAGE_TASK_LABELS.get(str(pending.get("name")), f"继续处理 {pending.get('name')}")
+    return None, "成片已完成，可以检查并交付"
+
+
+def _build_fastline_state(
+    project_dir: Path,
+    checkpoints: dict[str, dict],
+    stages: list[dict[str, Any]],
+    artifacts: dict[str, dict],
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    bundles = _collect_approval_bundles(project_dir)
+    bundle = _bundle_summary(_select_registered_bundle(bundles, checkpoints), bundles)
+    gate = _current_gate(stages, checkpoints)
+    cache, reused = _cache_summary(events)
+    blocker, next_action = _blocker_and_next_action(gate, bundle, stages)
+    production_lock = artifacts.get("production_lock") or {}
+    return {
+        "gate": gate,
+        "current_task": _task_summary(stages, gate),
+        "bundle": bundle,
+        "cache": cache,
+        "render": _render_summary(artifacts),
+        "eta": _eta_summary(events),
+        "blocker": blocker,
+        "next_action": next_action,
+        "details": {
+            "reused_items": reused,
+            "production_lock_hash": production_lock.get("semantic_sha256"),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-def load_board_state(project_dir: Path) -> dict[str, Any]:
+def _load_board_state_uncached(project_dir: Path) -> dict[str, Any]:
     """Full BoardState for one project. Never raises."""
     project_dir = Path(project_dir)
     project_id = project_dir.name
@@ -654,8 +958,18 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
         "last_activity": last_activity,
         "live": bool(last_activity and (now - last_activity) < LIVE_WINDOW_SECONDS),
     }
+    state["fastline"] = _build_fastline_state(
+        project_dir, checkpoints, stages, artifacts, events
+    )
     state["poster"] = _find_poster(project_dir, state)
     return state
+
+
+def load_board_state(project_dir: Path) -> dict[str, Any]:
+    """Full BoardState with signature-based reuse between unchanged reads."""
+    from backlot.state_cache import get_cached_board_state
+
+    return get_cached_board_state(Path(project_dir), _load_board_state_uncached)
 
 
 def summarize_project(project_dir: Path) -> dict[str, Any]:
