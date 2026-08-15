@@ -120,7 +120,13 @@
         "kind": {"enum": ["creative_lock", "sample", "stage"]},
         "label": {"type": "string", "minLength": 1},
         "summary": {"type": "string", "minLength": 1},
-        "subject_version": {"type": "integer", "minimum": 0}
+        "subject_version": {"type": "integer", "minimum": 0},
+        "review_id": {"type": "string", "minLength": 1},
+        "actions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["批准", "拒绝"]}
+        }
       },
       "additionalProperties": false
     },

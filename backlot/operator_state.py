@@ -435,5 +435,30 @@ def project_operator_state(board_state: Mapping[str, Any]) -> dict[str, Any]:
     return state
 
 
-def load_operator_state(project_dir: Path) -> dict[str, Any]:
-    return project_operator_state(load_board_state(Path(project_dir)))
+def load_operator_state(
+    project_dir: Path, *, permissions: tuple[str, ...] = ("view",)
+) -> dict[str, Any]:
+    project_dir = Path(project_dir)
+    state = project_operator_state(load_board_state(project_dir))
+    if (project_dir / "operator" / "operator-managed").exists():
+        from backlot.operator_reviews import ReviewService
+
+        review = ReviewService(project_dir).pending()
+        if review is None:
+            state["pending_review"] = None
+        else:
+            kind_label = "创意方案" if review["kind"] == "creative_lock" else "样片"
+            state["pending_review"] = {
+                "kind": review["kind"],
+                "label": f"请确认{kind_label}",
+                "summary": "内容已准备完成，等待人工确认",
+                "subject_version": review["subject_version"],
+                "review_id": review["review_id"],
+                "actions": ["批准", "拒绝"] if "review" in permissions else [],
+            }
+    state["permissions"] = [
+        item for item in ("view", "edit", "review", "manage") if item in permissions
+    ]
+    state["revision"] = operator_revision(state)
+    validate_operator_state(state)
+    return state
