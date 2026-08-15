@@ -296,6 +296,7 @@ class ToolRegistry:
                 "operation_statuses",
                 "resource_profiles",
                 "resource_profile_note",
+                "remotion_runtime",
             ):
                 if extra_key in info:
                     entry[extra_key] = info[extra_key]

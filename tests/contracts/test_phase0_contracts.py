@@ -599,3 +599,10 @@ class TestMediaProfiles:
     def test_unknown_profile_raises(self):
         with pytest.raises(ValueError):
             get_profile("nonexistent")
+
+    def test_social_vertical_fastline_profile(self):
+        profile = get_profile("social_vertical_1080p30")
+        args = ffmpeg_output_args(profile)
+        assert (profile.width, profile.height, profile.fps) == (1080, 1920, 30)
+        assert args[args.index("-ar") + 1] == "48000"
+        assert args[args.index("-ac") + 1] == "2"

@@ -34,6 +34,11 @@
           "provider": { "type": "string", "description": "Provider name (e.g. pixabay, google_imagen)" },
           "license": { "type": "string", "description": "License type (e.g. Pixabay License, CC0)" },
           "original_url": { "type": "string", "description": "Source URL if downloaded from a stock service" },
+          "source_content_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "proxy_cache_key": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "profile": { "type": "object", "additionalProperties": true },
+          "proxy_profile": { "type": "object", "additionalProperties": true },
+          "source_path": { "type": "string" },
           "voice_performance": {
             "type": "object",
             "description": "Applied voice-performance contract for narration assets.",

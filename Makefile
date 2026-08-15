@@ -98,7 +98,7 @@ test-contracts: ensure-venv
 # ---- Utilities ----
 
 preflight: ensure-venv
-	$(RUN_PYTHON) -c "from tools.tool_registry import registry; import json; registry.discover(); print(json.dumps(registry.provider_menu(), indent=2))"
+	$(RUN_PYTHON) -c "from tools.tool_registry import registry; from lib.remotion_runtime import probe_remotion_runtime; import json; registry.discover(); print(json.dumps(registry.provider_menu_summary(), ensure_ascii=False, indent=2)); print(json.dumps({'remotion_runtime': probe_remotion_runtime()}, ensure_ascii=False, indent=2))"
 
 hyperframes-doctor: ensure-venv
 	@echo "==> Probing HyperFrames runtime (node/ffmpeg/npx + hyperframes doctor)..."

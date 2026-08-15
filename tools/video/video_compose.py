@@ -278,6 +278,11 @@ class VideoCompose(BaseTool):
             "remotion": remotion_ok,
             "hyperframes": hyperframes_ok,
         }
+        try:
+            from lib.remotion_runtime import probe_remotion_runtime
+            info["remotion_runtime"] = probe_remotion_runtime()
+        except Exception as exc:
+            info["remotion_runtime"] = {"warnings": [f"runtime probe failed: {exc}"]}
         # Backwards-compat alias — some proposal skills inspect this name.
         info["render_runtimes"] = info["render_engines"]
 

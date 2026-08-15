@@ -34,6 +34,8 @@ class MediaProfile:
     max_file_size_mb: Optional[float] = None
     max_duration_seconds: Optional[float] = None
     caption_format: str = "srt"
+    audio_sample_rate: int = 48000
+    audio_channels: int = 2
     notes: str = ""
 
 
@@ -127,6 +129,13 @@ GENERIC_HD = MediaProfile(
     notes="Generic HD output (no platform-specific constraints)",
 )
 
+SOCIAL_VERTICAL_1080P30 = MediaProfile(
+    name="social_vertical_1080p30", width=1080, height=1920,
+    aspect_ratio=AspectRatio.PORTRAIT_9_16, fps=30, codec="libx264",
+    audio_codec="aac", crf=18, pixel_format="yuv420p", caption_format="srt",
+    notes="抖音/视频号/小红书竖屏快线交付 profile",
+)
+
 
 # ---- Profile registry ----
 
@@ -134,7 +143,7 @@ ALL_PROFILES: dict[str, MediaProfile] = {
     p.name: p for p in [
         YOUTUBE_LANDSCAPE, YOUTUBE_4K, YOUTUBE_SHORTS,
         INSTAGRAM_REELS, INSTAGRAM_FEED,
-        TIKTOK, LINKEDIN, CINEMATIC, GENERIC_HD,
+        TIKTOK, LINKEDIN, CINEMATIC, GENERIC_HD, SOCIAL_VERTICAL_1080P30,
     ]
 }
 
@@ -160,6 +169,8 @@ def ffmpeg_output_args(profile: MediaProfile) -> list[str]:
         "-crf", str(profile.crf),
         "-pix_fmt", profile.pixel_format,
         "-r", str(profile.fps),
+        "-ar", str(profile.audio_sample_rate),
+        "-ac", str(profile.audio_channels),
         "-vf", f"scale={profile.width}:{profile.height}",
     ]
     return args
