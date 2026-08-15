@@ -163,8 +163,20 @@ When `human_approval_default: true`:
    representative frame — see `skills/meta/bespoke-composition.md`); the board
    shows those on the filmstrip. Refresh `metadata.partial_progress` as stills
    land, then STOP at the gate. The draft/final render is the **compose**
-   stage — it runs only after the assets gate is approved. Rendering a full
-   draft inside the assets stage jumps the gate the user is meant to hold.
+	stage — it runs only after the assets gate is approved. Rendering a full
+	draft inside the assets stage jumps the gate the user is meant to hold.
+
+### Grouped Gates (Cinematic Fastline)
+
+For `cinematic-fast`, `approval_groups` is the binding gate definition. The
+`proposal`, `script`, `scene_plan` and `assets` checkpoints form one
+`creative_lock` bundle; only the terminal `assets` checkpoint pauses for
+approval. A rejected or hash-mismatched bundle leaves the terminal stage
+pending and requires a revised bundle. After creative approval, `sample` is
+the second and final human stop before edit/compose. A lock diff that changes
+provider, voice, narration, CTA, runtime or composition returns to
+`creative_lock`; caption/scene timing returns to `sample`; gain/LUFS-only
+changes may use validated `mux_only` without reopening either gate.
 
 ### Step 6: Determine Next Stage
 
