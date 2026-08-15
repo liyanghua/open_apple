@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openmontage.local/schemas/backlot/mutation_result.schema.json",
+  "title": "MutationResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "action_id", "result_revision", "status", "links"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "action_id": {"type": "string", "minLength": 1},
+    "result_revision": {"type": "string", "minLength": 1},
+    "status": {"enum": ["committed", "accepted", "discarded"]},
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rel", "href"],
+        "properties": {
+          "rel": {"type": "string", "minLength": 1},
+          "href": {"type": "string", "pattern": "^/"}
+        }
+      }
+    }
+  }
+}

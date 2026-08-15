@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openmontage.local/schemas/backlot/operator_revision.schema.json",
+  "title": "OperatorRevision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "revision_id", "parent_revision_id", "project_id", "artifact_name", "base_semantic_sha256", "result_semantic_sha256", "actor_id", "reason", "created_at", "snapshot", "changes"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "revision_id": {"type": "string", "minLength": 1},
+    "parent_revision_id": {"type": ["string", "null"]},
+    "project_id": {"type": "string", "minLength": 1},
+    "artifact_name": {"type": "string", "minLength": 1},
+    "base_semantic_sha256": {"type": ["string", "null"], "pattern": "^[a-fA-F0-9]{64}$"},
+    "result_semantic_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+    "actor_id": {"type": "string", "minLength": 1},
+    "reason": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "snapshot": {"type": "object"},
+    "changes": {"type": "array", "items": {"$ref": "#/$defs/change"}}
+  },
+  "$defs": {
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "label", "before", "after"],
+      "properties": {
+        "field": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1},
+        "before": {"type": ["string", "number", "boolean", "null"]},
+        "after": {"type": ["string", "number", "boolean", "null"]}
+      }
+    }
+  }
+}
