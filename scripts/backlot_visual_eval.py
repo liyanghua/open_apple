@@ -40,9 +40,9 @@ SHOTS = [
         (790, 106, 1122, 380),
         (1140, 106, 1472, 380),
     ]),
-    ("board-live", "/p/signal-in-the-static?static=1", 1560, 1150, 4200, []),
-    ("script-gate", "/p/the-slow-orchard?static=1", 1560, 760, 3200, []),
-    ("storyboard", "/p/the-last-lighthouse?static=1", 1560, 1500, 4200, []),
+    ("board-live", "/diagnostics/p/signal-in-the-static?static=1", 1560, 1150, 4200, []),
+    ("script-gate", "/diagnostics/p/the-slow-orchard?static=1", 1560, 760, 3200, []),
+    ("storyboard", "/diagnostics/p/the-last-lighthouse?static=1", 1560, 1500, 4200, []),
 ]
 
 
@@ -171,7 +171,7 @@ def run_interactions(capture_dir: Path) -> dict[str, Any]:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1560, "height": 1000})
-        page.goto(f"http://127.0.0.1:{PORT}/p/the-last-lighthouse?static=1")
+        page.goto(f"http://127.0.0.1:{PORT}/diagnostics/p/the-last-lighthouse?static=1")
         page.wait_for_selector(".stage")
         page.locator(".stage").first.click()
         page.wait_for_selector(".drawer")

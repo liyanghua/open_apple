@@ -1,9 +1,17 @@
-# Backlot — the living storyboard
+# Backlot 项目工作台
 
-A read-only local board that shows a production happening: pipeline stages
-lighting up, the script as a screenplay page, the scene plan as a filmstrip
-that fills in as assets generate, decisions, spend, and activity — all
-derived from what the pipeline already writes to `projects/<id>/`.
+Backlot 默认项目页是面向一线运营的全中文只读工作台。它展示项目总进度、当前任务、
+预计时间、下一步以及九个业务阶段，不展开原始制作数据。
+
+- 运营页：`/p/<project-id>`
+- 诊断页：`/diagnostics/p/<project-id>`
+- 运营状态：`/api/v2/projects/<project-id>/operator-state`
+- 运营更新：`/api/v2/projects/<project-id>/events`
+
+Milestone 1 状态为 `internal/trial`。当前版本只支持查看；内容编辑、身份认证、项目权限
+和 Agent 对话将在后续里程碑开放。
+
+## 本地运行
 
 ```bash
 python -m backlot open <project-id>   # start server if needed + open browser
@@ -11,10 +19,10 @@ python -m backlot open                # library view (all projects)
 python -m backlot serve --port 4750   # run the server in the foreground
 ```
 
-## How it stays live
+## 状态更新
 
-No agent involvement. A `watchfiles` watcher on `projects/` publishes change
-notifications over SSE; the browser refetches board state. State sources:
+`watchfiles` 监听 `projects/` 下的变化并通过 SSE 通知浏览器刷新。旧工程看板仍在诊断页
+保留，供开发和排障使用。
 
 | Board element | Disk source |
 |---|---|
