@@ -319,10 +319,6 @@ def create_app() -> FastAPI:
     async def diagnostic_board_page(project_id: str) -> HTMLResponse:
         return _ui_html("board.html", ("board.css", "board.js"))
 
-    @app.get("/diagnostics/p/{project_path:path}")
-    async def diagnostic_board_page_path(project_path: str) -> HTMLResponse:
-        return _ui_html("board.html", ("board.css", "board.js"))
-
     @app.get("/p/{project_id}")
     async def board_page(project_id: str) -> HTMLResponse:
         return _ui_html("board.html", ("board.css", "board.js"))

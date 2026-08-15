@@ -28,7 +28,7 @@ def projects_root(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def client(projects_root, monkeypatch):
+def backlot_client(projects_root, monkeypatch):
     async def no_watch():
         return None
 
@@ -39,28 +39,37 @@ def client(projects_root, monkeypatch):
 
 @pytest.fixture
 def make_project():
-    def build(root: Path, project_id: str = "film", pipeline_type: str = "cinematic") -> Path:
+    def build(
+        root: Path,
+        project_id: str = "film",
+        pipeline_type: str = "cinematic",
+    ) -> Path:
         project = root / project_id
         (project / "artifacts").mkdir(parents=True)
         (project / "assets" / "images").mkdir(parents=True)
         (project / "assets" / "video").mkdir(parents=True)
         (project / "renders").mkdir(parents=True)
-        (project / "project.json").write_text(json.dumps({
-            "project_id": project_id,
-            "title": "透明桌垫",
-            "pipeline_type": pipeline_type,
-            "created_at": "2026-08-15T00:00:00Z",
-        }), encoding="utf-8")
-        (project / "checkpoint_script.json").write_text(json.dumps({
-            "version": "1.0",
-            "project_id": project_id,
-            "pipeline_type": pipeline_type,
-            "stage": "script",
-            "status": "awaiting_human",
-            "timestamp": "2026-08-15T00:01:00Z",
-            "artifacts": {},
-        }), encoding="utf-8")
+        (project / "project.json").write_text(
+            json.dumps({
+                "project_id": project_id,
+                "title": "Film",
+                "pipeline_type": pipeline_type,
+                "created_at": "2026-07-02T00:00:00Z",
+            }),
+            encoding="utf-8",
+        )
+        (project / "checkpoint_script.json").write_text(
+            json.dumps({
+                "version": "1.0",
+                "project_id": project_id,
+                "pipeline_type": pipeline_type,
+                "stage": "script",
+                "status": "awaiting_human",
+                "timestamp": "2026-07-02T00:01:00Z",
+                "artifacts": {},
+            }),
+            encoding="utf-8",
+        )
         return project
 
     return build
-
