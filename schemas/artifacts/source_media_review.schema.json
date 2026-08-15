@@ -52,6 +52,24 @@
             "items": { "type": "string" },
             "description": "Paths to sampled frames (video/image only)"
           },
+          "scenes": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": true}
+          },
+          "best_ranges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["start_seconds", "end_seconds"],
+              "additionalProperties": false,
+              "properties": {
+                "start_seconds": {"type": "number", "minimum": 0},
+                "end_seconds": {"type": "number", "exclusiveMinimum": 0}
+              }
+            }
+          },
+          "usable_audio": {"type": "boolean"},
+          "transcription_skipped_reason": {"type": "string", "minLength": 1},
           "quality_risks": {
             "type": "array",
             "items": { "type": "string" },

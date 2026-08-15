@@ -216,6 +216,7 @@ def review_source_media(
     files: list[Path],
     context: dict[str, Any],
     tool_registry: Any = None,
+    media_index: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Review user-supplied media files and produce a source_media_review artifact.
 
@@ -237,6 +238,11 @@ def review_source_media(
         except Exception:
             pass
 
+    indexed_by_path = {
+        str(Path(entry["path"])): entry
+        for entry in (media_index or {}).get("entries", [])
+        if isinstance(entry, dict) and entry.get("path")
+    }
     reviewed_files: list[dict[str, Any]] = []
     all_implications: list[str] = []
     summaries: list[str] = []
@@ -257,8 +263,17 @@ def review_source_media(
             "reviewed": True,
         }
 
-        # Probe based on media type
-        if media_type == "video":
+        indexed = indexed_by_path.get(str(file_path))
+        if indexed is not None:
+            probe_data = {
+                "technical_probe": indexed.get("probe", {}),
+                "quality_risks": indexed.get("quality_risks", []),
+                "representative_frames": indexed.get("representative_frames", []),
+            }
+            entry["scenes"] = indexed.get("scenes", [])
+            entry["best_ranges"] = indexed.get("best_ranges", [])
+            entry["usable_audio"] = bool(indexed.get("audio", {}).get("usable"))
+        elif media_type == "video":
             probe_data = _probe_video(file_path, tool_registry)
         elif media_type == "audio":
             probe_data = _probe_audio(file_path, tool_registry)
@@ -269,8 +284,16 @@ def review_source_media(
         entry["quality_risks"] = probe_data.get("quality_risks", [])
         entry["representative_frames"] = probe_data.get("representative_frames", [])
 
-        # Attempt transcription for audio/video
-        transcript = _transcribe_if_available(file_path, media_type, tool_registry)
+        has_audio = bool(entry["technical_probe"].get("audio_codec"))
+        if indexed is not None:
+            has_audio = bool(indexed.get("audio", {}).get("has_track"))
+        transcript = None
+        if media_type in ("video", "audio") and has_audio:
+            transcript = _transcribe_if_available(file_path, media_type, tool_registry)
+            if not transcript:
+                entry["transcription_skipped_reason"] = "transcriber_unavailable_or_no_speech"
+        elif media_type in ("video", "audio"):
+            entry["transcription_skipped_reason"] = "no_audio_track"
         if transcript:
             entry["transcript_summary"] = transcript
 

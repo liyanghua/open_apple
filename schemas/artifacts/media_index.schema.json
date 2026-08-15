@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/media_index",
+  "title": "Media Index",
+  "type": "object",
+  "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "analysis_version", "entries"],
+  "properties": {
+    "version": {"type": "string"}, "project_id": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"}, "producer": {"type": "string", "minLength": 1},
+    "input_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+    "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "analysis_version": {"type": "string", "minLength": 1},
+    "entries": {"type": "array", "items": {"$ref": "#/$defs/entry"}}
+  },
+  "$defs": {
+    "entry": {"type": "object", "required": ["path", "media_type", "fingerprint", "probe", "scenes", "representative_frames", "audio", "best_ranges", "quality_risks"], "additionalProperties": false, "properties": {
+      "path": {"type": "string", "minLength": 1}, "media_type": {"type": "string", "enum": ["video", "audio", "image"]},
+      "fingerprint": {"type": "object", "required": ["content_sha256", "size_bytes", "mtime_ns"], "additionalProperties": false, "properties": {
+        "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "size_bytes": {"type": "integer", "minimum": 0}, "mtime_ns": {"oneOf": [{"type": "integer", "minimum": 0}, {"type": "string", "pattern": "^[0-9]+$"}]}
+      }},
+      "probe": {"type": "object", "additionalProperties": true}, "scenes": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+      "representative_frames": {"type": "array", "items": {"type": "string"}},
+      "audio": {"type": "object", "required": ["has_track", "usable"], "additionalProperties": false, "properties": {"has_track": {"type": "boolean"}, "usable": {"type": "boolean"}}},
+      "best_ranges": {"type": "array", "items": {"type": "object", "required": ["start_seconds", "end_seconds"], "additionalProperties": false, "properties": {"start_seconds": {"type": "number", "minimum": 0}, "end_seconds": {"type": "number", "exclusiveMinimum": 0}}}},
+      "quality_risks": {"type": "array", "items": {"type": "string"}}
+    }}
+  },
+  "additionalProperties": false
+}

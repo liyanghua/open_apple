@@ -11,8 +11,10 @@ the structured data; the agent provides the visual interpretation.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -99,6 +101,11 @@ class VideoAnalyzer(BaseTool):
                 "type": "string",
                 "description": "Directory for analysis outputs (default: auto-generated)",
             },
+            "project_dir": {
+                "type": "string",
+                "description": "Project root used to persist the registered reference fingerprint",
+            },
+            "analysis_version": {"type": "string", "default": "1"},
         },
     }
 
@@ -123,6 +130,20 @@ class VideoAnalyzer(BaseTool):
         "Check transcript accuracy against video",
         "Verify scene boundaries look correct",
     ]
+
+    def idempotency_key(self, inputs: dict[str, Any]) -> str:
+        from lib.media_index import analysis_cache_key
+
+        return analysis_cache_key(
+            tool_name=self.name,
+            tool_version=self.version,
+            source=inputs["source"],
+            parameters={
+                "analysis_version": inputs.get("analysis_version", "1"),
+                "analysis_depth": inputs.get("analysis_depth", "standard"),
+                "max_keyframes": inputs.get("max_keyframes", 20),
+            },
+        )
 
     def _is_url(self, source: str) -> bool:
         """Check if source is a URL vs local file."""
@@ -573,6 +594,16 @@ class VideoAnalyzer(BaseTool):
 
         self._save_brief(brief, output_dir)
 
+        if depth == "deep" and not is_url and inputs.get("project_dir"):
+            self._write_reference_fingerprint(
+                source=Path(source),
+                depth=depth,
+                max_keyframes=max_keyframes,
+                analysis_version=inputs.get("analysis_version", "1"),
+                project_dir=Path(inputs["project_dir"]),
+                brief=brief,
+            )
+
         elapsed = time.time() - start
         artifacts = [str(output_dir / "video_analysis_brief.json")]
         if keyframe_dir.exists():
@@ -598,6 +629,55 @@ class VideoAnalyzer(BaseTool):
         result = self.run_command(cmd)
         data = json.loads(result.stdout)
         return float(data.get("format", {}).get("duration", 0))
+
+    def _write_reference_fingerprint(
+        self,
+        *,
+        source: Path,
+        depth: str,
+        max_keyframes: int,
+        analysis_version: str,
+        project_dir: Path,
+        brief: dict[str, Any],
+    ) -> dict[str, Any]:
+        from lib.artifact_hashing import canonical_bytes
+        from lib.artifact_io import write_artifact_atomic
+        from lib.media_index import fingerprint_media
+
+        fingerprint = fingerprint_media(source)
+        canonical_request = {
+            "content_sha256": fingerprint.content_sha256,
+            "analysis_depth": depth,
+            "max_keyframes": max_keyframes,
+            "analysis_version": analysis_version,
+            "analyzer_version": self.version,
+        }
+        structure = brief.get("structure_analysis", {})
+        abstract_structure = {
+            "total_scenes": structure.get("total_scenes", 0),
+            "pacing_profile": structure.get("pacing_profile", {}),
+            "style_profile": brief.get("style_profile", {}),
+        }
+        raw = {
+            "version": "1.0",
+            "project_id": project_dir.name,
+            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "producer": self.name,
+            "input_hashes": {"reference": fingerprint.content_sha256},
+            "content_sha256": fingerprint.content_sha256,
+            "analysis_depth": depth,
+            "analyzer_version": self.version,
+            "canonical_request": canonical_request,
+            "output_digest": hashlib.sha256(canonical_bytes(brief)).hexdigest(),
+            "abstract_structure": abstract_structure,
+        }
+        envelope = write_artifact_atomic(
+            "artifacts/reference_fingerprint.json",
+            "reference_fingerprint",
+            raw,
+            project_dir=project_dir,
+        )
+        return envelope["data"]
 
     def _compute_keyframe_timestamps(
         self, scenes: list[dict], max_frames: int, depth: str

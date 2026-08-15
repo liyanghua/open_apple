@@ -76,6 +76,21 @@ class SceneDetect(BaseTool):
         "Spot-check detected scene boundaries against the video",
     ]
 
+    def idempotency_key(self, inputs: dict[str, Any]) -> str:
+        from lib.media_index import analysis_cache_key
+
+        return analysis_cache_key(
+            tool_name=self.name,
+            tool_version=self.version,
+            source=inputs["input_path"],
+            parameters={
+                "analysis_version": inputs.get("analysis_version", "1"),
+                "method": inputs.get("method", "content"),
+                "threshold": inputs.get("threshold"),
+                "min_scene_length_seconds": inputs.get("min_scene_length_seconds", 1.0),
+            },
+        )
+
     def _has_pyscenedetect(self) -> bool:
         try:
             import scenedetect  # noqa: F401

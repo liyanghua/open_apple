@@ -99,6 +99,30 @@ class FrameSampler(BaseTool):
     side_effects = ["writes frame images to output_dir"]
     user_visible_verification = ["Inspect extracted frames for representative coverage"]
 
+    def idempotency_key(self, inputs: dict[str, Any]) -> str:
+        from lib.media_index import analysis_cache_key
+
+        strategy = inputs.get("strategy", "count")
+        parameters = {
+            "analysis_version": inputs.get("analysis_version", "1"),
+            "strategy": strategy,
+            "format": inputs.get("format", "jpg"),
+            "quality": inputs.get("quality", 2),
+        }
+        for field in {
+            "interval": ("interval_seconds",),
+            "count": ("count",),
+            "timestamps": ("timestamps",),
+            "scene_guided": ("scene_boundaries", "max_frames"),
+        }.get(strategy, ()):
+            parameters[field] = inputs.get(field)
+        return analysis_cache_key(
+            tool_name=self.name,
+            tool_version=self.version,
+            source=inputs["input_path"],
+            parameters=parameters,
+        )
+
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         input_path = Path(inputs["input_path"])
         if not input_path.exists():
