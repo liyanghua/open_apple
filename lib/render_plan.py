@@ -18,6 +18,16 @@ class MasterValidation:
     probe: dict[str, Any] = field(default_factory=dict)
 
 
+def validate_sample_window(start_frame: int, end_frame_exclusive: int) -> tuple[int, int]:
+    start, end = int(start_frame), int(end_frame_exclusive)
+    duration = end - start
+    if start < 0 or duration < 300 or duration > 450:
+        raise ValueError("sample window must contain 300-450 frames")
+    if end <= start:
+        raise ValueError("sample window must be half-open with endFrameExclusive > startFrame")
+    return start, end
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:

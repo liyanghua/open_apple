@@ -11,7 +11,7 @@
     "window": {"type": "object", "required": ["startFrame", "endFrameExclusive", "scale"], "additionalProperties": false, "properties": {"startFrame": {"type": "integer", "minimum": 0}, "endFrameExclusive": {"type": "integer", "minimum": 1}, "scale": {"type": "number", "const": 0.5}}},
     "output_path": {"type": "string", "minLength": 1},
     "probe": {"type": "object", "required": ["width", "height", "fps", "frame_count"], "additionalProperties": true, "properties": {"width": {"type": "integer", "const": 540}, "height": {"type": "integer", "const": 960}, "fps": {"type": "number", "const": 30}, "frame_count": {"type": "integer", "minimum": 1}}},
-    "qa": {"type": "object", "additionalProperties": true}, "status": {"type": "string", "enum": ["pass", "revise", "fail"]}
+    "qa": {"type": "object", "additionalProperties": true}, "cache_key": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "status": {"type": "string", "enum": ["pass", "revise", "fail"]}
   },
   "additionalProperties": false
 }

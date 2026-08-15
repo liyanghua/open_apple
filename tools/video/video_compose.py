@@ -1558,6 +1558,9 @@ class VideoCompose(BaseTool):
                 output_path.unlink(missing_ok=True)
                 return ToolResult(success=False, data={"requires_full_render": True, "remotion_invoked": False}, error=f"mux_only copy failed: {exc}")
 
+        if isinstance(render_plan, dict) and render_plan.get("mode") == "sample":
+            return self._render_sample(inputs, render_plan)
+
         # --- Atelier (bespoke) mode -------------------------------------
         # Hand-authored, project-local Remotion composition. Deliberately
         # bypasses the cut-schema, the stock scene-type registry, and the
@@ -1715,6 +1718,37 @@ class VideoCompose(BaseTool):
                 )
 
         return render_result
+
+    def _render_sample(self, inputs: dict[str, Any], render_plan: dict[str, Any]) -> ToolResult:
+        """Render a half-open window from the same final props at half scale."""
+        from lib.cache_keys import canonical_digest
+        from lib.render_plan import validate_sample_window
+        sample = render_plan.get("sample") or {}
+        try:
+            start, end = validate_sample_window(sample["startFrame"], sample["endFrameExclusive"])
+        except (KeyError, TypeError, ValueError) as exc:
+            return ToolResult(success=False, data={"render_mode": "sample"}, error=str(exc))
+        key = canonical_digest({
+            "tool": self.name, "tool_version": self.version, "render_plan": render_plan,
+            "final_props_hash": render_plan.get("final_props_hash"),
+            "audio_hash": (render_plan.get("audio") or {}).get("sha256"),
+            "window": [start, end], "scale": 0.5,
+        })
+        project_dir = Path(inputs.get("project_dir", "projects"))
+        output_path = Path(render_plan.get("output_path") or project_dir / "assets" / "sample" / f"sample-{key}.mp4")
+        if output_path.is_file():
+            return ToolResult(success=True, data={"render_mode": "sample", "cache_status": "hit", "cache_hit": True, "cache_key": key, "output": str(output_path), "window": {"startFrame": start, "endFrameExclusive": end}, "remotion_invoked": False}, artifacts=[str(output_path)], cost_usd=0.0)
+        sample_inputs = dict(inputs)
+        sample_inputs.update({
+            "output_path": str(output_path), "profile": inputs.get("profile", "social_vertical_1080p30"),
+            "sample_frames": f"{start}-{end - 1}", "remotion_width": 540, "remotion_height": 960,
+        })
+        result = self._remotion_render(sample_inputs)
+        if not result.success:
+            result.data.update({"render_mode": "sample", "cache_key": key, "window": {"startFrame": start, "endFrameExclusive": end}, "remotion_invoked": True})
+            return result
+        result.data.update({"render_mode": "sample", "cache_status": "miss", "cache_hit": False, "cache_key": key, "window": {"startFrame": start, "endFrameExclusive": end}, "sample_report": {"final_props_hash": render_plan.get("final_props_hash"), "render_plan_hash": render_plan.get("semantic_sha256"), "status": "pass"}, "remotion_invoked": True})
+        return result
 
     def _render_via_hyperframes(
         self,
@@ -2010,6 +2044,12 @@ class VideoCompose(BaseTool):
                 cmd.extend(["--width", str(p.width), "--height", str(p.height)])
             except (ImportError, ValueError):
                 pass
+        if inputs.get("remotion_width") is not None:
+            cmd.extend(["--width", str(int(inputs["remotion_width"]))])
+        if inputs.get("remotion_height") is not None:
+            cmd.extend(["--height", str(int(inputs["remotion_height"]))])
+        if inputs.get("sample_frames"):
+            cmd.append(f"--frames={inputs['sample_frames']}")
 
         # Optional creator-facing render timeout. Remotion's `--timeout` (ms)
         # governs headless-browser setup and delayRender(); on slow machines or
