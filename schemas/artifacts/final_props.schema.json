@@ -3,17 +3,24 @@
   "$id": "https://openmontage.local/schemas/artifacts/final_props.schema.json",
   "title": "Final render properties",
   "type": "object",
-  "required": ["compositionId", "fps", "width", "height", "durationInFrames", "footage", "scenes", "captions", "audio"],
+  "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "compositionId", "fps", "width", "height", "durationInFrames", "footage", "scenes", "captions", "audio"],
   "properties": {
+    "version": {"type": "string", "minLength": 1},
+    "project_id": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "producer": {"type": "string", "minLength": 1},
+    "input_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+    "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "compositionId": {"type": "string", "minLength": 1},
-    "fps": {"type": "integer", "exclusiveMinimum": 0},
+    "fps": {"type": "integer", "const": 30},
     "width": {"type": "integer", "exclusiveMinimum": 0},
     "height": {"type": "integer", "exclusiveMinimum": 0},
     "durationInFrames": {"type": "integer", "exclusiveMinimum": 0},
     "footage": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string", "minLength": 1}},
     "scenes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/scene"}},
     "captions": {"type": "array", "items": {"type": "object", "required": ["text", "startMs", "endMs"], "properties": {"text": {"type": "string"}, "startMs": {"type": "number", "minimum": 0}, "endMs": {"type": "number", "exclusiveMinimum": 0}}, "additionalProperties": true}},
-    "audio": {"type": "object", "required": ["mix"], "properties": {"mix": {"type": "string", "minLength": 1}}, "additionalProperties": true}
+    "audio": {"type": "object", "required": ["mix"], "properties": {"mix": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "object", "additionalProperties": true}]}}, "additionalProperties": true}
   },
   "$defs": {
     "scene": {

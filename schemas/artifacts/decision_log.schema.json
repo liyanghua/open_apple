@@ -8,6 +8,11 @@
   "properties": {
     "version": { "type": "string", "const": "1.0" },
     "project_id": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "producer": { "type": "string", "minLength": 1 },
+    "input_hashes": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
+    "semantic_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "decisions": {
       "type": "array",
       "items": {

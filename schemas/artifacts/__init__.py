@@ -31,6 +31,17 @@ ARTIFACT_NAMES = [
     "final_review",
     "character_qa_report",
     "video_analysis_brief",
+    # Fastline artifacts.  They are registered here so checkpoint validation
+    # and the Backlot can treat them like the original stage artifacts.
+    "media_index",
+    "reference_fingerprint",
+    "production_lock",
+    "approval_bundle",
+    "asset_plan",
+    "change_impact",
+    "render_plan",
+    "final_props",
+    "sample_report",
 ]
 
 

@@ -436,37 +436,61 @@ def _archive_superseded_checkpoint(path: Path, stage: str) -> None:
 
 
 def _decision_log_path(pipeline_dir: Path, project_id: str) -> Path:
+    from lib.artifact_io import canonical_artifact_path
+
+    return canonical_artifact_path(pipeline_dir / project_id, "decision_log")
+
+
+def _legacy_decision_log_path(pipeline_dir: Path, project_id: str) -> Path:
+    """The pre-v2 root log is read-only compatibility, never a write target."""
     return pipeline_dir / project_id / "decision_log.json"
 
 
 def _merge_decision_log(
     pipeline_dir: Path, project_id: str, new_log: dict[str, Any]
 ) -> None:
-    """Append new decisions to the project-level decision log.
+    """Append new decisions to the canonical artifact decision log.
 
-    Each stage may produce decisions. This function merges them into a
-    single cumulative file so reviewers and the bench can inspect the
-    full audit trail.
+    The legacy project-root file is only read as a migration source.  The
+    final write goes through ``write_artifact_atomic`` so a failed checkpoint
+    validation cannot leave a partially updated decision log behind.
     """
     path = _decision_log_path(pipeline_dir, project_id)
-    if path.exists():
-        with open(path, encoding="utf-8") as f:
+    legacy_path = _legacy_decision_log_path(pipeline_dir, project_id)
+    source = path if path.exists() else legacy_path
+    if source.exists():
+        with open(source, encoding="utf-8") as f:
             existing = json.load(f)
     else:
-        existing = {
-            "version": "1.0",
-            "project_id": project_id,
-            "decisions": [],
-        }
+        existing = {"version": "1.0", "project_id": project_id, "decisions": []}
+    if isinstance(existing, dict) and isinstance(existing.get("data"), dict):
+        existing = existing["data"]
+    if not isinstance(existing, dict):
+        raise CheckpointValidationError("Decision log must be a JSON object")
 
-    existing_ids = {d["decision_id"] for d in existing.get("decisions", [])}
+    existing_ids = {
+        d.get("decision_id")
+        for d in existing.get("decisions", [])
+        if isinstance(d, dict) and d.get("decision_id")
+    }
     for decision in new_log.get("decisions", []):
-        if decision.get("decision_id") not in existing_ids:
+        if isinstance(decision, dict) and decision.get("decision_id") not in existing_ids:
             existing["decisions"].append(decision)
+            existing_ids.add(decision["decision_id"])
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(existing, f, indent=2)
+    # Do not carry stale hash values into the new calculation.  The schema
+    # accepts these fields for canonical v2 logs while remaining compatible
+    # with older raw decision logs.
+    for field in ("created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256"):
+        existing.pop(field, None)
+    from lib.artifact_io import write_artifact_atomic
+
+    write_artifact_atomic(
+        "artifacts/decision_log.json",
+        "decision_log",
+        existing,
+        project_dir=pipeline_dir / project_id,
+    )
 
 
 def write_checkpoint(
@@ -583,25 +607,27 @@ def write_checkpoint(
     if approval_bundle_version is not None:
         checkpoint["approval_bundle_version"] = approval_bundle_version
 
-    # Merge decision_log: if this checkpoint carries new decisions,
-    # append them to the project-level decision log file, then write the
-    # reference back into relevant artifacts so downstream consumers can find it.
-    if "decision_log" in artifacts and isinstance(artifacts["decision_log"], dict):
-        _merge_decision_log(pipeline_dir, project_id, artifacts["decision_log"])
+    # Prepare the reference in memory.  Persisting the log is deliberately
+    # deferred until after checkpoint validation below, so invalid checkpoint
+    # writes cannot mutate the audit trail.
+    pending_decision_log = artifacts.get("decision_log")
+    if isinstance(pending_decision_log, dict):
         log_ref = str(_decision_log_path(pipeline_dir, project_id))
-
-        # Write decision_log_ref into proposal_packet and render_report
-        # artifacts if they are present in this checkpoint.
         for artifact_key in ("proposal_packet", "render_report"):
-            if artifact_key in artifacts and isinstance(artifacts[artifact_key], dict):
-                plan_or_top = artifacts[artifact_key]
-                # proposal_packet stores it under production_plan
-                if artifact_key == "proposal_packet":
-                    plan = plan_or_top.get("production_plan")
-                    if isinstance(plan, dict):
-                        plan["decision_log_ref"] = log_ref
-                else:
-                    plan_or_top["decision_log_ref"] = log_ref
+            if artifact_key not in artifacts or not isinstance(artifacts[artifact_key], dict):
+                continue
+            plan_or_top = artifacts[artifact_key]
+            # V2 envelopes are immutable here; their referenced disk artifact
+            # must be rewritten by its producer rather than silently changing
+            # an embedded hash during checkpoint assembly.
+            if {"name", "path", "semantic_sha256", "artifact_sha256", "data"} <= plan_or_top.keys():
+                continue
+            if artifact_key == "proposal_packet":
+                plan = plan_or_top.get("production_plan")
+                if isinstance(plan, dict):
+                    plan["decision_log_ref"] = log_ref
+            else:
+                plan_or_top["decision_log_ref"] = log_ref
 
     validate_checkpoint(checkpoint, project_dir=pipeline_dir / project_id)
 
@@ -612,8 +638,22 @@ def write_checkpoint(
     # current checkpoint; then archive the superseded file and swap in the
     # new one atomically.
     tmp_path = path.with_suffix(".json.tmp")
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(checkpoint, f, indent=2)
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(checkpoint, f, indent=2)
+            f.flush()
+            import os
+            os.fsync(f.fileno())
+        # The decision artifact is validated by validate_checkpoint above and
+        # is persisted only after the complete checkpoint has been serialized.
+        if isinstance(pending_decision_log, dict):
+            _merge_decision_log(pipeline_dir, project_id, pending_decision_log)
+    except BaseException:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
     # Preserve run history: a superseded completed/awaiting_human checkpoint
     # is copied to history/ (stage versioning, gate audit trail, replay).
     _archive_superseded_checkpoint(path, stage)

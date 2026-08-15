@@ -51,6 +51,21 @@ def _contained_path(project_dir: Path, relative: PurePosixPath) -> Path:
     return target
 
 
+def canonical_artifact_path(
+    project_dir: str | os.PathLike[str], name: str
+) -> Path:
+    """Return the contained canonical path for a named artifact.
+
+    Keeping this path construction beside the envelope containment checks
+    prevents append-only writers from accidentally falling back to a project
+    root file (the pre-v2 decision-log location).
+    """
+    if not isinstance(name, str) or not name or "/" in name or "\\" in name:
+        raise ValueError("Artifact name must be a simple non-empty filename stem")
+    relative = _artifact_relative_path(f"artifacts/{name}.json")
+    return _contained_path(Path(project_dir), relative)
+
+
 def _is_v2_envelope(value: Any) -> bool:
     return isinstance(value, dict) and _ENVELOPE_FIELDS.issubset(value)
 
