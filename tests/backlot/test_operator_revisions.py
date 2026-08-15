@@ -72,3 +72,24 @@ def test_compare_and_restore_prepare_do_not_expose_structural_diff(tmp_path) -> 
     assert restore["requires_impact_preview"] is True
     assert restore["snapshot"]["hook"] == "新钩子"
     assert (project / "operator/current-generation.json").read_bytes() == pointer_before
+
+
+def test_restore_appends_new_revision_instead_of_overwriting_history(tmp_path) -> None:
+    from backlot.operator_revisions import RevisionService
+
+    project, store, draft, before, _after, impact, preview, pointer = _setup(tmp_path)
+    service = RevisionService(project, store=store)
+    first = service.commit_draft(
+        draft=draft, actor_id="user-a", reason="修改钩子",
+        preview_token=preview["preview_token"], impact_service=impact,
+        base_generation=pointer["generation_id"], base_snapshot=before,
+    )
+    restored = service.commit_restore(
+        stage="proposal", revision_id=first["revision_id"], actor_id="user-a",
+        reason="恢复已确认版本", current_snapshot=before,
+        idempotency_key="restore-one", request_digest="d" * 64,
+    )
+    assert restored["revision_id"] != first["revision_id"]
+    assert restored["parent_revision_id"] == first["revision_id"]
+    assert len(service.list("proposal")) == 2
+    assert json.loads((project / "artifacts/proposal_packet.json").read_text())["hook"] == "新钩子"

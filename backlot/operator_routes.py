@@ -184,9 +184,41 @@ def create_operator_router(
         project_id: str, stage: str, revision_id: str, request: Request
     ) -> dict:
         session = authenticate(request, project_id, "edit", csrf=True)
-        return RevisionService(project(project_id)).prepare_restore(
-            stage, revision_id, actor_id=session.actor.user_id
+        payload = await body(request)
+        project_dir = project(project_id)
+        service = RevisionService(project_dir)
+        prepared = service.prepare_restore(stage, revision_id, actor_id=session.actor.user_id)
+        restore_draft = {
+            "draft_id": prepared["restore_id"], "stage": stage,
+            "created_by": session.actor.user_id, "status": "active",
+            "changes": [],
+        }
+        generation = ProjectCommitStore(project_dir).initialize()["generation_id"]
+        if not payload.get("preview_token"):
+            preview = ImpactService(secret=preview_secret).preview(
+                draft=restore_draft, actor_id=session.actor.user_id,
+                base_generation=generation, before=snapshot(project_dir, stage),
+                after=prepared["snapshot"],
+            )
+            preview["render_mode"] = "重新生成完整画面"
+            preview["reopen_reviews"] = ["creative_lock", "sample"]
+            preview["affected_stages"] = list(dict.fromkeys(preview["affected_stages"] + ["制作准备", "样片确认", "修改与精剪"]))
+            return {key: value for key, value in preview.items() if key != "draft_id"}
+        ImpactService(secret=preview_secret).verify_token(
+            str(payload["preview_token"]), draft=restore_draft,
+            actor_id=session.actor.user_id, base_generation=generation,
         )
+        key = request.headers.get("idempotency-key", "").strip()
+        if not key:
+            raise OperatorError.validation_failed("缺少重复提交保护标识")
+        revision = service.commit_restore(
+            stage=stage, revision_id=revision_id, actor_id=session.actor.user_id,
+            reason=str(payload.get("reason") or "恢复历史版本"),
+            current_snapshot=snapshot(project_dir, stage), idempotency_key=key,
+            request_digest=semantic_sha256(payload),
+            expected_generation=generation,
+        )
+        return {"status": "committed", "result_revision": revision["revision_id"]}
 
     @router.post("/projects/{project_id}/reviews/{review_id}/{decision}")
     async def decide_review(

@@ -183,7 +183,16 @@ function renderEditor(container, stage, editor, project, snapshot) {
   container.append(impactPanel);
   const history = node("div", "revision-panel");
   fetchVersions(project.project_id, stage.id).then((versions) => renderRevisions(history, versions, {
-    onRestore: async (revisionId) => { try { const restore = await restoreVersion(project.project_id, stage.id, revisionId); message.textContent = restore.requires_impact_preview ? "已准备恢复，请先预览影响" : "恢复已提交"; } catch (error) { message.textContent = error.message; } },
+    onRestore: async (revisionId) => {
+      try {
+        const restorePreview = await restoreVersion(project.project_id, stage.id, revisionId);
+        message.textContent = "恢复影响已列出，请确认后提交";
+        renderImpact(impactPanel, restorePreview, {
+          onCommit: async () => { try { await restoreVersion(project.project_id, stage.id, revisionId, restorePreview.preview_token); message.textContent = "历史内容已作为新版本恢复"; await refresh(); } catch (error) { message.textContent = error.message; } },
+          onClose: () => impactPanel.replaceChildren(),
+        });
+      } catch (error) { message.textContent = error.message; }
+    },
   })).catch(() => renderRevisions(history, [], { onRestore() {} }));
   container.append(history);
 }

@@ -258,10 +258,13 @@ class ProjectCommitStore:
         audit: dict[str, Any] | None = None,
         draft_transition: dict[str, Any] | None = None,
         business_diff: list[str] | None = None,
+        expected_generation: str | None = None,
     ) -> Iterator[_TransactionSink]:
         self.initialize()
         with self._lock():
             self._recover_locked()
+            if expected_generation is not None and self._read_pointer()["generation_id"] != expected_generation:
+                raise OperatorError("revision_conflict", "当前版本已更新，请重新预览", 409)
             generation_id = self._next_generation_id()
             token = secrets.token_hex(24)
             sink = _TransactionSink(self, generation_id, token)

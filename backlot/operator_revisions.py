@@ -176,6 +176,7 @@ class RevisionService:
             audit={"event_type": "revision_committed", "actor_id": actor_id},
             draft_transition={"draft_id": draft["draft_id"], "status": "committed"},
             business_diff=labels,
+            expected_generation=base_generation,
         ) as sink:
             sink.stage_json(
                 f"artifacts/{adapter.artifact_name}.json",
@@ -211,10 +212,70 @@ class RevisionService:
     ) -> dict[str, Any]:
         revision = self._find(stage, revision_id)
         return {
-            "restore_id": f"restore-{uuid.uuid4().hex}",
+            "restore_id": f"restore-{semantic_sha256({'stage': stage, 'revision_id': revision_id, 'actor_id': actor_id})[:32]}",
             "stage": stage,
             "source_revision_id": revision_id,
             "actor_id": actor_id,
             "snapshot": revision["snapshot"],
             "requires_impact_preview": True,
         }
+
+    def commit_restore(
+        self,
+        *,
+        stage: str,
+        revision_id: str,
+        actor_id: str,
+        reason: str,
+        current_snapshot: dict[str, Any],
+        idempotency_key: str,
+        request_digest: str,
+        expected_generation: str | None = None,
+    ) -> dict[str, Any]:
+        for directory in sorted((self.project_dir / "operator/generations").glob("generation-*"), reverse=True):
+            try:
+                if (directory / "status").read_text(encoding="ascii") != "committed":
+                    continue
+                manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            action = manifest.get("action") or {}
+            if action.get("idempotency_key") != idempotency_key:
+                continue
+            if action.get("request_digest") != request_digest:
+                raise OperatorError("idempotency_conflict", "该请求标识已用于其他内容", 409)
+            return self._find(stage, manifest["result"]["revision_id"])
+        target = self._find(stage, revision_id)
+        adapter = get_adapter(stage)
+        revisions = self.list(stage)
+        parent = revisions[-1]["revision_id"] if revisions else None
+        result_id = f"rev-{uuid.uuid4().hex}"
+        labels = adapter.diff(current_snapshot, target["snapshot"])
+        revision = {
+            "schema_version": "1.0", "revision_id": result_id,
+            "parent_revision_id": parent, "project_id": self.store.project_id,
+            "artifact_name": adapter.artifact_name,
+            "base_semantic_sha256": semantic_sha256(current_snapshot) if current_snapshot else None,
+            "result_semantic_sha256": semantic_sha256(target["snapshot"]),
+            "actor_id": actor_id, "reason": reason or "恢复历史版本",
+            "created_at": self.clock().isoformat(), "snapshot": target["snapshot"],
+            "changes": [{"field": "restored_revision", "label": label, "before": None, "after": "已恢复"} for label in labels] or [{"field": "restored_revision", "label": "已恢复历史版本", "before": None, "after": "已恢复"}],
+        }
+        errors = list(self.validator.iter_errors(revision))
+        if errors:
+            raise OperatorError.validation_failed("恢复版本内容不符合要求")
+        relative = f"operator/revisions/{stage}/{len(revisions) + 1:06d}-{result_id}.json"
+        with self.store.transaction(
+            action={"action_id": f"restore-{result_id}", "type": "restore_revision", "idempotency_key": idempotency_key, "request_digest": request_digest},
+            result={"status": "committed", "revision_id": result_id},
+            audit={"event_type": "revision_restored", "actor_id": actor_id},
+            business_diff=labels,
+            expected_generation=expected_generation,
+        ) as sink:
+            sink.stage_json(f"artifacts/{adapter.artifact_name}.json", target["snapshot"], schema=adapter.artifact_name)
+            sink.stage_json(relative, revision, schema="operator_revision")
+            sink.stage_json(f"operator/current-revisions/{stage}.json", {"revision_id": result_id, "artifact_name": adapter.artifact_name}, schema="revision_pointer")
+            checkpoint = self.project_dir / f"checkpoint_{stage}.json"
+            if checkpoint.exists():
+                sink.stage_delete(checkpoint.relative_to(self.project_dir).as_posix())
+        return revision

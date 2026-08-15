@@ -68,9 +68,9 @@ export async function compareVersions(projectId, stage, fromId, toId) {
   });
 }
 
-export async function restoreVersion(projectId, stage, revisionId) {
+export async function restoreVersion(projectId, stage, revisionId, previewToken = null) {
   return call(`/api/v2/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(stage)}/${encodeURIComponent(revisionId)}/restore`, {
-    method: "POST", body: {}, mutation: true,
+    method: "POST", body: previewToken ? { preview_token: previewToken, reason: "恢复历史版本" } : {}, mutation: true,
   });
 }
 
