@@ -37,6 +37,30 @@ class FinalQA(BaseTool):
     def _decode(path: Path) -> bool:
         return subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-f", "null", "-"], capture_output=True, text=True, timeout=300, check=False).returncode == 0
 
+    @staticmethod
+    def _filter_log(path: Path, filter_graph: str) -> str:
+        result = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(path), "-vf", filter_graph, "-an", "-f", "null", "-"], capture_output=True, text=True, timeout=300, check=False)
+        return result.stderr or ""
+
+    @staticmethod
+    def _parse_ranges(log: str, marker: str) -> list[dict[str, float]]:
+        ranges = []
+        for line in log.splitlines():
+            if marker not in line:
+                continue
+            values = {}
+            for token in line.split():
+                if "=" not in token:
+                    continue
+                key, value = token.split("=", 1)
+                try:
+                    values[key] = float(value)
+                except ValueError:
+                    pass
+            if values:
+                ranges.append(values)
+        return ranges
+
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         path = Path(inputs["input_path"])
         if not path.is_file():
@@ -56,6 +80,25 @@ class FinalQA(BaseTool):
         if audio.get("codec_name") != "aac" or int(audio.get("sample_rate", 0) or 0) != profile.audio_sample_rate or int(audio.get("channels", 0) or 0) != profile.audio_channels: issues.append("audio profile mismatch")
         decode_ok = self._decode(path)
         if not decode_ok: issues.append("full decode smoke failed")
+        black_ranges: list[dict[str, float]] = []
+        freeze_ranges: list[dict[str, float]] = []
+        loudness = {"integrated_lufs": None, "true_peak_dbtp": None, "lra": None}
+        if inputs.get("mode") == "full" and decode_ok:
+            black_ranges = self._parse_ranges(self._filter_log(path, "blackdetect=d=0.15:pix_th=0.10:pic_th=0.98"), "black_start")
+            freeze_ranges = self._parse_ranges(self._filter_log(path, "freezedetect=n=-50dB:d=1.00"), "freeze_start")
+            loud_result = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(path), "-af", "ebur128=peak=true", "-f", "null", "-"], capture_output=True, text=True, timeout=300, check=False)
+            for line in (loud_result.stderr or "").splitlines():
+                stripped = line.strip()
+                if stripped.startswith("I:"):
+                    try: loudness["integrated_lufs"] = float(stripped.split()[1])
+                    except (IndexError, ValueError): pass
+                if stripped.startswith("Peak:"):
+                    try: loudness["true_peak_dbtp"] = float(stripped.split()[1])
+                    except (IndexError, ValueError): pass
+            allowed_black = inputs.get("allowed_black_ranges") or []
+            allowed_freeze = inputs.get("allowed_freeze_ranges") or []
+            if black_ranges and not allowed_black: issues.append("unexpected black segment detected")
+            if freeze_ranges and not allowed_freeze: issues.append("unexpected freeze segment detected")
         caption_spec = inputs.get("caption_spec") or {}
         boxes = caption_spec.get("computed_boxes") or layout_captions(caption_spec.get("captions", []), width=profile.width, height=profile.height)
         caption_ok = bool(caption_spec.get("props_hash")) and boxes_in_social_safe_zone(boxes, width=profile.width, height=profile.height)
@@ -63,7 +106,8 @@ class FinalQA(BaseTool):
         status = "pass" if not issues else "revise"
         checks = {
             "media_integrity": {"decode_ok": decode_ok, "profile_ok": not any("profile" in issue or "resolution" in issue or "codec" in issue for issue in issues), "probe": probe},
-            "audio_loudness": {"measured": inputs.get("mode") == "full", "integrated_lufs": None, "true_peak_dbtp": None},
+            "audio_loudness": {"measured": inputs.get("mode") == "full", **loudness},
+            "visual_anomalies": {"black_ranges": black_ranges, "freeze_ranges": freeze_ranges},
             "caption_render": {"safe_zone_passed": caption_ok if caption_spec else True, "computed_boxes": boxes, "props_hash": caption_spec.get("props_hash")},
         }
         report = {"version": "2.0", "output_path": str(path), "status": status, "checks": checks, "issues_found": issues, "recommended_action": "present_to_user" if status == "pass" else "re_render"}
