@@ -47,6 +47,29 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
     """Validate artifact data against its schema. Raises on failure."""
     schema = load_schema(name)
     jsonschema.validate(instance=data, schema=schema)
+    if name == "media_index":
+        ranges = (
+            item
+            for entry in data.get("entries", [])
+            for item in entry.get("best_ranges", [])
+        )
+        for item in ranges:
+            if item["end_seconds"] <= item["start_seconds"]:
+                raise jsonschema.ValidationError(
+                    "best_ranges end_seconds must be greater than start_seconds"
+                )
+    elif name == "render_plan" and "sample" in data:
+        sample = data["sample"]
+        if sample["endFrameExclusive"] <= sample["startFrame"]:
+            raise jsonschema.ValidationError(
+                "sample endFrameExclusive must be greater than startFrame"
+            )
+    elif name == "sample_report":
+        window = data["window"]
+        if window["endFrameExclusive"] <= window["startFrame"]:
+            raise jsonschema.ValidationError(
+                "window endFrameExclusive must be greater than startFrame"
+            )
 
 
 def list_schemas() -> list[str]:

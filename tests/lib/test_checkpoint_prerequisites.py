@@ -1,11 +1,13 @@
 import json
 
 import pytest
+from tests.contracts.test_fastline_artifact_contracts import valid_artifact
 from tests.contracts.test_phase0_contracts import sample_artifact
 
 from lib.checkpoint import (
     CheckpointValidationError,
     init_project,
+    validate_checkpoint,
     write_checkpoint,
 )
 
@@ -24,6 +26,73 @@ def _script_artifact() -> dict:
             }
         ],
     }
+
+
+def _checkpoint(stage, artifacts, pipeline_type, *, version="1.0") -> dict:
+    return {
+        "version": version,
+        "project_id": "run",
+        "pipeline_type": pipeline_type,
+        "stage": stage,
+        "status": "completed",
+        "timestamp": "2026-08-14T10:00:00Z",
+        "artifacts": artifacts,
+    }
+
+
+def test_legacy_manifest_requires_only_canonical_artifact() -> None:
+    validate_checkpoint(
+        _checkpoint(
+            "proposal",
+            {"proposal_packet": sample_artifact("proposal_packet")},
+            "animated-explainer",
+        )
+    )
+
+
+def test_legacy_noncanonical_stage_can_complete_without_artifact() -> None:
+    validate_checkpoint(
+        _checkpoint("character_design", {}, "character-animation")
+    )
+
+
+def test_legacy_manifest_allows_raw_fastline_artifact(monkeypatch) -> None:
+    manifest = {
+        "name": "mock-legacy",
+        "version": "1.0",
+        "stages": [{"name": "research", "produces": ["media_index"]}],
+    }
+    monkeypatch.setattr(
+        "lib.pipeline_loader.load_pipeline_readonly", lambda name: manifest
+    )
+
+    validate_checkpoint(
+        _checkpoint(
+            "research",
+            {
+                "research_brief": sample_artifact("research_brief"),
+                "media_index": valid_artifact("media_index"),
+            },
+            "mock-legacy",
+        )
+    )
+
+
+def test_contract_v2_requires_all_declared_produces(monkeypatch) -> None:
+    manifest = {
+        "name": "mock-fastline",
+        "version": "1.0",
+        "artifact_contract_version": 2,
+        "stages": [{"name": "sample", "produces": ["final_props", "sample_report"]}],
+    }
+    monkeypatch.setattr(
+        "lib.pipeline_loader.load_pipeline_readonly", lambda name: manifest
+    )
+
+    with pytest.raises(CheckpointValidationError, match="manifest artifacts.*final_props"):
+        validate_checkpoint(
+            _checkpoint("sample", {}, "mock-fastline", version="2.0")
+        )
 
 
 def test_later_stage_cannot_skip_a_missing_predecessor(tmp_path) -> None:

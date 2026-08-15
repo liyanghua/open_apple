@@ -45,7 +45,22 @@ SUPPLEMENTARY_ARTIFACTS = {
     "source_media_review",  # Required before first planning stage when user media exists
     "final_review",         # Required by compose stage before presenting to user
     "video_analysis_brief", # Reference-video grounding artifact carried alongside stages
+    "media_index",
+    "reference_fingerprint",
+    "production_lock",
+    "approval_bundle",
+    "asset_plan",
+    "change_impact",
+    "render_plan",
+    "final_props",
+    "sample_report",
 }
+
+FASTLINE_ARTIFACTS = frozenset({
+    "media_index", "reference_fingerprint", "production_lock",
+    "approval_bundle", "asset_plan", "change_impact", "render_plan",
+    "final_props", "sample_report",
+})
 
 
 def get_pipeline_stages(pipeline_type: str | None) -> list[str]:
@@ -125,39 +140,70 @@ def _validate_artifacts_for_stage(
     stage: str,
     status: str,
     artifacts: dict[str, Any],
+    pipeline_type: str | None,
+    project_dir: Path | None = None,
 ) -> None:
-    # Valid stages come from the pipeline manifest (get_pipeline_stages), which
-    # can declare stages beyond the 9 canonical ones (e.g. character-animation's
-    # `character_design`/`rig_plan`, screen-demo's `real_capture`). Those have no
-    # canonical artifact, so look it up defensively — a missing entry means the
-    # stage simply has no required artifact, not a crash.
-    required_artifact = CANONICAL_STAGE_ARTIFACTS.get(stage)
-    if (
-        required_artifact is not None
-        and status in {"completed", "awaiting_human"}
-        and required_artifact not in artifacts
-    ):
-        raise CheckpointValidationError(
-            f"Stage {stage!r} with status {status!r} must include "
-            f"canonical artifact {required_artifact!r}"
-        )
+    required_artifacts: list[str] = []
+    contract_v2 = False
+    if pipeline_type and pipeline_type != "unknown":
+        try:
+            from lib.pipeline_loader import get_stage_produces, load_pipeline_readonly
+
+            manifest = load_pipeline_readonly(pipeline_type)
+            contract_v2 = manifest.get("artifact_contract_version") == 2
+            if contract_v2:
+                required_artifacts = get_stage_produces(manifest, stage)
+        except Exception:
+            contract_v2 = False
+
+    if not contract_v2:
+        fallback = CANONICAL_STAGE_ARTIFACTS.get(stage)
+        if fallback is not None:
+            required_artifacts = [fallback]
+
+    if status in {"completed", "awaiting_human"}:
+        missing = [name for name in required_artifacts if name not in artifacts]
+        if missing:
+            source = "manifest artifacts" if contract_v2 else "canonical artifact"
+            raise CheckpointValidationError(
+                f"Stage {stage!r} with status {status!r} must include {source}: "
+                f"{', '.join(repr(name) for name in missing)}"
+            )
 
     for artifact_name, artifact_data in artifacts.items():
         if artifact_name not in ARTIFACT_NAMES:
             continue
-        if not isinstance(artifact_data, dict):
-            raise CheckpointValidationError(
-                f"Artifact {artifact_name!r} must be a JSON object matching its schema"
-            )
         try:
-            validate_artifact(artifact_name, artifact_data)
+            from lib.artifact_io import unwrap_checkpoint_artifact
+
+            is_envelope = (
+                isinstance(artifact_data, dict)
+                and {"name", "path", "semantic_sha256", "artifact_sha256", "data"}
+                <= artifact_data.keys()
+            )
+            if contract_v2 and not is_envelope:
+                raise ValueError(
+                    f"Contract v2 artifact {artifact_name!r} must use a v2 envelope"
+                )
+            if is_envelope and project_dir is None:
+                raise ValueError("Project directory is required to verify artifact envelopes")
+            if project_dir is not None:
+                unwrap_checkpoint_artifact(project_dir, artifact_name, artifact_data)
+            elif isinstance(artifact_data, dict):
+                validate_artifact(artifact_name, artifact_data)
+            else:
+                raise ValueError(
+                    f"Artifact {artifact_name!r} must be a JSON object matching its schema"
+                )
         except Exception as exc:
             raise CheckpointValidationError(
                 f"Artifact {artifact_name!r} failed schema validation: {exc}"
             ) from exc
 
 
-def validate_checkpoint(checkpoint: dict[str, Any]) -> None:
+def validate_checkpoint(
+    checkpoint: dict[str, Any], *, project_dir: Path | None = None
+) -> None:
     """Validate checkpoint structure and canonical artifact payloads.
 
     Uses pipeline_type (if present) to resolve the valid stage list.
@@ -183,7 +229,9 @@ def validate_checkpoint(checkpoint: dict[str, Any]) -> None:
     if not isinstance(artifacts, dict):
         raise CheckpointValidationError("Checkpoint artifacts must be a dictionary")
 
-    _validate_artifacts_for_stage(stage, status, artifacts)
+    _validate_artifacts_for_stage(
+        stage, status, artifacts, pipeline_type, project_dir=project_dir
+    )
 
     try:
         jsonschema.validate(instance=checkpoint, schema=_load_checkpoint_schema())
@@ -314,7 +362,9 @@ def _enforce_stage_prerequisites(
         try:
             with open(path, encoding="utf-8") as handle:
                 checkpoint = json.load(handle)
-            validate_checkpoint(checkpoint)
+            validate_checkpoint(
+                checkpoint, project_dir=pipeline_dir / project_id
+            )
         except (OSError, json.JSONDecodeError, CheckpointValidationError):
             incomplete.append(predecessor)
             continue
@@ -544,7 +594,7 @@ def write_checkpoint(
                 else:
                     plan_or_top["decision_log_ref"] = log_ref
 
-    validate_checkpoint(checkpoint)
+    validate_checkpoint(checkpoint, project_dir=pipeline_dir / project_id)
 
     path = _checkpoint_path(pipeline_dir, project_id, stage)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -573,7 +623,7 @@ def read_checkpoint(
         return None
     with open(path, encoding="utf-8") as f:
         checkpoint = json.load(f)
-    validate_checkpoint(checkpoint)
+    validate_checkpoint(checkpoint, project_dir=pipeline_dir / project_id)
     return checkpoint
 
 
@@ -595,7 +645,7 @@ def get_latest_checkpoint(
 
     with open(checkpoints[0], encoding="utf-8") as f:
         checkpoint = json.load(f)
-    validate_checkpoint(checkpoint)
+    validate_checkpoint(checkpoint, project_dir=project_dir)
     return checkpoint
 
 

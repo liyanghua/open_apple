@@ -8,6 +8,11 @@
   "properties": {
     "name": { "type": "string" },
     "version": { "type": "string" },
+    "artifact_contract_version": {
+      "type": "integer",
+      "enum": [1, 2],
+      "description": "Artifact persistence contract; v2 enforces all declared produces and checkpoint envelopes"
+    },
     "description": { "type": "string" },
     "category": {
       "type": "string",

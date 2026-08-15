@@ -24,8 +24,33 @@
     "human_approved": { "type": "boolean" },
     "artifacts": {
       "type": "object",
-      "description": "Map of artifact name to artifact data or file path",
-      "additionalProperties": true
+      "description": "Map of artifact name to legacy data/path or verified v2 envelope",
+      "additionalProperties": {
+        "oneOf": [
+          {"type": "string"},
+          {
+            "type": "object",
+            "not": {
+              "anyOf": [
+                {"required": ["name"]},
+                {"required": ["data"]}
+              ]
+            }
+          },
+          {
+            "type": "object",
+            "required": ["name", "path", "semantic_sha256", "artifact_sha256", "data"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "path": {"type": "string", "pattern": "^artifacts/[^/].*"},
+              "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+              "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+              "data": {"type": "object"}
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
     },
     "review": {
       "type": "object",
