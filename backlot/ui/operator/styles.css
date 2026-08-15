@@ -137,6 +137,25 @@ h3 { font-size: 15px; }
 .read-only-mark { flex: 0 0 auto; padding: 5px 8px; color: var(--muted); background: var(--canvas); border-radius: 4px; font-size: 12px; }
 .view-message { min-height: 24px; margin: 14px 0 0; color: var(--muted); font-size: 13px; }
 .workspace-content { min-width: 0; }
+.typed-editor-panel, .impact-panel, .revision-panel { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.typed-editor-body { display: grid; gap: 12px; }
+.edit-field { display: grid; gap: 6px; min-width: 0; }
+.edit-label { color: var(--muted); font-size: 12px; font-weight: 700; }
+.edit-field input, .edit-field textarea { width: 100%; min-width: 0; padding: 9px 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; font: inherit; line-height: 1.5; }
+.edit-field textarea { resize: vertical; }
+.edit-field input:focus, .edit-field textarea:focus { border-color: var(--focus); outline: 2px solid color-mix(in srgb, var(--focus) 18%, transparent); }
+.edit-choice { display: flex; grid-template-columns: none; align-items: center; gap: 8px; }
+.edit-choice input { width: auto; }
+.editor-controls, .impact-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+.editor-message { color: var(--muted); font-size: 12px; }
+.primary-button, .quiet-button { min-height: 36px; padding: 8px 12px; border-radius: 5px; cursor: pointer; }
+.primary-button { color: #fff; background: var(--accent); border: 1px solid var(--accent); font-weight: 700; }
+.quiet-button { color: var(--ink); background: var(--surface); border: 1px solid var(--line); }
+.impact-summary { margin: 10px 0; line-height: 1.6; }
+.impact-mode { display: inline-block; padding: 5px 8px; color: var(--accent); background: var(--accent-soft); border-radius: 4px; font-size: 12px; }
+.impact-warning { margin: 10px 0; padding: 8px 10px; color: var(--attention); background: var(--attention-soft); border-radius: 4px; font-size: 13px; }
+.revision-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.revision-row span { color: var(--muted); font-size: 12px; }
 
 .lead-copy { margin: 4px 0 20px; font-size: 17px; line-height: 1.65; }
 .inline-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 22px; }

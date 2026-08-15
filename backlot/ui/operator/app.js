@@ -1,10 +1,14 @@
-import { fetchProjectState, watchProject } from "./api.js";
+import { fetchProjectState, watchProject, saveDraft, previewDraft, commitDraft, fetchVersions, restoreVersion } from "./api.js";
 import { createOperatorStore } from "./store.js";
 import { STATUS_MARKS, VIEW_STATES, formatDuration, formatTimeRange } from "./language.js";
+import { renderTypedEditor } from "./editors.js";
+import { renderImpact } from "./impact.js";
+import { renderRevisions } from "./revisions.js";
 
 const byId = (id) => document.getElementById(id);
 const projectId = decodeURIComponent(window.location.pathname.split("/").filter(Boolean).pop() || "");
 const store = createOperatorStore();
+const snapshotStore = store;
 
 function node(tag, className, text) {
   const element = document.createElement(tag);
@@ -119,7 +123,7 @@ function renderEmpty(container) {
   container.append(node("p", "empty-copy", "该阶段暂时没有可展示的内容"));
 }
 
-function renderEditor(container, editor) {
+function renderEditor(container, stage, editor, project, snapshot) {
   container.replaceChildren();
   const data = editor?.data || {};
   const renderers = {
@@ -134,6 +138,54 @@ function renderEditor(container, editor) {
     unavailable: (target, value) => target.append(node("p", "empty-copy", value.message)),
   };
   (renderers[editor?.type] || renderEmpty)(container, data);
+  const canEdit = (project.permissions || []).includes("edit");
+  const editPanel = node("div", "typed-editor-panel");
+  const editorBody = node("div", "typed-editor-body");
+  const controls = node("div", "editor-controls");
+  const message = node("span", "editor-message");
+  let changes = [];
+  let timer;
+  const save = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      try {
+        const draft = await saveDraft(project.project_id, stage.id, {
+          base_revision: project.revision,
+          changes,
+        });
+        snapshotStore.setDraft(stage.id, draft);
+        message.textContent = "修改已保存，可预览影响";
+      } catch (error) { message.textContent = error.message; }
+    }, 220);
+  };
+  const onOperation = (operation) => { changes = [...changes, operation]; save(); };
+  renderTypedEditor(editorBody, stage, editor, { editable: canEdit, onOperation });
+  if (canEdit) {
+    const preview = node("button", "quiet-button", "预览修改影响"); preview.type = "button";
+    preview.addEventListener("click", async () => {
+      try {
+        const value = await previewDraft(project.project_id, stage.id);
+        snapshotStore.setPreview(stage.id, value); message.textContent = "影响预览已生成";
+      } catch (error) { message.textContent = error.message; }
+    });
+    controls.append(preview);
+  }
+  controls.append(message); editPanel.append(editorBody, controls); container.append(editPanel);
+  const impactPanel = node("div", "impact-panel");
+  renderImpact(impactPanel, snapshot.previews?.[stage.id], {
+    onCommit: async () => {
+      const value = snapshot.previews?.[stage.id];
+      if (!value) return;
+      try { await commitDraft(project.project_id, stage.id, value.preview_token, "运营人员确认修改"); message.textContent = "已提交，正在更新项目"; await refresh(); }
+      catch (error) { message.textContent = error.message; }
+    }, onClose: () => snapshotStore.setPreview(stage.id, null),
+  });
+  container.append(impactPanel);
+  const history = node("div", "revision-panel");
+  fetchVersions(project.project_id, stage.id).then((versions) => renderRevisions(history, versions, {
+    onRestore: async (revisionId) => { try { const restore = await restoreVersion(project.project_id, stage.id, revisionId); message.textContent = restore.requires_impact_preview ? "已准备恢复，请先预览影响" : "恢复已提交"; } catch (error) { message.textContent = error.message; } },
+  })).catch(() => renderRevisions(history, [], { onRestore() {} }));
+  container.append(history);
 }
 
 function render(snapshot) {
@@ -149,6 +201,7 @@ function render(snapshot) {
   byId("current-task").textContent = project.summary.current_task;
   byId("estimated-time").textContent = formatDuration(project.summary.estimated_seconds);
   byId("next-action").textContent = project.summary.next_action;
+  byId("access-mark").textContent = (project.permissions || []).includes("edit") ? "可编辑工作台" : "只读查看";
   byId("diagnostic-link").href = `/diagnostics/p/${encodeURIComponent(project.project_id)}`;
 
   const stageList = byId("stage-list");
@@ -169,7 +222,7 @@ function render(snapshot) {
   if (!selected) return;
   byId("workspace-title").textContent = selected.label;
   byId("workspace-status").textContent = `${selected.status} · 第 ${selected.version || 0} 版`;
-  renderEditor(byId("workspace-content"), selected.editor);
+  renderEditor(byId("workspace-content"), selected, selected.editor, project, snapshot);
 
   const review = byId("review-summary");
   review.replaceChildren();

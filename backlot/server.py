@@ -489,6 +489,9 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
                 "operator/api.js",
                 "operator/store.js",
                 "operator/language.js",
+                "operator/editors.js",
+                "operator/impact.js",
+                "operator/revisions.js",
             ),
         )
 
@@ -502,6 +505,9 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
                 "operator/api.js",
                 "operator/store.js",
                 "operator/language.js",
+                "operator/editors.js",
+                "operator/impact.js",
+                "operator/revisions.js",
             ),
         )
 

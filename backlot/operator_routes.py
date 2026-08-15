@@ -73,10 +73,13 @@ def create_operator_router(
             raise OperatorError.validation_failed("没有可预览的草稿")
         before = snapshot(project_dir, stage)
         after = get_adapter(stage).apply(before, draft["changes"])
+        generation = str(payload.get("base_generation") or "")
+        if not generation:
+            generation = ProjectCommitStore(project_dir).initialize()["generation_id"]
         return ImpactService(secret=preview_secret).preview(
             draft=draft,
             actor_id=session.actor.user_id,
-            base_generation=str(payload.get("base_generation") or ""),
+            base_generation=generation,
             before=before,
             after=after,
         )
@@ -95,13 +98,16 @@ def create_operator_router(
         digest = semantic_sha256(
             {"project_id": project_id, "actor_id": session.actor.user_id, "stage": stage, "body": payload}
         )
+        generation = str(payload.get("base_generation") or "")
+        if not generation:
+            generation = ProjectCommitStore(project_dir).initialize()["generation_id"]
         revision = RevisionService(project_dir).commit_draft(
             draft=draft,
             actor_id=session.actor.user_id,
             reason=str(payload.get("reason") or ""),
             preview_token=str(payload.get("preview_token") or ""),
             impact_service=ImpactService(secret=preview_secret),
-            base_generation=str(payload.get("base_generation") or ""),
+            base_generation=generation,
             base_snapshot=snapshot(project_dir, stage),
             idempotency_key=key,
             request_digest=digest,
@@ -117,7 +123,16 @@ def create_operator_router(
     @router.get("/projects/{project_id}/versions/{stage}")
     async def versions(project_id: str, stage: str, request: Request) -> list:
         authenticate(request, project_id, "read")
-        return RevisionService(project(project_id)).list(stage)
+        return [
+            {
+                "revision_id": item["revision_id"],
+                "parent_revision_id": item["parent_revision_id"],
+                "reason": item["reason"],
+                "created_at": item["created_at"],
+                "changes": [change["label"] for change in item.get("changes", [])],
+            }
+            for item in RevisionService(project(project_id)).list(stage)
+        ]
 
     @router.post("/projects/{project_id}/versions/{stage}/compare")
     async def compare_versions(project_id: str, stage: str, request: Request) -> dict:
@@ -147,13 +162,15 @@ def create_operator_router(
         session = authenticate(request, project_id, "review", csrf=True)
         payload = await body(request)
         normalized = {"approve": "approved", "reject": "rejected"}.get(decision, decision)
-        return ReviewService(project(project_id)).decide(
+        service = ReviewService(project(project_id))
+        active = service._find(review_id)
+        return service.decide(
             review_id=review_id,
             decision=normalized,
             actor_id=session.actor.user_id,
             reason=str(payload.get("reason") or ""),
-            expected_version=int(payload.get("subject_version") or 0),
-            expected_hash=str(payload.get("subject_hash") or ""),
+            expected_version=int(payload.get("subject_version") or active["subject_version"]),
+            expected_hash=str(payload.get("subject_hash") or active["subject_hash"]),
         )
 
     @router.get("/projects/{project_id}/members")
