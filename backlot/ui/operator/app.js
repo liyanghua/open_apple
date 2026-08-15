@@ -200,6 +200,7 @@ function render(snapshot) {
   byId("progress-value").textContent = `${project.summary.progress_percent}%`;
   byId("current-task").textContent = project.summary.current_task;
   byId("estimated-time").textContent = formatDuration(project.summary.estimated_seconds);
+  byId("performance-promise").textContent = project.summary.performance?.promise || project.summary.performance?.message || "实测数据不足";
   byId("next-action").textContent = project.summary.next_action;
   byId("access-mark").textContent = (project.permissions || []).includes("edit") ? "可编辑工作台" : "只读查看";
   byId("diagnostic-link").href = `/diagnostics/p/${encodeURIComponent(project.project_id)}`;

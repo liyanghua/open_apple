@@ -325,6 +325,22 @@ def operator_revision(state: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def _performance_summary(project_dir: Path) -> dict[str, Any]:
+    reports = sorted((project_dir / "analysis" / "benchmarks").glob("*.json"))
+    if not reports:
+        return {"promise": None, "message": "实测数据不足，暂不展示效率承诺"}
+    try:
+        report = json.loads(reports[-1].read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"promise": None, "message": "实测数据暂时无法读取"}
+    sla = report.get("sla") if isinstance(report.get("sla"), Mapping) else {}
+    cold = sla.get("cold") if isinstance(sla.get("cold"), Mapping) else {}
+    if cold.get("publish_sla") is True:
+        return {"promise": "完整制作通常可在 3-5 小时内完成", "message": "已达到真实样本发布门槛"}
+    count = int(cold.get("sample_count") or 0)
+    return {"promise": None, "message": f"已完成 {count} 次完整制作实测，样本仍不足"}
+
+
 def project_operator_state(board_state: Mapping[str, Any]) -> dict[str, Any]:
     """Project BoardState into a recursively closed business response."""
     board = dict(board_state)
@@ -440,6 +456,7 @@ def load_operator_state(
 ) -> dict[str, Any]:
     project_dir = Path(project_dir)
     state = project_operator_state(load_board_state(project_dir))
+    state["summary"]["performance"] = _performance_summary(project_dir)
     if (project_dir / "operator" / "operator-managed").exists():
         from backlot.operator_reviews import ReviewService
 
