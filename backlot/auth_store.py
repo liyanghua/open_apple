@@ -253,3 +253,21 @@ class AuthStore:
                 (project_id, user_id),
             ).fetchone()
         return str(row["project_role"]) if row else None
+
+    def project_members(self, project_id: str) -> list[dict[str, str]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT u.user_id, u.username, u.system_role, a.project_role
+                FROM project_acl a JOIN users u ON u.user_id = a.user_id
+                WHERE a.project_id = ? ORDER BY u.username_normalized""",
+                (project_id,),
+            ).fetchall()
+        return [
+            {
+                "user_id": str(row["user_id"]),
+                "username": str(row["username"]),
+                "system_role": str(row["system_role"]),
+                "project_role": str(row["project_role"]),
+            }
+            for row in rows
+        ]

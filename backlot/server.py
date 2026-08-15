@@ -203,7 +203,9 @@ async def _lifespan(app: FastAPI):
             await task
 
 
-def create_app(*, auth_store=None) -> FastAPI:
+def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
+    if auth_mode not in {"production", "test"}:
+        raise ValueError("Unknown Backlot auth mode")
     app = FastAPI(title="Backlot", docs_url=None, redoc_url=None, lifespan=_lifespan)
     login_attempts: dict[str, list[float]] = {}
 
@@ -218,6 +220,31 @@ def create_app(*, auth_store=None) -> FastAPI:
             auth_store = AuthStore(data_dir / "backlot.db")
             auth_store.initialize()
         return auth_store
+
+    def require_access(
+        request: Request,
+        project_id: str | None = None,
+        action: str = "read",
+        *,
+        csrf: bool = False,
+    ):
+        from backlot.auth import authorize_project, require_csrf, require_session
+        from backlot.auth_store import SessionRecord, UserRecord
+
+        if auth_mode == "test":
+            return SessionRecord(
+                UserRecord("test-admin", "test-admin", "admin"),
+                "test-csrf",
+                "2999-01-01T00:00:00+00:00",
+            )
+        session = require_session(request, get_auth_store())
+        if csrf:
+            require_csrf(request, session)
+        if project_id is not None and not authorize_project(
+            get_auth_store(), session.actor, project_id, action
+        ):
+            raise OperatorError("forbidden", "你没有访问该项目的权限", 403)
+        return session
 
     @app.exception_handler(OperatorError)
     async def operator_error_handler(_request: Request, exc: OperatorError) -> JSONResponse:
@@ -303,21 +330,43 @@ def create_app(*, auth_store=None) -> FastAPI:
         return response
 
     @app.get("/api/projects")
-    async def projects() -> list:
-        return await asyncio.to_thread(_cached_summaries)
+    async def projects(request: Request) -> list:
+        session = require_access(request)
+        summaries = await asyncio.to_thread(_cached_summaries)
+        if auth_mode == "test" or session.actor.system_role == "admin":
+            return summaries
+        from backlot.auth import authorize_project
+        return [
+            item for item in summaries
+            if authorize_project(get_auth_store(), session.actor, item["project_id"], "read")
+        ]
 
     @app.get("/api/project/{project_id}/state")
-    async def project_state(project_id: str) -> dict:
+    async def project_state(project_id: str, request: Request) -> dict:
+        require_access(request, project_id, "diagnostics")
         project_dir = _safe_project_dir(project_id)
         return await asyncio.to_thread(load_board_state, project_dir)
 
     @app.get("/api/v2/projects/{project_id}/operator-state")
-    async def operator_project_state(project_id: str) -> dict:
+    async def operator_project_state(project_id: str, request: Request) -> dict:
+        session = require_access(request, project_id, "read")
         project_dir = _safe_project_dir(project_id)
-        return await asyncio.to_thread(load_operator_state, project_dir)
+        from backlot.auth import authorize_project
+        permissions = ["view"]
+        for capability, public in (
+            ("edit", "edit"), ("review", "review"), ("manage_members", "manage")
+        ):
+            if auth_mode == "test" or authorize_project(
+                get_auth_store(), session.actor, project_id, capability
+            ):
+                permissions.append(public)
+        return await asyncio.to_thread(
+            load_operator_state, project_dir, permissions=tuple(permissions)
+        )
 
     @app.get("/api/project/{project_id}/events")
     async def project_events(project_id: str, request: Request) -> StreamingResponse:
+        require_access(request, project_id, "read")
         _safe_project_dir(project_id)  # 404 early for unknown projects
         return StreamingResponse(_project_event_stream(
             project_id,
@@ -330,6 +379,7 @@ def create_app(*, auth_store=None) -> FastAPI:
 
     @app.get("/api/v2/projects/{project_id}/events")
     async def operator_project_events(project_id: str, request: Request) -> StreamingResponse:
+        require_access(request, project_id, "read")
         _safe_project_dir(project_id)
         return StreamingResponse(_project_event_stream(
             project_id,
@@ -342,6 +392,7 @@ def create_app(*, auth_store=None) -> FastAPI:
 
     @app.get("/api/library/events")
     async def library_events(request: Request) -> StreamingResponse:
+        require_access(request)
         async def stream():
             q = hub.subscribe()
             try:
@@ -371,7 +422,8 @@ def create_app(*, auth_store=None) -> FastAPI:
     # ---- Thumbnails (downscaled, cached on disk) ------------------------
 
     @app.get("/thumb/{project_id}/{file_path:path}")
-    async def thumb(project_id: str, file_path: str, w: int = 640) -> FileResponse:
+    async def thumb(project_id: str, file_path: str, request: Request, w: int = 640) -> FileResponse:
+        require_access(request, project_id, "read")
         project_dir = _safe_project_dir(project_id)
         target = (project_dir / file_path).resolve()
         try:
@@ -393,7 +445,8 @@ def create_app(*, auth_store=None) -> FastAPI:
     # ---- Media (range requests handled by FileResponse) ---------------
 
     @app.get("/media/{project_id}/{file_path:path}")
-    async def media(project_id: str, file_path: str) -> FileResponse:
+    async def media(project_id: str, file_path: str, request: Request) -> FileResponse:
+        require_access(request, project_id, "read")
         project_dir = _safe_project_dir(project_id)
         target = (project_dir / file_path).resolve()
         try:
@@ -422,7 +475,8 @@ def create_app(*, auth_store=None) -> FastAPI:
         )
 
     @app.get("/diagnostics/p/{project_id}")
-    async def diagnostic_board_page(project_id: str) -> HTMLResponse:
+    async def diagnostic_board_page(project_id: str, request: Request) -> HTMLResponse:
+        require_access(request, project_id, "diagnostics")
         return _ui_html("board.html", ("board.css", "board.js"))
 
     @app.get("/p/{project_id}")
@@ -454,6 +508,16 @@ def create_app(*, auth_store=None) -> FastAPI:
     @app.get("/")
     async def library_page() -> HTMLResponse:
         return _ui_html("index.html", ("board.css", "library.js"))
+
+    from backlot.operator_routes import create_operator_router
+
+    operator_router = create_operator_router(
+        resolve_project=_safe_project_dir,
+        projects_dir=lambda: PROJECTS_DIR,
+        auth_store=get_auth_store,
+        authenticate=require_access,
+    )
+    app.router.routes.extend(operator_router.routes)
 
     if UI_DIR.is_dir():
         app.mount("/ui", StaticFiles(directory=UI_DIR), name="ui")

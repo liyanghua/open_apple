@@ -33,7 +33,7 @@ def backlot_client(projects_root, monkeypatch):
         return None
 
     monkeypatch.setattr(server_mod, "_watch_projects", no_watch)
-    with TestClient(server_mod.create_app()) as test_client:
+    with TestClient(server_mod.create_app(auth_mode="test")) as test_client:
         yield test_client
 
 

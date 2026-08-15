@@ -87,7 +87,26 @@ class RevisionService:
         impact_service,
         base_generation: str,
         base_snapshot: dict[str, Any],
+        idempotency_key: str | None = None,
+        request_digest: str | None = None,
     ) -> dict[str, Any]:
+        if idempotency_key:
+            for directory in sorted(
+                (self.project_dir / "operator/generations").glob("generation-*"),
+                reverse=True,
+            ):
+                try:
+                    if (directory / "status").read_text(encoding="ascii") != "committed":
+                        continue
+                    manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                action = manifest.get("action") or {}
+                if action.get("idempotency_key") != idempotency_key:
+                    continue
+                if action.get("request_digest") != request_digest:
+                    raise OperatorError("idempotency_conflict", "该请求标识已用于其他内容", 409)
+                return self._find(str(draft["stage"]), manifest["result"]["revision_id"])
         if draft.get("created_by") != actor_id or draft.get("status") not in {"active", "stale"}:
             raise OperatorError("forbidden", "该草稿不可由当前用户提交", 403)
         impact_service.verify_token(
@@ -145,8 +164,14 @@ class RevisionService:
         revision_relative = (
             f"operator/revisions/{draft['stage']}/{sequence:06d}-{revision_id}.json"
         )
+        action = {"action_id": f"commit-{revision_id}", "type": "commit_draft"}
+        if idempotency_key:
+            action.update(
+                idempotency_key=idempotency_key,
+                request_digest=request_digest,
+            )
         with self.store.transaction(
-            action={"action_id": f"commit-{revision_id}", "type": "commit_draft"},
+            action=action,
             result={"status": "committed", "revision_id": revision_id},
             audit={"event_type": "revision_committed", "actor_id": actor_id},
             draft_transition={"draft_id": draft["draft_id"], "status": "committed"},
@@ -193,4 +218,3 @@ class RevisionService:
             "snapshot": revision["snapshot"],
             "requires_impact_preview": True,
         }
-
