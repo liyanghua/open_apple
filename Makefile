@@ -6,7 +6,7 @@ PIP = $(RUN_PYTHON) -m pip
 
 .DEFAULT_GOAL := setup
 
-.PHONY: setup install install-dev install-gpu test test-contracts lint clean preflight demo demo-list hyperframes-doctor hyperframes-warm venv ensure-venv
+.PHONY: setup install install-dev install-gpu test test-contracts lint clean preflight demo demo-list hyperframes-doctor hyperframes-warm benchmark-fastline venv ensure-venv
 
 # ---- Virtual environment ----
 
@@ -99,6 +99,10 @@ test-contracts: ensure-venv
 
 preflight: ensure-venv
 	$(RUN_PYTHON) -c "from tools.tool_registry import registry; from lib.remotion_runtime import probe_remotion_runtime; import json; registry.discover(); print(json.dumps(registry.provider_menu_summary(), ensure_ascii=False, indent=2)); print(json.dumps({'remotion_runtime': probe_remotion_runtime()}, ensure_ascii=False, indent=2))"
+
+benchmark-fastline: ensure-venv
+	@if [ -z "$(PROJECT_ID)" ]; then echo "ERROR: PROJECT_ID is required"; exit 2; fi
+	@$(RUN_PYTHON) -c 'import json, sys; from tools.analysis.fastline_metrics import FastlineMetrics; inputs={"project_dir": "projects/" + sys.argv[1]}; inputs.update({"source_dir": sys.argv[2]} if len(sys.argv) > 2 and sys.argv[2] else {}); result=FastlineMetrics().execute(inputs); print(json.dumps({"success": result.success, "report": result.artifacts[0] if result.artifacts else None, "sample_counts": result.data.get("sample_counts"), "sla": result.data.get("sla"), "error": result.error}, ensure_ascii=False, indent=2)); raise SystemExit(0 if result.success else 1)' "$(PROJECT_ID)" "$(SOURCE_DIR)"
 
 hyperframes-doctor: ensure-venv
 	@echo "==> Probing HyperFrames runtime (node/ffmpeg/npx + hyperframes doctor)..."
