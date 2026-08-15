@@ -1,26 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Backlot — Library</title>
-<link rel="stylesheet" href="/ui/board.css">
-</head>
-<body>
-<div class="wrap">
-  <header class="slate">
-    <div class="clapper"></div>
-    <div>
-      <span class="wordmark">Backlot</span>
-      <h1>Library</h1>
-    </div>
-    <span class="chip" id="count"></span>
-    <div class="spacer"></div>
-    <span class="live idle" id="liveBadge"><span class="dot"></span><span id="liveText">IDLE</span></span>
-  </header>
-  <div class="lib-grid" id="grid"></div>
-  <p class="hint" id="empty" style="display:none">No projects yet — run a production and it will appear here.</p>
-</div>
-<script type="module" src="/ui/library.js"></script>
-</body>
-</html>
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>视频项目工作台</title><link rel="stylesheet" href="/ui/library.css"></head><body>
+<div class="shell"><header><div><p>Backlot</p><h1>视频项目工作台</h1></div><button class="primary" id="new-project">新建复刻项目</button></header>
+<main><div class="heading"><h2>我的项目</h2><span id="count">正在读取</span></div><div class="grid" id="grid"></div><p class="empty" id="empty" hidden>还没有视频项目</p></main></div>
+<dialog id="create-dialog"><form id="create-form"><div class="heading"><div><p>电商爆款复刻</p><h2>新建视频项目</h2></div><button class="icon" type="button" id="close-dialog" aria-label="关闭">×</button></div>
+<div class="form-grid"><label><span>商品名称</span><input name="product_name" required placeholder="例如：透明桌垫"></label><label><span>项目标识</span><input name="project_id" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="table-mat-remix-02"></label><label><span>目标时长</span><input name="duration_seconds" type="number" min="10" max="90" value="30" required></label><label><span>品牌与购买引导</span><input name="brand_cta" required placeholder="点击下方查看同款"></label><label class="full"><span>参考视频路径，每行一个</span><textarea name="reference_paths" rows="3" required></textarea></label><label class="full"><span>自有素材路径，每行一个</span><textarea name="source_paths" rows="3" required></textarea></label></div>
+<fieldset><legend>发布平台</legend><label><input type="checkbox" name="platforms" value="douyin" checked> 抖音</label><label><input type="checkbox" name="platforms" value="wechat_channels" checked> 视频号</label><label><input type="checkbox" name="platforms" value="xiaohongshu" checked> 小红书</label></fieldset><label class="check"><input type="checkbox" name="copyright_confirmed" required> 我确认版权与素材边界：参考视频仅用于分析，自有素材可用于成片</label><label class="check"><input type="checkbox" name="paid_generation_approved"> 允许审批后调用付费模型补充缺口素材</label><p class="message" id="form-message"></p><div class="actions"><button type="button" id="cancel-create">取消</button><button class="primary" type="submit">创建并进入项目</button></div></form></dialog>
+<script type="module" src="/ui/library.js"></script></body></html>

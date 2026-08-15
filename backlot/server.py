@@ -526,7 +526,7 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
 
     @app.get("/")
     async def library_page() -> HTMLResponse:
-        return _ui_html("index.html", ("board.css", "library.js"))
+        return _ui_html("index.html", ("library.css", "library.js"))
 
     from backlot.operator_routes import create_operator_router
 
