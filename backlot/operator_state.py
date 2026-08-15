@@ -334,7 +334,18 @@ def project_operator_state(board_state: Mapping[str, Any]) -> dict[str, Any]:
         stage for stage in (board.get("stages") or [])
         if isinstance(stage, Mapping) and stage.get("name")
     ]
-    if not raw_stages:
+    if pipeline_type in {"cinematic", "cinematic-fast"}:
+        stages_by_name = {str(stage["name"]): stage for stage in raw_stages}
+        raw_stages = [
+            stages_by_name.get(name, {
+                "name": name,
+                "status": "unknown",
+                "versions": 0,
+                "timestamp": None,
+            })
+            for name in STAGE_LABELS
+        ]
+    elif not raw_stages:
         raw_stages = [{"name": "unknown", "status": "pending", "versions": 0}]
 
     stages = []

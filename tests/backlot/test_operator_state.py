@@ -198,6 +198,9 @@ def test_legacy_project_is_read_only_without_invented_fastline_data() -> None:
 
     state = project_operator_state(board)
 
+    assert [(stage["id"], stage["label"]) for stage in state["stages"]] == NINE_STAGES
+    sample = next(stage for stage in state["stages"] if stage["id"] == "sample")
+    assert sample["status"] == "状态未知"
     assert state["legacy"] == {
         "read_only": True,
         "source_pipeline": "cinematic",
