@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
+import os
 import secrets
+import tempfile
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any, Callable
 
 from fastapi import APIRouter, Request
@@ -49,6 +54,55 @@ def create_operator_router(
     def catalog() -> SkillCatalog:
         return SkillCatalog(Path(__file__).parents[1] / "skills" / "catalog")
 
+    @router.post("/projects/{project_id}/inputs/{kind}")
+    async def upload_input(project_id: str, kind: str, request: Request) -> dict:
+        """Store one browser-selected media file under the project inputs."""
+        authenticate(request, project_id, "edit", csrf=True)
+        if kind not in {"reference", "source"}:
+            raise OperatorError.validation_failed("素材类型不受支持")
+        raw_name = request.headers.get("x-upload-path", "").strip()
+        relative = PurePosixPath(raw_name)
+        if not raw_name or relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+            raise OperatorError.validation_failed("素材文件名不安全")
+        if len(relative.parts) > 2:
+            relative = PurePosixPath(relative.parts[-1])
+        filename = relative.name
+        if Path(filename).suffix.lower() not in {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".jpg", ".jpeg", ".png", ".webp", ".wav", ".mp3", ".m4a"}:
+            raise OperatorError.validation_failed("只支持常见视频、图片和音频格式")
+        project_dir = project(project_id)
+        target_dir = project_dir / ("inputs/reference" if kind == "reference" else "inputs/source/video/product")
+        target_dir.mkdir(parents=True, exist_ok=True)
+        if project_dir.resolve() not in target_dir.resolve().parents:
+            raise OperatorError.validation_failed("素材目录不安全")
+        target = (target_dir / filename).resolve()
+        if target.parent != target_dir.resolve():
+            raise OperatorError.validation_failed("素材文件名不安全")
+        max_bytes = 500 * 1024 * 1024
+        size = 0
+        digest = hashlib.sha256()
+        fd, temp_name = tempfile.mkstemp(prefix=".upload-", dir=target_dir)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise OperatorError.validation_failed("单个素材不能超过 500MB")
+                    digest.update(chunk)
+                    handle.write(chunk)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_name, target)
+        except OperatorError:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(temp_name)
+            raise
+        except Exception as exc:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(temp_name)
+            raise OperatorError("invalid_write_context", "素材上传失败，请重试", 409) from exc
+        relative_root = "inputs/reference" if kind == "reference" else "inputs/source/video/product"
+        return {"status": "uploaded", "path": f"{relative_root}/{filename}", "bytes": size, "sha256": digest.hexdigest()}
+
     @router.get("/skills")
     async def list_skills(request: Request) -> list:
         authenticate(request, None, "read")
@@ -63,6 +117,12 @@ def create_operator_router(
             raise OperatorError.validation_failed("缺少重复提交保护标识")
         skill = catalog().resolve(str(payload.get("skill_id") or ""), payload.get("skill_version"))
         intake = payload.get("intake") if isinstance(payload.get("intake"), dict) else {}
+        for field, prefix in (("reference_paths", "inputs/reference"), ("source_paths", "inputs/source")):
+            values = intake.get(field) if isinstance(intake.get(field), list) else []
+            for value in values:
+                candidate = PurePosixPath(str(value))
+                if candidate.is_absolute() or ".." in candidate.parts or not (str(candidate) == prefix or str(candidate).startswith(f"{prefix}/")):
+                    raise OperatorError.validation_failed("素材路径必须位于项目输入目录", field_errors=[{"field": field, "message": "请使用 inputs/reference 或 inputs/source 下的路径"}])
         catalog().validate_intake(skill, intake)
         project_id = str(payload.get("project_id") or "")
         digest = semantic_sha256({"project_id": project_id, "skill": skill["digest"], "intake": intake})
