@@ -447,7 +447,7 @@ def _legacy_decision_log_path(pipeline_dir: Path, project_id: str) -> Path:
 
 
 def _merge_decision_log(
-    pipeline_dir: Path, project_id: str, new_log: dict[str, Any]
+    pipeline_dir: Path, project_id: str, new_log: dict[str, Any], *, sink=None
 ) -> None:
     """Append new decisions to the canonical artifact decision log.
 
@@ -495,6 +495,7 @@ def _merge_decision_log(
         "decision_log",
         existing,
         project_dir=pipeline_dir / project_id,
+        sink=sink,
     )
 
 
@@ -517,8 +518,13 @@ def write_checkpoint(
     approval_group: Optional[str] = None,
     approval_bundle_id: Optional[str] = None,
     approval_bundle_version: Optional[int] = None,
+    sink=None,
 ) -> Path:
     """Write a checkpoint file for a pipeline stage."""
+    from backlot.project_write_sink import require_project_sink
+
+    project_dir = pipeline_dir / project_id
+    write_sink = require_project_sink(project_dir, sink)
     # Backfill identity fields from the project marker so omitted kwargs
     # cannot bypass either gate enforcement or style validation.
     marker = None
@@ -634,9 +640,18 @@ def write_checkpoint(
             else:
                 plan_or_top["decision_log_ref"] = log_ref
 
-    validate_checkpoint(checkpoint, project_dir=pipeline_dir / project_id)
+    validate_checkpoint(checkpoint, project_dir=project_dir)
 
     path = _checkpoint_path(pipeline_dir, project_id, stage)
+    if write_sink is not None:
+        if isinstance(pending_decision_log, dict):
+            _merge_decision_log(
+                pipeline_dir, project_id, pending_decision_log, sink=write_sink
+            )
+        write_sink.stage_json(
+            path.relative_to(project_dir).as_posix(), checkpoint, schema="checkpoint"
+        )
+        return path
     path.parent.mkdir(parents=True, exist_ok=True)
     # Serialize to a temp file first so a mid-write failure (disk full,
     # unserializable metadata) can never leave the stage with a truncated

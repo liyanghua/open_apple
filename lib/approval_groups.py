@@ -14,14 +14,26 @@ from lib.pipeline_loader import get_approval_group, load_pipeline_readonly
 from schemas.artifacts import validate_artifact
 
 
-def _bundle_dir(project_dir: Path) -> Path:
+def _bundle_dir(project_dir: Path, *, create: bool = True) -> Path:
     path = project_dir / "artifacts" / "approvals"
-    path.mkdir(parents=True, exist_ok=True)
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def _write_bundle(path: Path, bundle: dict[str, Any]) -> Path:
+def _write_bundle(
+    path: Path, bundle: dict[str, Any], *, project_dir: Path, sink=None
+) -> Path:
     validate_artifact("approval_bundle", bundle)
+    from backlot.project_write_sink import require_project_sink
+
+    write_sink = require_project_sink(project_dir, sink)
+    if write_sink is not None:
+        write_sink.stage_json(
+            path.relative_to(project_dir).as_posix(), bundle, schema="approval_bundle"
+        )
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -76,7 +88,12 @@ def _approval_input_hash(checkpoint: dict[str, Any]) -> str:
     return semantic_sha256(stable)
 
 
-def build_approval_bundle(project_dir: Path, manifest: dict[str, Any], group_name: str) -> dict[str, Any]:
+def build_approval_bundle(
+    project_dir: Path, manifest: dict[str, Any], group_name: str, *, sink=None
+) -> dict[str, Any]:
+    from backlot.project_write_sink import require_project_sink
+
+    require_project_sink(project_dir, sink)
     group = (manifest.get("approval_groups") or {}).get(group_name)
     if not group:
         raise ValueError(f"unknown approval group: {group_name}")
@@ -93,39 +110,82 @@ def build_approval_bundle(project_dir: Path, manifest: dict[str, Any], group_nam
             if isinstance(artifact, dict) and {"path", "semantic_sha256", "artifact_sha256"} <= artifact.keys():
                 refs.append({"name": name, "path": artifact["path"], "semantic_sha256": artifact["semantic_sha256"], "artifact_sha256": artifact["artifact_sha256"]})
     bundle_id = f"{project_id}-{group_name}"
-    previous = list(_bundle_dir(project_dir).glob(f"{bundle_id}-v*-*.json"))
+    previous = list(_bundle_dir(project_dir, create=sink is None).glob(f"{bundle_id}-v*-*.json"))
     version = max([int(p.name.split("-v", 1)[1].split("-", 1)[0]) for p in previous] or [0]) + 1
     body = {"version": "1.0", "project_id": project_id, "created_at": datetime.now(timezone.utc).isoformat(), "producer": "approval_groups", "input_hashes": input_hashes, "bundle_id": bundle_id, "bundle_version": version, "group": group_name, "terminal_stage": group["terminal_stage"], "members": group["members"], "artifact_refs": refs, "status": "awaiting_human"}
     bundle = attach_hashes(body)
-    _write_bundle(_bundle_dir(project_dir) / f"{bundle_id}-v{version}-awaiting_human.json", bundle)
+    _write_bundle(
+        _bundle_dir(project_dir, create=sink is None)
+        / f"{bundle_id}-v{version}-awaiting_human.json",
+        bundle,
+        project_dir=project_dir,
+        sink=sink,
+    )
     return bundle
 
 
-def approve_bundle(project_dir: Path, bundle_id: str, *, approved_by: str) -> Path:
+def approve_bundle(
+    project_dir: Path,
+    bundle_id: str,
+    *,
+    approved_by: str,
+    expected_version: int | None = None,
+    expected_hash: str | None = None,
+    sink=None,
+) -> Path:
+    from backlot.project_write_sink import require_project_sink
+    from backlot.operator_errors import OperatorError
+
+    require_project_sink(project_dir, sink)
     source_path, bundle = _bundle_state(project_dir, bundle_id)
+    if (
+        (expected_version is not None and bundle.get("bundle_version") != expected_version)
+        or (expected_hash is not None and bundle.get("semantic_sha256") != expected_hash)
+    ):
+        raise OperatorError("review_stale", "审批内容已更新，请刷新后重试", 409)
     if bundle["status"] != "awaiting_human": raise ValueError("only awaiting_human bundles can be approved")
     body = {k: v for k, v in bundle.items() if k not in {"semantic_sha256", "artifact_sha256", "status", "approved_by"}}
     body.update({"status": "approved", "approved_by": approved_by})
     approved = attach_hashes(body)
     path = _bundle_dir(project_dir) / f"{bundle_id}-v{bundle['bundle_version']}-approved.json"
-    _write_bundle(path, approved)
+    _write_bundle(path, approved, project_dir=project_dir, sink=sink)
     return path
 
 
-def reject_bundle(project_dir: Path, bundle_id: str, *, reason: str) -> Path:
+def reject_bundle(
+    project_dir: Path,
+    bundle_id: str,
+    *,
+    reason: str,
+    expected_version: int | None = None,
+    expected_hash: str | None = None,
+    sink=None,
+) -> Path:
+    from backlot.project_write_sink import require_project_sink
+    from backlot.operator_errors import OperatorError
+
+    require_project_sink(project_dir, sink)
     _, bundle = _bundle_state(project_dir, bundle_id)
+    if (
+        (expected_version is not None and bundle.get("bundle_version") != expected_version)
+        or (expected_hash is not None and bundle.get("semantic_sha256") != expected_hash)
+    ):
+        raise OperatorError("review_stale", "审批内容已更新，请刷新后重试", 409)
     if bundle["status"] != "awaiting_human": raise ValueError("only awaiting_human bundles can be rejected")
     body = {k: v for k, v in bundle.items() if k not in {"semantic_sha256", "artifact_sha256", "status", "rejected_reason"}}
     body.update({"status": "rejected", "rejected_reason": reason})
     rejected = attach_hashes(body)
     path = _bundle_dir(project_dir) / f"{bundle_id}-v{bundle['bundle_version']}-rejected.json"
-    _write_bundle(path, rejected)
+    _write_bundle(path, rejected, project_dir=project_dir, sink=sink)
     return path
 
 
-def reconcile_bundle(project_dir: Path, terminal_checkpoint: dict[str, Any]) -> dict[str, Any]:
+def inspect_bundle_reconciliation(
+    project_dir: Path, terminal_checkpoint: dict[str, Any]
+) -> dict[str, Any]:
     bundle_id = terminal_checkpoint.get("approval_bundle_id")
-    if not bundle_id: return {"status": "missing"}
+    if not bundle_id:
+        return {"action": "unchanged", "bundle": {"status": "missing"}}
     _, bundle = _bundle_state(project_dir, bundle_id)
     current_hash = _approval_input_hash(terminal_checkpoint)
     expected = (bundle.get("input_hashes") or {}).get(bundle.get("terminal_stage"))
@@ -133,7 +193,21 @@ def reconcile_bundle(project_dir: Path, terminal_checkpoint: dict[str, Any]) -> 
         body = {k: v for k, v in bundle.items() if k not in {"semantic_sha256", "artifact_sha256", "status", "superseded_by"}}
         body.update({"status": "superseded", "superseded_by": current_hash})
         superseded = attach_hashes(body)
-        path = _bundle_dir(project_dir) / f"{bundle_id}-v{bundle['bundle_version']}-superseded.json"
-        _write_bundle(path, superseded)
-        return superseded
+        return {"action": "supersede", "bundle": superseded}
+    return {"action": "unchanged", "bundle": bundle}
+
+
+def reconcile_bundle(
+    project_dir: Path, terminal_checkpoint: dict[str, Any], *, sink=None
+) -> dict[str, Any]:
+    from backlot.project_write_sink import require_project_sink
+
+    require_project_sink(project_dir, sink)
+    inspection = inspect_bundle_reconciliation(project_dir, terminal_checkpoint)
+    bundle = inspection["bundle"]
+    if inspection["action"] == "supersede":
+        path = _bundle_dir(project_dir, create=sink is None) / (
+            f"{bundle['bundle_id']}-v{bundle['bundle_version']}-superseded.json"
+        )
+        _write_bundle(path, bundle, project_dir=project_dir, sink=sink)
     return bundle

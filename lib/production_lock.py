@@ -326,6 +326,7 @@ def append_decision_revision(
     selected: object,
     superseded: object,
     reason: str,
+    sink=None,
 ) -> str:
     """Append a revised decision without mutating any historical entry."""
     from lib.artifact_io import write_artifact_atomic
@@ -377,6 +378,10 @@ def append_decision_revision(
         "decisions": decisions + [revision],
     }
     write_artifact_atomic(
-        "artifacts/decision_log.json", "decision_log", log, project_dir=project_dir
+        "artifacts/decision_log.json",
+        "decision_log",
+        log,
+        project_dir=project_dir,
+        sink=sink,
     )
     return decision_id

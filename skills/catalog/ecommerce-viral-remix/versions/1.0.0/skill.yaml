@@ -1,0 +1,11 @@
+id: ecommerce-viral-remix
+version: 1.0.0
+name_zh: 电商爆款复刻
+description_zh: 使用参考方法和自有真实素材制作原创商品短视频
+pipeline: cinematic-fast
+supported_platforms: [douyin, wechat_channels, xiaohongshu]
+default_profile: home-protection
+approval_policy: two_gate
+intake_schema: intake.schema.json
+benchmark_policy: cinematic-fast
+

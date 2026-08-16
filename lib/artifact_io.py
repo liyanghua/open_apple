@@ -76,6 +76,7 @@ def write_artifact_atomic(
     data: dict[str, Any],
     *,
     project_dir: str | os.PathLike[str] | None = None,
+    sink: Any = None,
 ) -> dict[str, Any]:
     """Hash, validate, and atomically write canonical artifact data.
 
@@ -115,6 +116,14 @@ def write_artifact_atomic(
         "artifact_sha256": attached["artifact_sha256"],
         "data": attached,
     }
+
+    from backlot.project_write_sink import require_project_sink
+
+    root = Path(project_dir) if project_dir is not None else Path.cwd()
+    write_sink = require_project_sink(root, sink)
+    if write_sink is not None:
+        write_sink.stage_json(relative.as_posix(), attached, schema=name)
+        return envelope
 
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(

@@ -169,12 +169,12 @@ def staged_backlot_server():
 
 def test_project_pages_fit_mobile_and_tablet_widths(staged_backlot_server):
     project_paths = [
-        "/p/signal-in-the-static?static=1",
-        "/p/the-slow-orchard?static=1",
-        "/p/the-last-lighthouse?static=1",
-        "/p/paper-boats?static=1",
-        "/p/gate-proposal?static=1",
-        "/p/gate-character-design?static=1",
+        "/diagnostics/p/signal-in-the-static?static=1",
+        "/diagnostics/p/the-slow-orchard?static=1",
+        "/diagnostics/p/the-last-lighthouse?static=1",
+        "/diagnostics/p/paper-boats?static=1",
+        "/diagnostics/p/gate-proposal?static=1",
+        "/diagnostics/p/gate-character-design?static=1",
     ]
     viewports = [
         {"width": 390, "height": 844},
@@ -215,13 +215,13 @@ def test_static_navigation_invalid_route_and_active_takes(staged_backlot_server)
             assert href and "static=1" in href
 
             response = page.goto(
-                staged_backlot_server + "/p/..%2FAGENT_GUIDE.md?static=1",
+                staged_backlot_server + "/diagnostics/p/..%2FAGENT_GUIDE.md?static=1",
                 wait_until="networkidle",
             )
             assert response and response.status == 200
             assert "PROJECT NOT FOUND" in page.locator("body").inner_text()
 
-            page.goto(staged_backlot_server + "/p/the-last-lighthouse?static=1", wait_until="networkidle")
+            page.goto(staged_backlot_server + "/diagnostics/p/the-last-lighthouse?static=1", wait_until="networkidle")
             page.wait_for_timeout(300)
             assert page.locator(".takes .tk.active").count() >= 1
         finally:
@@ -245,7 +245,7 @@ def test_every_canonical_gate_promotes_its_artifact_before_approval(
         page = browser.new_page(viewport={"width": 1280, "height": 900})
         try:
             page.goto(
-                staged_backlot_server + f"/p/{project_id}?static=1",
+                staged_backlot_server + f"/diagnostics/p/{project_id}?static=1",
                 wait_until="networkidle",
             )
             review = page.locator(f'.approval-review[data-stage="{stage}"]')
@@ -268,7 +268,7 @@ def test_script_gate_keeps_script_visible_and_marks_pending_approval(staged_back
         browser = pw.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1280, "height": 900})
         try:
-            page.goto(staged_backlot_server + "/p/gate-script?static=1", wait_until="networkidle")
+            page.goto(staged_backlot_server + "/diagnostics/p/gate-script?static=1", wait_until="networkidle")
             assert page.locator(".script-card").is_visible()
             assert page.locator(".script-pending").inner_text() == "PENDING APPROVAL"
         finally:
@@ -281,7 +281,7 @@ def test_manifest_declared_custom_gate_uses_generic_review_fallback(staged_backl
         page = browser.new_page(viewport={"width": 1280, "height": 900})
         try:
             page.goto(
-                staged_backlot_server + "/p/gate-character-design?static=1",
+                staged_backlot_server + "/diagnostics/p/gate-character-design?static=1",
                 wait_until="networkidle",
             )
             review = page.locator('.approval-review[data-stage="character_design"]')

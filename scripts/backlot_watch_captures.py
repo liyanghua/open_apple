@@ -125,7 +125,7 @@ def capture_project(base_url: str, capture_dir: Path, project_id: str, seq: int,
     stem = f"{seq:03d}-{capture_slug(project_id, stage, status)}"
     capture_url(f"{base_url.rstrip('/')}/?static=1", capture_dir / "library" / f"{stem}.png", height=620)
     capture_url(
-        f"{base_url.rstrip('/')}/p/{project_id}?static=1",
+        f"{base_url.rstrip('/')}/diagnostics/p/{project_id}?static=1",
         capture_dir / project_id / f"{stem}.png",
     )
 

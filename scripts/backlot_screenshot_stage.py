@@ -322,9 +322,9 @@ def build_stage() -> None:
 
 SHOTS = [
     ("library", "/?static=1", 1560, 500, 4200),
-    ("board-live", "/p/signal-in-the-static?static=1", 1560, 1150, 4200),
-    ("script-gate", "/p/the-slow-orchard?static=1", 1560, 760, 3200),
-    ("storyboard", "/p/the-last-lighthouse?static=1", 1560, 1500, 4200),
+    ("board-live", "/diagnostics/p/signal-in-the-static?static=1", 1560, 1150, 4200),
+    ("script-gate", "/diagnostics/p/the-slow-orchard?static=1", 1560, 760, 3200),
+    ("storyboard", "/diagnostics/p/the-last-lighthouse?static=1", 1560, 1500, 4200),
 ]
 
 
