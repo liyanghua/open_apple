@@ -27,6 +27,22 @@ def test_selected_media_uploads_into_project_input_directory(backlot_client, pro
     assert (projects_root / "upload-demo/inputs/source/video/product/product.mov").read_bytes() == b"product-video-bytes"
 
 
+def test_upload_decodes_non_ascii_filename_from_ascii_header(backlot_client, make_project, projects_root) -> None:
+    make_project(projects_root, "unicode-upload", "cinematic-fast")
+    response = backlot_client.post(
+        "/api/v2/projects/unicode-upload/inputs/source",
+        headers={
+            "Origin": "http://testserver", "X-CSRF-Token": "test-csrf",
+            "X-Upload-Path": "%E9%80%8F%E6%98%8E%E6%A1%8C%E5%9E%AB-%E9%98%B2%E5%88%AE.MP4",
+            "Content-Type": "video/mp4",
+        },
+        content=b"unicode-name-video",
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["path"] == "inputs/source/video/product/透明桌垫-防刮.MP4"
+    assert (projects_root / "unicode-upload/inputs/source/video/product/透明桌垫-防刮.MP4").is_file()
+
+
 def test_input_upload_rejects_unsafe_names_and_unsupported_media(backlot_client, make_project, projects_root) -> None:
     make_project(projects_root, "upload-guard", "cinematic-fast")
     headers = {"Origin": "http://testserver", "X-CSRF-Token": "test-csrf", "Content-Type": "application/octet-stream"}

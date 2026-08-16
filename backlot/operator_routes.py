@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any, Callable
+from urllib.parse import unquote_to_bytes
 
 from fastapi import APIRouter, Request
 
@@ -60,7 +61,11 @@ def create_operator_router(
         authenticate(request, project_id, "edit", csrf=True)
         if kind not in {"reference", "source"}:
             raise OperatorError.validation_failed("素材类型不受支持")
-        raw_name = request.headers.get("x-upload-path", "").strip()
+        encoded_name = request.headers.get("x-upload-path", "").strip()
+        try:
+            raw_name = unquote_to_bytes(encoded_name).decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise OperatorError.validation_failed("素材文件名编码不正确") from exc
         relative = PurePosixPath(raw_name)
         if not raw_name or relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
             raise OperatorError.validation_failed("素材文件名不安全")

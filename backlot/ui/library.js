@@ -40,7 +40,7 @@ function showSelection(inputId, outputId) {
 async function uploadFile(projectId, kind, file, csrfToken) {
   const response = await fetch(`/api/v2/projects/${encodeURIComponent(projectId)}/inputs/${kind}`, {
     method: "POST",
-    headers: { "Content-Type": file.type || "application/octet-stream", "X-CSRF-Token": csrfToken, "X-Upload-Path": safeName(file), "Idempotency-Key": crypto.randomUUID(), Origin: window.location.origin },
+    headers: { "Content-Type": file.type || "application/octet-stream", "X-CSRF-Token": csrfToken, "X-Upload-Path": encodeURIComponent(safeName(file)), "Idempotency-Key": crypto.randomUUID(), Origin: window.location.origin },
     body: file,
   });
   const result = await response.json().catch(() => ({}));
