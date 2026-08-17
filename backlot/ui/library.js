@@ -1,3 +1,5 @@
+import {filterMediaFiles, selectionSummary} from "/ui/media-selection.mjs";
+
 const byId = (id) => document.getElementById(id);
 const lines = (value) => String(value || "").split("\n").map((item) => item.trim()).filter(Boolean);
 const safeName = (file) => (file.webkitRelativePath || file.name).split("/").slice(-2).join("_").replace(/[^\p{L}\p{N}._ -]/gu, "_");
@@ -30,11 +32,10 @@ async function renderProjects() {
   byId("empty").hidden = projects.length > 0;
 }
 
-function selectedFiles(id) { return Array.from(byId(id).files || []); }
+function rawSelectedFiles(id) { return Array.from(byId(id).files || []); }
+function selectedFiles(id) { return filterMediaFiles(rawSelectedFiles(id)).files; }
 function showSelection(inputId, outputId) {
-  const files = selectedFiles(inputId);
-  const size = Math.round(files.reduce((sum, file) => sum + file.size, 0) / 1024 / 1024);
-  byId(outputId).textContent = files.length ? `已选择 ${files.length} 个文件，共 ${size}MB` : "尚未选择";
+  byId(outputId).textContent = selectionSummary(rawSelectedFiles(inputId));
 }
 
 async function uploadFile(projectId, kind, file, csrfToken) {
