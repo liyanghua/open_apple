@@ -1,6 +1,7 @@
 # Video Quality and Business Feedback Design
 
 **Date:** 2026-08-16  
+**Revision:** 2026-08-17
 **Status:** Ready for user review  
 **Scope:** Define a business-oriented quality system for OpenMontage videos, covering intrinsic video quality, user acceptance, online performance feedback, attribution, and the generation lifecycle for social content and performance marketing.
 
@@ -20,6 +21,16 @@ The first design serves two external-distribution scenarios:
 
 - **A: Social content** — optimize effective viewing, completion, interaction, sharing, and follower growth.
 - **B: Performance marketing** — optimize CTA reach, click-through, attributed leads or purchases, acquisition cost, and conversion value.
+
+For any order whose destination is Douyin e-commerce, the minimum content
+quality baseline is the platform's published "什么是抖音电商优质短视频？" standard
+(retrieved 2026-08-17):
+
+<https://school.jinritemai.com/doudian/web/articlev0/aHd3psfsVEY6>
+
+This platform baseline is a release prerequisite. It is not a promise of
+traffic allocation, search placement, or conversion; online effectiveness is
+still evaluated separately.
 
 The system balances three result families:
 
@@ -75,6 +86,7 @@ Compare OpenMontage output with account history, human-made content, or alternat
 5. **Compare like with like.** Platform, objective, account size, content class, duration, audience, and paid/organic distribution determine the benchmark cohort.
 6. **Feedback changes policy only with evidence.** Individual videos produce diagnoses; cohort trends and experiments justify policy changes.
 7. **Cheap decisions precede expensive production.** Business intent, strategy, script, and a representative sample are approved before full asset generation.
+8. **Platform policy is a floor, not a performance score.** A video must first meet the destination's published quality standard; only then can business outcomes determine effectiveness.
 
 ## North-Star Metric
 
@@ -181,6 +193,87 @@ Any failure blocks delivery:
 - copyright, privacy, platform policy, and brand compliance;
 - no missing required CTA, product, attribution, or disclosure element.
 
+### Douyin e-commerce platform baseline
+
+The following checks are mandatory when `platform=douyin` and the order is an
+e-commerce short video. They are encoded as the versioned
+`douyin_ecommerce_quality_v1` evaluation policy. A failed item blocks the
+platform publication decision and prevents `settled_effective`.
+
+**P0: platform and e-commerce safety**
+
+- no illegal content, pornography, vulgarity, harmful values, or other content
+  that violates platform or law;
+- no false or exaggerated advertising, prohibited external diversion, illegal
+  marketing, prohibited goods, counterfeit goods, or other e-commerce safety
+  violations.
+
+**P1: audio and visual quality**
+
+- speech/audio is clear, stable, and at a normal level; persistent distracting
+  noise, clipping, electrical noise, stutter, or large volume swings fail;
+- preferred resolution is at least `1920x1080`; resolution below `1280x720`
+  fails the baseline;
+- no material blur, noise, light spots, freezing, or dropped frames;
+- unreasonable shake or stutter fails when it occurs at least three times or
+  accumulates to at least three seconds, unless the motion is an intentional
+  and reasonable part of the shot;
+- subtitles, stickers, masks, logos, or decorative text must not materially
+  obscure the subject; obstruction above 30% fails, while obstruction above 5%
+  is not eligible for the platform's highest cleanliness grade;
+- exposure and color must remain natural enough to identify the product; heavy
+  beauty filters or color distortion that changes product appearance fail;
+- audio, video, and lip movement remain aligned; three or more sync errors or
+  at least three seconds of cumulative mismatch fail.
+
+**P2: subject, scene, and readability**
+
+- the product is orderly and clearly distinguishable from the background;
+- the primary presenter is clean, appropriate, natural, confident, and
+  emotionally stable;
+- the background is tidy, balanced, and harmonious with the person and
+  product;
+- Mandarin is used where practical; dialect or otherwise difficult speech
+  must have corresponding standard-Mandarin subtitles;
+- language is understandable to an ordinary viewer and specialist terms are
+  explained.
+
+**P3: information value and commerce expression**
+
+- the topic is clear from the opening and the product is visibly presented;
+- necessary product basics are not missing (for example material, shade,
+  usage, ingredients, audience, or other decision-critical attributes);
+- normally highlight two to three core selling points, derived from complete
+  basic information rather than replacing it;
+- show selling points through a combination of speech, captions, close-ups,
+  demonstrations, or other appropriate shot language;
+- include concrete use scenarios, applicable audiences, conditions, or
+  precautions, and maintain person-product-scene consistency;
+- provide professional knowledge, comparison, selection guidance, or a
+  meaningful demonstration rather than only displaying the product;
+- coordinate what is said with what is shown; the video should help the viewer
+  understand and make a decision.
+
+**P4: content value and production quality**
+
+- the video has a clear theme, coherent narrative, and sufficient shot or
+  scene variation for a short video;
+- it is not a still-image carousel, a low-effort splice of livestream/video
+  fragments, or a simple content reuse/re-edit with little original value;
+- expressed viewpoints and values are socially responsible and do not use
+  vulgar, sensational, or harmful themes merely to attract attention.
+
+For the qualitative items, the baseline requires at least the article's
+positive/"优质" behavior. An item described as "低质" is a hard failure; an
+"一般" result is a warning and cannot be used to claim platform-quality
+baseline attainment unless the policy explicitly marks that item as optional.
+
+The platform policy stores a per-check result, evidence reference, severity,
+source rule ID, policy version, and remediation destination. It does not replace
+the general quality rubric: `P1` maps to audio/visual execution,
+`P2` to platform fit and readability, `P3` to message clarity and business
+expression, and `P4` to narrative, strategy, and originality.
+
 ### Scored quality dimensions
 
 Each dimension uses a 1-5 anchored rubric and structured issue tags. Scores support comparison and diagnosis but cannot override a hard-gate failure.
@@ -236,6 +329,11 @@ Every metric used for settlement is registered in an `evaluation_policy` with:
 - comparison direction (`higher_is_better` or `lower_is_better`);
 - missing-data behavior (`required`, `optional`, or `proxy_allowed`);
 - minimum valid sample, observation window, and maximum data-lag allowance.
+
+Platform-specific policies also store the source URL, source retrieval date,
+platform rule IDs, baseline check definitions, and policy ownership
+(`quality_floor`, `business_metric`, or `guardrail`). A policy cannot be
+activated without these provenance fields.
 
 An evaluation policy cannot be activated if any required metric lacks a numeric
 minimum sample, a window, a comparator direction, or a missing-data rule. This
@@ -446,7 +544,13 @@ Generate complete assets, narration, edit, composition, and render only after th
 
 ### 6. Publication acceptance
 
-Run automated hard gates, then capture user acceptance as direct accept, accept after revision, reject, or abandon. A rejection requires a structured reason.
+Run automated hard gates, including the destination platform baseline, then
+capture user acceptance as direct accept, accept after revision, reject, or
+abandon. For Douyin e-commerce, the `douyin_ecommerce_quality_v1` result must
+be `pass` before the user can mark the version publishable. A rejection requires
+a structured reason. If the optional platform pre-review tool is available, its
+result is stored as supporting evidence rather than treated as the system's
+only quality decision.
 
 **Metrics:** first-version acceptance, final acceptance, revision rounds, time to publishable output, publication rate, and abandonment reasons.
 
@@ -478,13 +582,13 @@ audited events, while observations and evaluations are append-only.
 |---|---|---|
 | `production_order` | `order_id`; required `project_id`, `user_id`, approved `brief_version_id`, `settlement_policy_id`, primary platform and objective; optional `supersedes_order_id` | One order owns many video versions and user decisions. It is the denominator entity and owns the business state. `settlement_policy_id` defines whether one primary destination, any destination, or all required destinations determine order settlement. |
 | `video_version` | `video_version_id`; required `order_id`, exact artifact hashes, script and scene-plan version IDs, generation-policy version | Many versions belong to one order. Version number is unique within the order; rendered media identity is immutable. |
-| `quality_evaluation` | `quality_evaluation_id`; required `video_version_id`, rubric version, evaluator identity/type | Many append-only evaluations may assess one version; one explicitly selected final hard-gate evaluation governs publication eligibility. |
+| `quality_evaluation` | `quality_evaluation_id`; required `video_version_id`, rubric or platform-policy version, evaluator identity/type, check results, and evidence | Many append-only evaluations may assess one version; one explicitly selected final hard-gate evaluation governs publication eligibility. Platform baselines and general rubrics remain distinguishable. |
 | `user_decision` | `user_decision_id`; required `order_id`, decision type, actor; `video_version_id` required for version-specific acceptance or rejection | Many chronological decisions belong to one order. The latest valid final acceptance selects exactly one accepted version at a time. |
 | `publication` | `publication_id`; required `video_version_id`, platform, account ID, platform post ID, published time, paid/organic status, `evaluation_policy_id`, and `is_primary_destination` | One exact version may have many publications. `(platform, account_id, platform_post_id)` is globally unique. A publication never changes to point at another version. Its policy owns metric semantics for that destination. |
 | `performance_snapshot` | `snapshot_id`; required `publication_id`, observed-at time, source and adapter version | Many immutable snapshots belong to one publication. `(publication_id, observed_at, source_revision)` is unique. Corrections append a superseding snapshot. |
 | `benchmark_record` | `benchmark_record_id`; required `publication_id`, metric key, evaluation-policy ID, source, cohort definition, frozen value | One frozen record exists for each evaluated publication, metric, policy, and settlement run. It owns the benchmark provenance used by the evaluation. |
 | `effectiveness_evaluation` | `effectiveness_evaluation_id`; required `order_id`, `settlement_policy_id`, settlement run ID, and evaluation scope (`publication_id` or order-level combination); references included publication IDs, snapshot IDs, and benchmark-record IDs | Many append-only evaluations may belong to an order, but only one is the current official settlement. It owns metric results, validity, verification tier, attribution, and state result. Destination evaluations use each publication's policy; the official order evaluation combines them using the order's settlement policy. |
-| `evaluation_policy` | `evaluation_policy_id`; required platform, scenario, metric definitions, validity rules, windows, comparator and attribution rules | Immutable once used. Many publications may reference one versioned destination policy. A successor policy receives a new ID. |
+| `evaluation_policy` | `evaluation_policy_id`; required platform, scenario, policy ownership, source URL/retrieval date, metric definitions, platform baseline checks, validity rules, windows, comparator and attribution rules | Immutable once used. Many publications may reference one versioned destination policy. A successor policy receives a new ID. |
 | `settlement_policy` | `settlement_policy_id`; required destination mode (`primary`, `any_destination`, or `all_required_destinations`), primary destination or required destination set, and settlement combination rules | Immutable order-level policy. One order references exactly one policy; it never substitutes for a destination's metric policy. |
 | `policy_experiment` | `experiment_id`; required control/treatment generation-policy IDs and evaluation-policy ID | Many eligible orders belong to at most one arm of an experiment for the same hypothesis and period. Assignment is immutable. |
 
@@ -516,6 +620,8 @@ Breakdowns include platform, scenario, user cohort, content class, duration band
 - Capture structured business objective and declared primary metric.
 - Create a unique production order at formal-production authorization.
 - Persist hard-gate results and a small anchored quality rubric.
+- Activate the `douyin_ecommerce_quality_v1` platform baseline for Douyin
+  e-commerce destinations, including its P0-P4 checks and numeric thresholds.
 - Capture structured user acceptance and rejection reasons.
 - Record publication identity and paid/organic status.
 - Support manual or CSV performance import when platform APIs are unavailable.
