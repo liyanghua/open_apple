@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from statistics import median
@@ -534,8 +535,40 @@ def _scan_media(project_dir: Path) -> dict[str, list[dict]]:
                 if f.suffix.lower() in MEDIA_IMAGE_EXT and f.is_file():
                     snapshots.append({"path": _rel(project_dir, f)})
 
+    # Review-player media (U3): sample videos and stills for the operator to
+    # inspect. Sample mp4s live under renders/ and assets/sample/; stills come
+    # from snapshots/, assets/sample/ and assets/images/.
+    samples: list[dict] = []
+    stills: list[dict] = []
+    sample_dir = project_dir / "assets" / "sample"
+    for d in (renders_dir, sample_dir):
+        if d.is_dir():
+            for f in sorted(d.iterdir()):
+                if f.suffix.lower() not in MEDIA_VIDEO_EXT or not f.is_file():
+                    continue
+                # renders/ holds both sample windows and final deliverables;
+                # the review player only surfaces sample windows, while
+                # assets/sample/ files are samples by location.
+                if d == renders_dir and "sample" not in f.name.lower():
+                    continue
+                samples.append({"path": _rel(project_dir, f), "size": f.stat().st_size,
+                                "mtime": f.stat().st_mtime})
+    for d in (project_dir / "snapshots", sample_dir, project_dir / "assets" / "images"):
+        if d.is_dir():
+            for f in sorted(d.iterdir()):
+                if f.suffix.lower() in MEDIA_IMAGE_EXT and f.is_file():
+                    stills.append({"path": _rel(project_dir, f), "mtime": f.stat().st_mtime})
+
     renders.sort(key=lambda r: r.get("mtime", 0), reverse=True)
-    return {"renders": renders, "snapshots": snapshots, "music": music}
+    samples.sort(key=lambda s: s.get("mtime", 0), reverse=True)
+    stills.sort(key=lambda s: s.get("mtime", 0), reverse=True)
+    return {
+        "renders": renders,
+        "snapshots": snapshots,
+        "music": music,
+        "samples": samples,
+        "stills": stills,
+    }
 
 
 def _find_poster(project_dir: Path, state: dict) -> Optional[str]:
@@ -886,6 +919,164 @@ def _build_fastline_state(
 
 
 # ---------------------------------------------------------------------------
+# Run-event progress + decision inbox + review notes (P0-1 / U2 / U3)
+# ---------------------------------------------------------------------------
+
+def _parse_ts(value: Any) -> Optional[float]:
+    """Parse an ISO-8601 timestamp to epoch seconds (UTC), or None."""
+    if not isinstance(value, str) or not value:
+        return None
+    s = value.strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(s).timestamp()
+    except ValueError:
+        return None
+
+
+def _collect_run_ops(events: list[dict[str, Any]], now: float) -> list[dict[str, Any]]:
+    """Aggregate the v1 run-event stream into one latest entry per run_id.
+
+    Legacy tool events (no schema_version) are ignored here — they still drive
+    the activity rail and cache summary. A run that has been running/queued for
+    more than 60s without a fresh heartbeat is flagged needs_attention so the
+    board can surface it instead of silently showing a stale stage.
+    """
+    latest: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for event in events:
+        if event.get("schema_version") != "1.0":
+            continue
+        run_id = event.get("run_id")
+        if not isinstance(run_id, str) or not run_id:
+            continue
+        if run_id not in latest:
+            order.append(run_id)
+        latest[run_id] = event  # events are oldest-first → last write wins
+
+    run_ops: list[dict[str, Any]] = []
+    for run_id in order:
+        event = latest[run_id]
+        last_ts = event.get("ts")
+        epoch = _parse_ts(last_ts)
+        stale_seconds = int(now - epoch) if epoch is not None else None
+        status = event.get("status")
+        unit = event.get("unit")
+        if not isinstance(unit, dict):
+            unit = {}
+        needs_attention = bool(
+            status in {"running", "queued"}
+            and stale_seconds is not None
+            and stale_seconds > 60
+        )
+        run_ops.append({
+            "run_id": run_id,
+            "stage": event.get("stage"),
+            "operation": event.get("operation"),
+            "status": status,
+            "unit": {
+                "kind": unit.get("kind"),
+                "current": unit.get("current"),
+                "total": unit.get("total"),
+            },
+            "wait_reason": event.get("wait_reason"),
+            "message": event.get("message"),
+            "machine_ms": event.get("machine_ms"),
+            "attempt": event.get("attempt"),
+            "eta_seconds": event.get("eta_seconds"),
+            "cost_reservation_id": event.get("cost_reservation_id"),
+            "last_ts": last_ts,
+            "stale_seconds": stale_seconds,
+            "needs_attention": needs_attention,
+        })
+    return run_ops
+
+
+def _latest_next_action(checkpoints: dict[str, dict]) -> Optional[dict]:
+    """next_action from the most recently written checkpoint (resume directive)."""
+    if not checkpoints:
+        return None
+    latest = max(checkpoints.values(), key=lambda c: c.get("_mtime", 0))
+    next_action = latest.get("next_action")
+    return next_action if isinstance(next_action, dict) else None
+
+
+_REVIEW_KIND_STAGE = {"creative_lock": "assets", "sample": "sample"}
+
+
+def _collect_reviews(project_dir: Path) -> list[dict[str, Any]]:
+    reviews_dir = project_dir / "operator" / "reviews"
+    if not reviews_dir.is_dir():
+        return []
+    reviews: list[dict[str, Any]] = []
+    for path in sorted(reviews_dir.glob("*.json")):
+        data = _read_json(path)
+        if isinstance(data, dict):
+            reviews.append(data)
+    return reviews
+
+
+def _build_awaiting(
+    checkpoints: dict[str, dict], reviews: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Every awaiting_human checkpoint across the project, joined to its review."""
+    review_by_stage: dict[str, dict[str, Any]] = {}
+    for review in reviews:
+        if review.get("status") != "awaiting_human":
+            continue
+        stage = _REVIEW_KIND_STAGE.get(review.get("kind"))
+        if stage:
+            review_by_stage.setdefault(stage, review)
+
+    awaiting: list[dict[str, Any]] = []
+    for stage, checkpoint in checkpoints.items():
+        if checkpoint.get("status") != "awaiting_human":
+            continue
+        next_action = checkpoint.get("next_action")
+        review = review_by_stage.get(stage)
+        awaiting.append({
+            "stage": stage,
+            "timestamp": checkpoint.get("timestamp"),
+            "next_action_summary": (
+                next_action.get("summary") if isinstance(next_action, dict) else None
+            ),
+            "review_id": review.get("review_id") if review else None,
+            "subject_version": review.get("subject_version") if review else None,
+            "subject_hash": review.get("subject_hash") if review else None,
+        })
+    awaiting.sort(key=lambda item: item.get("timestamp") or "", reverse=True)
+    return awaiting
+
+
+def _read_review_notes(project_dir: Path, limit: int = 20) -> list[dict[str, Any]]:
+    """Most recent operator review notes (append-only review_notes.jsonl).
+
+    Delivery bookkeeping (`_outbox_id`) is stripped before returning — it is
+    the commit store's replay-dedupe key, not operator-visible content.
+    """
+    path = project_dir / "review_notes.jsonl"
+    if not path.exists():
+        return []
+    notes: list[dict[str, Any]] = []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    note = json.loads(line)
+                    note.pop("_outbox_id", None)
+                    notes.append(note)
+                except json.JSONDecodeError:
+                    continue
+    except OSError:
+        return []
+    return notes[-limit:]
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -915,6 +1106,7 @@ def _load_board_state_uncached(project_dir: Path) -> dict[str, Any]:
     media = _scan_media(project_dir)
 
     stages = _build_stage_rail(pipeline_meta, checkpoints, history)
+    reviews = _collect_reviews(project_dir)
 
     # Cost: latest checkpoint snapshot wins; fall back to manifest total.
     cost = None
@@ -930,6 +1122,11 @@ def _load_board_state_uncached(project_dir: Path) -> dict[str, Any]:
     import time
     last_activity = _last_activity(project_dir)
     now = time.time()
+
+    run_ops = _collect_run_ops(events, now)
+    next_action = _latest_next_action(checkpoints)
+    awaiting = _build_awaiting(checkpoints, reviews)
+    review_notes = _read_review_notes(project_dir)
 
     # Stall detection: an in_progress stage that stopped writing anything.
     for stage_entry in stages:
@@ -957,6 +1154,10 @@ def _load_board_state_uncached(project_dir: Path) -> dict[str, Any]:
         "cost": cost,
         "last_activity": last_activity,
         "live": bool(last_activity and (now - last_activity) < LIVE_WINDOW_SECONDS),
+        "run_ops": run_ops,
+        "next_action": next_action,
+        "awaiting": awaiting,
+        "review_notes": review_notes,
     }
     state["fastline"] = _build_fastline_state(
         project_dir, checkpoints, stages, artifacts, events

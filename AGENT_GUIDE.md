@@ -67,6 +67,17 @@ When the user asks to make, create, produce, or generate any video content — a
 
 The intelligence is in the skills, not in improvised code. An agent that reads the director skills and Layer 3 knowledge will produce significantly better output than one that calls tools directly with generic prompts.
 
+## 关键路径纪律 (Critical-Path Discipline)
+
+Production runs have a critical path; everything else is a side quest. Two hard rules:
+
+1. **禁止在生产关键路径内开发基建。** 工具、schema、CLI、库的新建或返工(例如把 TTS 预占账本做进一条已能出片的生产线)必须走独立 branch、独立契约测试与发布门,验收后再集成。生产运行中发现的缺口:记入 `decision_log`(`category: "capability_extension"`),继续使用现有最佳路径;若缺口真正阻塞交付,按「Escalate Blockers Explicitly」升级,让用户决定是否暂停生产去做基建。
+2. **研究/探测类工具并行,不串行。** `scene_detect`、`frame_sampler`、`audio_energy` 等互不依赖的调用同时发起;禁止"一个工具等完再跑下一个"的串行链条。
+
+**断点恢复契约:** 每个 `in_progress` / `awaiting_human` checkpoint 必须写 `next_action`(summary + verb + context_refs)——恢复会话的 agent 直接执行它,不得重新读文件推导状态。见 checkpoint 协议 skill。
+
+**编排心跳契约:** 工具调用级 run event(queued/succeeded/failed + machine_ms)由 `BaseTool` 自动发出。代理自身的长编排阶段(研究、素材审查、审批等待、上传、多步决策)必须用 `lib.events.emit_heartbeat` 发 run event:`wait_reason` 取 `orchestrating`(思考/编排中)或 `waiting_user`(等待用户决定);进入和离开 `waiting_user` 时都要发,结束事件带 `approval_wait_ms`。任何 >30s 的无事件阶段都不合法。
+
 ## What OpenMontage Is
 
 OpenMontage is an instruction-driven video production system. The AI agent IS the intelligence — it reads instructions (pipeline manifests + stage director skills + meta skills) and drives the pipeline using tools.
@@ -119,6 +130,8 @@ Minor prompt refinements inside an already approved provider/model path do not r
 The `decision_log` is the board's Decisions rail and the run's audit trail. It is **append-only history, not a scratchpad.** When a choice you already logged changes mid-run — the user swaps the voice, you switch provider/model/runtime/music, or a fallback overrides an earlier pick — you MUST **append a new `decision_log` entry** for the new choice, reusing the **same `category` AND the same `subject`** (e.g. `category: "voice_selection"`, `subject: "Narration TTS provider"`), with the superseded option moved into `options_considered` and `rejected_because` noting it was changed.
 
 Editing only a downstream artifact (the `asset_manifest`, a prop) while leaving the old decision in the log is a defect: the board keeps showing the stale choice (e.g. `voice → openai_onyx` after the user moved to Chirp3). The board identifies a decision by its **(category, subject) pair** and renders the latest entry for that pair as current (tagged "revised") — so the fix is to append the new entry with an identical `subject`, never to silently mutate the old one or reword the subject (a reworded subject reads as a different decision and both will show). Keeping distinct decisions in one category (e.g. TTS vs image `provider_selection`) is exactly why the pair, not the category alone, is the key. This applies at every stage, not just `idea`.
+
+**Rework/rejection decisions are tagged, never free text.** Every decision with `category: "rework_cause"` or `category: "review_rejection"` MUST carry `issue_tags` (canonical enum, ≥1) and `rework_round` (1-based) — the schema rejects entries without them. These tags are the cohort-level quality feedback data; a rejection logged without tags is a lost measurement.
 
 ### Present Both Composition Runtimes (HARD RULE)
 
@@ -713,3 +726,4 @@ The `.agents/skills/` directory is large. When you're not coming in through a to
 - Do not present a single unavailable tool in isolation. Always show the full capability picture: "X of Y providers configured for this capability."
 - Do not skip the Provider Menu at preflight. The user must see what they have AND what they could unlock.
 - Do not change provider, model, or render path without telling the user first and getting approval when the change is material.
+- Do not develop infrastructure (tools, schemas, CLIs) inside a production run's critical path — log it as a `capability_extension` decision and continue with the best available path, or escalate a structured blocker.

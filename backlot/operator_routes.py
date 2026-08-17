@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import json
 import os
 import secrets
 import tempfile
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any, Callable
@@ -25,6 +28,115 @@ from backlot.project_commit import ProjectCommitStore
 from backlot.project_creation import ProjectCreationService
 from backlot.skill_catalog import SkillCatalog
 from lib.artifact_hashing import semantic_sha256
+
+
+def _existing_review_note_for_idempotency_key(
+    project_dir: Path, event: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Return an identical prior note or reject reuse of its idempotency key."""
+    key = event.get("idempotency_key")
+    if not key:
+        return None
+    path = project_dir / "review_notes.jsonl"
+    if not path.exists():
+        return None
+    semantic_fields = ("actor", "note", "stage", "version_ref")
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        with contextlib.suppress(json.JSONDecodeError):
+            existing = json.loads(line)
+            if existing.get("idempotency_key") != key:
+                continue
+            if any(existing.get(field) != event.get(field) for field in semantic_fields):
+                raise OperatorError(
+                    "idempotency_conflict",
+                    "同一重复提交标识不能用于不同的审核意见",
+                    409,
+                )
+            return existing
+    return None
+
+
+def _review_notes_materializer(project_dir: Path) -> Callable[[str, dict[str, Any]], None]:
+    """Outbox materializer for the review-notes store.
+
+    Runs inside the commit store's drain step, which holds the project lock.
+    Recovery rules (review P1-②):
+
+    - ``review_notes``: idempotent replay — the line keeps ``_outbox_id`` so a
+      re-drain after a crash cannot duplicate it, and the client
+      ``idempotency_key`` is also checked against existing lines;
+    - ``events`` and any other stream: delegated to the canonical default-drain
+      behavior (project events.jsonl / operator dir, dedupe by ``_outbox_id``),
+      so an undrained ``events`` outbox is never silently dropped.
+    """
+
+    def _default_target_and_dedupe(stream: str) -> tuple[Path, set[str]]:
+        if stream == "events":
+            target = project_dir / "events.jsonl"
+        else:
+            target = project_dir / "operator" / f"{stream}.jsonl"
+        delivered: set[str] = set()
+        if target.exists():
+            for line in target.read_text(encoding="utf-8").splitlines():
+                with contextlib.suppress(json.JSONDecodeError):
+                    delivered.add(json.loads(line).get("_outbox_id", ""))
+        return target, delivered
+
+    def materialize(stream: str, item: dict[str, Any]) -> None:
+        event = dict(item.get("event") or {})
+        outbox_id = item.get("outbox_id", "")
+        if stream == "review_notes":
+            path = project_dir / "review_notes.jsonl"
+            existing: list[dict[str, Any]] = []
+            if path.exists():
+                for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                    if not line.strip():
+                        continue
+                    with contextlib.suppress(json.JSONDecodeError):
+                        existing.append(json.loads(line))
+            if any(note.get("_outbox_id") == outbox_id for note in existing):
+                return  # crash replay of the same generation
+            if event.get("idempotency_key"):
+                try:
+                    same_key = _existing_review_note_for_idempotency_key(
+                        project_dir, event
+                    )
+                except OperatorError:
+                    # The API rejects conflicts before commit. A legacy/corrupt
+                    # committed outbox must still drain instead of wedging all
+                    # future project transactions.
+                    return
+                if same_key is not None:
+                    return
+            event["_outbox_id"] = outbox_id
+            line = json.dumps(event, ensure_ascii=False, default=str) + "\n"
+            existing_bytes = path.read_bytes() if path.exists() else b""
+            fd, tmp_path = tempfile.mkstemp(dir=project_dir, prefix=".review_notes-", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(existing_bytes + line.encode("utf-8"))
+                os.replace(tmp_path, path)
+            finally:
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(tmp_path)
+            return
+        # Canonical default-drain delegation for every other stream.
+        target, delivered = _default_target_and_dedupe(stream)
+        if outbox_id in delivered:
+            return
+        event["_outbox_id"] = outbox_id
+        existing_bytes = target.read_bytes() if target.exists() else b""
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=target.parent, prefix=".outbox-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(existing_bytes + json.dumps(event, ensure_ascii=False, default=str).encode("utf-8") + b"\n")
+            os.replace(tmp_path, target)
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp_path)
+
+    return materialize
 
 
 def create_operator_router(
@@ -291,17 +403,69 @@ def create_operator_router(
     ) -> dict:
         session = authenticate(request, project_id, "review", csrf=True)
         payload = await body(request)
+        if "subject_version" not in payload or "subject_hash" not in payload:
+            raise OperatorError.validation_failed("缺少待确认内容的版本或校验值")
         normalized = {"approve": "approved", "reject": "rejected"}.get(decision, decision)
         service = ReviewService(project(project_id))
-        active = service._find(review_id)
         return service.decide(
             review_id=review_id,
             decision=normalized,
             actor_id=session.actor.user_id,
             reason=str(payload.get("reason") or ""),
-            expected_version=int(payload.get("subject_version") or active["subject_version"]),
-            expected_hash=str(payload.get("subject_hash") or active["subject_hash"]),
+            expected_version=int(payload["subject_version"]),
+            expected_hash=str(payload["subject_hash"]),
+            issue_tags=(
+                [str(t) for t in payload["issue_tags"]]
+                if isinstance(payload.get("issue_tags"), list)
+                else None
+            ),
         )
+
+    @router.post("/projects/{project_id}/review-notes")
+    async def add_review_note(project_id: str, request: Request) -> dict:
+        """Append one operator review note through the atomic commit store.
+
+        P2-⑨ fix: notes go through a ProjectCommitStore generation (project
+        lock + audit manifest + recovery) instead of a bare file append, so
+        concurrent submissions cannot lose or interleave entries.
+        """
+        session = authenticate(request, project_id, "review", csrf=True)
+        payload = await body(request)
+        note = str(payload.get("note") or "").strip()
+        if not note:
+            raise OperatorError.validation_failed("审核意见不能为空")
+        if len(note) > 4000:
+            raise OperatorError.validation_failed("审核意见内容过长")
+        stage = str(payload.get("stage") or "")
+        version_ref = str(payload.get("version_ref") or "")
+        idempotency_key = request.headers.get("idempotency-key", "").strip() or None
+        actor = getattr(session.actor, "user_id", None) or "user"
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "actor": actor,
+            "note": note,
+            "stage": stage,
+            "version_ref": version_ref,
+            **({"idempotency_key": idempotency_key} if idempotency_key else {}),
+        }
+        project_dir = project(project_id)
+        store = ProjectCommitStore(
+            project_dir, outbox_materializer=_review_notes_materializer(project_dir)
+        )
+        with store.transaction(
+            action={
+                "action_id": f"note-{idempotency_key or uuid.uuid4().hex[:12]}",
+                "type": "add_review_note",
+            },
+            result={"status": "recorded"},
+            audit={"event_type": "review_note_added", "actor_id": actor},
+        ) as sink:
+            existing = _existing_review_note_for_idempotency_key(project_dir, entry)
+            if existing is None:
+                sink.append_event("review_notes", entry)
+        visible = dict(existing or entry)
+        visible.pop("_outbox_id", None)
+        return {"status": "recorded", "review_note": visible}
 
     @router.get("/projects/{project_id}/members")
     async def members(project_id: str, request: Request) -> list:

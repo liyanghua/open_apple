@@ -81,9 +81,9 @@ def test_remotion_render_adapts_cuts_and_stages_local_video(monkeypatch, tmp_pat
     output = tmp_path / "render.mp4"
     captured = {}
 
-    def fake_run_command(self, command, **kwargs):
+    def fake_run_command(self, command, *, cwd, timeout, project_dir, run_id, operation, unit_total=None):
         captured["command"] = command
-        captured["timeout"] = kwargs["timeout"]
+        captured["timeout"] = timeout
         props_arg = next(arg for arg in command if arg.startswith("--props="))
         captured["props"] = json.loads(Path(props_arg.split("=", 1)[1]).read_text())
         public_arg = next(arg for arg in command if arg.startswith("--public-dir="))
@@ -93,7 +93,7 @@ def test_remotion_render_adapts_cuts_and_stages_local_video(monkeypatch, tmp_pat
         ).exists()
         output.write_bytes(b"rendered")
 
-    monkeypatch.setattr(VideoCompose, "run_command", fake_run_command)
+    monkeypatch.setattr(VideoCompose, "_run_remotion_command", fake_run_command)
 
     result = VideoCompose()._remotion_render({
         "edit_decisions": {
@@ -121,11 +121,11 @@ def test_remotion_timeout_scales_with_scene_count(monkeypatch, tmp_path) -> None
     output = tmp_path / "render.mp4"
     captured = {}
 
-    def fake_run_command(self, command, **kwargs):
-        captured["timeout"] = kwargs["timeout"]
+    def fake_run_command(self, command, *, cwd, timeout, project_dir, run_id, operation, unit_total=None):
+        captured["timeout"] = timeout
         output.write_bytes(b"rendered")
 
-    monkeypatch.setattr(VideoCompose, "run_command", fake_run_command)
+    monkeypatch.setattr(VideoCompose, "_run_remotion_command", fake_run_command)
     cuts = [
         {
             "id": f"title-{index}",
@@ -151,12 +151,12 @@ def test_remotion_render_preserves_direct_cinematic_scenes(monkeypatch, tmp_path
     output = tmp_path / "render.mp4"
     captured = {}
 
-    def fake_run_command(self, command, **kwargs):
+    def fake_run_command(self, command, *, cwd, timeout, project_dir, run_id, operation, unit_total=None):
         props_arg = next(arg for arg in command if arg.startswith("--props="))
         captured["props"] = json.loads(Path(props_arg.split("=", 1)[1]).read_text())
         output.write_bytes(b"rendered")
 
-    monkeypatch.setattr(VideoCompose, "run_command", fake_run_command)
+    monkeypatch.setattr(VideoCompose, "_run_remotion_command", fake_run_command)
     scene = {
         "id": "authored",
         "kind": "title",

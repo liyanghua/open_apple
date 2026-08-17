@@ -1147,3 +1147,73 @@ body:not(.first) .approval-review { animation: none; }
   .approval-review-foot button { width: 100%; }
   .approval-status { white-space: normal; }
 }
+
+/* ---------------------------------------------------------------------------
+ * B5 审核 UI — 进行中操作进度卡 / 决策收件箱 / 样片审核播放器
+ * ------------------------------------------------------------------------- */
+
+/* 进行中操作 (U4) */
+.op-card { padding: 12px 0; border-bottom: 1px solid var(--border-soft); }
+.op-card:last-child { border-bottom: none; }
+.op-head { display: flex; align-items: center; gap: 8px; }
+.op-title { font-family: var(--mono); font-size: calc(11px * var(--fs-scale)); color: var(--text-2); overflow-wrap: anywhere; }
+.op-badge { margin-left: auto; flex: none; font-size: calc(10px * var(--fs-scale)); color: #fff; background: var(--red); border-radius: 4px; padding: 2px 7px; letter-spacing: .04em; }
+.op-badge-ok { color: var(--green); background: var(--green-dim); border: 1px solid var(--green); }
+.op-bar { position: relative; margin-top: 8px; height: 18px; border: 1px solid var(--border-soft); border-radius: 4px; overflow: hidden; background: var(--surface-2); }
+.op-bar i { position: absolute; inset: 0 auto 0 0; background: var(--amber-dim); border-right: 1px solid var(--amber); }
+.op-bar span { position: relative; z-index: 1; display: block; padding: 1px 8px; font-family: var(--mono); font-size: calc(9.5px * var(--fs-scale)); color: var(--text-2); }
+.op-msg { margin-top: 7px; font-size: calc(10.5px * var(--fs-scale)); color: var(--text-3); overflow-wrap: anywhere; }
+.op-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.op-chip { font-family: var(--mono); font-size: calc(9.5px * var(--fs-scale)); color: var(--text-2); border: 1px solid var(--border-soft); border-radius: 3px; padding: 2px 6px; overflow-wrap: anywhere; }
+.op-chip.op-wait { color: var(--amber); border-color: var(--amber); }
+.op-chip.op-stale { color: var(--red); border-color: var(--red); }
+
+/* 需要你处理 (U2) */
+.panel.inbox { border-color: var(--amber); }
+.inbox-item { padding: 12px 0; border-bottom: 1px solid var(--border-soft); }
+.inbox-item:last-child { border-bottom: none; }
+.inbox-head { display: flex; align-items: center; gap: 8px; }
+.inbox-stage { font-family: var(--mono); font-size: calc(11.5px * var(--fs-scale)); color: var(--amber); font-weight: 600; }
+.inbox-time { margin-left: auto; flex: none; font-family: var(--mono); font-size: calc(10px * var(--fs-scale)); color: var(--text-3); }
+.inbox-summary { margin-top: 6px; font-size: calc(11px * var(--fs-scale)); color: var(--text-2); overflow-wrap: anywhere; }
+.inbox-approve { margin-top: 9px; cursor: pointer; font-size: calc(11px * var(--fs-scale)); color: var(--green); background: var(--green-dim); border: 1px solid var(--green); border-radius: 4px; padding: 4px 12px; }
+.inbox-approve:hover, .inbox-approve:focus-visible { background: var(--green); color: #0c0c0e; outline: none; }
+
+/* 样片审核 (U3) */
+.review-section { margin-top: 22px; }
+.review-body { padding: 12px 0; }
+.review-player { margin-bottom: 14px; }
+.review-head, .review-compare-head, .review-section-title { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.review-head b, .review-compare-head b { font-family: var(--mono); font-size: calc(11px * var(--fs-scale)); color: var(--text-2); letter-spacing: .1em; text-transform: uppercase; }
+.review-section-title { font-family: var(--mono); font-size: calc(10px * var(--fs-scale)); color: var(--text-3); letter-spacing: .12em; text-transform: uppercase; margin-top: 16px; }
+.review-hero { border: 1px solid var(--border-soft); border-radius: 8px; overflow: hidden; background: #000; }
+.review-hero video { width: 100%; max-height: 480px; display: block; background: #000; }
+.review-compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.review-compare-slot video { width: 100%; display: block; background: #000; border: 1px solid var(--border-soft); border-radius: 8px; }
+.review-compare-slot .meta { display: block; margin-bottom: 4px; font-family: var(--mono); font-size: calc(9.5px * var(--fs-scale)); color: var(--text-3); overflow-wrap: anywhere; }
+.review-versions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.review-ver { cursor: pointer; font-family: var(--mono); font-size: calc(9.5px * var(--fs-scale)); color: var(--text-2); border: 1px solid var(--border-soft); border-radius: 3px; padding: 3px 7px; }
+.review-ver:hover { color: var(--amber); border-color: var(--amber); }
+.review-stills { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-top: 8px; }
+.review-stills .thumb { aspect-ratio: 9 / 16; }
+.review-note-form { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.review-note-input { width: 100%; box-sizing: border-box; resize: vertical; font-family: var(--mono); font-size: calc(11px * var(--fs-scale)); color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 6px; padding: 10px; }
+.review-note-input:focus { outline: none; border-color: var(--amber); }
+.review-note-submit { align-self: flex-end; cursor: pointer; font-size: calc(11px * var(--fs-scale)); color: var(--amber); background: var(--amber-dim); border: 1px solid var(--amber); border-radius: 4px; padding: 5px 14px; }
+.review-note-submit:hover, .review-note-submit:focus-visible { background: var(--amber); color: #0c0c0e; outline: none; }
+.review-note-list { margin-top: 14px; border-top: 1px solid var(--border-soft); }
+.review-note { padding: 10px 0; border-bottom: 1px solid var(--border-soft); font-size: calc(11px * var(--fs-scale)); color: var(--text-2); overflow-wrap: anywhere; }
+.review-note:last-child { border-bottom: none; }
+.review-note-head { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+
+/* U2 拒绝面板 */
+.inbox-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.inbox-reject-open { background: var(--red); color: #fff; border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.inbox-reject-panel { margin-top: 10px; border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px; background: var(--surface, #fff); }
+.inbox-reject-head { font-weight: 600; margin-bottom: 8px; color: var(--red); }
+.inbox-reject-tags { display: flex; flex-wrap: wrap; gap: 6px; max-height: 180px; overflow-y: auto; }
+.inbox-reject-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; border: 1px solid var(--border-soft); border-radius: 12px; padding: 2px 8px; cursor: pointer; }
+.inbox-reject-reason { width: 100%; margin-top: 8px; padding: 6px 8px; border: 1px solid var(--border-soft); border-radius: 6px; }
+.inbox-reject-actions { display: flex; gap: 8px; margin-top: 8px; }
+.inbox-reject { background: var(--red); color: #fff; border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.inbox-cancel { background: transparent; border: 1px solid var(--border-soft); border-radius: 6px; padding: 6px 12px; cursor: pointer; }

@@ -45,7 +45,9 @@
               "voice_selection",
               "capability_extension",
               "playbook_override",
-              "visual_accuracy_check"
+              "visual_accuracy_check",
+              "rework_cause",
+              "review_rejection"
             ],
             "description": "What class of decision this is"
           },
@@ -98,8 +100,42 @@
             "minimum": 0,
             "maximum": 1,
             "description": "Agent's confidence in this decision (0 = uncertain, 1 = certain)"
+          },
+          "issue_tags": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "unclear_promise", "unsupported_claim", "information_gap",
+                "weak_hook", "slow_start", "cover_mismatch",
+                "repetition", "density_spike", "dead_air", "weak_payoff",
+                "identity_drift", "artifact", "hierarchy_failure", "generic_visual",
+                "pronunciation", "timing", "music_masking", "loudness",
+                "unsafe_text", "wrong_duration", "mobile_illegibility",
+                "weak_offer", "late_cta", "ambiguous_cta", "brand_mismatch",
+                "blank_frame", "crop_mismatch", "claim_rejected", "caption_overlap",
+                "render_failure", "infra_sidequest"
+              ]
+            },
+            "description": "Structured quality issue tags for rework/rejection decisions. Mandatory when category is rework_cause or review_rejection. Feeds the cohort-level quality feedback loop."
+          },
+          "rework_round": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1-based rework round this decision belongs to (only for rework/rejection decisions)."
           }
         },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "category": { "enum": ["rework_cause", "review_rejection"] } },
+              "required": ["category"]
+            },
+            "then": { "required": ["issue_tags", "rework_round"] }
+          }
+        ],
         "additionalProperties": false
       }
     }

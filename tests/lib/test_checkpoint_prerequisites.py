@@ -128,6 +128,7 @@ def test_later_stage_rejects_unapproved_gated_predecessor(tmp_path) -> None:
         "research",
         "awaiting_human",
         {"research_brief": sample_artifact("research_brief")},
+        next_action={"summary": "测试恢复指令", "verb": "run_stage", "context_refs": ["artifacts/x.json"]},
         pipeline_type="framework-smoke",
     )
     predecessor = json.loads(predecessor_path.read_text(encoding="utf-8"))
@@ -185,6 +186,7 @@ def test_in_progress_heartbeat_is_not_blocked_by_prerequisites(tmp_path) -> None
         "script",
         "in_progress",
         {},
+        next_action={"summary": "测试恢复指令", "verb": "run_stage", "context_refs": ["artifacts/x.json"]},
         pipeline_type="framework-smoke",
     )
 

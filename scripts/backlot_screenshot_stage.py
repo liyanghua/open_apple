@@ -176,6 +176,15 @@ def stage_project(pid: str, title: str, palette: str, scenes: list, *,
     art_dir = pdir / "artifacts"
 
     def cp(stage, status, artifacts, **kw):
+        if status in {"in_progress", "awaiting_human"} and "next_action" not in kw:
+            kw["next_action"] = {
+                "summary": (
+                    f"等待确认 {stage} 阶段" if status == "awaiting_human"
+                    else f"继续执行 {stage} 阶段"
+                ),
+                "verb": "await_user" if status == "awaiting_human" else "run_stage",
+                "context_refs": ["project.json"],
+            }
         write_checkpoint(STAGE_DIR, pid, stage, status, artifacts,
                          pipeline_type="cinematic", **kw)
         time.sleep(0.02)  # distinct mtimes/timestamps
@@ -241,6 +250,11 @@ def stage_project(pid: str, title: str, palette: str, scenes: list, *,
         (art_dir / "asset_manifest.json").write_text(json.dumps(manifest, indent=2))
         write_checkpoint(STAGE_DIR, pid, "assets", "in_progress", {},
                          pipeline_type="cinematic",
+                         next_action={
+                             "summary": "继续生成剩余素材",
+                             "verb": "run_stage",
+                             "context_refs": ["artifacts/asset_manifest.json"],
+                         },
                          metadata={"partial_progress": {
                              "completed_scene_ids": [s[0] for s in scenes[:i + 1]]}},
                          cost_snapshot={"total_spent_usd": manifest["total_cost_usd"],

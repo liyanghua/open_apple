@@ -80,6 +80,10 @@ def _approval_input_hash(checkpoint: dict[str, Any]) -> str:
     for key in (
         "status", "timestamp", "human_approved", "human_approval_required",
         "approval_group", "approval_bundle_id", "approval_bundle_version",
+        # Resume directive is operational bookkeeping (what the next session
+        # does), not a creative input — the two-phase gate write must not
+        # self-supersede when only next_action changed between phases.
+        "next_action",
     ):
         stable.pop(key, None)
     artifacts = dict(stable.get("artifacts") or {})

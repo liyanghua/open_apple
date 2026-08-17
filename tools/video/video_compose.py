@@ -33,8 +33,11 @@ from __future__ import annotations
 import json
 import hashlib
 import logging
+import platform
+import re
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -47,6 +50,7 @@ from tools.base_tool import (
     ResourceProfile,
     RetryPolicy,
     ResumeSupport,
+    ToolCommandError,
     ToolResult,
     ToolStability,
     ToolTier,
@@ -73,7 +77,13 @@ class VideoCompose(BaseTool):
         "overlay_assets",
         "encode_profile",
         "remotion_render",
+        "render_gradient_still",
+        "render_gradient_window",
+        "render_gradient_sample",
+        "render_range_splice",
+        "run_event_heartbeats",
     ]
+    internal_run_event_operations = frozenset({"render", "remotion_render"})
 
     input_schema = {
         "type": "object",
@@ -94,7 +104,18 @@ class VideoCompose(BaseTool):
             },
             "input_path": {"type": "string"},
             "output_path": {"type": "string"},
-            "render_plan": {"type": "object", "description": "Validated fastline render plan (sample, full, or mux_only)."},
+            "render_plan": {
+                "type": "object",
+                "description": (
+                    "Validated fastline render plan. mode: still (1-3 target frames "
+                    "as PNGs), window (30-90 frame motion check), sample (300-450 "
+                    "frames at 0.5 scale for user review), range (re-render frames "
+                    "[fromFrame,total) + splice unchanged prefix from master — "
+                    "requires timeline_stable), full, or mux_only. Render-gradient "
+                    "contract: local visual changes start at still/window "
+                    "(agent-internal); the user only reviews sample/full."
+                ),
+            },
             "edit_decisions": {
                 "type": "object",
                 "description": "Full edit_decisions artifact (required for compose/render)",
@@ -444,6 +465,214 @@ class VideoCompose(BaseTool):
             data={"output": str(video_path), "has_mixed_audio": True},
             artifacts=[str(video_path)],
         )
+
+    # ------------------------------------------------------------------
+    # Long-operation execution with run-event heartbeats (P0-1 / B7).
+    # ------------------------------------------------------------------
+
+    _REMO_PROGRESS_RE = re.compile(
+        r"(?:rendered[^\d]*(\d+)\s+frames"      # "Rendered N frames" (terminal tally)
+        r"|frame[^\d]*(\d+)/(\d+)"              # "frame N/M"
+        r"|\((\d+)/(\d+)\)"                     # "(N/M)" progress bars
+        r"|frame[^\d]*(\d+)"                    # "frame N"
+        r"|(\d+)/(\d+)"                         # bare N/M (progress bars)
+        r"|(\d+)%)",                            # "NN%"
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _parse_progress_line(
+        cls, line: str, state: dict[str, Any], progress_total: list[Optional[int]]
+    ) -> None:
+        """Best-effort frame-progress extraction from one output line.
+
+        Remotion prints its progress bar on STDOUT (stderr carries errors), so
+        both streams are drained and fed through this parser. Guards reject
+        nonsense ratios (total < current) so timestamps/paths don't pollute
+        the progress card.
+        """
+        match = cls._REMO_PROGRESS_RE.search(line)
+        if not match:
+            return
+        groups = match.groups()
+        try:
+            current: Optional[int] = None
+            total: Optional[int] = None
+            if groups[0]:  # "Rendered N frames" (terminal tally)
+                current = int(groups[0])
+            elif groups[1] and groups[2]:  # "frame N/M"
+                current, total = int(groups[1]), int(groups[2])
+            elif groups[3] and groups[4]:  # "(N/M)"
+                current, total = int(groups[3]), int(groups[4])
+            elif groups[5]:  # "frame N"
+                current = int(groups[5])
+            elif groups[6] and groups[7]:  # bare "N/M"
+                current, total = int(groups[6]), int(groups[7])
+                if not (0 < current <= total <= 10_000_000):
+                    return  # date/time/path noise, not progress
+            elif groups[8]:  # "NN%"
+                pct = int(groups[8])
+                if progress_total[0]:
+                    current = pct * progress_total[0] // 100
+                else:
+                    return
+            if current is None or current < 0:
+                return
+            state["frame"] = max(state["frame"] or 0, current)
+            if total and total > 0:
+                progress_total[0] = progress_total[0] or total
+        except ValueError:
+            return
+
+    @staticmethod
+    def _infer_project_dir(inputs: dict[str, Any]) -> Optional[Path]:
+        """Best-effort project attribution for run events (never raises)."""
+        try:
+            from lib.events import infer_project_dir
+            return infer_project_dir(inputs)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _infer_total_frames(inputs: dict[str, Any]) -> Optional[int]:
+        """Best-effort total frame count for progress units (never raises)."""
+        try:
+            ed = inputs.get("edit_decisions") or {}
+            candidates = [
+                (ed.get("final_props") or {}).get("durationInFrames"),
+                (ed.get("metadata") or {}).get("durationInFrames"),
+                ed.get("durationInFrames"),
+            ]
+            for value in candidates:
+                if isinstance(value, int) and value > 0:
+                    return value
+        except Exception:
+            pass
+        return None
+
+    def _run_remotion_command(
+        self,
+        cmd: list[str],
+        *,
+        cwd: Path,
+        timeout: int,
+        project_dir: Optional[Path],
+        run_id: str,
+        operation: str,
+        unit_total: Optional[int] = None,
+    ) -> subprocess.CompletedProcess:
+        """Run a Remotion CLI command while streaming run-event heartbeats.
+
+        Replaces run_command() on render paths: spawns the process, drains and
+        parses BOTH stdout (Remotion's progress bar) and stderr (errors) for
+        frame progress, and emits a heartbeat every 5 seconds plus a terminal
+        event — so a 76-second render is never a silent stage. Semantics match
+        run_command: raises ToolCommandError on non-zero exit and
+        subprocess.TimeoutExpired on timeout; output capture is kept for
+        diagnostics.
+        """
+        from lib.events import emit_run_event, emit_heartbeat
+
+        resolved_cmd = list(cmd)
+        if platform.system() == "Windows" and resolved_cmd:
+            exe = shutil.which(resolved_cmd[0])
+            if exe:
+                resolved_cmd[0] = exe
+
+        emit_run_event(
+            project_dir, run_id=run_id, stage="compose", operation=operation,
+            status="queued", wait_reason="rendering", message=" ".join(str(c) for c in resolved_cmd[:6]),
+        )
+
+        proc = subprocess.Popen(
+            resolved_cmd,
+            # BOTH streams are drained by reader threads (never DEVNULL: the
+            # installed Remotion CLI prints its progress bar on stdout, and an
+            # undrained pipe deadlocks the render once the buffer fills).
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=cwd,
+        )
+        started = time.monotonic()
+        stop = threading.Event()
+        state: dict[str, Any] = {"frame": None, "last_emit": 0.0}
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
+        progress_total: list[Optional[int]] = [unit_total] if unit_total else [None]
+
+        def _make_reader(stream, lines: list[str]):
+            def _reader() -> None:
+                assert stream is not None
+                for line in stream:
+                    lines.append(line)
+                    if len(lines) > 200:
+                        del lines[0]
+                    self._parse_progress_line(line, state, progress_total)
+
+            return _reader
+
+        def _heartbeat() -> None:
+            while not stop.wait(5.0):
+                now = time.monotonic()
+                unit = None
+                if state["frame"] is not None:
+                    unit = {"kind": "frame", "current": state["frame"], "total": progress_total[0] or 0}
+                emit_heartbeat(
+                    project_dir, run_id=run_id, stage="compose", operation=operation,
+                    unit=unit, wait_reason="rendering",
+                    machine_ms=int((now - started) * 1000),
+                    message=f"elapsed {int(now - started)}s; frames={state['frame']}" if state["frame"] is not None else f"elapsed {int(now - started)}s",
+                )
+
+        readers = [
+            threading.Thread(target=_make_reader(proc.stdout, stdout_lines), daemon=True),
+            threading.Thread(target=_make_reader(proc.stderr, stderr_lines), daemon=True),
+        ]
+        beat = threading.Thread(target=_heartbeat, daemon=True)
+        for thread in readers:
+            thread.start()
+        beat.start()
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            stop.set()
+            emit_run_event(
+                project_dir, run_id=run_id, stage="compose", operation=operation,
+                status="failed", wait_reason="rendering",
+                machine_ms=int((time.monotonic() - started) * 1000),
+                message=f"timed out after {timeout}s",
+            )
+            raise subprocess.TimeoutExpired(resolved_cmd, timeout)
+        finally:
+            stop.set()
+            for thread in readers:
+                thread.join(timeout=2)
+            beat.join(timeout=2)
+
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        stdout_text, stderr_text = "".join(stdout_lines), "".join(stderr_lines)
+        if proc.returncode != 0:
+            detail = (stderr_text.strip() or stdout_text.strip() or "(no output)")[-300:]
+            emit_run_event(
+                project_dir, run_id=run_id, stage="compose", operation=operation,
+                status="failed", wait_reason="rendering", machine_ms=elapsed_ms,
+                message=detail,
+            )
+            raise ToolCommandError(
+                proc.returncode, resolved_cmd, output=stdout_text, stderr=stderr_text
+            )
+        emit_run_event(
+            project_dir, run_id=run_id, stage="compose", operation=operation,
+            status="succeeded", wait_reason="rendering", machine_ms=elapsed_ms,
+            unit=({"kind": "frame", "current": state["frame"] or 0, "total": progress_total[0] or 0}
+                  if state["frame"] is not None else None),
+        )
+        return subprocess.CompletedProcess(resolved_cmd, proc.returncode, stdout_text, stderr_text)
 
     def _compose(self, inputs: dict[str, Any]) -> ToolResult:
         """FFmpeg composition: concat video cuts, add audio, burn subtitles.
@@ -894,6 +1123,8 @@ class VideoCompose(BaseTool):
         self,
         inputs: dict[str, Any],
         edit_decisions: dict[str, Any],
+        *,
+        skip_final_review: bool = False,
     ) -> ToolResult:
         """Render a hand-authored, project-local Remotion composition ("atelier" mode).
 
@@ -1007,8 +1238,18 @@ class VideoCompose(BaseTool):
 
         try:
             # Run from inside the composer dir so npx resolves the local
-            # remotion binary (mirrors _remotion_render).
-            self.run_command(cmd, timeout=1800, cwd=composer_dir)
+            # remotion binary (mirrors _remotion_render). Heartbeats stream
+            # frame progress into events.jsonl for the board.
+            total_frames = self._infer_total_frames(inputs)
+            self._run_remotion_command(
+                cmd,
+                cwd=composer_dir,
+                timeout=1800,
+                project_dir=self._infer_project_dir(inputs),
+                run_id=self.current_run_id() or f"atelier-{comp_id}-{time.time_ns()}",
+                operation="remotion_render",
+                unit_total=total_frames,
+            )
         except Exception as e:
             return ToolResult(success=False, error=f"Atelier (bespoke) Remotion render failed: {e}")
 
@@ -1031,6 +1272,24 @@ class VideoCompose(BaseTool):
         # art-direction declaration must exist. The distinctness review
         # ("could this be any other product's video?") stays human; what we
         # automate here is the *doctrine bypass*, not the taste call.
+        #
+        # skip_final_review=True is used ONLY by the range route's tail
+        # segment — a partial window legitimately fails the duration-drift
+        # check, and the spliced full-length output gets its own review.
+        if skip_final_review:
+            return ToolResult(
+                success=True,
+                data={
+                    "operation": "render",
+                    "composition_mode": "atelier",
+                    "entry": str(entry_path),
+                    "composition_id": comp_id,
+                    "output": str(output_path),
+                    "final_review_skipped": True,
+                },
+                artifacts=[str(output_path)],
+            )
+
         final_review = self._run_final_review(
             output_path=output_path,
             edit_decisions=edit_decisions,
@@ -1561,8 +1820,15 @@ class VideoCompose(BaseTool):
                 output_path.unlink(missing_ok=True)
                 return ToolResult(success=False, data={"requires_full_render": True, "remotion_invoked": False}, error=f"mux_only copy failed: {exc}")
 
-        if isinstance(render_plan, dict) and render_plan.get("mode") == "sample":
-            return self._render_sample(inputs, render_plan)
+        render_mode = (render_plan or {}).get("mode")
+        if render_mode == "sample":
+            return self._render_framed_window(inputs, render_plan, mode="sample")
+        if render_mode == "window":
+            return self._render_framed_window(inputs, render_plan, mode="window")
+        if render_mode == "still":
+            return self._render_stills(inputs, render_plan)
+        if render_mode == "range":
+            return self._render_range(inputs, render_plan)
 
         # --- Atelier (bespoke) mode -------------------------------------
         # Hand-authored, project-local Remotion composition. Deliberately
@@ -1722,49 +1988,575 @@ class VideoCompose(BaseTool):
 
         return render_result
 
-    def _render_sample(self, inputs: dict[str, Any], render_plan: dict[str, Any]) -> ToolResult:
-        """Render a half-open window from the same final props at half scale."""
+    def _render_framed_window(
+        self, inputs: dict[str, Any], render_plan: dict[str, Any], *, mode: str
+    ) -> ToolResult:
+        """Render a half-open frame window at half scale (sample or window layer).
+
+        mode="sample": 300-450 frames — the user-facing review layer.
+        mode="window": 30-90 frames — agent-internal layer for transitions,
+        blank frames and motion continuity (render-gradient B3).
+        """
         from lib.cache_keys import canonical_digest
-        from lib.render_plan import validate_sample_window
-        sample = render_plan.get("sample") or {}
+        from lib.render_plan import validate_sample_window, validate_window
+
+        section = render_plan.get(mode) or {}
+        validator = validate_sample_window if mode == "sample" else validate_window
         try:
-            start, end = validate_sample_window(sample["startFrame"], sample["endFrameExclusive"])
+            start, end = validator(section["startFrame"], section["endFrameExclusive"])
         except (KeyError, TypeError, ValueError) as exc:
-            return ToolResult(success=False, data={"render_mode": "sample"}, error=str(exc))
+            return ToolResult(success=False, data={"render_mode": mode}, error=str(exc))
         key = canonical_digest({
             "tool": self.name, "tool_version": self.version, "render_plan": render_plan,
             "final_props_hash": render_plan.get("final_props_hash"),
             "audio_hash": (render_plan.get("audio") or {}).get("sha256"),
-            "window": [start, end], "scale": 0.5,
+            "window": [start, end], "scale": 0.5, "mode": mode,
         })
         project_dir = Path(inputs.get("project_dir", "projects"))
-        output_path = Path(render_plan.get("output_path") or project_dir / "assets" / "sample" / f"sample-{key}.mp4")
-        if output_path.is_file():
-            return ToolResult(success=True, data={"render_mode": "sample", "cache_status": "hit", "cache_hit": True, "cache_key": key, "output": str(output_path), "window": {"startFrame": start, "endFrameExclusive": end}, "remotion_invoked": False}, artifacts=[str(output_path)], cost_usd=0.0)
-        sample_inputs = dict(inputs)
-        sample_inputs.update({
+        output_path = Path(
+            render_plan.get("output_path")
+            or project_dir / "assets" / mode / f"{mode}-{key}.mp4"
+        )
+        provenance_path = output_path.with_name(
+            f"{output_path.stem}.{mode}_provenance.json"
+        )
+        provenance_ok = False
+        if output_path.is_file() and provenance_path.is_file():
+            try:
+                provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+                provenance_ok = (
+                    provenance.get("cache_key") == key
+                    and provenance.get("output_sha256")
+                    == hashlib.sha256(output_path.read_bytes()).hexdigest()
+                )
+            except (OSError, json.JSONDecodeError):
+                provenance_ok = False
+        if provenance_ok:
+            return ToolResult(success=True, data={"render_mode": mode, "cache_status": "hit", "cache_hit": True, "cache_key": key, "output": str(output_path), "window": {"startFrame": start, "endFrameExclusive": end}, "remotion_invoked": False}, artifacts=[str(output_path)], cost_usd=0.0)
+        window_inputs = dict(inputs)
+        window_inputs.update({
             "output_path": str(output_path), "profile": inputs.get("profile", "social_vertical_1080p30"),
             "sample_frames": f"{start}-{end - 1}", "remotion_width": 540, "remotion_height": 960,
         })
-        edit_decisions = sample_inputs.get("edit_decisions") or {}
-        atelier_sample = (
+        edit_decisions = window_inputs.get("edit_decisions") or {}
+        atelier_window = (
             edit_decisions.get("render_runtime") == "remotion"
             and (
                 edit_decisions.get("composition_mode") == "atelier"
                 or edit_decisions.get("renderer_family") == "bespoke"
             )
         )
-        if atelier_sample:
-            sample_decisions = json.loads(json.dumps(edit_decisions))
-            sample_decisions.setdefault("bespoke", {})["scale"] = 0.5
-            result = self._render_via_atelier(sample_inputs, sample_decisions)
+        if atelier_window:
+            window_decisions = json.loads(json.dumps(edit_decisions))
+            window_decisions.setdefault("bespoke", {})["scale"] = 0.5
+            result = self._render_via_atelier(window_inputs, window_decisions)
         else:
-            result = self._remotion_render(sample_inputs)
+            result = self._remotion_render(window_inputs)
         if not result.success:
-            result.data.update({"render_mode": "sample", "cache_key": key, "window": {"startFrame": start, "endFrameExclusive": end}, "remotion_invoked": True})
+            result.data.update({"render_mode": mode, "cache_key": key, "window": {"startFrame": start, "endFrameExclusive": end}, "remotion_invoked": True})
             return result
-        result.data.update({"render_mode": "sample", "cache_status": "miss", "cache_hit": False, "cache_key": key, "window": {"startFrame": start, "endFrameExclusive": end}, "sample_report": {"final_props_hash": render_plan.get("final_props_hash"), "render_plan_hash": render_plan.get("semantic_sha256"), "status": "pass"}, "remotion_invoked": True})
+        if not output_path.is_file():
+            return ToolResult(
+                success=False,
+                data={"render_mode": mode, "cache_key": key},
+                error=f"{mode} render completed but output file is missing",
+            )
+        provenance_path.write_text(
+            json.dumps({
+                "cache_key": key,
+                "output_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
+                "startFrame": start,
+                "endFrameExclusive": end,
+            }, indent=2),
+            encoding="utf-8",
+        )
+        result.data.update({
+            "render_mode": mode, "cache_status": "miss", "cache_hit": False, "cache_key": key,
+            "window": {"startFrame": start, "endFrameExclusive": end},
+            "sample_report": {"final_props_hash": render_plan.get("final_props_hash"), "render_plan_hash": render_plan.get("semantic_sha256"), "status": "pass"},
+            "remotion_invoked": True,
+        })
         return result
+
+    def _render_stills(self, inputs: dict[str, Any], render_plan: dict[str, Any]) -> ToolResult:
+        """Still route (render-gradient layer 1): 1-3 target frames for CTA,
+        crop and source-caption inspection before any motion render.
+
+        render_plan.still = {"frames": [N, ...], "totalFrames": T}
+        Produces PNG stills via `npx remotion still` at 0.5 scale.
+        """
+        from lib.cache_keys import canonical_digest
+        from lib.render_plan import validate_still_frames
+
+        still = render_plan.get("still") or {}
+        total = int(still.get("totalFrames") or render_plan.get("durationInFrames") or 0)
+        try:
+            frames = validate_still_frames(still["frames"], total)
+        except (KeyError, TypeError, ValueError) as exc:
+            return ToolResult(success=False, data={"render_mode": "still"}, error=str(exc))
+
+        edit_decisions = inputs.get("edit_decisions") or {}
+        atelier_still = (
+            edit_decisions.get("render_runtime") == "remotion"
+            and (
+                edit_decisions.get("composition_mode") == "atelier"
+                or edit_decisions.get("renderer_family") == "bespoke"
+            )
+        )
+        composer_dir = Path(__file__).resolve().parent.parent.parent / "remotion-composer"
+        if not composer_dir.exists() or not (composer_dir / "node_modules").exists():
+            return ToolResult(success=False, error="remotion-composer or node_modules missing — run `cd remotion-composer && npm install`")
+
+        project_dir = Path(inputs.get("project_dir", "projects"))
+        out_dir = Path(render_plan.get("output_path") or project_dir / "assets" / "stills")
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        outputs: list[str] = []
+        cache_keys: list[str] = []
+        for frame in frames:
+            key = canonical_digest({
+                "tool": self.name, "tool_version": self.version, "render_plan": render_plan,
+                "final_props_hash": render_plan.get("final_props_hash"),
+                "frame": frame, "scale": 0.5, "mode": "still",
+            })
+            cache_keys.append(key)
+            out = out_dir / f"still-{frame:04d}-{key[:10]}.png"
+            if out.is_file():
+                outputs.append(str(out))
+                continue
+
+            if atelier_still:
+                # P2-⑦: the still route PROMISES a fast half-scale check — it
+                # must never inherit a production bespoke.scale=1.0. Read from
+                # a copied decision object and force the still-plan scale.
+                still_scale = float(
+                    (render_plan.get("still") or {}).get("scale", 0.5)
+                )
+                bespoke = dict(edit_decisions.get("bespoke") or {})
+                bespoke["scale"] = still_scale
+                entry = bespoke.get("entry")
+                comp_id = bespoke.get("composition_id")
+                if not entry or not comp_id:
+                    return ToolResult(success=False, error="atelier still requires bespoke.entry and bespoke.composition_id")
+                entry_path = Path(entry)
+                if not entry_path.is_absolute():
+                    cand = (composer_dir.parent / entry).resolve()
+                    entry_path = cand if cand.exists() else (composer_dir / entry).resolve()
+                entry_path = entry_path.resolve()
+                if not entry_path.exists():
+                    return ToolResult(success=False, error=f"atelier entry not found: {entry_path}")
+                try:
+                    entry_path.relative_to(composer_dir)
+                    effective_entry = entry_path
+                except ValueError:
+                    effective_entry = self._stage_atelier_project(entry_path, composer_dir)
+                cmd = ["npx", "remotion", "still", str(effective_entry), comp_id, str(out)]
+                if bespoke.get("props_path"):
+                    cmd.append(f"--props={Path(bespoke['props_path']).resolve()}")
+                if bespoke.get("public_dir") and Path(bespoke["public_dir"]).is_dir():
+                    cmd.append(f"--public-dir={Path(bespoke['public_dir']).resolve()}")
+                cmd.append(f"--scale={still_scale}")
+            else:
+                composition_data = edit_decisions
+                props = json.loads(json.dumps(composition_data))
+                props_path = out_dir / f".still_props_{frame}.json"
+                with open(props_path, "w", encoding="utf-8") as f:
+                    json.dump(props, f)
+                renderer_family = composition_data.get("renderer_family", "explainer-data")
+                comp_id = self._get_composition_id(renderer_family)
+                cmd = [
+                    "npx", "remotion", "still",
+                    str(composer_dir / "src" / "index.tsx"), comp_id, str(out),
+                    f"--props={props_path}", "--scale=0.5",
+                ]
+                if inputs.get("profile"):
+                    try:
+                        from lib.media_profiles import get_profile
+                        p = get_profile(inputs["profile"])
+                        cmd.extend(["--width", str(int(p.width * 0.5)), "--height", str(int(p.height * 0.5))])
+                    except (ImportError, ValueError):
+                        pass
+
+            cmd.append(f"--frame={frame}")
+            try:
+                self._run_remotion_command(
+                    cmd, cwd=composer_dir, timeout=600,
+                    project_dir=self._infer_project_dir(inputs),
+                    run_id=f"still-{frame}-{time.time_ns()}",
+                    operation="remotion_still", unit_total=None,
+                )
+            except Exception as e:
+                return ToolResult(success=False, data={"render_mode": "still"}, error=f"remotion still frame {frame} failed: {e}")
+            if not out.is_file():
+                return ToolResult(success=False, data={"render_mode": "still"}, error=f"still output missing: {out}")
+            outputs.append(str(out))
+
+        return ToolResult(
+            success=True,
+            data={
+                "render_mode": "still",
+                "frames": frames,
+                "stills": outputs,
+                "cache_keys": cache_keys,
+                "remotion_invoked": True,
+            },
+            artifacts=outputs,
+        )
+
+    @staticmethod
+    def _probe_frame_count(probe: dict[str, Any], video: dict[str, Any]) -> int:
+        """Return an exact/derived video frame count from an ffprobe payload."""
+        raw_count = video.get("nb_frames")
+        if raw_count not in (None, "", "N/A"):
+            return int(raw_count)
+        duration_ts = video.get("duration_ts")
+        time_base = video.get("time_base")
+        rate = video.get("avg_frame_rate") or video.get("r_frame_rate")
+        if duration_ts not in (None, "", "N/A") and time_base and rate:
+            tb_num, tb_den = (int(part) for part in str(time_base).split("/"))
+            rate_num, rate_den = (int(part) for part in str(rate).split("/"))
+            if tb_den and rate_den:
+                return round(int(duration_ts) * tb_num / tb_den * rate_num / rate_den)
+        duration = float((probe.get("format") or {}).get("duration", 0) or 0)
+        if duration > 0 and rate:
+            rate_num, rate_den = (int(part) for part in str(rate).split("/"))
+            if rate_den:
+                return round(duration * rate_num / rate_den)
+        raise ValueError("ffprobe did not expose enough data to determine frame count")
+
+    def _render_range(self, inputs: dict[str, Any], render_plan: dict[str, Any]) -> ToolResult:
+        """Range route (B4): re-render frames [fromFrame, total) and splice the
+        unchanged prefix [0, fromFrame) from the previous master.
+
+        render_plan.range = {"fromFrame": N, "totalFrames": T, "timeline_stable": true,
+                             "master": {"path", "sha256", "profile_hash", "visual_timeline_hash"}}
+
+        Provenance rules (P1 review fixes):
+        - the master's sha256 (when declared) and its probed dimensions/fps/
+          pixel format against the plan's `profile` are verified BEFORE any
+          reuse — a swapped or replaced master fails, never silently splices;
+        - when the plan declares `previous_timeline_hash`, it must equal the
+          master's `visual_timeline_hash` (the master must be the render of
+          the plan's previous timeline);
+        - cache hits require a provenance sidecar matching the current cache
+          key AND master hash — an existing output file alone is never trusted;
+        - both segments are transcoded to LOSSLESS intermediates
+          (libx264 -qp 0) so the spliced video is encoded exactly ONCE —
+          the old path re-encoded the prefix twice (double lossy generation).
+        """
+        from lib.cache_keys import canonical_digest
+        from lib.render_plan import validate_range_render, probe_media
+
+        rng = render_plan.get("range") or {}
+        total = int(rng.get("totalFrames") or render_plan.get("durationInFrames") or 0)
+        try:
+            start, total = validate_range_render(
+                rng["fromFrame"], total, timeline_stable=bool(rng.get("timeline_stable"))
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return ToolResult(success=False, data={"render_mode": "range"}, error=str(exc))
+
+        master = rng.get("master") or {}
+        master_path = Path(master.get("path", ""))
+        if not master_path.is_file():
+            return ToolResult(
+                success=False, data={"render_mode": "range"},
+                error="range render requires an existing master video to splice the prefix from",
+            )
+
+        # --- Master provenance verification (P1-②) --------------------------
+        import hashlib as _hashlib
+
+        actual_sha: Optional[str] = None
+        try:
+            actual_sha = _hashlib.sha256(master_path.read_bytes()).hexdigest()
+        except OSError as exc:
+            return ToolResult(success=False, data={"render_mode": "range"}, error=f"master unreadable: {exc}")
+        declared_sha = master.get("sha256")
+        if declared_sha and actual_sha != declared_sha:
+            return ToolResult(
+                success=False, data={"render_mode": "range"},
+                error=(
+                    f"range master sha256 mismatch: declared {declared_sha}, "
+                    f"actual {actual_sha}. The master was replaced or corrupted — "
+                    "re-render full before splicing."
+                ),
+            )
+        try:
+            probe = probe_media(master_path)
+            video = next((s for s in probe.get("streams", []) if s.get("codec_type") == "video"), {})
+            num, den = (video.get("r_frame_rate") or "30/1").split("/")
+            fps = round(int(num) / int(den))
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+            return ToolResult(success=False, data={"render_mode": "range"}, error=f"master probe failed: {exc}")
+
+        profile_name = render_plan.get("profile") or inputs.get("profile")
+        if profile_name:
+            try:
+                from lib.media_profiles import get_profile
+                expected = get_profile(profile_name)
+                if (
+                    int(video.get("width", 0)) != expected.width
+                    or int(video.get("height", 0)) != expected.height
+                    or abs(fps - expected.fps) > 0.01
+                    or video.get("pix_fmt") != expected.pixel_format
+                ):
+                    return ToolResult(
+                        success=False, data={"render_mode": "range"},
+                        error=(
+                            f"range master profile mismatch vs {profile_name}: "
+                            f"master is {video.get('width')}x{video.get('height')} "
+                            f"@{fps}fps {video.get('pix_fmt')}"
+                        ),
+                    )
+            except ValueError:
+                pass  # unknown named profile — skip structural check
+
+        prev_hash = render_plan.get("previous_timeline_hash")
+        if prev_hash and master.get("visual_timeline_hash") and master["visual_timeline_hash"] != prev_hash:
+            return ToolResult(
+                success=False, data={"render_mode": "range"},
+                error=(
+                    "range master visual_timeline_hash does not match the plan's "
+                    "previous_timeline_hash — the master was not rendered from the "
+                    "previous timeline; prefix reuse is unsafe."
+                ),
+            )
+
+        audio_spec = render_plan.get("audio")
+        audio_path = None
+        if isinstance(audio_spec, dict):
+            audio_path = audio_spec.get("path")
+            if not audio_path or not Path(audio_path).is_file():
+                return ToolResult(
+                    success=False, data={"render_mode": "range"},
+                    error="range audio is declared but the approved audio file is missing",
+                )
+            declared_audio_sha = audio_spec.get("sha256")
+            actual_audio_sha = _hashlib.sha256(Path(audio_path).read_bytes()).hexdigest()
+            if declared_audio_sha and declared_audio_sha != actual_audio_sha:
+                return ToolResult(
+                    success=False, data={"render_mode": "range"},
+                    error=(
+                        f"range audio sha256 mismatch: declared {declared_audio_sha}, "
+                        f"actual {actual_audio_sha}"
+                    ),
+                )
+        else:
+            audio_path = inputs.get("audio_path")
+
+        edit_decisions = inputs.get("edit_decisions") or {}
+        project_dir = Path(inputs.get("project_dir", "projects"))
+        output_path = Path(render_plan.get("output_path") or inputs.get("output_path") or project_dir / "renders" / "range_out.mp4")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        key = canonical_digest({
+            "tool": self.name, "tool_version": self.version, "render_plan": render_plan,
+            "final_props_hash": render_plan.get("final_props_hash"),
+            "range": [start, total], "mode": "range",
+        })
+
+        # --- Cache: output file alone is NEVER trusted (P1-②/④) ------------
+        # A hit additionally requires the output artifact to authenticate:
+        # its current sha256 and structural probe must match the sidecar —
+        # a replaced/corrupted mp4 sitting next to a stale sidecar is a miss.
+        provenance_path = output_path.with_name(f"{output_path.stem}.range_provenance.json")
+        provenance_ok = False
+        if output_path.is_file() and provenance_path.is_file():
+            try:
+                provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+                declared_output_sha = provenance.get("output_sha256")
+                current_output_sha = _hashlib.sha256(output_path.read_bytes()).hexdigest()
+                probe_matches = True
+                if provenance.get("output_probe"):
+                    try:
+                        out_probe = probe_media(output_path)
+                        out_video = next(
+                            (s for s in out_probe.get("streams", []) if s.get("codec_type") == "video"), {}
+                        )
+                        current_frame_count = self._probe_frame_count(out_probe, out_video)
+                        probe_matches = (
+                            round(float((out_probe.get("format") or {}).get("duration", 0) or 0), 3)
+                            == provenance["output_probe"].get("duration_seconds")
+                            and f"{out_video.get('width', 0)}x{out_video.get('height', 0)}"
+                            == provenance["output_probe"].get("resolution")
+                            and out_video.get("r_frame_rate") == provenance["output_probe"].get("fps")
+                            and current_frame_count == total
+                            and provenance["output_probe"].get("frame_count") == total
+                        )
+                    except Exception:
+                        probe_matches = False
+                provenance_ok = (
+                    provenance.get("cache_key") == key
+                    and provenance.get("master_sha256") == actual_sha
+                    and bool(declared_output_sha)
+                    and declared_output_sha == current_output_sha
+                    and probe_matches
+                )
+            except (json.JSONDecodeError, OSError):
+                provenance_ok = False
+        if output_path.is_file() and provenance_ok:
+            return ToolResult(success=True, data={"render_mode": "range", "cache_status": "hit", "cache_hit": True, "cache_key": key, "output": str(output_path), "remotion_invoked": False}, artifacts=[str(output_path)], cost_usd=0.0)
+
+        work_dir = output_path.parent / ".range_tmp"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        # Lossless intermediates (P1-③): both segments land as qp0 H.264 in
+        # mkv, so the final concat+encode is the ONLY lossy generation.
+        tail_path = work_dir / "tail.mp4"
+        tail_ll = work_dir / "tail_ll.mkv"
+        prefix_ll = work_dir / "prefix_ll.mkv"
+        spliced_path = work_dir / "spliced.mp4"
+
+        try:
+            # 1) Tail: full-profile Remotion render of frames [start, total).
+            tail_inputs = dict(inputs)
+            tail_inputs.update({
+                "output_path": str(tail_path),
+                "profile": profile_name or "social_vertical_1080p30",
+                "sample_frames": f"{start}-{total - 1}",
+            })
+            atelier_range = (
+                edit_decisions.get("render_runtime") == "remotion"
+                and (
+                    edit_decisions.get("composition_mode") == "atelier"
+                    or edit_decisions.get("renderer_family") == "bespoke"
+                )
+            )
+            if atelier_range:
+                range_decisions = json.loads(json.dumps(edit_decisions))
+                range_decisions.setdefault("bespoke", {})["scale"] = 1.0
+                result = self._render_via_atelier(tail_inputs, range_decisions, skip_final_review=True)
+            else:
+                result = self._remotion_render(tail_inputs)
+            if not result.success or not tail_path.is_file():
+                return ToolResult(success=False, data={"render_mode": "range", "cache_key": key}, error=f"range tail render failed: {result.error}")
+
+            # 2) Lossless intermediates: tail (decoded) and master prefix frames.
+            for src, dst in ((tail_path, tail_ll), (master_path, prefix_ll)):
+                cmd = [
+                    "ffmpeg", "-y", "-i", str(src),
+                ]
+                if src == master_path:
+                    cmd.extend(["-map", "0:v:0", "-frames:v", str(start)])
+                else:
+                    cmd.extend(["-map", "0:v:0"])
+                cmd.extend([
+                    "-c:v", "libx264", "-qp", "0", "-preset", "ultrafast",
+                    "-pix_fmt", "yuv420p", "-r", str(fps), "-an",
+                    "-f", "matroska", str(dst),
+                ])
+                self.run_command(cmd)
+                if not dst.is_file():
+                    return ToolResult(success=False, data={"render_mode": "range", "cache_key": key}, error=f"lossless intermediate missing: {dst.name}")
+
+            # 3) Splice + single final encode (the only lossy generation).
+            crf = int(inputs.get("crf", 23))
+            preset = inputs.get("preset", "veryfast")
+            self.run_command([
+                "ffmpeg", "-y",
+                "-i", str(prefix_ll), "-i", str(tail_ll),
+                "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[outv]",
+                "-map", "[outv]",
+                "-c:v", "libx264", "-crf", str(crf), "-preset", preset,
+                "-pix_fmt", "yuv420p", "-r", str(fps), "-movflags", "+faststart",
+                str(spliced_path),
+            ])
+            if not spliced_path.is_file():
+                return ToolResult(success=False, data={"render_mode": "range", "cache_key": key}, error="range splice produced no output")
+
+            shutil.copyfile(spliced_path, output_path)
+
+            # 4) Audio: restore the approved mix over the spliced full-length video.
+            if audio_path and Path(audio_path).is_file():
+                mux_result = self._mux_external_audio(output_path, audio_path)
+                if not mux_result.success:
+                    return mux_result
+
+            try:
+                exact_probe = probe_media(output_path)
+                exact_video = next(
+                    (s for s in exact_probe.get("streams", []) if s.get("codec_type") == "video"),
+                    {},
+                )
+                frame_count = self._probe_frame_count(exact_probe, exact_video)
+            except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                return ToolResult(
+                    success=False, data={"render_mode": "range", "cache_key": key},
+                    error=f"range output frame count probe failed: {exc}",
+                )
+            if frame_count != total:
+                return ToolResult(
+                    success=False, data={"render_mode": "range", "cache_key": key},
+                    error=f"range output frame count mismatch: expected {total}, got {frame_count}",
+                )
+
+            # 5) Full-length final review — identical contract to the full render path.
+            final_review = self._run_final_review(
+                output_path=output_path,
+                edit_decisions=edit_decisions,
+                proposal_packet=inputs.get("proposal_packet"),
+                narration_transcript_path=inputs.get("narration_transcript_path"),
+                script_text=inputs.get("script_text"),
+            )
+            if final_review.get("status") == "fail":
+                return ToolResult(
+                    success=False,
+                    data={"render_mode": "range", "cache_key": key, "final_review": final_review},
+                    error="Range render produced an invalid output:\n" + "\n".join(f"  • {i}" for i in final_review.get("issues_found", [])),
+                    artifacts=[str(output_path)],
+                )
+
+            # 6) Provenance sidecar (P1-④): future cache hits must match key +
+            # master hash AND authenticate the output artifact itself — its
+            # sha256 plus structural probe are recorded now and re-verified
+            # before any hit is reported.
+            output_sha = _hashlib.sha256(output_path.read_bytes()).hexdigest()
+            output_probe: dict[str, Any] = {}
+            try:
+                out_probe = probe_media(output_path)
+                out_video = next((s for s in out_probe.get("streams", []) if s.get("codec_type") == "video"), {})
+                output_probe = {
+                    "duration_seconds": round(float((out_probe.get("format") or {}).get("duration", 0) or 0), 3),
+                    "resolution": f"{out_video.get('width', 0)}x{out_video.get('height', 0)}",
+                    "fps": out_video.get("r_frame_rate"),
+                    "frame_count": self._probe_frame_count(out_probe, out_video),
+                }
+            except Exception:
+                output_probe = {}
+            provenance_path.write_text(
+                json.dumps({
+                    "cache_key": key,
+                    "master_sha256": actual_sha,
+                    "master_path": str(master_path),
+                    "fromFrame": start,
+                    "totalFrames": total,
+                    "output_sha256": output_sha,
+                    "output_probe": output_probe,
+                    "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                }, indent=2),
+                encoding="utf-8",
+            )
+
+            return ToolResult(
+                success=True,
+                data={
+                    "render_mode": "range", "cache_status": "miss", "cache_key": key,
+                    "fromFrame": start, "totalFrames": total,
+                    "master": str(master_path), "final_review": final_review,
+                    "final_review_status": final_review.get("status"),
+                    "remotion_invoked": True,
+                },
+                artifacts=[str(output_path)],
+            )
+        finally:
+            for p in (tail_path, tail_ll, prefix_ll, spliced_path):
+                if p.exists():
+                    p.unlink(missing_ok=True)
+            if work_dir.exists():
+                try:
+                    work_dir.rmdir()
+                except OSError:
+                    pass
 
     def _render_via_hyperframes(
         self,
@@ -2087,8 +2879,18 @@ class VideoCompose(BaseTool):
             # Invoke from inside the composer dir so npx can resolve the
             # local remotion binary via node_modules/.bin. Without this,
             # Windows npx cannot locate the CLI and returns "could not
-            # determine executable to run".
-            self.run_command(cmd, timeout=subprocess_timeout, cwd=composer_dir)
+            # determine executable to run". Heartbeats stream frame progress
+            # into events.jsonl for the board.
+            total_frames = self._infer_total_frames(inputs)
+            self._run_remotion_command(
+                cmd,
+                cwd=composer_dir,
+                timeout=subprocess_timeout,
+                project_dir=self._infer_project_dir(inputs),
+                run_id=self.current_run_id() or f"remotion-{time.time_ns()}",
+                operation="remotion_render",
+                unit_total=total_frames,
+            )
         except subprocess.CalledProcessError as e:
             # run_command uses check=True + capture_output, so the useful
             # Remotion diagnostics live in stderr/stdout — surface the tail

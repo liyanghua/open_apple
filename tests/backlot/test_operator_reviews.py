@@ -51,6 +51,7 @@ def test_creative_approval_is_one_atomic_terminal_transition(tmp_path) -> None:
     with pytest.raises(Exception) as race:
         service.decide(
             review_id=review["review_id"], decision="rejected", actor_id="reviewer",
+            issue_tags=["weak_hook"],
             reason="改为拒绝", expected_version=bundle["bundle_version"],
             expected_hash=bundle["semantic_sha256"],
         )
@@ -74,6 +75,7 @@ def test_sample_rejection_keeps_media_and_removes_current_checkpoint(tmp_path) -
     rejected = service.decide(
         review_id=review["review_id"], decision="rejected", actor_id="reviewer",
         reason="结尾节奏太快", expected_version=1, expected_hash="a" * 64,
+        issue_tags=["weak_payoff"],
     )
     assert rejected["status"] == "rejected"
     assert (project / "renders/sample.mp4").exists()

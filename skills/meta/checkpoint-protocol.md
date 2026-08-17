@@ -32,6 +32,25 @@ Gather everything needed for the checkpoint:
 2. **Status** — `"completed"` (or `"awaiting_human"` if approval needed)
 3. **Artifacts** — the canonical artifact(s) produced by this stage
 4. **Metadata** — review findings, cost snapshot, timing info
+5. **next_action** — MANDATORY for `in_progress` and `awaiting_human` checkpoints. A resume directive so the next agent session executes instead of re-deriving state (the "断点恢复契约" from AGENT_GUIDE.md):
+
+```python
+write_checkpoint(
+    pipeline_dir, project_name,
+    stage="compose",
+    status="in_progress",
+    artifacts={},
+    metadata={"partial_progress": {...}},
+    next_action={
+        "summary": "恢复 atelier full render:以 projects/<id>/artifacts/final_props.json 的参数重跑 video_compose,输出到 renders/final.mp4,成功后写 completed checkpoint",
+        "verb": "resume_render",
+        "priority": "blocking",
+        "context_refs": ["artifacts/final_props.json", "artifacts/edit_decisions.json", "checkpoint_compose.json"],
+    },
+)
+```
+
+`verb` values: `run_stage` (run the next pipeline stage), `await_user` (waiting on a gate — summary states what is being approved), `fix_and_review` (rework then re-review), `resume_render` (re-issue a render from recorded parameters), `collect_data` (fetch online/post-publish data), `publish`, `none`.
 
 ### Step 3: Write Checkpoint
 
@@ -93,6 +112,11 @@ Long-running stages (like `assets` or `compose` loops) can fail midway due to AP
                "asset_manifest_draft": partial_manifest_dict,
                "completed_scene_ids": completed_scene_ids,
            }
+       },
+       next_action={
+           "summary": "继续生成尚未完成的素材，并从 partial_progress 跳过已完成镜头",
+           "verb": "run_stage",
+           "context_refs": ["checkpoint_assets.json", "artifacts/asset_plan.json"],
        },
    )
    ```
@@ -210,6 +234,13 @@ If a checkpoint exists with status `"awaiting_human"`:
 1. Inform the human: "Stage [name] is awaiting your approval"
 2. Present the checkpoint data for review
 3. Wait for approval before proceeding
+
+**Execute `next_action` first.** When resuming from `in_progress` or
+`awaiting_human`, read `current_cp.get("next_action")` BEFORE anything else.
+If present, execute its `summary` verbatim (loading the listed
+`context_refs`); do not re-read unrelated files to guess what to do. If
+absent (legacy checkpoint), fall back to the re-derivation flow above and
+write a `next_action` on your own next checkpoint.
 
 ### Sample Checkpoint (Reference-Driven Productions)
 

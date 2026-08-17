@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/events/run_event",
+  "title": "Run Event",
+  "description": "Versioned orchestration event contract (v1). Long-running operations emit these into projects/<id>/events.jsonl via lib.events.emit_run_event / emit_heartbeat. The Backlot board renders progress, ETA and wait reasons from this stream. Field semantics: machine_ms = active machine time of this operation (excludes human wait); approval_wait_ms = time spent waiting on a human decision; retry_count = retries consumed for this attempt chain; cost_reservation_id = cost-tracker reservation for paid calls.",
+  "type": "object",
+  "required": ["schema_version", "run_id", "ts", "stage", "operation", "status"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "run_id": { "type": "string", "minLength": 1, "description": "Stable id for one operation execution; same run_id across its queued/running/finished events." },
+    "attempt_id": { "type": "string", "description": "Stable id of the attempt chain; unchanged across retries, changes when a new attempt series starts." },
+    "attempt": { "type": "integer", "minimum": 1, "description": "1-based attempt number within the attempt chain." },
+    "ts": { "type": "string", "format": "date-time" },
+    "stage": { "type": "string", "description": "Pipeline stage this operation belongs to (research/idea/script/scene_plan/assets/edit/compose/publish)." },
+    "operation": { "type": "string", "description": "Machine operation name, e.g. remotion_render, tts_generate, scene_detect." },
+    "status": { "type": "string", "enum": ["queued", "running", "succeeded", "failed", "cancelled", "needs_attention"] },
+    "unit": {
+      "type": "object",
+      "description": "Progress unit. kind=frame means current/total are frame numbers; percent means 0-100.",
+      "properties": {
+        "kind": { "type": "string", "enum": ["frame", "scene", "asset", "percent", "step", "none"] },
+        "current": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "wait_reason": { "type": "string", "enum": ["waiting_user", "retry_backoff", "provider_queue", "rendering", "orchestrating", "none"] },
+    "message": { "type": "string", "description": "Human-readable one-liner (e.g. 'concurrency=1; retry after Chrome target closed')." },
+    "machine_ms": { "type": "integer", "minimum": 0 },
+    "approval_wait_ms": { "type": "integer", "minimum": 0 },
+    "retry_count": { "type": "integer", "minimum": 0 },
+    "cost_reservation_id": { "type": "string" },
+    "eta_seconds": { "type": "integer", "minimum": 0, "description": "Best-effort remaining seconds; only render when a sane estimate exists." }
+  },
+  "additionalProperties": false
+}

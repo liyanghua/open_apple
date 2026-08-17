@@ -514,6 +514,7 @@ def write_checkpoint(
     review: Optional[dict] = None,
     cost_snapshot: Optional[dict] = None,
     error: Optional[str] = None,
+    next_action: Optional[dict] = None,
     metadata: Optional[dict] = None,
     approval_group: Optional[str] = None,
     approval_bundle_id: Optional[str] = None,
@@ -609,6 +610,26 @@ def write_checkpoint(
         checkpoint["cost_snapshot"] = cost_snapshot
     if error is not None:
         checkpoint["error"] = error
+    if next_action is not None:
+        if not isinstance(next_action, dict):
+            raise CheckpointValidationError("next_action must be a dict")
+        next_action = dict(next_action)
+        next_action.setdefault("set_at", datetime.now(timezone.utc).isoformat())
+        checkpoint["next_action"] = next_action
+    elif status in {"awaiting_human", "in_progress"}:
+        # Fail closed on NEW resume-point checkpoints (review P1-③): the
+        # documented contract (AGENT_GUIDE.md 关键路径纪律) requires a resume
+        # directive on every in_progress/awaiting_human checkpoint, because
+        # these are exactly the states a later session resumes from. Reading
+        # legacy checkpoints written before this rule remains compatible —
+        # validate_checkpoint does not require the field.
+        raise CheckpointValidationError(
+            f"Checkpoint {project_id}/{stage} written with status={status!r} "
+            f"and no next_action. Per the resume-directive contract, every "
+            f"in_progress/awaiting_human checkpoint must carry next_action "
+            f"(summary + verb + context_refs) so a resumed session executes "
+            f"instead of re-deriving state. See AGENT_GUIDE.md '关键路径纪律'."
+        )
     if metadata is not None:
         checkpoint["metadata"] = metadata
     if approval_group is not None:

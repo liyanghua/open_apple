@@ -62,6 +62,7 @@ class TestGateEnforcement:
         path = write_checkpoint(
             tmp_path, "proj", "script", "awaiting_human",
             artifacts={"script": _minimal_script()},
+            next_action={"summary": "测试恢复指令", "verb": "run_stage", "context_refs": ["artifacts/x.json"]},
             pipeline_type="animated-explainer",
         )
         cp = json.loads(path.read_text())
@@ -77,6 +78,7 @@ class TestGateEnforcement:
         path = write_checkpoint(
             tmp_path, "proj", "script", "completed",
             artifacts={"script": _minimal_script()},
+            next_action={"summary": "测试恢复指令", "verb": "run_stage", "context_refs": ["artifacts/x.json"]},
             pipeline_type="animated-explainer",
             human_approved=True,
         )
@@ -113,11 +115,13 @@ class TestCheckpointHistory:
         write_checkpoint(
             tmp_path, "proj", "script", "awaiting_human",
             artifacts={"script": _minimal_script()},
+            next_action={"summary": "测试恢复指令", "verb": "run_stage", "context_refs": ["artifacts/x.json"]},
             pipeline_type="animated-explainer",
         )
         write_checkpoint(
             tmp_path, "proj", "script", "completed",
             artifacts={"script": _minimal_script()},
+            next_action={"summary": "测试恢复指令", "verb": "run_stage", "context_refs": ["artifacts/x.json"]},
             pipeline_type="animated-explainer",
             human_approved=True,
         )
@@ -133,6 +137,7 @@ class TestCheckpointHistory:
             write_checkpoint(
                 tmp_path, "proj", "assets", "in_progress",
                 artifacts={},
+                next_action={"summary": "测试恢复指令", "verb": "run_stage", "context_refs": ["artifacts/x.json"]},
                 pipeline_type="cinematic",
                 metadata={"partial_progress": {"completed_scene_ids": ["sc1"]}},
             )
@@ -206,10 +211,16 @@ class TestBaseToolInstrumentation:
         FakeTool().execute({"output_path": str(out), "scene_id": "sc3"})
 
         events = read_events(project)
-        assert [e["event"] for e in events] == ["start", "finish"]
-        assert events[0]["scene_id"] == "sc3"
-        assert events[1]["success"] is True
-        assert events[1]["cost_usd"] == 0.05
+        legacy = [e for e in events if "event" in e]
+        run_events = [e for e in events if e.get("schema_version") == "1.0"]
+        assert [e["event"] for e in legacy] == ["start", "finish"]
+        assert legacy[0]["scene_id"] == "sc3"
+        assert legacy[1]["success"] is True
+        assert legacy[1]["cost_usd"] == 0.05
+        # P1-⑥: tool-level run-event coverage — queued + succeeded.
+        assert [e["status"] for e in run_events] == ["queued", "succeeded"]
+        assert all(e["operation"] == "fake_tool" for e in run_events)
+        assert run_events[1]["machine_ms"] >= 0
 
     def test_execute_emits_error_event_and_reraises(self, tmp_path, monkeypatch):
         import lib.events as events_mod
@@ -228,8 +239,12 @@ class TestBaseToolInstrumentation:
         with pytest.raises(RuntimeError, match="kaput"):
             BoomTool().execute({"output_path": str(project / "a.png")})
         events = read_events(project)
-        assert [e["event"] for e in events] == ["start", "error"]
-        assert "kaput" in events[1]["error"]
+        legacy = [e for e in events if "event" in e]
+        run_events = [e for e in events if e.get("schema_version") == "1.0"]
+        assert [e["event"] for e in legacy] == ["start", "error"]
+        assert "kaput" in legacy[1]["error"]
+        assert [e["status"] for e in run_events] == ["queued", "failed"]
+        assert "kaput" in run_events[1]["message"]
 
     def test_unattributable_call_emits_nothing_and_works(self, tmp_path):
         from tools.base_tool import BaseTool, ToolResult

@@ -570,6 +570,312 @@ modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); }
 // right rail: decisions, activity
 // ---------------------------------------------------------------------------
 
+const STAGE_LABELS_ZH = {
+  research: "参考解析与素材体检",
+  proposal: "创意方案",
+  idea: "创意方案",
+  script: "口播与字幕",
+  scene_plan: "镜头映射",
+  assets: "制作准备",
+  sample: "样片确认",
+  edit: "修改与精剪",
+  compose: "成片生成",
+  publish: "交付下载",
+};
+
+const WAIT_REASON_ZH = {
+  waiting_user: "等待你的决定",
+  retry_backoff: "重试退避中",
+  provider_queue: "供应商排队中",
+  rendering: "渲染中",
+  orchestrating: "编排中",
+  none: "—",
+};
+
+function stageLabelZh(name) {
+  return STAGE_LABELS_ZH[name] || name || "";
+}
+
+function waitReasonZh(reason) {
+  return WAIT_REASON_ZH[reason] || (reason ? String(reason) : "—");
+}
+
+function fmtSeconds(seconds) {
+  const n = Number(seconds);
+  if (!Number.isFinite(n) || n < 0) return "";
+  if (n < 60) return `${Math.round(n)} 秒`;
+  const m = Math.floor(n / 60);
+  const s = Math.round(n % 60);
+  return m < 60 ? `${m} 分 ${s} 秒` : `${Math.floor(m / 60)} 小时 ${m % 60} 分`;
+}
+
+function fmtMachineMs(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n < 0) return "";
+  if (n < 1000) return `${Math.round(n)} 毫秒`;
+  return fmtSeconds(n / 1000);
+}
+
+function unitWord(kind) {
+  if (kind === "frame") return "帧";
+  if (kind === "scene") return "镜头";
+  if (kind === "percent") return "%";
+  if (kind === "step") return "步";
+  return "";
+}
+
+function runEventStatus(r) {
+  const unit = r.unit || {};
+  const hasUnit = unit.total > 0 && unit.current != null;
+  const progress = hasUnit ? `${unit.current}/${unit.total} ${unitWord(unit.kind)}` : "";
+  if (r.status === "succeeded") return "完成";
+  if (r.status === "failed") return "失败";
+  if (r.status === "cancelled") return "已取消";
+  if (r.status === "needs_attention") return "需要关注";
+  const label = (r.wait_reason && r.wait_reason !== "none")
+    ? waitReasonZh(r.wait_reason)
+    : (r.status === "queued" ? "排队中" : "处理中");
+  return progress ? `${label} ${progress}` : label;
+}
+
+// Mutations on the diagnostic board need a session CSRF token, mirroring
+// operator/api.js (getSession → X-CSRF-Token header).
+async function csrfSession() {
+  try {
+    const res = await fetch("/api/v2/auth/me", { headers: { Accept: "application/json" } });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
+async function postJSON(url, body) {
+  const session = await csrfSession();
+  const headers = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    "X-CSRF-Token": session?.csrf_token || "",
+    Origin: window.location.origin,
+    "Idempotency-Key": (crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}`),
+  };
+  const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body || {}) });
+  if (!res.ok) {
+    let message = `${res.status}`;
+    try { message = (await res.json())?.error?.message || message; } catch { /* keep status */ }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
+async function approveReview(review) {
+  try {
+    await postJSON(`/api/v2/projects/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(review.review_id)}/approved`, {
+      reason: "批准",
+      subject_version: review.subject_version,
+      subject_hash: review.subject_hash,
+    });
+    refresh().catch(console.error);
+  } catch (err) {
+    window.alert(`批准失败：${String(err)}`);
+  }
+}
+
+// Canonical issue tags (mirrors decision_log schema enum) with business labels.
+const REJECT_TAGS = [
+  ["unclear_promise", "卖点不清"], ["unsupported_claim", "无依据断言"], ["information_gap", "信息缺失"],
+  ["weak_hook", "钩子弱"], ["slow_start", "开头拖沓"], ["cover_mismatch", "封面不符"],
+  ["repetition", "内容重复"], ["density_spike", "信息过密"], ["dead_air", "冷场"], ["weak_payoff", "结尾弱"],
+  ["identity_drift", "角色/产品漂移"], ["artifact", "生成伪影"], ["hierarchy_failure", "重点不分"], ["generic_visual", "画面太通用"],
+  ["pronunciation", "发音错误"], ["timing", "语音节奏问题"], ["music_masking", "音乐压人声"], ["loudness", "响度问题"],
+  ["unsafe_text", "字幕出安全区"], ["wrong_duration", "时长不对"], ["mobile_illegibility", "手机看不清"],
+  ["weak_offer", "卖点弱"], ["late_cta", "CTA 太晚"], ["ambiguous_cta", "CTA 含糊"], ["brand_mismatch", "品牌不符"],
+  ["blank_frame", "空白帧"], ["crop_mismatch", "裁切问题"], ["claim_rejected", "被拒声明残留"],
+  ["caption_overlap", "字幕重叠"], ["render_failure", "渲染缺陷"], ["infra_sidequest", "基建支线干扰"],
+];
+
+function openRejectPanel(review, itemEl) {
+  const existing = itemEl.querySelector(".inbox-reject-panel");
+  if (existing) { existing.remove(); return; }
+  const panel = el("div", { class: "inbox-reject-panel" });
+  const tagBox = el("div", { class: "inbox-reject-tags" });
+  const checked = new Set();
+  for (const [id, label] of REJECT_TAGS) {
+    const row = el("label", { class: "inbox-reject-tag" },
+      el("input", { type: "checkbox", value: id, onchange: (e) => { e.target.checked ? checked.add(id) : checked.delete(id); } }),
+      el("span", {}, label),
+    );
+    tagBox.append(row);
+  }
+  const reasonInput = el("input", { class: "inbox-reject-reason", type: "text", placeholder: "补充说明（可选）" });
+  const doReject = el("button", { class: "inbox-reject", type: "button", onclick: () => rejectReview(review, checked, reasonInput) }, "确认拒绝");
+  const cancel = el("button", { class: "inbox-cancel", type: "button", onclick: () => panel.remove() }, "取消");
+  panel.append(el("div", { class: "inbox-reject-head" }, "选择拒绝原因（至少一个）"), tagBox, reasonInput, el("div", { class: "inbox-reject-actions" }, doReject, cancel));
+  itemEl.append(panel);
+}
+
+async function rejectReview(review, checked, reasonInput) {
+  const issueTags = [...checked];
+  if (!issueTags.length) { window.alert("请至少选择一个原因标签"); return; }
+  try {
+    await postJSON(`/api/v2/projects/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(review.review_id)}/rejected`, {
+      reason: (reasonInput.value || "").trim(),
+      issue_tags: issueTags,
+      subject_version: review.subject_version,
+      subject_hash: review.subject_hash,
+    });
+    refresh().catch(console.error);
+  } catch (err) {
+    window.alert(`拒绝失败：${String(err)}`);
+  }
+}
+
+async function submitReviewNote(textarea, stage, versionRef) {
+  const note = (textarea.value || "").trim();
+  if (!note) { window.alert("请先填写审核意见"); return; }
+  try {
+    await postJSON(`/api/v2/projects/${encodeURIComponent(projectId)}/review-notes`, { note, stage, version_ref: versionRef });
+    textarea.value = "";
+    refresh().catch(console.error);
+  } catch (err) {
+    window.alert(`提交失败：${String(err)}`);
+  }
+}
+
+// U4 — 「进行中操作」 progress card: active run events with frame progress,
+// attempt, typed wait reason, ETA, machine time and cost reservation.
+function renderProgressCard(s) {
+  const ops = (s.run_ops || []).filter((r) => r.status === "running" || r.status === "queued");
+  if (!ops.length) return null;
+  const body = el("div", { class: "panel-body" });
+  for (const r of ops) {
+    const unit = r.unit || {};
+    const hasProgress = unit.total > 0 && unit.current != null;
+    const pct = hasProgress ? Math.min(100, Math.max(0, Math.round((Number(unit.current) / Number(unit.total)) * 100))) : null;
+    const chips = [];
+    if (r.attempt != null) chips.push(el("span", { class: "op-chip" }, `第 ${r.attempt} 次尝试`));
+    chips.push(el("span", { class: `op-chip${r.wait_reason === "waiting_user" ? " op-wait" : ""}` }, waitReasonZh(r.wait_reason)));
+    if (r.eta_seconds != null) chips.push(el("span", { class: "op-chip" }, `预计还需 ${fmtSeconds(r.eta_seconds)}`));
+    if (r.machine_ms != null) chips.push(el("span", { class: "op-chip" }, `机器耗时 ${fmtMachineMs(r.machine_ms)}`));
+    if (r.cost_reservation_id) chips.push(el("span", { class: "op-chip" }, `费用预留 ${r.cost_reservation_id}`));
+    if (r.stale_seconds != null && r.stale_seconds > 0) chips.push(el("span", { class: "op-chip op-stale" }, `${r.stale_seconds} 秒未更新`));
+    body.append(el("div", { class: "op-card" },
+      el("div", { class: "op-head" },
+        el("span", { class: "op-title" }, `${stageLabelZh(r.stage) || "操作"} · ${r.operation || ""}`),
+        r.needs_attention
+          ? el("span", { class: "op-badge" }, "需要关注")
+          : el("span", { class: "op-badge op-badge-ok" }, "进行中"),
+      ),
+      hasProgress ? el("div", { class: "op-bar" },
+        el("i", { style: `width:${pct}%` }),
+        el("span", {}, `${unit.current}/${unit.total} ${unitWord(unit.kind)}（${pct}%）`)) : null,
+      r.message ? el("div", { class: "op-msg" }, String(r.message)) : null,
+      chips.length ? el("div", { class: "op-meta" }, chips) : null,
+    ));
+  }
+  return el("div", { class: "panel" },
+    el("div", { class: "panel-head" }, el("h2", {}, "进行中操作"), el("span", { class: "meta" }, `${ops.length} 项`)),
+    body);
+}
+
+// U2 — decision inbox: every awaiting_human stage, with an approve button only
+// when a real review exists (no fake buttons for legacy projects).
+function renderDecisionInbox(s) {
+  const awaiting = s.awaiting || [];
+  if (!awaiting.length) return null;
+  const body = el("div", { class: "panel-body" });
+  for (const item of awaiting) {
+    const itemEl = el("div", { class: "inbox-item" },
+      el("div", { class: "inbox-head" },
+        el("span", { class: "inbox-stage" }, stageLabelZh(item.stage) || item.stage),
+        item.timestamp ? el("span", { class: "inbox-time" }, fmtClock(item.timestamp)) : null,
+      ),
+      item.next_action_summary ? el("div", { class: "inbox-summary" }, String(item.next_action_summary)) : null,
+      item.review_id ? el("div", { class: "inbox-actions" },
+        el("button", { class: "inbox-approve", type: "button", onclick: () => approveReview(item) }, "批准"),
+        el("button", { class: "inbox-reject-open", type: "button", onclick: () => openRejectPanel(item, itemEl) }, "拒绝并要求返工"),
+      ) : null,
+    );
+    body.append(itemEl);
+  }
+  return el("div", { class: "panel inbox" },
+    el("div", { class: "panel-head" }, el("h2", {}, "需要你处理"), el("span", { class: "meta" }, `${awaiting.length} 项`)),
+    body);
+}
+
+// U3 — review player: latest sample video, stills grid, version compare and
+// append-only review notes.
+function renderReviewPlayer(s) {
+  const samples = (s.media && s.media.samples) || [];
+  const stills = (s.media && s.media.stills) || [];
+  if (!samples.length && !stills.length) return null;
+
+  const body = el("div", { class: "review-body" });
+  const primary = samples[0] || null;
+  const second = samples[1] || null;
+
+  if (primary) {
+    const mainVideo = el("video", { src: mediaURL(s.project_id, primary.path), controls: "", preload: "metadata" });
+    body.append(
+      el("div", { class: "review-player" },
+        el("div", { class: "review-head" }, el("b", {}, "最新样片"), el("span", { class: "meta" }, primary.path.split("/").pop())),
+        el("div", { class: "review-hero" }, mainVideo),
+      ),
+    );
+    if (second) {
+      const a = el("video", { src: mediaURL(s.project_id, primary.path), controls: "", preload: "metadata" });
+      const b = el("video", { src: mediaURL(s.project_id, second.path), controls: "", preload: "metadata" });
+      body.append(
+        el("div", { class: "review-compare" },
+          el("div", { class: "review-compare-head" }, el("b", {}, "并排对比"), el("span", { class: "meta" }, "不要求同步播放")),
+          el("div", { class: "review-compare-grid" },
+            el("div", { class: "review-compare-slot" }, el("span", { class: "meta" }, primary.path.split("/").pop()), a),
+            el("div", { class: "review-compare-slot" }, el("span", { class: "meta" }, second.path.split("/").pop()), b),
+          ),
+        ),
+      );
+    }
+    if (samples.length > 1) {
+      const versions = el("div", { class: "review-versions" });
+      samples.forEach((v) => {
+        versions.append(el("span", { class: "review-ver", onclick: () => { mainVideo.src = mediaURL(s.project_id, v.path); mainVideo.load(); } }, v.path.split("/").pop()));
+      });
+      body.append(versions);
+    }
+  }
+
+  if (stills.length) {
+    const grid = el("div", { class: "review-stills" });
+    for (const st of stills.slice(0, 16)) {
+      grid.append(el("div", { class: "thumb" }, el("img", { src: thumbURL(s.project_id, st.path, 640), loading: "lazy", alt: "" })));
+    }
+    body.append(el("div", { class: "review-section-title" }, `静帧 · ${stills.length} 张`), grid);
+  }
+
+  const noteStage = ((s.awaiting || [])[0] || {}).stage || "";
+  body.append(el("div", { class: "review-section-title" }, "审核意见"));
+  const textarea = el("textarea", { class: "review-note-input", rows: "3", placeholder: "写下审核意见（可注明需修改的时间段或原因）" });
+  const submit = el("button", { class: "review-note-submit", type: "button", onclick: () => submitReviewNote(textarea, noteStage, primary ? primary.path.split("/").pop() : "") }, "提交审核意见");
+  body.append(el("div", { class: "review-note-form" }, textarea, submit));
+
+  const notes = s.review_notes || [];
+  if (notes.length) {
+    const list = el("div", { class: "review-note-list" });
+    for (const n of [...notes].reverse()) {
+      list.append(el("div", { class: "review-note" },
+        el("div", { class: "review-note-head" },
+          el("span", { class: "meta" }, fmtClock(n.ts)),
+          n.actor ? el("span", { class: "meta" }, String(n.actor)) : null,
+          n.stage ? el("span", { class: "meta" }, stageLabelZh(n.stage)) : null),
+        el("div", {}, String(n.note || "")),
+      ));
+    }
+    body.append(list);
+  }
+
+  return el("div", { class: "review-section" },
+    el("div", { class: "section-title" }, "样片审核", el("span", { class: "meta" }, `${samples.length} 个样片 · ${stills.length} 张静帧`)),
+    body);
+}
+
 function renderDecisions(s) {
   const log = s.artifacts.decision_log;
   const decisions = (log && log.decisions) || [];
@@ -609,7 +915,8 @@ function renderDecisions(s) {
 
 function renderActivity(s) {
   const events = s.events || [];
-  if (!events.length) return null;
+  const runOps = s.run_ops || [];
+  if (!events.length && !runOps.length) return null;
   const body = el("div", { class: "panel-body" });
   // A start is "running" only until a later finish/error for the same
   // tool+scene closes it — closed starts are dropped (the finish row tells
@@ -618,6 +925,7 @@ function renderActivity(s) {
   const open = new Map(); // key -> {count, ev}
   const rows = [];
   for (const ev of events) {
+    if (ev.schema_version === "1.0") continue; // run events handled below
     const key = `${ev.tool}:${ev.scene_id || ""}`;
     if (ev.event === "start") {
       const slot = open.get(key) || { count: 0, ev };
@@ -636,8 +944,21 @@ function renderActivity(s) {
     }
   }
   for (const slot of open.values()) rows.push(slot.ev);
+  // Run events join the same timeline (one row per run_id, latest state).
+  for (const r of runOps) rows.push({ _run: true, op: r, ts: r.last_ts });
   rows.sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
-  for (const ev of rows.slice(-10).reverse()) {
+  for (const ev of rows.slice(-30).reverse()) {
+    if (ev._run) {
+      const r = ev.op;
+      const tone = r.status === "failed" ? "err" : r.status === "succeeded" ? "ok" : "run";
+      body.append(el("div", { class: "act-row" },
+        el("span", { class: "t" }, fmtClock(r.last_ts)),
+        el("span", { class: "tool" }, stageLabelZh(r.stage) || r.operation || "操作"),
+        el("span", { class: "target" }, r.operation || ""),
+        el("span", { class: `status ${tone}` }, runEventStatus(r)),
+      ));
+      continue;
+    }
     let statusEl;
     if (ev.event === "finish") {
       statusEl = el("span", { class: `status ${ev.success === false ? "err" : "ok"}` },
@@ -1205,25 +1526,30 @@ function render() {
   const script = renderScriptCard(s);
   if (script) main.append(script);
   const aside = el("aside", {});
+  const progress = renderProgressCard(s);
+  const inbox = renderDecisionInbox(s);
   const decisions = renderDecisions(s);
   const activity = renderActivity(s);
+  if (progress) aside.append(progress);
+  if (inbox) aside.append(inbox);
   if (decisions) aside.append(decisions);
   if (activity) aside.append(activity);
 
   // Media sections live INSIDE the main column so a tall decisions rail
   // never pushes them below the fold — the column flows beside the rail.
   const storyboard = renderStoryboard(s);
+  const reviewPlayer = renderReviewPlayer(s);
   const found = renderFoundMedia(s);
   const renders = renderRenders(s);
 
-  if (approvalReview || script || decisions || activity) {
-    for (const section of [storyboard, found, renders]) {
+  if (approvalReview || script || progress || inbox || decisions || activity) {
+    for (const section of [storyboard, reviewPlayer, found, renders]) {
       if (section) main.append(section);
     }
-    const hasAside = Boolean(decisions || activity);
+    const hasAside = Boolean(progress || inbox || decisions || activity);
     app.append(el("div", { class: `board${hasAside ? "" : " solo"}` }, main, hasAside ? aside : null));
   } else {
-    for (const section of [storyboard, found, renders]) {
+    for (const section of [storyboard, reviewPlayer, found, renders]) {
       if (section) app.append(section);
     }
   }
@@ -1242,8 +1568,14 @@ function normalize(s) {
   s.media.renders = Array.isArray(s.media.renders) ? s.media.renders : [];
   s.media.snapshots = Array.isArray(s.media.snapshots) ? s.media.snapshots : [];
   s.media.music = Array.isArray(s.media.music) ? s.media.music : [];
+  s.media.samples = Array.isArray(s.media.samples) ? s.media.samples : [];
+  s.media.stills = Array.isArray(s.media.stills) ? s.media.stills : [];
   s.events = Array.isArray(s.events) ? s.events : [];
   s.fastline = s.fastline || null;
+  s.run_ops = Array.isArray(s.run_ops) ? s.run_ops : [];
+  s.awaiting = Array.isArray(s.awaiting) ? s.awaiting : [];
+  s.review_notes = Array.isArray(s.review_notes) ? s.review_notes : [];
+  s.next_action = s.next_action || null;
   if (s.storyboard && Array.isArray(s.storyboard.scenes)) {
     for (const c of s.storyboard.scenes) {
       c.takes = Array.isArray(c.takes) ? c.takes : [];

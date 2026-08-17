@@ -79,7 +79,9 @@ def test_writers_stage_one_atomic_generation(tmp_path, monkeypatch) -> None:
             sink=sink,
         )
         checkpoint_path = write_checkpoint(
-            tmp_path, "demo", "research", "in_progress", {}, sink=sink
+            tmp_path, "demo", "research", "in_progress", {},
+            next_action={"summary": "测试恢复指令", "verb": "run_stage", "context_refs": ["artifacts/x.json"]},
+            sink=sink
         )
         revision_id = append_decision_revision(
             project,

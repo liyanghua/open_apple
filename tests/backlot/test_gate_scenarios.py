@@ -108,6 +108,7 @@ def test_awaiting_then_approved_archives_history_without_gate_skip(tmp_path):
         "assets",
         "awaiting_human",
         {"asset_manifest": _manifest_artifact()},
+        next_action={"summary": "测试恢复指令", "verb": "run_stage", "context_refs": ["artifacts/x.json"]},
         pipeline_type="cinematic",
     )
     write_checkpoint(
@@ -163,3 +164,26 @@ def test_cinematic_fast_board_exposes_exactly_two_human_gates(tmp_path):
         for stage in state["stages"]
         if stage["status"] == "awaiting_human"
     ] == ["assets", "sample"]
+
+
+def test_decision_inbox_exposes_review_version_and_hash(tmp_path):
+    project = tmp_path / "fastline"
+    _write(project / "project.json", {
+        "project_id": "fastline", "pipeline_type": "cinematic-fast",
+    })
+    _write(project / "checkpoint_sample.json", {
+        "version": "1.0", "project_id": "fastline",
+        "pipeline_type": "cinematic-fast", "stage": "sample",
+        "status": "awaiting_human", "timestamp": "2026-08-17T00:00:00Z",
+        "artifacts": {},
+    })
+    _write(project / "operator/reviews/r-1.json", {
+        "schema_version": "1.0", "review_id": "r-1", "project_id": "fastline",
+        "kind": "sample", "subject_id": "sample-v3", "subject_version": 3,
+        "subject_hash": "a" * 64, "status": "awaiting_human",
+    })
+
+    state = load_board_state(project)
+    item = state["awaiting"][0]
+    assert item["subject_version"] == 3
+    assert item["subject_hash"] == "a" * 64

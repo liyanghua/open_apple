@@ -155,3 +155,38 @@ def test_diagnostics_route_preserves_the_engineering_board(
 
     paths = {route.path for route in backlot_client.app.routes}
     assert "/diagnostics/p/{project_path:path}" not in paths
+
+
+def test_review_decision_requires_the_version_seen_by_the_client(
+    backlot_client, projects_root, make_project
+) -> None:
+    from backlot.operator_reviews import ReviewService
+
+    project = make_project(projects_root, "film", pipeline_type="cinematic-fast")
+    (project / "checkpoint_sample.json").write_text(
+        json.dumps({
+            "version": "1.0", "project_id": "film",
+            "pipeline_type": "cinematic-fast", "stage": "sample",
+            "status": "awaiting_human", "timestamp": "2026-08-17T00:00:00Z",
+            "artifacts": {},
+        }),
+        encoding="utf-8",
+    )
+    review = ReviewService(project).create(
+        kind="sample", subject_id="sample-v3", subject_version=3,
+        subject_hash="a" * 64, submitted_by="operator",
+    )
+    url = f"/api/v2/projects/film/reviews/{review['review_id']}/approved"
+    headers = {"Origin": "http://testserver", "X-CSRF-Token": "test-csrf"}
+
+    missing = backlot_client.post(url, json={"reason": "批准"}, headers=headers)
+    assert missing.status_code == 422
+    assert missing.json()["error"]["code"] == "validation_failed"
+    approved = backlot_client.post(
+        url,
+        json={
+            "reason": "批准", "subject_version": 3, "subject_hash": "a" * 64,
+        },
+        headers=headers,
+    )
+    assert approved.status_code == 200

@@ -186,6 +186,46 @@ def _artifact(name: str) -> dict:
     return value
 
 
+def _caption_policy_revision() -> dict:
+    """Minimal approved caption treatment the sample stage now produces (manifest v2 contract)."""
+    return {
+        "version": "1.0",
+        "project_id": PROJECT_ID,
+        "created_at": "2026-08-17T00:00:00+00:00",
+        "producer": "sample-director-test",
+        "input_hashes": {"production_lock": "a" * 64, "scene_plan": "b" * 64},
+        "semantic_sha256": "c" * 64,
+        "artifact_sha256": "d" * 64,
+        "revision_id": "caprev-1",
+        "revision_version": 1,
+        "base_production_lock_artifact_sha256": "e" * 64,
+        "caption_treatments": [
+            {
+                "scene_id": "scene-1",
+                "caption_id": "cap-1",
+                "action": "retain",
+                "review": "approved",
+                "interval": {"start_seconds": 0.0, "end_seconds": 8.0},
+                "reason": "approved source caption",
+            }
+        ],
+        "authorization": {
+            "source": "approval_record",
+            "actor": "tester",
+            "timestamp": "2026-08-17T00:00:00+00:00",
+            "evidence_ref": "operator/reviews/sample.json",
+        },
+        "decision_revision_id": "drev-1",
+        "change_impact": {
+            "render_route": "full_render",
+            "reopen_creative": False,
+            "reopen_sample": True,
+            "changed_fields": ["caption_policy_revision"],
+        },
+        "status": "approved_for_sample_revision",
+    }
+
+
 def _envelopes(project: Path, names: list[str], overrides: dict[str, dict] | None = None) -> dict:
     result = {}
     for name in names:
@@ -197,13 +237,19 @@ def _envelopes(project: Path, names: list[str], overrides: dict[str, dict] | Non
 
 
 def _checkpoint(root: Path, stage: str, status: str, artifacts: dict, **kwargs) -> Path:
+    kwargs.setdefault("pipeline_type", PIPELINE)
+    if status in {"awaiting_human", "in_progress"} and "next_action" not in kwargs:
+        kwargs["next_action"] = {
+            "summary": f"E2E 恢复:{stage} 阶段",
+            "verb": "await_user" if status == "awaiting_human" else "run_stage",
+            "context_refs": [f"checkpoint_{stage}.json"],
+        }
     return write_checkpoint(
         root,
         PROJECT_ID,
         stage,
         status,
         artifacts,
-        pipeline_type=PIPELINE,
         **kwargs,
     )
 
@@ -257,7 +303,17 @@ def test_cinematic_fast_end_to_end_has_exactly_two_gates_and_no_reference_reuse(
     providers.generate_tts()
     providers.generate_music()
     remotion.render_sample()
-    sample_artifacts = _envelopes(project, ["asset_manifest", "final_props", "render_plan", "sample_report"])
+    sample_artifacts = _envelopes(
+        project,
+        ["asset_manifest", "final_props", "render_plan", "sample_report"],
+        {"caption_policy_revision": _caption_policy_revision()},
+    )
+    sample_artifacts["caption_policy_revision"] = write_artifact_atomic(
+        "artifacts/caption_policy_revision.json",
+        "caption_policy_revision",
+        _caption_policy_revision(),
+        project_dir=project,
+    )
     _checkpoint(tmp_path, "sample", "awaiting_human", sample_artifacts)
     awaiting_human_stages.append("sample")
     _checkpoint(tmp_path, "sample", "completed", sample_artifacts, human_approved=True)

@@ -11,6 +11,7 @@ from typing import Any, Callable
 from jsonschema import Draft202012Validator
 
 from backlot.operator_errors import OperatorError
+from backlot.operator_language import STAGE_LABELS
 from backlot.project_commit import ProjectCommitStore
 from lib.approval_groups import approve_bundle, reject_bundle
 
@@ -18,6 +19,22 @@ from lib.approval_groups import approve_bundle, reject_bundle
 class _Replay(Exception):
     def __init__(self, review: dict[str, Any]) -> None:
         self.review = review
+
+
+# Canonical quality issue tags (mirrors schemas/artifacts/decision_log.schema.json
+# issue_tags enum). A rejection without at least one tag is rejected by the API —
+# the tags are the cohort-level quality feedback data.
+REVIEW_ISSUE_TAGS = frozenset({
+    "unclear_promise", "unsupported_claim", "information_gap",
+    "weak_hook", "slow_start", "cover_mismatch",
+    "repetition", "density_spike", "dead_air", "weak_payoff",
+    "identity_drift", "artifact", "hierarchy_failure", "generic_visual",
+    "pronunciation", "timing", "music_masking", "loudness",
+    "unsafe_text", "wrong_duration", "mobile_illegibility",
+    "weak_offer", "late_cta", "ambiguous_cta", "brand_mismatch",
+    "blank_frame", "crop_mismatch", "claim_rejected", "caption_overlap",
+    "render_failure", "infra_sidequest",
+})
 
 
 class ReviewService:
@@ -127,9 +144,16 @@ class ReviewService:
         reason: str,
         expected_version: int,
         expected_hash: str,
+        issue_tags: list[str] | None = None,
     ) -> dict[str, Any]:
         if decision not in {"approved", "rejected"}:
             raise OperatorError.validation_failed("确认结果无效")
+        if decision == "rejected":
+            tags = [t for t in (issue_tags or []) if isinstance(t, str)]
+            if not tags or any(t not in REVIEW_ISSUE_TAGS for t in tags):
+                raise OperatorError.validation_failed(
+                    "拒绝必须至少选择一个结构化原因标签(issue_tags)"
+                )
         initial = self._find(review_id)
         if initial.get("status") == decision:
             return initial
@@ -189,6 +213,10 @@ class ReviewService:
                         checkpoint,
                         schema="checkpoint",
                     )
+                    # P0-3: approval atomically advances the pipeline — stage
+                    # the next stage's in_progress checkpoint and the first
+                    # queued orchestration run event in this same generation.
+                    self._stage_next_transition(sink, review_id, stage)
                 elif decision == "rejected" and checkpoint is not None:
                     sink.stage_json(
                         f"history/operator-{stage}-{review_id}.json",
@@ -197,6 +225,13 @@ class ReviewService:
                     )
                     sink.stage_delete(
                         checkpoint_path.relative_to(self.project_dir).as_posix()
+                    )
+                    # P2-⑥ producer: a rejection is quality feedback, not a
+                    # deletion. Append a tagged review_rejection decision to
+                    # the canonical decision log in this same generation so
+                    # cohort analytics see every rework cause.
+                    self._stage_rejection_decision(
+                        sink, review, stage, reason, issue_tags or []
                     )
                 decided = dict(review)
                 decided.update(
@@ -219,3 +254,175 @@ class ReviewService:
         active = [item for item in self.list() if item.get("status") == "awaiting_human"]
         return active[-1] if active else None
 
+    def _pipeline_type(self) -> str | None:
+        """Resolve the pipeline type from the project marker or any checkpoint."""
+        marker = self.project_dir / "project.json"
+        try:
+            data = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        pipeline_type = data.get("pipeline_type")
+        if isinstance(pipeline_type, str) and pipeline_type and pipeline_type != "unknown":
+            return pipeline_type
+        for path in sorted(self.project_dir.glob("checkpoint_*.json")):
+            try:
+                checkpoint = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            pipeline_type = checkpoint.get("pipeline_type")
+            if isinstance(pipeline_type, str) and pipeline_type and pipeline_type != "unknown":
+                return pipeline_type
+        return None
+
+    def _next_stage_name(self, stage: str) -> str | None:
+        """The stage immediately after ``stage`` in the pipeline's stage order."""
+        stages: list[str] | None = None
+        try:
+            from lib.checkpoint import get_pipeline_stages
+
+            stages = list(get_pipeline_stages(self._pipeline_type()))
+        except Exception:
+            stages = None
+        if not stages:
+            stages = [
+                "research", "proposal", "idea", "script", "scene_plan",
+                "assets", "edit", "compose", "publish",
+            ]
+        if stage not in stages:
+            return None
+        index = stages.index(stage)
+        return stages[index + 1] if index + 1 < len(stages) else None
+
+    def _stage_rejection_decision(
+        self,
+        sink: Any,
+        review: dict[str, Any],
+        stage: str,
+        reason: str,
+        issue_tags: list[str],
+    ) -> None:
+        """Append a tagged `review_rejection` decision to the canonical
+        decision log inside the same commit generation as the rejection.
+
+        The schema requires issue_tags (canonical enum) + rework_round for
+        this category — the API already fail-closes when tags are absent, so
+        this producer always writes a valid entry.
+        """
+        canonical = self.project_dir / "artifacts" / "decision_log.json"
+        legacy = self.project_dir / "decision_log.json"
+        source = canonical if canonical.exists() else (legacy if legacy.exists() else None)
+        if source is not None:
+            try:
+                existing = json.loads(source.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                existing = {}
+        else:
+            existing = {}
+        if isinstance(existing, dict) and isinstance(existing.get("data"), dict):
+            existing = existing["data"]
+        if not isinstance(existing, dict):
+            existing = {}
+        decisions = list(existing.get("decisions") or [])
+        rework_round = (
+            1 + sum(
+                1 for d in decisions
+                if isinstance(d, dict) and d.get("category") == "review_rejection"
+            )
+        )
+        entry = {
+            "decision_id": f"reject-{review.get('review_id', '')}",
+            "stage": stage,
+            "category": "review_rejection",
+            "subject": f"{stage} 阶段审核拒绝",
+            "options_considered": [
+                {
+                    "option_id": "reject",
+                    "label": "拒绝并要求返工",
+                    "score": 0.0,
+                    "reason": reason or "用户拒绝",
+                }
+            ],
+            "selected": "reject",
+            "reason": reason or "用户拒绝",
+            "user_visible": True,
+            "user_approved": True,
+            "issue_tags": sorted(set(issue_tags)),
+            "rework_round": rework_round,
+        }
+        merged = {
+            key: value
+            for key, value in existing.items()
+            if key not in {"semantic_sha256", "artifact_sha256"}
+        }
+        merged.update(
+            version=existing.get("version", "1.0"),
+            project_id=existing.get("project_id", self.store.project_id),
+            decisions=decisions + [entry],
+        )
+        from lib.artifact_io import write_artifact_atomic
+
+        write_artifact_atomic(
+            "artifacts/decision_log.json",
+            "decision_log",
+            merged,
+            project_dir=self.project_dir,
+            sink=sink,
+        )
+
+    def _stage_next_transition(
+        self, sink: Any, review_id: str, stage: str
+    ) -> None:
+        """Stage the next stage's in_progress checkpoint + a queued run event.
+
+        Both land in the SAME ProjectCommitStore generation as the review
+        decision, so an approval atomically advances the pipeline instead of
+        leaving "what happens next" to a later agent's guesswork.
+
+        Monotonicity rule (review P1-④): the transition is staged ONLY when
+        the next stage has no checkpoint yet. If one already exists — including
+        a completed/awaiting_human/failed terminal checkpoint — it is left
+        untouched. Approving an earlier stage must never regress a later stage
+        that has already run.
+        """
+        next_stage = self._next_stage_name(stage)
+        if not next_stage:
+            return
+        next_path = self.project_dir / f"checkpoint_{next_stage}.json"
+        if next_path.exists():
+            # Never overwrite an existing checkpoint: the pipeline is already
+            # at or beyond that stage, and downgrading it (e.g. completed ->
+            # in_progress) would regress state and re-run finished work.
+            return
+        next_checkpoint: dict[str, Any] = {
+            "version": "1.0",
+            "project_id": self.store.project_id,
+            "pipeline_type": self._pipeline_type() or "unknown",
+            "stage": next_stage,
+            "artifacts": {},
+        }
+        label = STAGE_LABELS.get(next_stage, next_stage)
+        next_checkpoint.update(
+            status="in_progress",
+            timestamp=self.clock().isoformat(),
+            next_action={
+                "verb": "run_stage",
+                "summary": f"执行{label}阶段",
+                "context_refs": [f"checkpoint_{stage}.json"],
+                "set_at": self.clock().isoformat(),
+            },
+        )
+        sink.stage_json(
+            next_path.relative_to(self.project_dir).as_posix(),
+            next_checkpoint,
+            schema="checkpoint",
+        )
+        sink.append_event("events", {
+            "schema_version": "1.0",
+            "run_id": f"approval-{review_id}-{int(self.clock().timestamp())}",
+            "ts": self.clock().isoformat(),
+            "stage": next_stage,
+            "operation": "run_stage",
+            "status": "queued",
+            "wait_reason": "orchestrating",
+            "message": f"批准后进入{label}阶段",
+        })

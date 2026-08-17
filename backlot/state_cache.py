@@ -16,7 +16,7 @@ _cache: dict[str, tuple[tuple[tuple[str, int, int], ...], dict[str, Any]]] = {}
 def _signature(project_dir: Path) -> tuple[tuple[str, int, int], ...]:
     project_dir = Path(project_dir)
     candidates: list[Path] = []
-    for name in ("project.json", "meta.json", "events.jsonl"):
+    for name in ("project.json", "meta.json", "events.jsonl", "review_notes.jsonl"):
         candidates.append(project_dir / name)
     candidates.extend(project_dir.glob("checkpoint_*.json"))
     history = project_dir / "history"
@@ -25,6 +25,9 @@ def _signature(project_dir: Path) -> tuple[tuple[str, int, int], ...]:
     artifacts = project_dir / "artifacts"
     if artifacts.is_dir():
         candidates.extend(artifacts.rglob("*.json"))
+    reviews = project_dir / "operator" / "reviews"
+    if reviews.is_dir():
+        candidates.extend(reviews.glob("*.json"))
 
     signature: list[tuple[str, int, int]] = []
     for path in sorted(set(candidates)):

@@ -136,7 +136,9 @@ def test_invalid_checkpoint_does_not_persist_decision_log(tmp_path: Path):
             "demo",
             "proposal",
             "awaiting_human",
-            {
+
+        {
+
                 "proposal_packet": {},
                 "decision_log": {
                     "version": "1.0",
@@ -144,6 +146,7 @@ def test_invalid_checkpoint_does_not_persist_decision_log(tmp_path: Path):
                     "decisions": [],
                 },
             },
+            next_action={"summary": "测试恢复指令", "verb": "run_stage", "context_refs": ["artifacts/x.json"]},
             pipeline_type="unknown",
         )
     assert not (project / "artifacts" / "decision_log.json").exists()
@@ -165,6 +168,7 @@ def test_checkpoint_writes_canonical_decision_log(tmp_path: Path):
                 "decisions": [],
             },
         },
+        next_action={"summary": "测试恢复指令", "verb": "run_stage", "context_refs": ["artifacts/x.json"]},
         pipeline_type="unknown",
     )
     assert (project / "artifacts" / "decision_log.json").exists()

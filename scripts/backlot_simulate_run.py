@@ -82,6 +82,15 @@ def main() -> int:
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def cp(stage: str, status: str, artifacts: dict, **kw) -> None:
+        if status in {"in_progress", "awaiting_human"} and "next_action" not in kw:
+            kw["next_action"] = {
+                "summary": (
+                    f"等待确认 {stage} 阶段" if status == "awaiting_human"
+                    else f"继续执行 {stage} 阶段"
+                ),
+                "verb": "await_user" if status == "awaiting_human" else "run_stage",
+                "context_refs": ["project.json"],
+            }
         write_checkpoint(PROJECTS_DIR, pid, stage, status, artifacts,
                          pipeline_type="cinematic", **kw)
         print(f"[sim] checkpoint {stage} -> {status}")
@@ -138,6 +147,11 @@ def main() -> int:
         done_ids.append(sid)
         write_checkpoint(PROJECTS_DIR, pid, "assets", "in_progress", {},
                          pipeline_type="cinematic",
+                         next_action={
+                             "summary": "继续生成剩余素材",
+                             "verb": "run_stage",
+                             "context_refs": ["artifacts/asset_manifest.json"],
+                         },
                          metadata={"partial_progress": {"completed_scene_ids": done_ids}},
                          cost_snapshot={"total_spent_usd": manifest["total_cost_usd"],
                                         "total_reserved_usd": 0.0,

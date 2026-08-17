@@ -28,6 +28,67 @@ def validate_sample_window(start_frame: int, end_frame_exclusive: int) -> tuple[
     return start, end
 
 
+def validate_window(start_frame: int, end_frame_exclusive: int) -> tuple[int, int]:
+    """Window route (render-gradient layer 2): 30-90 frames for transitions,
+    blank frames and motion continuity. Cheaper than a sample; agent-internal."""
+    start, end = int(start_frame), int(end_frame_exclusive)
+    duration = end - start
+    if start < 0 or duration < 30 or duration > 90:
+        raise ValueError("window must contain 30-90 frames")
+    if end <= start:
+        raise ValueError("window must be half-open with endFrameExclusive > startFrame")
+    return start, end
+
+
+def validate_still_frames(frames: list[int], total_frames: int) -> list[int]:
+    """Still route (render-gradient layer 1): 1-3 target frames for CTA, crop
+    and source-caption inspection. Each frame must land inside [0, total)."""
+    total = int(total_frames)
+    if total <= 0:
+        raise ValueError("total_frames must be positive for still validation")
+    cleaned: list[int] = []
+    for raw in frames:
+        frame = int(raw)
+        if frame < 0 or frame >= total:
+            raise ValueError(f"still frame {frame} outside [0, {total})")
+        if frame not in cleaned:
+            cleaned.append(frame)
+    if not 1 <= len(cleaned) <= 3:
+        raise ValueError("still route requires 1-3 distinct frames")
+    return cleaned
+
+
+def validate_range_render(
+    from_frame: int, total_frames: int, *, timeline_stable: bool
+) -> tuple[int, int]:
+    """Range route (B4): re-render frames [from_frame, total) and reuse the
+    prefix [0, from_frame) of the previous master.
+
+    Requires `timeline_stable` — the change must be confined to frames >=
+    from_frame with NO duration shift before from_frame (a moved cut invalidates
+    the prefix reuse). Also requires an existing master to splice from.
+    """
+    start = int(from_frame)
+    total = int(total_frames)
+    if not timeline_stable:
+        raise ValueError(
+            "range render requires timeline_stable=true (change confined to "
+            "frames >= from_frame, no duration shift)"
+        )
+    if start <= 0 or start >= total:
+        raise ValueError(f"range from_frame must satisfy 0 < from_frame < total ({start} vs {total})")
+    if total - start < 1:
+        raise ValueError("range must contain at least one frame")
+    return start, total
+
+
+# Render-gradient ladder (cheapest first). Agent contract: a local visual
+# change (CTA text, crop, captions) starts at `still`; transitions/blank-frame
+# checks use `window`; the user only ever reviews `sample` or `full`. Layers
+# below the user-facing layer are agent-internal self-gates.
+RENDER_GRADIENT = ("still", "window", "sample", "full", "range", "mux_only")
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:

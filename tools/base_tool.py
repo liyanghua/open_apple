@@ -182,6 +182,8 @@ def _instrument_execute(fn: Callable) -> Callable:
         tool_name = getattr(self, "name", "") or self.__class__.__name__
         scene_id = inputs.get("scene_id") if isinstance(inputs, dict) else None
         output_path = inputs.get("output_path") if isinstance(inputs, dict) else None
+        input_stage = inputs.get("stage") if isinstance(inputs, dict) else None
+        input_operation = inputs.get("operation") if isinstance(inputs, dict) else None
         # Nesting depth: selector tools delegate to provider tools' execute().
         # Both emit (the ticker wants the provider name too), but depth lets
         # consumers dedupe — e.g. sum cost_usd only at depth 0.
@@ -194,25 +196,84 @@ def _instrument_execute(fn: Callable) -> Callable:
             "scene_id": scene_id,
             "depth": depth if depth else None,
         }
+        run_id = f"{tool_name}-{time.time_ns()}"
+        previous_run_id = getattr(depth_state, "run_id", None)
+        depth_state.run_id = run_id
+        started = time.monotonic()
+        heartbeat_stop: Any = None
+        heartbeat_thread: Any = None
         if project_dir is not None:
             emit_event(project_dir, {
                 **base, "event": "start",
                 "output_path": str(output_path) if output_path else None,
             })
+            # Run-event contract v1 (queued/heartbeat/terminal) — tool-level
+            # coverage for research, TTS, uploads, etc. A bounded heartbeat
+            # worker emits every 5s during the call, so a long provider queue
+            # or analysis never degrades into a stale stage with no signal.
+            from lib.events import emit_run_event, emit_heartbeat
 
-        started = time.monotonic()
+            emit_run_event(
+                project_dir,
+                run_id=run_id,
+                stage=str(input_stage) if input_stage else "unknown",
+                operation=str(input_operation) if input_operation else tool_name,
+                status="queued",
+                message=f"tool call started ({tool_name})",
+            )
+            heartbeat_stop = _threading.Event()
+            stage_for_hb = str(input_stage) if input_stage else "unknown"
+            operation_for_hb = str(input_operation) if input_operation else tool_name
+            internally_managed = operation_for_hb in getattr(
+                self, "internal_run_event_operations", frozenset()
+            )
+
+            def _tool_heartbeat() -> None:
+                while not heartbeat_stop.wait(5.0):
+                    emit_heartbeat(
+                        project_dir,
+                        run_id=run_id,
+                        stage=stage_for_hb,
+                        operation=operation_for_hb,
+                        message=f"{tool_name} running {int(time.monotonic() - started)}s",
+                        machine_ms=int((time.monotonic() - started) * 1000),
+                    )
+
+            if not internally_managed:
+                heartbeat_thread = _threading.Thread(target=_tool_heartbeat, daemon=True)
+                heartbeat_thread.start()
+
         try:
             result = fn(self, inputs, *args, **kwargs)
         except Exception as exc:
+            if heartbeat_stop is not None:
+                heartbeat_stop.set()
             if project_dir is not None:
                 emit_event(project_dir, {
                     **base, "event": "error",
                     "error": str(exc)[:300],
                     "duration_s": round(time.monotonic() - started, 2),
                 })
+                from lib.events import emit_run_event
+
+                emit_run_event(
+                    project_dir,
+                    run_id=run_id,
+                    stage=str(input_stage) if input_stage else "unknown",
+                    operation=str(input_operation) if input_operation else tool_name,
+                    status="failed",
+                    machine_ms=int((time.monotonic() - started) * 1000),
+                    message=str(exc)[:300],
+                )
             raise
         finally:
             depth_state.value = depth
+            depth_state.run_id = previous_run_id
+
+        if heartbeat_stop is not None:
+            heartbeat_stop.set()
+            if heartbeat_thread is not None:
+                heartbeat_thread.join(timeout=2)
 
         if project_dir is None:
             # The tool may have created its own project dir during execute
@@ -228,6 +289,17 @@ def _instrument_execute(fn: Callable) -> Callable:
                 "cost_usd": cost if isinstance(cost, (int, float)) else None,
                 "duration_s": round(time.monotonic() - started, 2),
             })
+            from lib.events import emit_run_event
+
+            emit_run_event(
+                project_dir,
+                run_id=run_id,
+                stage=str(input_stage) if input_stage else "unknown",
+                operation=str(input_operation) if input_operation else tool_name,
+                status="succeeded" if getattr(result, "success", True) else "failed",
+                machine_ms=int((time.monotonic() - started) * 1000),
+                message=(getattr(result, "error", None) or "")[:300] if not getattr(result, "success", True) else None,
+            )
             result_data = getattr(result, "data", None)
             cache_status = (
                 result_data.get("cache_status") if isinstance(result_data, dict) else None
@@ -319,6 +391,12 @@ class BaseTool(ABC):
     quality_score: Optional[float] = None
     historical_success_rate: Optional[float] = None
     latency_p50_seconds: Optional[float] = None
+
+    internal_run_event_operations: frozenset[str] = frozenset()
+
+    def current_run_id(self) -> Optional[str]:
+        """Run id assigned by the outer execute instrumentation, if active."""
+        return getattr(_EXECUTE_DEPTH, "run_id", None)
 
     # ---- Status reporting ----
 
