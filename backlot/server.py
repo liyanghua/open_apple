@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from backlot.operator_state import load_operator_state
@@ -259,6 +259,16 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
             raise OperatorError("forbidden", "你没有访问该项目的权限", 403)
         return session
 
+    def page_login_redirect(request: Request) -> RedirectResponse | None:
+        if auth_mode == "test":
+            return None
+        from backlot.auth import SESSION_COOKIE
+
+        session = get_auth_store().resolve_session(request.cookies.get(SESSION_COOKIE, ""))
+        if session is None:
+            return RedirectResponse("/login", status_code=303)
+        return None
+
     @app.exception_handler(OperatorError)
     async def operator_error_handler(_request: Request, exc: OperatorError) -> JSONResponse:
         return JSONResponse(exc.to_public_dict(), status_code=exc.status_code)
@@ -493,7 +503,10 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
         return _ui_html("board.html", ("board.css", "board.js"))
 
     @app.get("/p/{project_id}")
-    async def board_page(project_id: str) -> HTMLResponse:
+    async def board_page(project_id: str, request: Request) -> Response:
+        redirect = page_login_redirect(request)
+        if redirect is not None:
+            return redirect
         return _ui_html(
             "operator.html",
             (
@@ -509,7 +522,10 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
         )
 
     @app.get("/p/{project_path:path}")
-    async def board_page_path(project_path: str) -> HTMLResponse:
+    async def board_page_path(project_path: str, request: Request) -> Response:
+        redirect = page_login_redirect(request)
+        if redirect is not None:
+            return redirect
         return _ui_html(
             "operator.html",
             (
@@ -525,7 +541,10 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
         )
 
     @app.get("/")
-    async def library_page() -> HTMLResponse:
+    async def library_page(request: Request) -> Response:
+        redirect = page_login_redirect(request)
+        if redirect is not None:
+            return redirect
         return _ui_html("index.html", ("library.css", "library.js"))
 
     from backlot.operator_routes import create_operator_router
