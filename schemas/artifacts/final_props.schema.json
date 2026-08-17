@@ -6,6 +6,8 @@
   "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "compositionId", "fps", "width", "height", "durationInFrames", "footage", "scenes", "captions", "audio"],
   "properties": {
     "version": {"type": "string", "minLength": 1},
+    "caption_policy_version": {"type": "string", "const": "1.0"},
+    "caption_policy_revision_ref": {"$ref": "#/$defs/revision_ref"},
     "project_id": {"type": "string", "minLength": 1},
     "created_at": {"type": "string", "format": "date-time"},
     "producer": {"type": "string", "minLength": 1},
@@ -23,6 +25,7 @@
     "audio": {"type": "object", "required": ["mix"], "properties": {"mix": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "object", "additionalProperties": true}]}}, "additionalProperties": true}
   },
   "$defs": {
+    "revision_ref": {"type": "object", "required": ["name", "path", "semantic_sha256", "artifact_sha256"], "additionalProperties": false, "properties": {"name": {"const": "caption_policy_revision"}, "path": {"type": "string", "minLength": 1}, "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}},
     "scene": {
       "type": "object",
       "required": ["id", "assetId", "footageKey", "fromFrame", "toFrameExclusive", "durationInFrames"],

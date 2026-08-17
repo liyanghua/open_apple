@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "final_props_hash", "render_plan_hash", "window", "output_path", "probe", "qa", "status"],
   "properties": {
-    "version": {"type": "string"}, "project_id": {"type": "string", "minLength": 1}, "created_at": {"type": "string", "format": "date-time"}, "producer": {"type": "string", "minLength": 1},
+    "version": {"type": "string"}, "caption_policy_version": {"type": "string", "const": "1.0"}, "caption_policy_revision_ref": {"type": "object", "required": ["name", "path", "semantic_sha256", "artifact_sha256"], "additionalProperties": false, "properties": {"name": {"const": "caption_policy_revision"}, "path": {"type": "string", "minLength": 1}, "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}}, "project_id": {"type": "string", "minLength": 1}, "created_at": {"type": "string", "format": "date-time"}, "producer": {"type": "string", "minLength": 1},
     "input_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "final_props_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "render_plan_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "window": {"type": "object", "required": ["startFrame", "endFrameExclusive", "scale"], "additionalProperties": false, "properties": {"startFrame": {"type": "integer", "minimum": 0}, "endFrameExclusive": {"type": "integer", "minimum": 1}, "scale": {"type": "number", "const": 0.5}}},

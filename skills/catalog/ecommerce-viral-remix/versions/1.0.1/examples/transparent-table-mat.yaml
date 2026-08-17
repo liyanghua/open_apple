@@ -1,0 +1,20 @@
+product_name: 透明桌垫
+category: home-protection
+platforms: [douyin, wechat_channels, xiaohongshu]
+duration_seconds: 30
+reference_paths: [inputs/reference/防滑耐磨防水防油透明桌垫.mp4]
+source_paths: [inputs/source/video/product]
+copyright_confirmed: true
+brand_cta: 以项目中确认的品牌和购买方式为准
+narration_required: true
+subtitles_required: true
+bgm_required: true
+budget_usd: 0
+deadline: null
+forbidden_claims: [参考视频原字幕, 参考视频音乐, 无素材证明的绝对化表述]
+source_subtitle_policy:
+  owned_burned_subtitles: review_required
+  reference_burned_subtitles: forbidden
+  duplicate_overlay: forbidden
+  unsupported_claims: reject_or_local_replace
+paid_generation_approved: false

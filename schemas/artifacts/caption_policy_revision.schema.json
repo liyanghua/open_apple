@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/caption_policy_revision",
+  "title": "Caption Policy Revision",
+  "type": "object",
+  "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "revision_id", "revision_version", "base_production_lock_artifact_sha256", "caption_treatments", "authorization", "decision_revision_id", "change_impact", "status"],
+  "properties": {
+    "version": {"const": "1.0"}, "project_id": {"type": "string", "minLength": 1}, "created_at": {"type": "string", "format": "date-time"}, "producer": {"type": "string", "minLength": 1},
+    "input_hashes": {"type": "object", "required": ["production_lock", "scene_plan"], "additionalProperties": false, "properties": {"production_lock": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "scene_plan": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}},
+    "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "revision_id": {"type": "string", "minLength": 1}, "revision_version": {"type": "integer", "minimum": 1}, "base_production_lock_artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "caption_treatments": {"type": "array", "items": {"$ref": "#/$defs/treatment"}},
+    "authorization": {"type": "object", "required": ["source", "actor", "timestamp", "evidence_ref"], "additionalProperties": false, "properties": {"source": {"enum": ["user_message", "approval_record"]}, "actor": {"type": "string", "minLength": 1}, "timestamp": {"type": "string", "format": "date-time"}, "evidence_ref": {"type": "string", "minLength": 1}}},
+    "decision_revision_id": {"type": "string", "minLength": 1}, "change_impact": {"type": "object", "required": ["render_route", "reopen_creative", "reopen_sample", "changed_fields"], "additionalProperties": false, "properties": {"render_route": {"enum": ["no_render", "mux_only", "full_render"]}, "reopen_creative": {"type": "boolean"}, "reopen_sample": {"type": "boolean", "const": true}, "changed_fields": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}}}, "status": {"const": "approved_for_sample_revision"}
+  },
+  "$defs": {"treatment": {"type": "object", "required": ["scene_id", "caption_id", "action", "review", "interval", "reason"], "additionalProperties": false, "properties": {"scene_id": {"type": "string", "minLength": 1}, "caption_id": {"type": "string", "minLength": 1}, "action": {"enum": ["retain", "crop", "mask", "replace"]}, "review": {"enum": ["approved", "pending", "rejected"]}, "interval": {"type": "object", "required": ["start_seconds", "end_seconds"], "additionalProperties": false, "properties": {"start_seconds": {"type": "number", "minimum": 0}, "end_seconds": {"type": "number", "exclusiveMinimum": 0}}}, "reason": {"type": "string", "minLength": 1}, "replacement_overlay_id": {"type": ["string", "null"]}}}}
+}

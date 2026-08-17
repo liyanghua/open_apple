@@ -398,7 +398,7 @@ class ProjectCommitStore:
             if self._materialize is not None:
                 self._materialize(item["stream"], item)
                 continue
-            target = self.operator_dir / f"{item['stream']}.jsonl"
+            target = self.project_dir / "events.jsonl" if item["stream"] == "events" else self.operator_dir / f"{item['stream']}.jsonl"
             delivered: set[str] = set()
             if target.exists():
                 for line in target.read_text(encoding="utf-8").splitlines():

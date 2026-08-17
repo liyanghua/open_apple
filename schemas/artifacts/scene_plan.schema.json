@@ -7,6 +7,7 @@
   "required": ["version", "scenes"],
   "properties": {
     "version": { "type": "string", "const": "1.0" },
+    "caption_policy_version": { "type": "string", "const": "1.0" },
     "style_playbook": { "type": "string", "description": "Name of the active style playbook" },
     "scenes": {
       "type": "array",
@@ -105,7 +106,11 @@
               },
               "required": ["type", "description", "source"]
             }
-          }
+          },
+          "caption_policy_version": {"type": "string", "const": "1.0"},
+          "caption_inventory_refs": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+          "caption_treatments": {"type": "array", "items": {"$ref": "#/$defs/caption_treatment"}},
+          "overlay_layers": {"type": "array", "items": {"$ref": "#/$defs/overlay_layer"}}
         },
         "additionalProperties": false
       },
@@ -113,5 +118,25 @@
     },
     "metadata": { "type": "object" }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "caption_treatment": {
+      "type": "object", "required": ["caption_id", "action", "review", "interval", "reason"], "additionalProperties": false,
+      "properties": {
+        "caption_id": {"type": "string", "minLength": 1},
+        "action": {"enum": ["retain", "crop", "mask", "replace"]},
+        "review": {"enum": ["approved", "pending", "rejected"]},
+        "interval": {"type": "object", "required": ["start_seconds", "end_seconds"], "additionalProperties": false, "properties": {"start_seconds": {"type": "number", "minimum": 0}, "end_seconds": {"type": "number", "exclusiveMinimum": 0}}},
+        "reason": {"type": "string", "minLength": 1},
+        "replacement_overlay_id": {"type": ["string", "null"]}
+      }
+    },
+    "overlay_layer": {
+      "type": "object", "required": ["overlay_id", "source", "text", "start_seconds", "end_seconds", "review"], "additionalProperties": false,
+      "properties": {
+        "overlay_id": {"type": "string", "minLength": 1}, "source": {"enum": ["generated_overlay", "narration_caption"]}, "text": {"type": "string", "minLength": 1},
+        "start_seconds": {"type": "number", "minimum": 0}, "end_seconds": {"type": "number", "exclusiveMinimum": 0}, "review": {"enum": ["approved", "pending", "rejected"]}, "approval_ref": {"type": "string", "minLength": 1}
+      }
+    }
+  }
 }

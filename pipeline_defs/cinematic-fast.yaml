@@ -122,7 +122,7 @@ stages:
     skill: pipelines/cinematic-fast/sample-director
     required_artifacts_in: [asset_plan, production_lock, approval_bundle]
     optional_artifacts_in: [script, scene_plan]
-    produces: [asset_manifest, final_props, render_plan, sample_report]
+    produces: [asset_manifest, final_props, render_plan, sample_report, caption_policy_revision]
     required_tools: [tts_selector, audio_mixer, subtitle_gen, media_proxy, video_compose, final_qa]
     tools_available: [tts_selector, audio_mixer, subtitle_gen, media_proxy, video_compose, final_qa]
     checkpoint_required: true
@@ -132,7 +132,7 @@ stages:
 
   - name: edit
     skill: pipelines/cinematic-fast/edit-director
-    required_artifacts_in: [final_props, render_plan, sample_report]
+    required_artifacts_in: [final_props, render_plan, sample_report, caption_policy_revision]
     produces: [edit_decisions, change_impact]
     tools_available: []
     checkpoint_required: true
@@ -142,7 +142,7 @@ stages:
 
   - name: compose
     skill: pipelines/cinematic-fast/compose-director
-    required_artifacts_in: [edit_decisions, asset_manifest, final_props, render_plan]
+    required_artifacts_in: [edit_decisions, asset_manifest, final_props, render_plan, caption_policy_revision]
     produces: [render_report, final_review]
     required_tools: [video_compose, final_qa]
     tools_available: [video_compose, final_qa]

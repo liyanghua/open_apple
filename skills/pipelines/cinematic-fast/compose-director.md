@@ -11,3 +11,6 @@ with `proposal_packet`, to `video_compose`. Route Remotion, HyperFrames, or
 FFmpeg exactly as the cinematic compose director specifies. A runtime failure
 is a blocker: do not silently swap away from the approved engine, and do not
 use `mux_only` when the runtime or visual timeline changed.
+
+
+Caption policy 1.0.1: when `caption_source=source_burned`, do not render duplicate atelier text. QA must check normalized-exact duplicate overlays, rejected glyph visibility, localized treatment area, crop geometry, and the caption-policy revision hash before sample approval.

@@ -29,8 +29,11 @@ def test_cinematic_fast_sample_and_compose_contracts():
     stages = {stage["name"]: stage for stage in manifest["stages"]}
     assert stages["assets"]["produces"] == ["asset_plan", "production_lock", "approval_bundle"]
     assert stages["sample"]["produces"] == [
-        "asset_manifest", "final_props", "render_plan", "sample_report"
+        "asset_manifest", "final_props", "render_plan", "sample_report",
+        "caption_policy_revision",
     ]
+    assert "caption_policy_revision" in stages["edit"]["required_artifacts_in"]
+    assert "caption_policy_revision" in stages["compose"]["required_artifacts_in"]
     assert {"tts_selector", "audio_mixer", "subtitle_gen", "media_proxy", "video_compose", "final_qa"} <= set(stages["sample"]["tools_available"])
     assert {"video_compose", "final_qa"} <= set(stages["compose"]["tools_available"])
     assert "asset_manifest" not in stages["assets"]["produces"]
@@ -48,4 +51,3 @@ def test_cinematic_fast_is_reference_aware_and_beta():
     assert manifest["reference_input"]["supported"] is True
     assert manifest["reference_input"]["analysis_depth"] == "deep"
     assert {"video_analyzer", "scene_detect", "frame_sampler"} <= set(manifest["reference_input"]["analysis_tools"])
-

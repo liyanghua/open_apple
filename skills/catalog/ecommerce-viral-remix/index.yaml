@@ -3,3 +3,5 @@ default_version: 1.0.0
 versions:
   - version: 1.0.0
     digest: ed33f41c9d861d0ee962a19027cb3355cf5f3ac266e369621b4d30071f183c6e
+  - version: 1.0.1
+    digest: e79172e45bb8a3056786eb239ca4078741bc3c1f80c0b955dba504bd2b841138
