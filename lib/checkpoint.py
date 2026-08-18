@@ -144,6 +144,7 @@ def _validate_artifacts_for_stage(
     project_dir: Path | None = None,
 ) -> None:
     required_artifacts: list[str] = []
+    validated_artifacts: dict[str, dict[str, Any]] = {}
     contract_v2 = False
     if pipeline_type and pipeline_type != "unknown":
         try:
@@ -188,16 +189,49 @@ def _validate_artifacts_for_stage(
             if is_envelope and project_dir is None:
                 raise ValueError("Project directory is required to verify artifact envelopes")
             if project_dir is not None:
-                unwrap_checkpoint_artifact(project_dir, artifact_name, artifact_data)
+                validated = unwrap_checkpoint_artifact(
+                    project_dir, artifact_name, artifact_data
+                )
             elif isinstance(artifact_data, dict):
                 validate_artifact(artifact_name, artifact_data)
+                validated = artifact_data
             else:
                 raise ValueError(
                     f"Artifact {artifact_name!r} must be a JSON object matching its schema"
                 )
+            if isinstance(validated, dict):
+                validated_artifacts[artifact_name] = validated
         except Exception as exc:
             raise CheckpointValidationError(
                 f"Artifact {artifact_name!r} failed schema validation: {exc}"
+            ) from exc
+
+    if (
+        pipeline_type == "cinematic-fast"
+        and stage == "scene_plan"
+        and status in {"completed", "awaiting_human"}
+    ):
+        if project_dir is None:
+            raise CheckpointValidationError(
+                "cinematic-fast scene mapping validation requires project_dir"
+            )
+        try:
+            from lib.artifact_io import unwrap_checkpoint_artifact
+            from lib.cinematic_fast_validation import validate_scene_mapping
+
+            research_checkpoint_path = project_dir / "checkpoint_research.json"
+            with research_checkpoint_path.open(encoding="utf-8") as handle:
+                research_checkpoint = json.load(handle)
+            source_envelope = research_checkpoint["artifacts"]["source_media_review"]
+            source_media_review = unwrap_checkpoint_artifact(
+                project_dir, "source_media_review", source_envelope
+            )
+            validate_scene_mapping(
+                validated_artifacts["scene_plan"], source_media_review
+            )
+        except Exception as exc:
+            raise CheckpointValidationError(
+                f"cinematic-fast scene mapping validation failed: {exc}"
             ) from exc
 
 

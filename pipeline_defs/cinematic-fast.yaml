@@ -94,15 +94,15 @@ stages:
   - name: scene_plan
     skill: pipelines/cinematic-fast/scene-director
     approval_group: creative_lock
-    required_artifacts_in: [script]
-    optional_artifacts_in: [proposal_packet, source_media_review]
+    required_artifacts_in: [script, source_media_review, video_analysis_brief, reference_fingerprint]
+    optional_artifacts_in: [proposal_packet]
     produces: [scene_plan]
     tools_available: [frame_sampler, scene_detect]
     optional_tools: [frame_sampler, scene_detect]
     checkpoint_required: true
     human_approval_default: false
-    review_focus: [Every beat maps to real source footage, timecodes are half-open, safe zones are explicit]
-    success_criteria: [Schema-valid scene_plan with source in/out points]
+    review_focus: [Every beat maps to real source footage, Every scene has a non-empty shot_intent, timecodes are half-open, safe zones are explicit, Reference media is analysis-only]
+    success_criteria: [Schema-valid scene_plan with source in/out points, Every shot has explainable mapping grounded in reference understanding and source fit for the intended shot, metadata.reference_media_usage is analysis_only and every source_path comes from owned source media rather than reference media]
 
   - name: assets
     skill: pipelines/cinematic-fast/asset-director

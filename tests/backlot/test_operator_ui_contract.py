@@ -77,3 +77,60 @@ def test_operator_ui_has_stable_desktop_and_mobile_layout_constraints() -> None:
     assert "@media (max-width: 1280px)" in css
     assert "@media (max-width: 390px)" in css
     assert "min-width: 0" in css
+
+
+def test_operator_ui_renders_detailed_sources_concepts_and_clip_previews() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+
+    for field in (
+        "data.sources", "concept.visual_approach", "concept.why_this_works",
+        "preview_url", "poster_url", "source_in_seconds",
+    ):
+        assert field in app
+    assert 'preload = "none"' in app
+    assert 'source.media_type === "image"' in app
+    assert 'source.media_type === "audio"' in app
+    assert 'video.addEventListener("play"' in app
+    assert 'video.addEventListener("seeking"' in app
+    assert "source-card" in css
+    assert "concept-details" in css
+    assert "shot-preview" in css
+
+
+def test_research_review_is_read_only_without_business_note_controls() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    editors = _read(OPERATOR_ROOT / "editors.js")
+
+    assert 'if (editor?.type === "research_review") return;' in app
+    assert "业务备注" not in editors
+    assert 'editor?.type === "research_review"' not in editors
+
+
+def test_script_uses_inline_editing_without_a_duplicate_editor_form() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    editors = _read(OPERATOR_ROOT / "editors.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+
+    for term in (
+        "script-inline-editor", "编辑这段口播与字幕", "保存修改", "取消",
+        "replace_section_narration", "flushSave",
+    ):
+        assert term in app
+    assert 'editor?.type === "script_editor"' not in editors
+    assert "script-row-heading" in css
+    assert "inline-edit-actions" in css
+
+
+def test_ui_explains_reference_analysis_and_source_mapping_rationale() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+
+    for term in (
+        "data.reference", "爆款结构", "为什么有效", "可复刻机制", "原创差异",
+        "data.reference_basis", "参考机制", "素材匹配", "shot.mapping_reason",
+    ):
+        assert term in app
+    assert "reference-analysis" in css
+    assert "reference-scene-list" in css
+    assert "mapping-rationale" in css

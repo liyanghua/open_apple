@@ -52,6 +52,24 @@ SCRIPT = {
 
 
 class TestBoardState:
+    def test_collects_fastline_source_review_and_unwraps_checkpoint_envelope(self, projects_root):
+        p = _make_project(projects_root, "fastline")
+        _write(p / "project.json", {
+            "project_id": "fastline", "title": "Fastline", "pipeline_type": "cinematic-fast",
+        })
+        review = {"summary": "2 条素材", "files": [{"media_id": "one"}, {"media_id": "two"}]}
+        _write(p / "artifacts" / "source_media_review.json", review)
+        _write(p / "checkpoint_research.json", {
+            "stage": "research", "status": "completed", "artifacts": {
+                "media_index": {"name": "media_index", "data": {"items": [1, 2]}},
+            },
+        })
+
+        artifacts = load_board_state(p)["artifacts"]
+
+        assert artifacts["source_media_review"] == review
+        assert artifacts["media_index"] == {"items": [1, 2]}
+
     def test_full_project(self, projects_root):
         p = _make_project(projects_root, "film")
         _write(p / "project.json", {"project_id": "film", "title": "My Film",

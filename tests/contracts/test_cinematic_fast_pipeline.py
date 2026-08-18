@@ -51,3 +51,20 @@ def test_cinematic_fast_is_reference_aware_and_beta():
     assert manifest["reference_input"]["supported"] is True
     assert manifest["reference_input"]["analysis_depth"] == "deep"
     assert {"video_analyzer", "scene_detect", "frame_sampler"} <= set(manifest["reference_input"]["analysis_tools"])
+
+
+def test_scene_mapping_requires_reference_and_source_evidence() -> None:
+    manifest = load_pipeline("cinematic-fast")
+    scene_stage = next(stage for stage in manifest["stages"] if stage["name"] == "scene_plan")
+    director = (ROOT / "skills/pipelines/cinematic-fast/scene-director.md").read_text(encoding="utf-8")
+
+    for field in ("reference_basis", "source_fit", "mapping_reason", "originality_note"):
+        assert field in director
+    assert "metadata.source_mapping" in director
+    assert "reference_media_usage" in director
+    assert "shot_intent" in director
+    assert {"source_media_review", "video_analysis_brief", "reference_fingerprint"} <= set(
+        scene_stage["required_artifacts_in"]
+    )
+    assert any("explainable mapping" in criterion for criterion in scene_stage["success_criteria"])
+    assert any("reference" in criterion and "source_path" in criterion for criterion in scene_stage["success_criteria"])

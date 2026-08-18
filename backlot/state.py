@@ -232,6 +232,10 @@ def _build_stage_rail(
 
 ARTIFACT_FILES = {
     "research_brief": "research_brief.json",
+    "video_analysis_brief": "video_analysis_brief.json",
+    "source_media_review": "source_media_review.json",
+    "media_index": "media_index.json",
+    "reference_fingerprint": "reference_fingerprint.json",
     "brief": "brief.json",
     "proposal_packet": "proposal_packet.json",
     "script": "script.json",
@@ -267,7 +271,8 @@ def _collect_artifacts(project_dir: Path, checkpoints: dict[str, dict]) -> dict[
             if name not in artifacts:
                 resolved = _resolve_artifact(project_dir, value)
                 if resolved is not None:
-                    artifacts[name] = resolved
+                    data = resolved.get("data")
+                    artifacts[name] = data if resolved.get("name") == name and isinstance(data, dict) else resolved
     return artifacts
 
 

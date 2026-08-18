@@ -23,12 +23,130 @@ function detailRow(label, value) {
   return row;
 }
 
+function tagList(values, className = "tag-list") {
+  const list = node("div", className);
+  (values || []).forEach((value) => list.append(node("span", "tag", value)));
+  return list;
+}
+
+function rangedVideo(data, className, ariaLabel) {
+  if (!data.preview_url) return null;
+  const video = document.createElement("video");
+  video.className = className;
+  video.controls = true;
+  video.playsInline = true;
+  video.preload = "none";
+  video.setAttribute("aria-label", ariaLabel);
+  if (data.poster_url) video.poster = data.poster_url;
+  const start = Number(data.source_in_seconds ?? data.best_in_seconds ?? 0);
+  const endValue = data.source_out_seconds ?? data.best_out_seconds;
+  const end = endValue == null ? null : Number(endValue);
+  video.src = `${data.preview_url}#t=${start}${end == null ? "" : `,${end}`}`;
+  video.addEventListener("play", () => {
+    if (video.currentTime < start || (end != null && video.currentTime >= end)) video.currentTime = start;
+  });
+  video.addEventListener("seeking", () => {
+    if (video.currentTime < start) video.currentTime = start;
+    if (end != null && video.currentTime > end) video.currentTime = end;
+  });
+  if (end != null) video.addEventListener("timeupdate", () => {
+    if (video.currentTime < start) video.currentTime = start;
+    if (video.currentTime >= end) {
+      video.pause();
+      if (video.currentTime !== end) video.currentTime = end;
+    }
+  });
+  return video;
+}
+
+function sourcePreview(source) {
+  if (!source.preview_url) return null;
+  if (source.media_type === "image") {
+    const image = document.createElement("img");
+    image.className = "source-preview-image"; image.src = source.preview_url; image.loading = "lazy"; image.alt = source.label;
+    return image;
+  }
+  if (source.media_type === "audio") {
+    const audio = document.createElement("audio");
+    audio.className = "source-audio"; audio.controls = true; audio.preload = "none"; audio.src = source.preview_url;
+    audio.setAttribute("aria-label", `${source.label} 音频预览`);
+    return audio;
+  }
+  return rangedVideo(source, "source-video", `${source.label} 素材预览`);
+}
+
+function renderReferenceAnalysis(container, reference) {
+  if (!reference) return;
+  const section = node("section", "reference-analysis");
+  const heading = node("div", "reference-heading");
+  const title = node("div", "reference-title");
+  title.append(node("span", "status-chip", "仅用于分析"), node("h3", "section-title", reference.title || "参考爆款"));
+  heading.append(title);
+  if (reference.duration_seconds != null) heading.append(node("span", "row-meta", formatDuration(reference.duration_seconds)));
+  section.append(heading, node("p", "lead-copy", reference.summary));
+  const preview = rangedVideo(reference, "reference-preview", `${reference.title || "参考爆款"}分析预览`);
+  if (preview) section.append(preview);
+  const facts = node("div", "reference-facts");
+  facts.append(detailRow("开场钩子", reference.hook));
+  facts.append(detailRow("为什么有效", reference.proof_method));
+  facts.append(detailRow("证据节奏", reference.avg_evidence_seconds == null ? "暂未提供" : `平均 ${Number(reference.avg_evidence_seconds).toFixed(1)} 秒一个证据`));
+  facts.append(detailRow("镜头方法", reference.camera_method));
+  facts.append(detailRow("字幕方法", reference.caption_method || reference.typography));
+  section.append(facts);
+  if (reference.beat_order?.length) section.append(node("h4", "detail-heading", "爆款结构"), tagList(reference.beat_order, "tag-list reference-beats"));
+  if (reference.replicate?.length) section.append(node("h4", "detail-heading", "可复刻机制"), tagList(reference.replicate));
+  if (reference.differentiate?.length) section.append(node("h4", "detail-heading", "原创差异"), tagList(reference.differentiate, "tag-list differentiation-list"));
+  if (reference.scenes?.length) {
+    const scenes = node("div", "reference-scene-list");
+    reference.scenes.forEach((scene, index) => {
+      const item = node("article", "reference-scene");
+      if (scene.poster_url) {
+        const image = document.createElement("img"); image.src = scene.poster_url; image.loading = "lazy"; image.alt = "";
+        item.append(image);
+      }
+      const body = node("div", "reference-scene-body");
+      body.append(node("span", "row-meta", `${String(index + 1).padStart(2, "0")} · ${formatTimeRange(scene.start_seconds, scene.end_seconds)}`));
+      body.append(node("h4", "row-title", scene.description || "参考镜头"));
+      if (scene.screen_copy) body.append(node("p", "row-copy", `画面文字：${scene.screen_copy}`));
+      item.append(body); scenes.append(item);
+    });
+    section.append(node("h4", "detail-heading", "逐段拆解"), scenes);
+  }
+  container.append(section);
+}
+
 function renderResearch(container, data) {
-  container.append(node("p", "lead-copy", data.reference_summary));
+  renderReferenceAnalysis(container, data.reference);
+  container.append(node("h3", "section-title", "自有素材理解"));
   const stats = node("div", "inline-stats");
   stats.append(detailRow("已检查素材", `${data.source_count} 条`));
   stats.append(detailRow("可用素材", `${data.usable_count} 条`));
   container.append(stats);
+  if (data.sources?.length) {
+    const list = node("div", "source-list");
+    data.sources.forEach((source) => {
+      const item = node("article", "source-card");
+      const media = node("div", "source-media");
+      if (source.poster_url) {
+        const image = document.createElement("img"); image.src = source.poster_url; image.loading = "lazy"; image.alt = "";
+        media.append(image);
+      }
+      const body = node("div", "source-body");
+      const heading = node("div", "source-heading");
+      heading.append(node("h3", "row-title", source.label));
+      heading.append(node("span", source.reviewed ? "status-chip is-ready" : "status-chip", source.reviewed ? "已检查" : "待检查"));
+      body.append(heading, node("p", "row-copy", source.summary || "暂无内容摘要"));
+      const facts = [source.resolution, source.fps == null ? "" : `${Number(source.fps).toFixed(2)} fps`, formatDuration(source.duration_seconds)].filter(Boolean);
+      if (facts.length) body.append(node("p", "source-facts", facts.join(" · ")));
+      if (source.best_in_seconds != null && source.best_out_seconds != null) body.append(node("p", "source-range", `建议区间 ${formatTimeRange(source.best_in_seconds, source.best_out_seconds)}`));
+      if (source.usable_for?.length) body.append(tagList(source.usable_for));
+      if (source.risks?.length) body.append(node("p", "source-risk", source.risks.join("；")));
+      const preview = sourcePreview(source);
+      if (preview) body.append(preview);
+      item.append(media, body); list.append(item);
+    });
+    container.append(node("h3", "section-title", "素材明细"), list);
+  }
   if (data.risks?.length) {
     const list = node("ul", "plain-list");
     data.risks.forEach((risk) => list.append(node("li", "", risk)));
@@ -38,37 +156,98 @@ function renderResearch(container, data) {
 
 function renderProposal(container, data) {
   if (!data.concepts?.length) return renderEmpty(container);
+  if (data.estimated_cost_usd != null) container.append(detailRow("预计制作成本", `$${Number(data.estimated_cost_usd).toFixed(2)}`));
   data.concepts.forEach((concept) => {
-    const item = node("article", `content-row${concept.id === data.selected_id ? " is-selected" : ""}`);
-    item.append(node("h3", "row-title", concept.title || "创意方向"));
-    item.append(node("p", "row-copy", concept.hook || "暂未提供开头文案"));
-    item.append(node("span", "row-meta", formatDuration(concept.duration_seconds)));
+    const item = document.createElement("details"); item.className = `content-row concept-row${concept.id === data.selected_id ? " is-selected" : ""}`; item.open = concept.id === data.selected_id;
+    const summary = document.createElement("summary");
+    const summaryBody = node("div", "concept-summary");
+    const title = node("h3", "row-title", concept.title || "创意方向");
+    if (concept.id === data.selected_id) title.append(node("span", "selected-mark", "当前方案"));
+    summaryBody.append(title, node("p", "row-copy", concept.hook || "暂未提供开头文案")); summary.append(summaryBody, node("span", "row-meta", formatDuration(concept.duration_seconds)));
+    const details = node("div", "concept-details");
+    details.append(detailRow("核心信息", concept.core_message), detailRow("目标受众", concept.target_audience), detailRow("语气", concept.tone), detailRow("叙事结构", concept.narrative_structure));
+    details.append(node("h4", "detail-heading", "视觉方法"), node("p", "row-copy", concept.visual_approach || "暂未提供"));
+    details.append(node("h4", "detail-heading", "为什么有效"), node("p", "row-copy", concept.why_this_works || "暂未提供"));
+    if (concept.key_points?.length) details.append(node("h4", "detail-heading", "关键信息"), tagList(concept.key_points));
+    if (concept.cta) details.append(detailRow("行动引导", concept.cta));
+    item.append(summary, details);
     container.append(item);
   });
 }
 
-function renderScript(container, data) {
+function renderScript(container, data, { editable, onOperation }) {
   container.append(detailRow("预计成片时长", formatDuration(data.duration_seconds)));
   if (!data.sections?.length) return renderEmpty(container);
   data.sections.forEach((section) => {
-    const item = node("article", "content-row");
-    item.append(node("span", "row-meta", formatTimeRange(section.start_seconds, section.end_seconds)));
-    item.append(node("h3", "row-title", section.label));
-    item.append(node("p", "row-copy", section.text));
+    const item = node("article", "content-row script-row");
+    const heading = node("div", "script-row-heading");
+    const title = node("div", "script-row-title");
+    title.append(node("span", "row-meta", formatTimeRange(section.start_seconds, section.end_seconds)));
+    title.append(node("h3", "row-title", section.label));
+    heading.append(title);
+    const copy = node("p", "row-copy script-copy", section.text);
+    if (editable) {
+      const edit = node("button", "inline-edit-button", "编辑");
+      edit.type = "button";
+      edit.setAttribute("aria-label", `编辑这段口播与字幕：${section.label}`);
+      edit.addEventListener("click", () => {
+        const form = node("div", "script-inline-editor");
+        const input = document.createElement("textarea");
+        input.rows = 3;
+        input.value = copy.textContent || "";
+        input.setAttribute("aria-label", `${section.label} 口播与字幕内容`);
+        const actions = node("div", "inline-edit-actions");
+        const cancel = node("button", "quiet-button", "取消"); cancel.type = "button";
+        const save = node("button", "primary-button", "保存修改"); save.type = "button";
+        cancel.addEventListener("click", () => { form.remove(); copy.hidden = false; edit.disabled = false; });
+        save.addEventListener("click", () => {
+          const text = input.value.trim();
+          if (!text) { input.focus(); return; }
+          copy.textContent = text;
+          onOperation({ op: "replace_section_narration", section_id: section.id, text });
+          form.remove(); copy.hidden = false; edit.disabled = false;
+        });
+        actions.append(cancel, save); form.append(input, actions);
+        copy.hidden = true; edit.disabled = true; item.append(form); input.focus();
+      });
+      heading.append(edit);
+    }
+    item.append(heading, copy);
     container.append(item);
   });
 }
 
 function renderShots(container, data) {
+  if (data.reference_basis) {
+    const basis = node("section", "mapping-foundation");
+    basis.append(node("h3", "section-title", "映射依据"));
+    if (data.reference_basis.summary) basis.append(node("p", "row-copy", data.reference_basis.summary));
+    basis.append(detailRow("参考机制", data.reference_basis.proof_method));
+    if (data.reference_basis.avg_evidence_seconds != null) basis.append(detailRow("参考节奏", `平均 ${Number(data.reference_basis.avg_evidence_seconds).toFixed(1)} 秒一个证据`));
+    if (data.reference_basis.beat_order?.length) basis.append(node("h4", "detail-heading", "参考结构"), tagList(data.reference_basis.beat_order, "tag-list reference-beats"));
+    container.append(basis);
+  }
   container.append(detailRow("预计成片时长", formatDuration(data.duration_seconds)));
   if (!data.shots?.length) return renderEmpty(container);
   data.shots.forEach((shot, index) => {
     const item = node("article", "content-row shot-row");
-    item.append(node("span", "shot-number", String(index + 1).padStart(2, "0")));
+    const media = node("div", "shot-media"); media.append(node("span", "shot-number", String(index + 1).padStart(2, "0")));
+    const video = rangedVideo(shot, "shot-preview", `镜头 ${index + 1} 源素材预览`); if (video) media.append(video);
+    item.append(media);
     const body = node("div", "shot-body");
     body.append(node("h3", "row-title", shot.beat || "镜头内容"));
     if (shot.screen_copy) body.append(node("p", "row-copy", shot.screen_copy));
-    body.append(node("span", "row-meta", `${shot.source_label || "素材待定"} · ${formatTimeRange(shot.in_seconds, shot.out_seconds)}`));
+    if (shot.intent) body.append(detailRow("镜头意图", shot.intent));
+    body.append(detailRow("成片位置", formatTimeRange(shot.timeline_in_seconds, shot.timeline_out_seconds)));
+    body.append(detailRow("源素材", shot.source_label || "素材待定"));
+    body.append(detailRow("源区间", shot.source_in_seconds == null || shot.source_out_seconds == null ? "尚未映射" : formatTimeRange(shot.source_in_seconds, shot.source_out_seconds)));
+    const rationale = node("div", "mapping-rationale");
+    rationale.append(node("h4", "detail-heading", "为什么这样映射"));
+    if (shot.source_summary) rationale.append(detailRow("素材内容", shot.source_summary));
+    if (shot.source_usable_for?.length) rationale.append(detailRow("素材匹配", shot.source_usable_for.join("、")));
+    rationale.append(node("p", "row-copy", shot.mapping_reason || "当前 artifact 未记录更细的映射理由"));
+    body.append(rationale);
+    const language = [shot.framing, shot.movement, shot.narrative_role].filter(Boolean); if (language.length) body.append(node("p", "source-facts", language.join(" · ")));
     item.append(body);
     container.append(item);
   });
@@ -126,10 +305,32 @@ function renderEmpty(container) {
 function renderEditor(container, stage, editor, project, snapshot) {
   container.replaceChildren();
   const data = editor?.data || {};
+  const canEdit = (project.permissions || []).includes("edit");
+  const message = node("span", "editor-message");
+  let changes = [];
+  let timer;
+  const saveNow = async () => {
+    const draft = await saveDraft(project.project_id, stage.id, {
+      base_revision: project.revision,
+      changes,
+    });
+    snapshotStore.setDraft(stage.id, draft);
+    message.textContent = "修改已保存，可预览影响";
+  };
+  const scheduleSave = () => {
+    clearTimeout(timer);
+    message.textContent = "正在保存修改";
+    timer = setTimeout(() => saveNow().catch((error) => { message.textContent = error.message; }), 220);
+  };
+  const flushSave = async () => {
+    clearTimeout(timer);
+    if (changes.length) await saveNow();
+  };
+  const onOperation = (operation) => { changes = [...changes, operation]; scheduleSave(); };
   const renderers = {
     research_review: renderResearch,
     proposal_choice: renderProposal,
-    script_editor: renderScript,
+    script_editor: (target, value) => renderScript(target, value, { editable: canEdit, onOperation }),
     shot_mapping: renderShots,
     asset_review: renderAssets,
     sample_review: renderSample,
@@ -138,39 +339,27 @@ function renderEditor(container, stage, editor, project, snapshot) {
     unavailable: (target, value) => target.append(node("p", "empty-copy", value.message)),
   };
   (renderers[editor?.type] || renderEmpty)(container, data);
-  const canEdit = (project.permissions || []).includes("edit");
+  if (editor?.type === "research_review") return;
   const editPanel = node("div", "typed-editor-panel");
   const editorBody = node("div", "typed-editor-body");
   const controls = node("div", "editor-controls");
-  const message = node("span", "editor-message");
-  let changes = [];
-  let timer;
-  const save = () => {
-    clearTimeout(timer);
-    timer = setTimeout(async () => {
-      try {
-        const draft = await saveDraft(project.project_id, stage.id, {
-          base_revision: project.revision,
-          changes,
-        });
-        snapshotStore.setDraft(stage.id, draft);
-        message.textContent = "修改已保存，可预览影响";
-      } catch (error) { message.textContent = error.message; }
-    }, 220);
-  };
-  const onOperation = (operation) => { changes = [...changes, operation]; save(); };
-  renderTypedEditor(editorBody, stage, editor, { editable: canEdit, onOperation });
+  if (editor?.type !== "script_editor") {
+    renderTypedEditor(editorBody, stage, editor, { editable: canEdit, onOperation });
+  }
   if (canEdit) {
     const preview = node("button", "quiet-button", "预览修改影响"); preview.type = "button";
     preview.addEventListener("click", async () => {
       try {
+        await flushSave();
         const value = await previewDraft(project.project_id, stage.id);
         snapshotStore.setPreview(stage.id, value); message.textContent = "影响预览已生成";
       } catch (error) { message.textContent = error.message; }
     });
     controls.append(preview);
   }
-  controls.append(message); editPanel.append(editorBody, controls); container.append(editPanel);
+  controls.append(message);
+  if (editor?.type !== "script_editor") editPanel.append(editorBody);
+  editPanel.append(controls); container.append(editPanel);
   const impactPanel = node("div", "impact-panel");
   renderImpact(impactPanel, snapshot.previews?.[stage.id], {
     onCommit: async () => {

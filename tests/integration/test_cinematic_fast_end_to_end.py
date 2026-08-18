@@ -161,6 +161,27 @@ def _artifact(name: str) -> dict:
             "representative_frame": REFERENCE_FRAME,
             "audio_path": REFERENCE_AUDIO,
         }
+    elif name == "scene_plan":
+        value["scenes"][0]["shot_intent"] = "Show the owned product proof beat"
+        value["metadata"] = {
+            "reference_media_usage": "analysis_only",
+            "source_mapping": [{
+                "scene_id": "scene-1",
+                "source_path": "inputs/source/product-b.mp4",
+                "source_interval": {
+                    "start_seconds": 0,
+                    "end_seconds_exclusive": 10,
+                },
+                "timeline_interval": {
+                    "start_seconds": 0,
+                    "end_seconds_exclusive": 10,
+                },
+                "reference_basis": "Reference pairs product action with result",
+                "source_fit": "Owned overview clip covers the complete beat",
+                "mapping_reason": "The clip establishes the product proof intent",
+                "originality_note": "Only the abstract proof structure is reused",
+            }],
+        }
     elif name == "asset_manifest":
         value["assets"] = [
             {

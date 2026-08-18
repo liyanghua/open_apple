@@ -445,7 +445,9 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
     # ---- Thumbnails (downscaled, cached on disk) ------------------------
 
     @app.get("/thumb/{project_id}/{file_path:path}")
-    async def thumb(project_id: str, file_path: str, request: Request, w: int = 640) -> FileResponse:
+    async def thumb(
+        project_id: str, file_path: str, request: Request, w: int = 640, t: float | None = None,
+    ) -> FileResponse:
         require_access(request, project_id, "read")
         project_dir = _safe_project_dir(project_id)
         target = (project_dir / file_path).resolve()
@@ -456,7 +458,10 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
         if not target.is_file():
             raise HTTPException(status_code=404, detail="media not found")
         width = min(THUMB_WIDTHS, key=lambda x: abs(x - w))
-        cached = await asyncio.to_thread(_thumbnail_for, target, width)
+        is_video = target.suffix.lower() in {".mp4", ".webm", ".mov"}
+        bounded_time = min(3600.0, max(0.0, t)) if t is not None else None
+        time_seconds = float(int(bounded_time + 0.5)) if is_video and bounded_time is not None else None
+        cached = await asyncio.to_thread(_thumbnail_for, target, width, time_seconds)
         if cached is None:
             # Never fall back to raw video bytes for an <img> consumer (F-03);
             # non-thumbable images are safe to serve as-is.
@@ -595,7 +600,9 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
-def _thumbnail_for(source: Path, width: int) -> Optional[Path]:
+def _thumbnail_for(
+    source: Path, width: int, time_seconds: float | None = None,
+) -> Optional[Path]:
     """Downscale an image (or extract a video poster frame) to a cached JPEG."""
     suffix = source.suffix.lower()
     is_image = suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -606,7 +613,7 @@ def _thumbnail_for(source: Path, width: int) -> Optional[Path]:
         import hashlib
         stat = source.stat()
         key = hashlib.sha1(
-            f"{source}|{stat.st_mtime_ns}|{stat.st_size}|{width}".encode()
+            f"{source}|{stat.st_mtime_ns}|{stat.st_size}|{width}|{time_seconds}".encode()
         ).hexdigest()[:20]
         cached = THUMB_CACHE_DIR / f"{key}.jpg"
         if cached.is_file():
@@ -619,7 +626,7 @@ def _thumbnail_for(source: Path, width: int) -> Optional[Path]:
         if is_video:
             import subprocess
             result = subprocess.run(
-                ["ffmpeg", "-y", "-loglevel", "error", "-ss", "1.5",
+                ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{time_seconds if time_seconds is not None else 1.5:g}",
                  "-i", str(source), "-frames:v", "1",
                  "-vf", f"scale={width}:-2", str(tmp)],
                 capture_output=True, timeout=30,
@@ -633,9 +640,20 @@ def _thumbnail_for(source: Path, width: int) -> Optional[Path]:
                 img.thumbnail((width, width * 3))
                 img.save(tmp, "JPEG", quality=82)
         tmp.replace(cached)
+        _prune_thumbnail_cache()
         return cached
     except Exception:
         return None
+
+
+def _prune_thumbnail_cache(*, max_entries: int = 4096) -> None:
+    """Keep the persistent poster cache bounded without affecting responses."""
+    try:
+        entries = sorted(THUMB_CACHE_DIR.glob("*.jpg"), key=lambda path: path.stat().st_mtime_ns)
+        for path in entries[:-max_entries] if len(entries) > max_entries else []:
+            path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 app = create_app()

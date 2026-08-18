@@ -56,10 +56,63 @@ def _board_state() -> dict:
         "stages": [_stage(name, statuses[name]) for name, _ in NINE_STAGES],
         "artifacts": {
             "research_brief": {"topic": "透明桌垫", "summary": "参考视频用测试证明卖点"},
+            "video_analysis_brief": {
+                "source": {
+                    "title": "爆款透明桌垫", "duration_seconds": 14.8,
+                    "local_path": "projects/table-mat/inputs/reference/hit.mp4",
+                },
+                "content_analysis": {
+                    "summary": "依次用真实动作证明贴合、防刮、防污和回弹。",
+                    "hook_technique": "首秒直接展开商品",
+                },
+                "structure_analysis": {
+                    "total_scenes": 2,
+                    "pacing_profile": {"avg_scene_duration_seconds": 2.1, "cuts_per_minute": 28.4},
+                    "scenes": [{
+                        "scene_index": 0, "start_time": 0, "end_time": 2.1,
+                        "description": "工具刮擦制造冲突", "on_screen_text": "防刮耐磨",
+                        "energy_level": "peak",
+                    }],
+                },
+                "style_profile": {
+                    "typography_observed": "粗描边功能短词",
+                    "transition_types": ["硬切"],
+                },
+                "replication_guidance": {
+                    "key_elements_to_replicate": ["首秒动作", "动作与结果成对"],
+                    "creative_differentiation_seeds": ["改用明亮原木和横排字幕"],
+                },
+                "keyframes": [{
+                    "scene_index": 0, "timestamp": 1.2,
+                    "path": "projects/table-mat/artifacts/research_media/reference/frame-1.jpg",
+                }],
+            },
+            "reference_fingerprint": {"abstract_structure": {
+                "beat_order": ["刮擦冲突", "擦净恢复"],
+                "proof_method": "真实动作与即时结果成对",
+                "avg_evidence_unit_seconds": 2.1,
+                "camera_method": "固定近景，首尾全景",
+                "caption_method": "粗描边功能短词",
+            }},
             "source_media_review": {
                 "summary": "6 条真实产品素材",
                 "files": [
-                    {"path": f"/Users/example/source-{index}.mp4", "usable_for": ["产品展示"]}
+                    {
+                        "media_id": f"source-{index}",
+                        "path": f"projects/table-mat/inputs/source/source-{index}.mp4",
+                        "media_type": "video",
+                        "content_summary": f"素材 {index} 内容",
+                        "reviewed": True,
+                        "usable_for": ["产品展示"],
+                        "quality_risks": ["需要代理"],
+                        "best_ranges": [{"start_seconds": 1, "end_seconds": 4}],
+                        "representative_frames": [
+                            f"projects/table-mat/artifacts/research_media/source-{index}.jpg"
+                        ],
+                        "technical_probe": {
+                            "duration_seconds": 8.5, "resolution": "3840x2160", "fps": 59.94,
+                        },
+                    }
                     for index in range(6)
                 ],
             },
@@ -69,8 +122,18 @@ def _board_state() -> dict:
                     "title": "强测试证明型",
                     "hook": "餐桌最怕什么",
                     "target_duration_seconds": 30,
+                    "core_message": "真实动作证明保护效果",
+                    "target_audience": "家庭用户",
+                    "tone": "利落可信",
+                    "visual_approach": "真实测试配合短字幕",
+                    "why_this_works": "冲突和结果形成闭环",
+                    "key_points": ["防刮", "防污"],
+                    "cta": "点击查看",
+                    "narrative_structure": "problem_solution",
+                    "target_platform": "tiktok",
                 }],
                 "selected_concept": {"concept_id": "concept-a"},
+                "cost_estimate": {"total_estimated_usd": 0.05},
             },
             "script": {
                 "total_duration_seconds": 30,
@@ -86,6 +149,7 @@ def _board_state() -> dict:
                 "scenes": [{
                     "id": "shot-1",
                     "description": "油污擦拭测试",
+                    "shot_intent": "展示擦净动作",
                     "overlay_notes": "油污一擦就净",
                     "start_seconds": 0,
                     "end_seconds": 2,
@@ -93,6 +157,12 @@ def _board_state() -> dict:
                         "description": "/Users/example/透明桌垫-防油易擦拭.MP4",
                     }],
                 }],
+                "metadata": {"source_mapping": [{
+                    "scene_id": "shot-1",
+                    "source_path": "projects/table-mat/inputs/source/source-0.mp4",
+                    "source_interval": {"start_seconds": 1, "end_seconds_exclusive": 3},
+                    "timeline_interval": {"start_seconds": 0, "end_seconds_exclusive": 2},
+                }]},
             },
             "sample_report": {
                 "window": {"startFrame": 0, "endFrameExclusive": 360},
@@ -160,6 +230,89 @@ def test_fastline_project_projects_business_state() -> None:
     assert state["permissions"] == ["view"]
     assert state["active_job"] is None
     validate_operator_state(state)
+
+
+def test_projection_includes_safe_material_concept_and_shot_details() -> None:
+    from backlot.operator_state import project_operator_state, validate_operator_state
+
+    state = project_operator_state(_board_state())
+    editors = {stage["id"]: stage["editor"]["data"] for stage in state["stages"]}
+
+    research = editors["research"]
+    assert research["source_count"] == research["usable_count"] == 6
+    assert research["risks"] == ["需要代理"]
+    assert research["reference"]["summary"] == "依次用真实动作证明贴合、防刮、防污和回弹。"
+    assert research["reference"]["beat_order"] == ["刮擦冲突", "擦净恢复"]
+    assert research["reference"]["scenes"][0]["poster_url"] == "/thumb/table-mat/artifacts/research_media/reference/frame-1.jpg?w=640"
+    assert len(research["sources"]) == 6
+    assert research["sources"][0] == {
+        "id": "source-0",
+        "label": "source-0",
+        "media_type": "video",
+        "summary": "素材 0 内容",
+        "reviewed": True,
+        "usable_for": ["产品展示"],
+        "risks": ["需要代理"],
+        "duration_seconds": 8.5,
+        "resolution": "3840x2160",
+        "fps": 59.94,
+        "best_in_seconds": 1,
+        "best_out_seconds": 4,
+        "preview_url": "/media/table-mat/inputs/source/source-0.mp4",
+        "poster_url": "/thumb/table-mat/artifacts/research_media/source-0.jpg?w=640",
+    }
+
+    proposal = editors["proposal"]
+    assert proposal["estimated_cost_usd"] == 0.05
+    assert proposal["concepts"][0]["visual_approach"] == "真实测试配合短字幕"
+    assert proposal["concepts"][0]["key_points"] == ["防刮", "防污"]
+
+    shot = editors["scene_plan"]["shots"][0]
+    assert editors["scene_plan"]["reference_basis"]["proof_method"] == "真实动作与即时结果成对"
+    assert shot["timeline_in_seconds"] == 0
+    assert shot["timeline_out_seconds"] == 2
+    assert shot["source_in_seconds"] == 1
+    assert shot["source_out_seconds"] == 3
+    assert shot["preview_url"] == "/media/table-mat/inputs/source/source-0.mp4"
+    assert shot["poster_url"] == "/thumb/table-mat/inputs/source/source-0.mp4?w=640&t=2"
+    assert shot["source_summary"] == "素材 0 内容"
+    assert shot["source_usable_for"] == ["产品展示"]
+    assert "镜头意图" in shot["mapping_reason"]
+    validate_operator_state(state)
+
+
+def test_script_projection_prefers_edited_narration_over_original_text() -> None:
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    board["artifacts"]["script"]["sections"][0]["narration"] = "修改后的口播和字幕"
+
+    script = next(stage for stage in project_operator_state(board)["stages"] if stage["id"] == "script")
+
+    assert script["editor"]["data"]["sections"][0]["text"] == "修改后的口播和字幕"
+
+
+def test_research_projection_supports_image_and_audio_without_broken_posters() -> None:
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    board["artifacts"]["source_media_review"]["files"] = [
+        {
+            "media_id": "still", "media_type": "image",
+            "path": "projects/table-mat/inputs/source/still.JPG", "reviewed": True,
+        },
+        {
+            "media_id": "voice", "media_type": "audio",
+            "path": "projects/table-mat/inputs/source/voice.MP3", "reviewed": True,
+        },
+    ]
+
+    sources = project_operator_state(board)["stages"][0]["editor"]["data"]["sources"]
+
+    assert sources[0]["preview_url"].endswith("/inputs/source/still.JPG")
+    assert sources[0]["poster_url"].endswith("/inputs/source/still.JPG?w=640")
+    assert sources[1]["preview_url"].endswith("/inputs/source/voice.MP3")
+    assert sources[1]["poster_url"] is None
 
 
 def test_projection_never_leaks_machine_fields_or_paths() -> None:

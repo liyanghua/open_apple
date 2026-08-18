@@ -32,6 +32,62 @@ def _write_png(path: Path, color: tuple[int, int, int] = (200, 40, 80)) -> None:
 
 
 class TestBacklotServerApi:
+    def test_video_thumb_accepts_bounded_time_and_keeps_cache_entries_distinct(
+        self, backlot_client, projects_root, make_project, monkeypatch, tmp_path
+    ):
+        project = make_project(projects_root, "film")
+        video = project / "inputs" / "source" / "clip.mp4"
+        video.parent.mkdir(parents=True)
+        video.write_bytes(b"video")
+        calls = []
+
+        def fake_thumbnail(source, width, time_seconds=None):
+            calls.append((source, width, time_seconds))
+            output = tmp_path / f"poster-{time_seconds}.jpg"
+            output.write_bytes(b"poster")
+            return output
+
+        monkeypatch.setattr(server_mod, "_thumbnail_for", fake_thumbnail)
+
+        first = backlot_client.get("/thumb/film/inputs/source/clip.mp4?w=640&t=2.25")
+        second = backlot_client.get("/thumb/film/inputs/source/clip.mp4?w=640&t=999999")
+
+        assert first.status_code == second.status_code == 200
+        assert calls == [(video, 640, 2.0), (video, 640, 3600.0)]
+
+    def test_image_thumb_ignores_time_parameter(
+        self, backlot_client, projects_root, make_project, monkeypatch, tmp_path
+    ):
+        project = make_project(projects_root, "film")
+        image = project / "inputs" / "source" / "still.jpg"
+        image.parent.mkdir(parents=True)
+        image.write_bytes(b"image")
+        calls = []
+
+        def fake_thumbnail(source, width, time_seconds=None):
+            calls.append((source, width, time_seconds))
+            output = tmp_path / "poster.jpg"
+            output.write_bytes(b"poster")
+            return output
+
+        monkeypatch.setattr(server_mod, "_thumbnail_for", fake_thumbnail)
+
+        assert backlot_client.get("/thumb/film/inputs/source/still.jpg?t=2.12345").status_code == 200
+        assert calls == [(image, 640, None)]
+
+    def test_thumbnail_cache_prunes_oldest_entries(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(server_mod, "THUMB_CACHE_DIR", tmp_path)
+        for index in range(4):
+            path = tmp_path / f"{index}.jpg"
+            path.write_bytes(b"poster")
+            path.touch()
+            import os
+            os.utime(path, (index + 1, index + 1))
+
+        server_mod._prune_thumbnail_cache(max_entries=2)
+
+        assert sorted(path.name for path in tmp_path.glob("*.jpg")) == ["2.jpg", "3.jpg"]
+
     def test_health(self, backlot_client):
         response = backlot_client.get("/api/health")
         assert response.status_code == 200
