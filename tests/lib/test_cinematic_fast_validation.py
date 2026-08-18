@@ -25,6 +25,40 @@ def _source_review() -> dict:
     }
 
 
+def _video_analysis() -> dict:
+    return {
+        "version": "1.0",
+        "source": {
+            "type": "local_file",
+            "local_path": "projects/demo/inputs/reference/hit.mp4",
+            "duration_seconds": 8,
+        },
+        "content_analysis": {
+            "summary": "参考视频用真实动作证明产品卖点。",
+            "topics": ["产品证明"],
+            "target_audience": "家庭用户",
+        },
+        "structure_analysis": {
+            "total_scenes": 2,
+            "scenes": [
+                {
+                    "scene_index": 0,
+                    "start_time": 0,
+                    "end_time": 2.5,
+                    "description": "防刮冲突",
+                },
+                {
+                    "scene_index": 1,
+                    "start_time": 2.5,
+                    "end_time": 8,
+                    "description": "结果证明",
+                },
+            ],
+            "pacing_profile": {"avg_scene_duration_seconds": 4},
+        },
+    }
+
+
 def _scene_plan() -> dict:
     return {
         "version": "1.0",
@@ -40,6 +74,16 @@ def _scene_plan() -> dict:
             "reference_media_usage": "analysis_only",
             "source_mapping": [{
                 "scene_id": "sc01",
+                "reference_evidence": {
+                    "mode": "direct_segment",
+                    "reference_scene_id": "reference-1",
+                    "reference_interval": {
+                        "start_seconds": 0,
+                        "end_seconds_exclusive": 2.5,
+                    },
+                    "mechanism": "动作与结果成对",
+                    "rationale": "用于建立冲突钩子",
+                },
                 "source_path": "projects/demo/inputs/source/owned.mp4",
                 "source_interval": {
                     "start_seconds": 1,
@@ -59,7 +103,18 @@ def _scene_plan() -> dict:
 
 
 def test_validate_scene_mapping_accepts_complete_owned_source_evidence() -> None:
-    validate_scene_mapping(_scene_plan(), _source_review())
+    validate_scene_mapping(_scene_plan(), _source_review(), _video_analysis())
+
+
+def test_validate_scene_mapping_accepts_structural_reference_evidence() -> None:
+    plan = _scene_plan()
+    plan["metadata"]["source_mapping"][0]["reference_evidence"] = {
+        "mode": "structural_only",
+        "mechanism": "动作与结果成对",
+        "rationale": "只借鉴证明结构",
+    }
+
+    validate_scene_mapping(plan, _source_review(), _video_analysis())
 
 
 @pytest.mark.parametrize(
@@ -72,6 +127,10 @@ def test_validate_scene_mapping_accepts_complete_owned_source_evidence() -> None
         (lambda plan: plan["metadata"]["source_mapping"][0]["source_interval"].update(start_seconds=100, end_seconds_exclusive=102), "duration"),
         (lambda plan: plan["metadata"]["source_mapping"][0]["timeline_interval"].update(start_seconds=50, end_seconds_exclusive=52), "scene timing"),
         (lambda plan: plan["metadata"]["source_mapping"][0]["source_interval"].update(start_seconds=math.nan), "finite"),
+        (lambda plan: plan["metadata"]["source_mapping"][0]["reference_evidence"].pop("reference_scene_id"), "reference_scene_id"),
+        (lambda plan: plan["metadata"]["source_mapping"][0]["reference_evidence"]["reference_interval"].update(end_seconds_exclusive=4), "reference scene"),
+        (lambda plan: plan["metadata"]["source_mapping"][0]["reference_evidence"].update(mode="structural_only"), "must not include reference_interval"),
+        (lambda plan: plan["metadata"]["source_mapping"][0]["reference_evidence"].update(mode="none"), "must not include reference_interval"),
         (lambda plan: plan["scenes"][0].update(shot_intent=""), "shot_intent"),
         (lambda plan: plan["metadata"].update(source_mapping=[]), "one mapping per scene"),
     ],
@@ -81,7 +140,7 @@ def test_validate_scene_mapping_rejects_untraceable_mapping(mutation, message) -
     mutation(plan)
 
     with pytest.raises(ValueError, match=message):
-        validate_scene_mapping(plan, _source_review())
+        validate_scene_mapping(plan, _source_review(), _video_analysis())
 
 
 def _checkpoint(project_dir, scene_plan: dict) -> dict:
@@ -91,8 +150,17 @@ def _checkpoint(project_dir, scene_plan: dict) -> dict:
         _source_review(),
         project_dir=project_dir,
     )
+    analysis_envelope = write_artifact_atomic(
+        canonical_artifact_path(project_dir, "video_analysis_brief"),
+        "video_analysis_brief",
+        _video_analysis(),
+        project_dir=project_dir,
+    )
     (project_dir / "checkpoint_research.json").write_text(
-        json.dumps({"artifacts": {"source_media_review": source_envelope}}),
+        json.dumps({"artifacts": {
+            "source_media_review": source_envelope,
+            "video_analysis_brief": analysis_envelope,
+        }}),
         encoding="utf-8",
     )
     scene_envelope = write_artifact_atomic(

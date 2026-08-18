@@ -167,6 +167,16 @@ def _artifact(name: str) -> dict:
             "reference_media_usage": "analysis_only",
             "source_mapping": [{
                 "scene_id": "scene-1",
+                "reference_evidence": {
+                    "mode": "direct_segment",
+                    "reference_scene_id": "reference-1",
+                    "reference_interval": {
+                        "start_seconds": 0,
+                        "end_seconds_exclusive": 5,
+                    },
+                    "mechanism": "Action and result proof",
+                    "rationale": "Use the hook structure for the product proof beat",
+                },
                 "source_path": "inputs/source/product-b.mp4",
                 "source_interval": {
                     "start_seconds": 0,

@@ -12,6 +12,14 @@ non-empty canonical `scenes[].shot_intent`. Record every mapping in this shape:
 
 ```yaml
 scene_id: "scene identifier"
+reference_evidence:
+  mode: "direct_segment | structural_only | none"
+  reference_scene_id: "reference-1"  # direct_segment only
+  reference_interval:                # direct_segment only
+    start_seconds: 0
+    end_seconds_exclusive: 2
+  mechanism: "reference mechanism used by this shot"
+  rationale: "why that mechanism serves the shot intent"
 source_path: "path under the project's owned source set"
 source_interval: {start_seconds: 0, end_seconds_exclusive: 2}
 timeline_interval: {start_seconds: 0, end_seconds_exclusive: 2}
@@ -23,6 +31,11 @@ originality_note: "how the treatment remains original"
 
 Accept a mapping only when all four fields explain the reference understanding,
 the fit of the project's own source footage, and the intended role of the shot.
+Use `direct_segment` only when `reference_scene_id` and `reference_interval`
+resolve to an analyzed reference scene. Use `structural_only` when the mapping
+borrows an abstract mechanism without claiming a direct clip relationship; it
+must not carry a reference interval. Use `none` when no reliable reference
+evidence exists. Never infer a direct mapping from scene order alone.
 Set `metadata.reference_media_usage: analysis_only`. Reference media is
 analysis-only evidence: every `source_path` must resolve to the project's owned
 source set, never a reference path, and reference media must never be copied into

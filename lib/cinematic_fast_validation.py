@@ -48,7 +48,9 @@ def _validate_interval(
 
 
 def validate_scene_mapping(
-    scene_plan: Mapping[str, Any], source_media_review: Mapping[str, Any]
+    scene_plan: Mapping[str, Any],
+    source_media_review: Mapping[str, Any],
+    video_analysis_brief: Mapping[str, Any],
 ) -> None:
     """Reject scene plans whose source mapping is not grounded and traceable."""
     metadata = scene_plan.get("metadata")
@@ -87,6 +89,21 @@ def validate_scene_mapping(
         and item.get("reviewed") is True
         and _nonempty(item.get("path"))
     }
+    reference_source = video_analysis_brief.get("source")
+    reference_duration = (
+        reference_source.get("duration_seconds")
+        if isinstance(reference_source, Mapping) else None
+    )
+    if not _finite_number(reference_duration) or reference_duration <= 0:
+        raise ValueError("reference video requires finite duration")
+    structure = video_analysis_brief.get("structure_analysis")
+    reference_scenes: dict[str, Mapping[str, Any]] = {}
+    if isinstance(structure, Mapping):
+        for index, item in enumerate(structure.get("scenes", [])):
+            if not isinstance(item, Mapping):
+                continue
+            scene_index = item.get("scene_index") if isinstance(item.get("scene_index"), int) else index
+            reference_scenes[f"reference-{scene_index + 1}"] = item
 
     mapping_ids: list[str] = []
     for mapping in mappings:
@@ -104,6 +121,52 @@ def validate_scene_mapping(
         for field in _EVIDENCE_FIELDS:
             if not _nonempty(mapping.get(field)):
                 raise ValueError(f"mapping for {scene_id!r} requires non-empty {field}")
+        reference_evidence = mapping.get("reference_evidence")
+        if not isinstance(reference_evidence, Mapping):
+            raise ValueError(f"mapping for {scene_id!r} requires reference_evidence")
+        mode = reference_evidence.get("mode")
+        if mode not in {"direct_segment", "structural_only", "none"}:
+            raise ValueError(f"mapping for {scene_id!r} has invalid reference mode")
+        if mode in {"direct_segment", "structural_only"}:
+            for field in ("mechanism", "rationale"):
+                if not _nonempty(reference_evidence.get(field)):
+                    raise ValueError(
+                        f"reference_evidence for {scene_id!r} requires non-empty {field}"
+                    )
+        if mode == "direct_segment":
+            reference_scene_id = reference_evidence.get("reference_scene_id")
+            if not _nonempty(reference_scene_id):
+                raise ValueError(
+                    f"direct reference for {scene_id!r} requires reference_scene_id"
+                )
+            reference_scene = reference_scenes.get(reference_scene_id)
+            if reference_scene is None:
+                raise ValueError(
+                    f"reference_scene_id for {scene_id!r} was not analyzed"
+                )
+            reference_start, reference_end = _validate_interval(
+                reference_evidence, "reference_interval"
+            )
+            scene_start = reference_scene.get("start_time")
+            scene_end = reference_scene.get("end_time")
+            if (
+                not _finite_number(scene_start)
+                or not _finite_number(scene_end)
+                or reference_start < scene_start
+                or reference_end > scene_end
+                or reference_end > reference_duration
+            ):
+                raise ValueError(
+                    f"reference_interval for {scene_id!r} must stay inside reference scene"
+                )
+        elif "reference_interval" in reference_evidence:
+            raise ValueError(
+                f"{mode} reference evidence must not include reference_interval"
+            )
+        elif "reference_scene_id" in reference_evidence:
+            raise ValueError(
+                f"{mode} reference evidence must not include reference_scene_id"
+            )
         source_start, source_end = _validate_interval(mapping, "source_interval")
         timeline_start, timeline_end = _validate_interval(
             mapping, "timeline_interval"

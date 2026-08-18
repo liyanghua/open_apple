@@ -60,6 +60,8 @@ def test_scene_mapping_requires_reference_and_source_evidence() -> None:
 
     for field in ("reference_basis", "source_fit", "mapping_reason", "originality_note"):
         assert field in director
+    for field in ("reference_evidence", "direct_segment", "structural_only"):
+        assert field in director
     assert "metadata.source_mapping" in director
     assert "reference_media_usage" in director
     assert "shot_intent" in director

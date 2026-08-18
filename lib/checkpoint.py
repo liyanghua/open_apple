@@ -223,11 +223,17 @@ def _validate_artifacts_for_stage(
             with research_checkpoint_path.open(encoding="utf-8") as handle:
                 research_checkpoint = json.load(handle)
             source_envelope = research_checkpoint["artifacts"]["source_media_review"]
+            analysis_envelope = research_checkpoint["artifacts"]["video_analysis_brief"]
             source_media_review = unwrap_checkpoint_artifact(
                 project_dir, "source_media_review", source_envelope
             )
+            video_analysis_brief = unwrap_checkpoint_artifact(
+                project_dir, "video_analysis_brief", analysis_envelope
+            )
             validate_scene_mapping(
-                validated_artifacts["scene_plan"], source_media_review
+                validated_artifacts["scene_plan"],
+                source_media_review,
+                video_analysis_brief,
             )
         except Exception as exc:
             raise CheckpointValidationError(
