@@ -100,6 +100,17 @@ def _editor(editor_type: str) -> dict:
                 "source_summary": "餐叉反复刮擦垫面",
                 "source_usable_for": ["防刮测试"],
                 "mapping_reason": "参考机制要求动作与结果成对；素材可承担防刮测试。",
+                "reference_evidence": {
+                    "mode": "direct_segment",
+                    "reference_scene_id": "reference-1",
+                    "description": "刮擦冲突",
+                    "mechanism": "动作与结果成对",
+                    "rationale": "对应冲突钩子",
+                    "start_seconds": 0,
+                    "end_seconds": 2.1,
+                    "preview_url": "/media/table-mat/inputs/reference/hit.mp4",
+                    "poster_url": "/thumb/table-mat/artifacts/reference.jpg?w=640",
+                },
             }],
         },
         "asset_review": {

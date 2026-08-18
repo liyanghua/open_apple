@@ -323,6 +323,30 @@ def _shot_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     }
     abstract = fingerprint.get("abstract_structure") if isinstance(fingerprint.get("abstract_structure"), Mapping) else {}
     content = analysis.get("content_analysis") if isinstance(analysis.get("content_analysis"), Mapping) else {}
+    structure = analysis.get("structure_analysis") if isinstance(analysis.get("structure_analysis"), Mapping) else {}
+    reference_source = analysis.get("source") if isinstance(analysis.get("source"), Mapping) else {}
+    reference_path = reference_source.get("local_path")
+    keyframes = analysis.get("keyframes") if isinstance(analysis.get("keyframes"), list) else []
+    frame_by_scene = {
+        frame["scene_index"]: frame.get("path")
+        for frame in keyframes
+        if isinstance(frame, Mapping) and isinstance(frame.get("scene_index"), int)
+    }
+    reference_scene_by_id = {}
+    for reference_index, reference_scene in enumerate(structure.get("scenes") or []):
+        if not isinstance(reference_scene, Mapping):
+            continue
+        scene_index = (
+            reference_scene.get("scene_index")
+            if isinstance(reference_scene.get("scene_index"), int)
+            else reference_index
+        )
+        reference_scene_by_id[f"reference-{scene_index + 1}"] = {
+            "description": _safe_text(reference_scene.get("description")),
+            "start_seconds": _number(reference_scene.get("start_time")),
+            "end_seconds": _number(reference_scene.get("end_time")),
+            "poster_path": frame_by_scene.get(scene_index),
+        }
     reference_basis = {
         "summary": _safe_text(content.get("summary")),
         "beat_order": [_safe_text(value) for value in abstract.get("beat_order") or [] if _safe_text(value)],
@@ -348,6 +372,60 @@ def _shot_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         overlays = scene.get("overlay_layers") if isinstance(scene.get("overlay_layers"), list) else []
         overlay = next((value for value in overlays if isinstance(value, Mapping)), {})
         intent = _safe_text(scene.get("shot_intent"))
+        raw_reference = mapping.get("reference_evidence") if isinstance(mapping.get("reference_evidence"), Mapping) else {}
+        reference_mode = _safe_text(raw_reference.get("mode"))
+        reference_scene_id = _safe_text(raw_reference.get("reference_scene_id"))
+        reference_scene = reference_scene_by_id.get(reference_scene_id, {})
+        reference_interval = (
+            raw_reference.get("reference_interval")
+            if isinstance(raw_reference.get("reference_interval"), Mapping)
+            else {}
+        )
+        reference_in = _number(reference_interval.get("start_seconds"))
+        reference_out = _number(reference_interval.get("end_seconds_exclusive"))
+        direct_reference = (
+            reference_mode == "direct_segment"
+            and reference_scene
+            and reference_in is not None
+            and reference_out is not None
+            and reference_out > reference_in
+            and isinstance(reference_path, str)
+        )
+        if direct_reference:
+            projected_reference_mode = "direct_segment"
+        elif reference_mode == "none" and not reference_basis["proof_method"]:
+            projected_reference_mode = "none"
+        elif reference_basis["proof_method"] or _safe_text(raw_reference.get("mechanism")):
+            projected_reference_mode = "structural_only"
+        else:
+            projected_reference_mode = "none"
+        reference_evidence = {
+            "mode": projected_reference_mode,
+            "reference_scene_id": reference_scene_id if direct_reference else "",
+            "description": _safe_text(reference_scene.get("description")) if direct_reference else "",
+            "mechanism": (
+                _safe_text(raw_reference.get("mechanism"))
+                or reference_basis["proof_method"]
+            ),
+            "rationale": (
+                _safe_text(raw_reference.get("rationale"))
+                or (
+                    "沿用参考视频的整体结构机制，未建立直接片段对应"
+                    if projected_reference_mode == "structural_only" else ""
+                )
+            ),
+            "start_seconds": reference_in if direct_reference else None,
+            "end_seconds": reference_out if direct_reference else None,
+            "preview_url": _media_url(project_id, reference_path) if direct_reference else None,
+            "poster_url": (
+                _thumb_url(
+                    project_id,
+                    reference_scene.get("poster_path") or reference_path,
+                    time_seconds=None if reference_scene.get("poster_path") else (reference_in + reference_out) / 2,
+                )
+                if direct_reference else None
+            ),
+        }
         reason_parts = []
         if reference_basis["proof_method"]:
             reason_parts.append(f"参考机制要求“{reference_basis['proof_method']}”")
@@ -381,6 +459,7 @@ def _shot_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "source_summary": source_summary,
             "source_usable_for": source_usable_for,
             "mapping_reason": "；".join(reason_parts) + ("。" if reason_parts else ""),
+            "reference_evidence": reference_evidence,
         })
     duration = _number((scene_plan.get("metadata") or {}).get("total_duration_seconds"))
     if duration is None and shots:

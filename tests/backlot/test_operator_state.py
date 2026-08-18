@@ -159,6 +159,16 @@ def _board_state() -> dict:
                 }],
                 "metadata": {"source_mapping": [{
                     "scene_id": "shot-1",
+                    "reference_evidence": {
+                        "mode": "direct_segment",
+                        "reference_scene_id": "reference-1",
+                        "reference_interval": {
+                            "start_seconds": 0,
+                            "end_seconds_exclusive": 2.1,
+                        },
+                        "mechanism": "动作与结果成对",
+                        "rationale": "对应开场冲突钩子",
+                    },
                     "source_path": "projects/table-mat/inputs/source/source-0.mp4",
                     "source_interval": {"start_seconds": 1, "end_seconds_exclusive": 3},
                     "timeline_interval": {"start_seconds": 0, "end_seconds_exclusive": 2},
@@ -278,7 +288,34 @@ def test_projection_includes_safe_material_concept_and_shot_details() -> None:
     assert shot["source_summary"] == "素材 0 内容"
     assert shot["source_usable_for"] == ["产品展示"]
     assert "镜头意图" in shot["mapping_reason"]
+    assert shot["reference_evidence"] == {
+        "mode": "direct_segment",
+        "reference_scene_id": "reference-1",
+        "description": "工具刮擦制造冲突",
+        "mechanism": "动作与结果成对",
+        "rationale": "对应开场冲突钩子",
+        "start_seconds": 0,
+        "end_seconds": 2.1,
+        "preview_url": "/media/table-mat/inputs/reference/hit.mp4",
+        "poster_url": "/thumb/table-mat/artifacts/research_media/reference/frame-1.jpg?w=640",
+    }
     validate_operator_state(state)
+
+
+def test_legacy_shot_mapping_uses_structural_reference_without_fake_clip() -> None:
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    del board["artifacts"]["scene_plan"]["metadata"]["source_mapping"][0]["reference_evidence"]
+
+    state = project_operator_state(board)
+    editors = {stage["id"]: stage["editor"]["data"] for stage in state["stages"]}
+    shot = editors["scene_plan"]["shots"][0]
+
+    assert shot["reference_evidence"]["mode"] == "structural_only"
+    assert shot["reference_evidence"]["mechanism"] == "真实动作与即时结果成对"
+    assert shot["reference_evidence"]["preview_url"] is None
+    assert shot["reference_evidence"]["start_seconds"] is None
 
 
 def test_script_projection_prefers_edited_narration_over_original_text() -> None:
