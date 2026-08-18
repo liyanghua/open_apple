@@ -217,6 +217,31 @@ function renderScript(container, data, { editable, onOperation }) {
   });
 }
 
+function renderReferenceEvidence(parent, evidence, index) {
+  const panel = node("section", "evidence-panel reference-evidence-panel");
+  panel.append(node("h4", "evidence-label", "参考机制"));
+  const mode = evidence?.mode || "none";
+  if (mode === "direct_segment" && evidence.preview_url) {
+    const preview = rangedVideo({
+      preview_url: evidence.preview_url,
+      poster_url: evidence.poster_url,
+      source_in_seconds: evidence.start_seconds,
+      source_out_seconds: evidence.end_seconds,
+    }, "shot-evidence-preview", `镜头 ${index + 1} 参考片段`);
+    if (preview) panel.append(preview);
+    panel.append(detailRow("参考段落", evidence.description || evidence.reference_scene_id || "已关联"));
+    panel.append(detailRow("参考区间", formatTimeRange(evidence.start_seconds, evidence.end_seconds)));
+  } else if (mode === "structural_only") {
+    panel.append(node("span", "status-chip", "结构对应"));
+    panel.append(detailRow("参考机制", evidence.mechanism || "已提取整体机制"));
+    panel.append(node("p", "empty-copy", "无直接参考片段，不按顺序猜测对应关系"));
+  } else {
+    panel.append(node("span", "status-chip", "尚未建立对应"));
+    panel.append(node("p", "empty-copy", "暂无可靠的参考片段或结构机制证据"));
+  }
+  parent.append(panel);
+}
+
 function renderShots(container, data) {
   if (data.reference_basis) {
     const basis = node("section", "mapping-foundation");
@@ -231,24 +256,33 @@ function renderShots(container, data) {
   if (!data.shots?.length) return renderEmpty(container);
   data.shots.forEach((shot, index) => {
     const item = node("article", "content-row shot-row");
-    const media = node("div", "shot-media"); media.append(node("span", "shot-number", String(index + 1).padStart(2, "0")));
-    const video = rangedVideo(shot, "shot-preview", `镜头 ${index + 1} 源素材预览`); if (video) media.append(video);
-    item.append(media);
-    const body = node("div", "shot-body");
-    body.append(node("h3", "row-title", shot.beat || "镜头内容"));
-    if (shot.screen_copy) body.append(node("p", "row-copy", shot.screen_copy));
-    if (shot.intent) body.append(detailRow("镜头意图", shot.intent));
-    body.append(detailRow("成片位置", formatTimeRange(shot.timeline_in_seconds, shot.timeline_out_seconds)));
-    body.append(detailRow("源素材", shot.source_label || "素材待定"));
-    body.append(detailRow("源区间", shot.source_in_seconds == null || shot.source_out_seconds == null ? "尚未映射" : formatTimeRange(shot.source_in_seconds, shot.source_out_seconds)));
+    const header = node("div", "shot-header");
+    const heading = node("div", "shot-heading");
+    heading.append(node("span", "shot-number", String(index + 1).padStart(2, "0")));
+    heading.append(node("h3", "row-title", shot.beat || "镜头内容"));
+    header.append(heading, node("span", "row-meta", formatTimeRange(shot.timeline_in_seconds, shot.timeline_out_seconds)));
+    item.append(header);
+    if (shot.screen_copy) item.append(node("p", "row-copy shot-copy", shot.screen_copy));
+    if (shot.intent) item.append(detailRow("镜头意图", shot.intent));
+
+    const evidenceGrid = node("div", "shot-evidence-grid");
+    renderReferenceEvidence(evidenceGrid, shot.reference_evidence, index);
+    const ownedPanel = node("section", "evidence-panel owned-evidence-panel");
+    ownedPanel.append(node("h4", "evidence-label", "自有素材匹配"));
+    const video = rangedVideo(shot, "shot-evidence-preview", `镜头 ${index + 1} 自有素材预览`); if (video) ownedPanel.append(video);
+    ownedPanel.append(detailRow("素材", shot.source_label || "素材待定"));
+    ownedPanel.append(detailRow("素材区间", shot.source_in_seconds == null || shot.source_out_seconds == null ? "尚未映射" : formatTimeRange(shot.source_in_seconds, shot.source_out_seconds)));
+    if (shot.source_summary) ownedPanel.append(detailRow("素材内容", shot.source_summary));
+    if (shot.source_usable_for?.length) ownedPanel.append(detailRow("适用能力", shot.source_usable_for.join("、")));
+    evidenceGrid.append(ownedPanel);
+    item.append(evidenceGrid);
+
     const rationale = node("div", "mapping-rationale");
     rationale.append(node("h4", "detail-heading", "为什么这样映射"));
-    if (shot.source_summary) rationale.append(detailRow("素材内容", shot.source_summary));
-    if (shot.source_usable_for?.length) rationale.append(detailRow("素材匹配", shot.source_usable_for.join("、")));
+    if (shot.reference_evidence?.rationale) rationale.append(detailRow("参考与镜头", shot.reference_evidence.rationale));
     rationale.append(node("p", "row-copy", shot.mapping_reason || "当前 artifact 未记录更细的映射理由"));
-    body.append(rationale);
-    const language = [shot.framing, shot.movement, shot.narrative_role].filter(Boolean); if (language.length) body.append(node("p", "source-facts", language.join(" · ")));
-    item.append(body);
+    item.append(rationale);
+    const language = [shot.framing, shot.movement, shot.narrative_role].filter(Boolean); if (language.length) item.append(node("p", "source-facts", language.join(" · ")));
     container.append(item);
   });
 }

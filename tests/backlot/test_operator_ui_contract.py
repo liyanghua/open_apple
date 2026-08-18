@@ -134,3 +134,19 @@ def test_ui_explains_reference_analysis_and_source_mapping_rationale() -> None:
     assert "reference-analysis" in css
     assert "reference-scene-list" in css
     assert "mapping-rationale" in css
+
+
+def test_shot_mapping_compares_reference_and_owned_evidence_side_by_side() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+
+    for term in (
+        "renderReferenceEvidence", "shot.reference_evidence", "参考机制",
+        "自有素材匹配", "无直接参考片段", "shot-evidence-grid",
+    ):
+        assert term in app
+    for term in (
+        ".shot-evidence-grid", ".reference-evidence-panel",
+        ".owned-evidence-panel", "grid-template-columns: repeat(2",
+    ):
+        assert term in css
