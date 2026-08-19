@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/backlot/delivery_version",
+  "title": "Certified Delivery Version",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "project_id", "version_id", "created_at",
+    "review_revision_id", "video", "audio_mix", "qa", "change_summary",
+    "video_master_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "project_id": {"type": "string", "minLength": 1},
+    "version_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "review_revision_id": {"type": ["string", "null"]},
+    "video": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "poster_path", "subtitles_path"],
+      "properties": {
+        "path": {"$ref": "#/$defs/project_path"},
+        "poster_path": {"anyOf": [{"$ref": "#/$defs/project_path"}, {"type": "null"}]},
+        "subtitles_path": {"anyOf": [{"$ref": "#/$defs/project_path"}, {"type": "null"}]}
+      }
+    },
+    "audio_mix": {"type": "object"},
+    "qa": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "issues"],
+      "properties": {
+        "status": {"enum": ["pass", "fail"]},
+        "issues": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "change_summary": {"type": "string", "minLength": 1},
+    "video_master_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+  },
+  "$defs": {
+    "project_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*inputs/reference(?:/|$))(?!.*(?:^|/)[.][.](?:/|$)).+$"
+    }
+  }
+}

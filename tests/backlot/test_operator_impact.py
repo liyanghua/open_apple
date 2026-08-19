@@ -65,3 +65,33 @@ def test_preview_token_binds_content_actor_generation_and_expiry() -> None:
     now[0] += timedelta(seconds=901)
     with pytest.raises(OperatorError):
         service.verify_token(preview["preview_token"], draft=draft, actor_id="user-a", base_generation="generation-000001")
+
+
+def test_delivery_preview_uses_business_labels_and_copy_values() -> None:
+    from backlot.operator_adapters import get_adapter
+    from backlot.operator_impact import ImpactService
+
+    changes = [
+        {"op": "select_delivery_candidate", "candidate_kind": "hook", "candidate_id": "hook-current"},
+        {"op": "replace_delivery_copy", "section_id": "s01", "text": "新的完整文案", "sync_narration": False},
+    ]
+    draft = {
+        "schema_version": "1.0", "draft_id": "draft-delivery", "project_id": "demo",
+        "stage": "delivery_review", "base_revision": "r" * 64,
+        "base_artifact_hash": "a" * 64, "adapter": "delivery-review-v1",
+        "changes": changes, "status": "active", "created_by": "user-a",
+        "created_at": "2026-08-19T00:00:00+00:00", "updated_at": "2026-08-19T00:00:00+00:00",
+    }
+    before = {"selected_hook_id": None, "copy_overrides": []}
+    after = get_adapter("delivery_review").apply(before, changes)
+
+    preview = ImpactService(secret=b"test-secret").preview(
+        draft=draft, actor_id="user-a", base_generation="generation-000001",
+        before=before, after=after,
+    )
+    fields = {item["field"]: item for item in preview["changed_fields"]}
+
+    assert fields["selected_hook_id"]["label"] == "前三秒"
+    assert fields["copy_overrides.s01"]["label"] == "文案"
+    assert fields["copy_overrides.s01"]["before"] is None
+    assert fields["copy_overrides.s01"]["after"] == "新的完整文案"

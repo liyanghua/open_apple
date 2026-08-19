@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/backlot/current_delivery",
+  "title": "Current Certified Delivery Pointer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "version_id", "manifest_sha256"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "project_id": {"type": "string", "minLength": 1},
+    "version_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "manifest_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+  }
+}

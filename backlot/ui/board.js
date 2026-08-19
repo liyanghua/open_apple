@@ -575,7 +575,7 @@ const STAGE_LABELS_ZH = {
   proposal: "创意方案",
   idea: "创意方案",
   script: "口播与字幕",
-  scene_plan: "镜头映射",
+  scene_plan: "分镜",
   assets: "制作准备",
   sample: "样片确认",
   edit: "修改与精剪",

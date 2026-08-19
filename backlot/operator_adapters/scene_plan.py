@@ -20,7 +20,7 @@ class ScenePlanAdapter(BaseAdapter):
         "set_shot_audio": frozenset({"op", "shot_id", "source_audio", "sfx", "bgm", "narration"}),
         "set_shot_gap": frozenset({"op", "shot_id", "has_gap"}),
     }
-    field_labels = {"shots": "镜头映射"}
+    field_labels = {"shots": "分镜"}
 
     def _shot(self, snapshot: dict[str, Any], shot_id: str) -> dict[str, Any]:
         return item_by_id(snapshot.setdefault("shots", []), shot_id, "shot")
@@ -89,4 +89,3 @@ class ScenePlanAdapter(BaseAdapter):
         for item in operations:
             self._check_operation(item)
         return {"reopen_creative": False, "reopen_sample": True, "render_route": "full_render"}
-

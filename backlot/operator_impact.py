@@ -19,9 +19,11 @@ _STAGE_LABELS = {
     "research": "参考解析与素材体检",
     "proposal": "创意方案",
     "script": "口播与字幕",
-    "scene_plan": "镜头映射",
+    "scene_plan": "分镜",
     "assets": "制作准备",
     "sample": "样片确认",
+    "edit": "修改与精简",
+    "delivery_review": "成片审核",
 }
 _RENDER_LABELS = {
     "no_render": "无需重新生成视频",
@@ -56,6 +58,8 @@ def _display(value: Any) -> str | int | float | bool | None:
         return value
     if isinstance(value, list):
         return f"{len(value)}项内容"
+    if isinstance(value, dict) and isinstance(value.get("text"), str):
+        return value["text"]
     return "已配置"
 
 
@@ -70,7 +74,7 @@ def _lookup(snapshot: dict[str, Any], field: str) -> Any:
                 (
                     item for item in cursor
                     if isinstance(item, dict)
-                    and str(item.get("id", item.get("section_id", item.get("shot_id")))) == part
+                    and str(item.get("id", item.get("section_id", item.get("shot_id", item.get("segment_id"))))) == part
                 ),
                 None,
             )
@@ -120,7 +124,10 @@ class ImpactService:
         changed_fields = [
             {
                 "field": field,
-                "label": next((label for label in business_changes if label), "内容已调整"),
+                "label": adapter.field_labels.get(
+                    field.split(".", 1)[0],
+                    next((label for label in business_changes if label), "内容已调整"),
+                ),
                 "before": _display(_lookup(before, field)),
                 "after": _display(_lookup(after, field)),
             }

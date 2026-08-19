@@ -37,7 +37,7 @@ def test_operator_ui_supports_nine_business_stages_and_view_states() -> None:
         "参考解析与素材体检",
         "创意方案",
         "口播与字幕",
-        "镜头映射",
+        "分镜",
         "制作准备",
         "样片确认",
         "修改与精剪",
@@ -128,7 +128,7 @@ def test_ui_explains_reference_analysis_and_source_mapping_rationale() -> None:
 
     for term in (
         "data.reference", "爆款结构", "为什么有效", "可复刻机制", "原创差异",
-        "data.reference_basis", "参考机制", "素材匹配", "shot.mapping_reason",
+        "data.reference_basis", "参考视频怎么拍", "这条分镜用哪条素材", "shot.mapping_reason",
     ):
         assert term in app
     assert "reference-analysis" in css
@@ -141,8 +141,8 @@ def test_shot_mapping_compares_reference_and_owned_evidence_side_by_side() -> No
     css = _read(OPERATOR_ROOT / "styles.css")
 
     for term in (
-        "renderReferenceEvidence", "shot.reference_evidence", "参考机制",
-        "自有素材匹配", "无直接参考片段", "shot-evidence-grid",
+        "renderReferenceEvidence", "shot.reference_evidence", "参考视频怎么拍",
+        "这条分镜用哪条素材", "无直接参考片段", "shot-evidence-grid",
     ):
         assert term in app
     for term in (
@@ -150,3 +150,65 @@ def test_shot_mapping_compares_reference_and_owned_evidence_side_by_side() -> No
         ".owned-evidence-panel", "grid-template-columns: repeat(2",
     ):
         assert term in css
+
+
+def test_shot_mapping_editor_explains_owned_source_range() -> None:
+    editors = _read(OPERATOR_ROOT / "editors.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+
+    for term in ("这条素材用哪一段", "参考视频仅用于分析", "从第几秒开始", "到第几秒结束"):
+        assert term in editors
+    assert "素材出点" not in editors
+    for term in (".shot-range-editor", ".shot-range-inputs", ".editor-help"):
+        assert term in css
+
+
+def test_asset_stage_shows_planned_progress_and_reasons() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    state = _read(REPO_ROOT / "backlot" / "operator_state.py")
+    css = _read(OPERATOR_ROOT / "styles.css")
+
+    for term in ("制作进展", "制作清单", "data.items", "item.reason", "waiting_confirmation_count"):
+        assert term in app or term in state
+    for term in ("asset-progress", "asset-plan-list", "asset-plan-row"):
+        assert term in css
+
+
+def test_delivery_stage_is_an_operator_review_workbench() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    editors = _read(OPERATOR_ROOT / "editors.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+
+    for term in (
+        "delivery-review-workbench", "delivery-player", "data.player.poster_url",
+        "data.timeline.tracks", "delivery-track", "delivery-playhead",
+        "data.candidate_groups", "delivery-candidate", "data.versions",
+        "切换成片版本", "暂存修改", "查看影响", "生成新版",
+        "replace_delivery_copy", "select_delivery_candidate", "sync_narration",
+    ):
+        assert term in app or term in editors or term in css
+    for term in (
+        ".delivery-review-workbench", ".delivery-main", ".delivery-player",
+        ".delivery-timeline", ".delivery-track", ".delivery-candidates",
+        ".delivery-version-switcher", ".delivery-copy-editor",
+    ):
+        assert term in css
+    assert 'const mutationStage = editor?.type === "delivery_review" ? "delivery_review" : stage.id;' in app
+
+
+def test_delivery_workbench_restores_and_projects_saved_draft_changes() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    api = _read(OPERATOR_ROOT / "api.js")
+
+    assert "export async function fetchDraft" in api
+    assert "fetchDraft(projectId, \"delivery_review\")" in app
+    assert "snapshot.drafts?.[mutationStage]?.changes" in app
+    assert "pendingCandidateIds" in app
+    assert "pendingCopyOverrides" in app
+
+
+def test_impact_panel_does_not_chain_from_dom_append_return_value() -> None:
+    impact = _read(OPERATOR_ROOT / "impact.js")
+
+    assert ".append(document.createElement" not in impact
+    assert "change.label || change.field" in impact

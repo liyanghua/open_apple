@@ -898,8 +898,8 @@ class VideoCompose(BaseTool):
             if subtitle_path and Path(subtitle_path).exists():
                 style = inputs.get("subtitle_style", {})
                 ass_style = self._build_subtitle_style(style)
-                sub_escaped = str(Path(subtitle_path).resolve()).replace("\\", "/").replace(":", "\\:")
-                vfilters.append(f"subtitles='{sub_escaped}':force_style='{ass_style}'")
+                sub_escaped = str(Path(subtitle_path).resolve()).replace("\\", "/").replace(":", "\\:").replace("'", "\\\\'")
+                vfilters.append(f"subtitles={sub_escaped}")
 
             cmd = ["ffmpeg", "-y", "-i", str(final_input)]
 
@@ -3518,14 +3518,14 @@ class VideoCompose(BaseTool):
 
         style = inputs.get("subtitle_style", {})
         ass_style = self._build_subtitle_style(style)
-        sub_escaped = str(subtitle_path.resolve()).replace("\\", "/").replace(":", "\\:")
+        sub_escaped = str(subtitle_path.resolve()).replace("\\", "/").replace(":", "\\:").replace("'", "\\\\'")
         codec = inputs.get("codec", "libx264")
         crf = inputs.get("crf", 23)
 
         cmd = [
             "ffmpeg", "-y",
             "-i", str(input_path),
-            "-vf", f"subtitles='{sub_escaped}':force_style='{ass_style}'",
+            "-vf", f"subtitles={sub_escaped}",
             "-c:v", codec, "-crf", str(crf),
             "-c:a", "copy",
             str(output_path),

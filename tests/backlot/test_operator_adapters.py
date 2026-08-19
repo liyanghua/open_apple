@@ -7,6 +7,7 @@ def test_registry_is_explicit_and_rejects_unknown_stage() -> None:
     from backlot.operator_adapters import get_adapter
 
     assert get_adapter("script").adapter_id == "script-v1"
+    assert get_adapter("edit").adapter_id == "edit-v1"
     with pytest.raises(KeyError):
         get_adapter("compose")
 
@@ -143,6 +144,26 @@ def test_asset_changes_emit_reapproval_and_render_signals() -> None:
     assert signals == {"reopen_creative": True, "reopen_sample": True, "render_route": "full_render"}
 
 
+def test_edit_changes_are_typed_and_route_to_preview_render() -> None:
+    from backlot.operator_adapters import get_adapter
+
+    adapter = get_adapter("edit")
+    before = {
+        "cuts": [
+            {"id": "sc01", "in_seconds": 1, "out_seconds": 3, "speed": 1},
+            {"id": "sc02", "in_seconds": 0, "out_seconds": 2, "speed": 1},
+        ],
+        "audio": {"music": {"volume": 0.08}, "sfx": [{"volume": 0.22}], "narration": {}},
+    }
+    after = adapter.apply(before, [
+        {"op": "set_shot_enabled", "shot_id": "sc01", "enabled": False},
+        {"op": "set_caption", "shot_id": "sc01", "text": "先划一下，桌面不怕"},
+    ])
+    assert after["cuts"][0]["enabled"] is False
+    assert after["caption_overrides"][0]["text"] == "先划一下，桌面不怕"
+    assert adapter.change_signals([{"op": "set_caption", "shot_id": "sc01", "text": "新字幕"}])["render_route"] == "full_render"
+
+
 def test_diff_is_chinese_business_summary_not_structural_patch() -> None:
     from backlot.operator_adapters import get_adapter
 
@@ -152,4 +173,3 @@ def test_diff_is_chinese_business_summary_not_structural_patch() -> None:
     )
     assert changes == ["开头钩子已调整", "结尾行动引导已调整"]
     assert "/hook" not in "".join(changes)
-

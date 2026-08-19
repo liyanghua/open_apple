@@ -19,6 +19,7 @@ from fastapi import APIRouter, Request
 
 from backlot.operator_adapters import get_adapter
 from backlot.operator_drafts import DraftService
+from backlot.delivery_review_revisions import DeliveryReviewRevisionService
 from backlot.operator_errors import OperatorError
 from backlot.operator_impact import ImpactService
 from backlot.operator_migration import OperatorMigrationService
@@ -255,6 +256,11 @@ def create_operator_router(
         )
         return {**result, "skill": {"id": skill["id"], "version": skill["version"]}}
 
+    @router.get("/projects/{project_id}/drafts/{stage}")
+    async def load_draft(project_id: str, stage: str, request: Request) -> dict | None:
+        session = authenticate(request, project_id, "read")
+        return DraftService(project(project_id)).load(session.actor.user_id, stage)
+
     @router.put("/projects/{project_id}/drafts/{stage}")
     async def save_draft(project_id: str, stage: str, request: Request) -> dict:
         session = authenticate(request, project_id, "edit", csrf=True)
@@ -282,6 +288,7 @@ def create_operator_router(
         if not draft or draft.get("status") != "active":
             raise OperatorError.validation_failed("没有可预览的草稿")
         before = snapshot(project_dir, stage)
+        get_adapter(stage).validate_project_operations(project_dir, draft["changes"])
         after = get_adapter(stage).apply(before, draft["changes"])
         generation = str(payload.get("base_generation") or "")
         if not generation:
@@ -311,7 +318,17 @@ def create_operator_router(
         generation = str(payload.get("base_generation") or "")
         if not generation:
             generation = ProjectCommitStore(project_dir).initialize()["generation_id"]
-        revision = RevisionService(project_dir).commit_draft(
+        commit_service = (
+            DeliveryReviewRevisionService(project_dir)
+            if stage == "delivery_review"
+            else RevisionService(project_dir)
+        )
+        commit_method = (
+            commit_service.commit
+            if stage == "delivery_review"
+            else commit_service.commit_draft
+        )
+        revision = commit_method(
             draft=draft,
             actor_id=session.actor.user_id,
             reason=str(payload.get("reason") or ""),
@@ -326,7 +343,7 @@ def create_operator_router(
             "schema_version": "1.0",
             "action_id": f"commit-{revision['revision_id']}",
             "result_revision": revision["revision_id"],
-            "status": "committed",
+            "status": "queued" if stage == "delivery_review" else "committed",
             "links": [{"rel": "project", "href": f"/p/{project_id}"}],
         }
 

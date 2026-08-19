@@ -244,6 +244,7 @@ ARTIFACT_FILES = {
     "edit_decisions": "edit_decisions.json",
     "render_report": "render_report.json",
     "final_review": "final_review.json",
+    "delivery_review": "delivery_review.json",
     "publish_log": "publish_log.json",
     "decision_log": "decision_log.json",
     "change_impact": "change_impact.json",

@@ -13,10 +13,10 @@
     "schema_version": {"const": "1.0"},
     "draft_id": {"type": "string", "minLength": 1},
     "project_id": {"type": "string", "minLength": 1},
-    "stage": {"enum": ["research", "proposal", "script", "scene_plan", "assets", "sample"]},
+    "stage": {"enum": ["research", "proposal", "script", "scene_plan", "assets", "sample", "delivery_review"]},
     "base_revision": {"type": "string", "pattern": "^[a-fA-F0-9r]{64}$"},
     "base_artifact_hash": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
-    "adapter": {"enum": ["research-v1", "proposal-v1", "script-v1", "scene-plan-v1", "assets-v1", "sample-v1"]},
+    "adapter": {"enum": ["research-v1", "proposal-v1", "script-v1", "scene-plan-v1", "assets-v1", "sample-v1", "delivery-review-v1"]},
     "changes": {"type": "array"},
     "status": {"enum": ["active", "stale", "committed", "discarded"]},
     "created_by": {"type": "string", "minLength": 1},
@@ -30,7 +30,8 @@
       {"properties": {"adapter": {"const": "script-v1"}, "stage": {"const": "script"}, "changes": {"items": {"$ref": "#/$defs/scriptOperation"}}}},
       {"properties": {"adapter": {"const": "scene-plan-v1"}, "stage": {"const": "scene_plan"}, "changes": {"items": {"$ref": "#/$defs/sceneOperation"}}}},
       {"properties": {"adapter": {"const": "assets-v1"}, "stage": {"const": "assets"}, "changes": {"items": {"$ref": "#/$defs/assetsOperation"}}}},
-      {"properties": {"adapter": {"const": "sample-v1"}, "stage": {"const": "sample"}, "changes": {"items": {"$ref": "#/$defs/sampleOperation"}}}}
+      {"properties": {"adapter": {"const": "sample-v1"}, "stage": {"const": "sample"}, "changes": {"items": {"$ref": "#/$defs/sampleOperation"}}}},
+      {"properties": {"adapter": {"const": "delivery-review-v1"}, "stage": {"const": "delivery_review"}, "changes": {"items": {"$ref": "#/$defs/deliveryReviewOperation"}}}}
     ]
   }],
   "$defs": {
@@ -69,6 +70,10 @@
       {"$ref": "#/$defs/replaceSectionScreenCopy"}, {"$ref": "#/$defs/setSourceRange"},
       {"$ref": "#/$defs/setShotSpeed"}, {"$ref": "#/$defs/setShotTransition"}
     ]},
+    "deliveryReviewOperation": {"oneOf": [
+      {"$ref": "#/$defs/selectDeliveryCandidate"},
+      {"$ref": "#/$defs/replaceDeliveryCopy"}, {"$ref": "#/$defs/clearDeliverySelection"}
+    ]},
     "setMediaDisposition": {"type": "object", "additionalProperties": false, "required": ["op", "media_id", "disposition"], "properties": {"op": {"const": "set_media_disposition"}, "media_id": {"type": "string", "minLength": 1}, "disposition": {"enum": ["priority", "usable", "unused"]}}},
     "setBusinessNote": {"type": "object", "additionalProperties": false, "required": ["op", "target_id", "text"], "properties": {"op": {"const": "set_business_note"}, "target_id": {"type": "string", "minLength": 1}, "text": {"type": "string"}}},
     "setLogoUsage": {"type": "object", "additionalProperties": false, "required": ["op", "media_id", "allowed"], "properties": {"op": {"const": "set_logo_usage"}, "media_id": {"type": "string", "minLength": 1}, "allowed": {"type": "boolean"}}},
@@ -104,6 +109,14 @@
     "setCompositionMode": {"type": "object", "additionalProperties": false, "required": ["op", "mode"], "properties": {"op": {"const": "set_composition_mode"}, "mode": {"enum": ["templated", "atelier"]}}},
     "authorizePaidGeneration": {"type": "object", "additionalProperties": false, "required": ["op", "approved", "estimated_cost_usd"], "properties": {"op": {"const": "authorize_paid_generation"}, "approved": {"type": "boolean"}, "estimated_cost_usd": {"type": ["number", "null"], "minimum": 0}}},
     "setAssetGap": {"type": "object", "additionalProperties": false, "required": ["op", "gap_id", "strategy"], "properties": {"op": {"const": "set_asset_gap"}, "gap_id": {"type": "string", "minLength": 1}, "strategy": {"type": "string", "minLength": 1}}},
-    "addTimecodeComment": {"type": "object", "additionalProperties": false, "required": ["op", "start_seconds", "end_seconds", "text"], "properties": {"op": {"const": "add_timecode_comment"}, "start_seconds": {"type": "number", "minimum": 0}, "end_seconds": {"type": "number", "exclusiveMinimum": 0}, "text": {"type": "string", "minLength": 1}}}
+    "addTimecodeComment": {"type": "object", "additionalProperties": false, "required": ["op", "start_seconds", "end_seconds", "text"], "properties": {"op": {"const": "add_timecode_comment"}, "start_seconds": {"type": "number", "minimum": 0}, "end_seconds": {"type": "number", "exclusiveMinimum": 0}, "text": {"type": "string", "minLength": 1}}},
+    "selectDeliveryCandidate": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["op", "candidate_kind", "candidate_id"], "properties": {"op": {"const": "select_delivery_candidate"}, "candidate_kind": {"const": "cover"}, "candidate_id": {"type": "string", "pattern": "^cover-[A-Za-z0-9][A-Za-z0-9._-]*$"}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "candidate_kind", "candidate_id"], "properties": {"op": {"const": "select_delivery_candidate"}, "candidate_kind": {"const": "hook"}, "candidate_id": {"type": "string", "pattern": "^hook-[A-Za-z0-9][A-Za-z0-9._-]*$"}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "candidate_kind", "candidate_id"], "properties": {"op": {"const": "select_delivery_candidate"}, "candidate_kind": {"const": "bgm"}, "candidate_id": {"type": "string", "pattern": "^bgm-[A-Za-z0-9][A-Za-z0-9._-]*$"}, "volume": {"type": "number", "minimum": 0, "maximum": 1}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "candidate_kind", "candidate_id"], "properties": {"op": {"const": "select_delivery_candidate"}, "candidate_kind": {"const": "ending"}, "candidate_id": {"type": "string", "pattern": "^ending-[A-Za-z0-9][A-Za-z0-9._-]*$"}}}
+    ]},
+    "replaceDeliveryCopy": {"type": "object", "additionalProperties": false, "required": ["op", "section_id", "text"], "properties": {"op": {"const": "replace_delivery_copy"}, "section_id": {"type": "string", "minLength": 1}, "text": {"type": "string"}, "sync_narration": {"type": "boolean", "default": true}}},
+    "clearDeliverySelection": {"type": "object", "additionalProperties": false, "required": ["op", "kind"], "properties": {"op": {"const": "clear_delivery_selection"}, "kind": {"enum": ["cover", "hook", "bgm", "ending"]}}}
   }
 }

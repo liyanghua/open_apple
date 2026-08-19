@@ -44,6 +44,23 @@ ROUTE_LABELS = {
     "full": "生成完整视频",
 }
 
+ASSET_TYPE_LABELS = {
+    "video_proxy": "源素材代理",
+    "narration": "口播",
+    "subtitles": "字幕",
+    "music": "背景音乐",
+    "composition": "合成工程",
+    "sample_render": "样片",
+    "cost_contingency": "费用预留",
+}
+
+ASSET_STAGE_LABELS = {
+    "assets": "制作准备阶段",
+    "sample": "样片阶段",
+    "edit": "精剪阶段",
+    "compose": "成片阶段",
+}
+
 _ABSOLUTE_PATH = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
 
 
@@ -472,14 +489,101 @@ def _shot_editor(board: Mapping[str, Any]) -> dict[str, Any]:
 
 def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     artifacts = board.get("artifacts") or {}
+    plan = _artifact(board, "asset_plan")
+    manifest = _artifact(board, "asset_manifest")
+    source_review = _artifact(board, "source_media_review")
+    source_files = source_review.get("files") if isinstance(source_review.get("files"), list) else []
+    source_by_id = {
+        str(item.get("media_id")): item
+        for item in source_files
+        if isinstance(item, Mapping) and item.get("media_id")
+    }
+    planned_assets = plan.get("planned_assets") if isinstance(plan.get("planned_assets"), list) else []
+    realized_assets = manifest.get("assets") if isinstance(manifest.get("assets"), list) else []
+    realized_ids = {
+        str(item.get("id")) for item in realized_assets
+        if isinstance(item, Mapping) and item.get("id")
+    }
+    realized_paths = {
+        str(item.get("path") or item.get("output_path")) for item in realized_assets
+        if isinstance(item, Mapping) and (item.get("path") or item.get("output_path"))
+    }
+    paid_approved = bool(plan.get("paid_generation_approved"))
+    projected = []
+    for item in planned_assets:
+        if not isinstance(item, Mapping):
+            continue
+        asset_id = _safe_text(item.get("id"), "planned-asset")
+        output_path = _safe_text(item.get("output_path"))
+        prepared = bool(item.get("exists")) or asset_id in realized_ids or output_path in realized_paths
+        paid = bool(item.get("paid"))
+        source_stage = _safe_text(item.get("source_stage"), "assets")
+        if prepared:
+            status = "已准备"
+            reason = "文件已经生成并登记"
+        elif paid and not paid_approved:
+            status = "等待确认"
+            reason = "付费生成尚未获得批准，不会自动调用模型"
+        elif source_stage == "sample":
+            status = "后续生成"
+            reason = "制作方案已锁定，将在样片阶段生成"
+        else:
+            status = "待生成"
+            reason = "已列入制作清单，尚未执行"
+        asset_type = _safe_text(item.get("type"), "asset")
+        source_item = source_by_id.get(asset_id.removeprefix("proxy-"), {})
+        source_path = source_item.get("path") if isinstance(source_item, Mapping) else None
+        source_label = Path(str(source_path)).stem if source_path else ""
+        best_ranges = source_item.get("best_ranges") if isinstance(source_item, Mapping) else []
+        best_range = best_ranges[0] if best_ranges and isinstance(best_ranges[0], Mapping) else {}
+        source_range = (
+            f"建议 {float(best_range['start_seconds']):g}-{float(best_range['end_seconds']):g} 秒"
+            if best_range.get("start_seconds") is not None and best_range.get("end_seconds") is not None
+            else ""
+        )
+        source_summary = _safe_text(source_item.get("content_summary")) if isinstance(source_item, Mapping) else ""
+        quality_risks = source_item.get("quality_risks") if isinstance(source_item, Mapping) else []
+        if asset_type == "video_proxy" and quality_risks:
+            reason = f"{'; '.join(str(risk) for risk in quality_risks)}；将先生成可剪辑代理。"
+        projected.append({
+            "id": asset_id,
+            "label": f"源素材代理 · {source_label}" if source_label else ASSET_TYPE_LABELS.get(asset_type, "制作素材"),
+            "type": asset_type,
+            "provider": _safe_text(item.get("provider"), "待确定"),
+            "stage_label": ASSET_STAGE_LABELS.get(source_stage, "后续阶段"),
+            "status": status,
+            "reason": reason,
+            "source_summary": source_summary,
+            "source_range": source_range,
+            "paid": paid,
+            "cost_estimate_usd": _number(item.get("cost_estimate_usd")),
+        })
+
+    def category_status(asset_type: str, fallback: str) -> str:
+        items = [asset for asset in projected if asset["type"] == asset_type]
+        if any(item["status"] == "已准备" for item in items):
+            return "已准备"
+        if any(item["status"] == "等待确认" for item in items):
+            return "方案已锁定，等待付费确认"
+        if items:
+            return "方案已锁定，将在样片阶段生成"
+        return fallback
+
+    prepared_count = sum(item["status"] == "已准备" for item in projected)
+    waiting_confirmation_count = sum(item["status"] == "等待确认" for item in projected)
     spent = _number((board.get("cost") or {}).get("total_spent_usd"))
     return {
         "type": "asset_review",
         "data": {
-            "narration_status": "已准备" if "asset_manifest" in artifacts else "尚未准备",
-            "subtitle_status": "已准备" if "asset_manifest" in artifacts else "尚未准备",
-            "music_status": "已准备" if "asset_manifest" in artifacts else "尚未准备",
+            "narration_status": category_status("narration", "未安排口播"),
+            "subtitle_status": category_status("subtitles", "未安排字幕"),
+            "music_status": category_status("music", "未安排背景音乐"),
             "estimated_cost_usd": spent,
+            "planned_count": len(projected),
+            "prepared_count": prepared_count,
+            "waiting_confirmation_count": waiting_confirmation_count,
+            "paid_generation_approved": paid_approved,
+            "items": projected,
         },
     }
 
@@ -508,22 +612,97 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
 
 def _edit_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     impact = _artifact(board, "change_impact")
+    decisions = _artifact(board, "edit_decisions")
+    scene_plan = _artifact(board, "scene_plan")
+    script = _artifact(board, "script")
     route = impact.get("route")
     reasons = [_safe_text(reason) for reason in impact.get("reasons") or []]
     reasons = [reason for reason in reasons if reason]
     dirty = impact.get("dirty_scene_ids") if isinstance(impact.get("dirty_scene_ids"), list) else []
+    project_id = str(board.get("project_id") or "project")
+    sample = _sample_editor(board)["data"]
+    scenes = {
+        str(scene.get("id")): scene
+        for scene in scene_plan.get("scenes") or []
+        if isinstance(scene, Mapping) and scene.get("id")
+    }
+    sections = {
+        str(section.get("id")): section
+        for section in script.get("sections") or []
+        if isinstance(section, Mapping) and section.get("id")
+    }
+    overrides = {
+        str(item.get("shot_id")): _safe_text(item.get("text"))
+        for item in decisions.get("caption_overrides") or []
+        if isinstance(item, Mapping) and item.get("shot_id")
+    }
+    shots = []
+    for index, cut in enumerate(decisions.get("cuts") or []):
+        if not isinstance(cut, Mapping):
+            continue
+        shot_id = _safe_text(cut.get("id"), f"sc{index + 1:02d}")
+        scene = scenes.get(shot_id, {})
+        section = sections.get(str(scene.get("script_section_id")), {})
+        source = cut.get("source")
+        source_in = _number(cut.get("in_seconds"))
+        source_out = _number(cut.get("out_seconds"))
+        overlay = next(
+            (item for item in scene.get("overlay_layers") or [] if isinstance(item, Mapping)),
+            {},
+        )
+        caption = overrides.get(shot_id) or _safe_text(overlay.get("text"))
+        shots.append({
+            "id": shot_id,
+            "title": _safe_text(scene.get("description"), f"第 {index + 1} 个镜头"),
+            "source_label": Path(str(source)).stem if source else "尚未指定素材",
+            "source_in_seconds": source_in,
+            "source_out_seconds": source_out,
+            "duration_seconds": round(max(0.0, (source_out or 0) - (source_in or 0)), 2),
+            "enabled": cut.get("enabled", True) is not False,
+            "speed": _number(cut.get("speed")) or 1,
+            "caption": caption,
+            "narration": _safe_text(section.get("narration")) or _safe_text(section.get("text")),
+            "reason": _safe_text(cut.get("reason")) or _safe_text(scene.get("shot_intent")),
+            "preview_url": _media_url(project_id, source),
+            "poster_url": _thumb_url(
+                project_id,
+                source,
+                time_seconds=(float(source_in) + float(source_out)) / 2
+                if source_in is not None and source_out is not None else None,
+            ),
+        })
+    audio = decisions.get("audio") if isinstance(decisions.get("audio"), Mapping) else {}
+    music = audio.get("music") if isinstance(audio.get("music"), Mapping) else {}
+    sfx_items = audio.get("sfx") if isinstance(audio.get("sfx"), list) else []
+    first_sfx = sfx_items[0] if sfx_items and isinstance(sfx_items[0], Mapping) else {}
+    narration = audio.get("narration") if isinstance(audio.get("narration"), Mapping) else {}
     return {
         "type": "edit_review",
         "data": {
             "change_scope": ROUTE_LABELS.get(str(route), "尚未确定修改范围"),
             "reasons": reasons,
             "affected_shot_count": len(dirty),
+            "summary": "样片已验收。这里可以删减镜头、调整节奏、修改字幕和声音；每次修改先看影响预览，确认后才生成新版样片。",
+            "preview_url": sample.get("preview_url"),
+            "preview_duration_seconds": sample.get("duration_seconds"),
+            "shots": shots,
+            "audio": {
+                "music_volume": _number(music.get("volume")) or 0,
+                "sfx_volume": _number(first_sfx.get("volume")) or 0,
+                "narration_enabled": narration.get("enabled", True) is not False,
+            },
+            "capabilities": ["删减镜头", "调整镜头时长和速度", "修改字幕与口播", "调整背景音乐和音效"],
         },
     }
 
 
 def _delivery_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     report = _artifact(board, "render_report")
+    final_review = _artifact(board, "final_review")
+    decisions = _artifact(board, "edit_decisions")
+    scene_plan = _artifact(board, "scene_plan")
+    script = _artifact(board, "script")
+    delivery_review = _artifact(board, "delivery_review")
     outputs = report.get("outputs") if isinstance(report.get("outputs"), list) else []
     output = next((item for item in outputs if isinstance(item, Mapping)), None)
     render = next(
@@ -533,15 +712,258 @@ def _delivery_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         ),
         None,
     )
-    source = render or output
+    source = output or render
     project_id = str(board.get("project_id") or "project")
+    source_path = source.get("path") if source else None
+    video_url = _media_url(project_id, source_path)
+    duration = _number(source.get("duration_seconds")) if source else None
+    if duration is None:
+        duration = _number(script.get("total_duration_seconds"))
+    poster_time = min(1.0, float(duration or 1) / 2)
+    poster_url = _thumb_url(project_id, source_path, time_seconds=poster_time)
+
+    raw_scenes = scene_plan.get("scenes") if isinstance(scene_plan.get("scenes"), list) else []
+    scenes = {
+        str(item.get("id")): item
+        for item in raw_scenes
+        if isinstance(item, Mapping) and item.get("id")
+    }
+    cuts = decisions.get("cuts") if isinstance(decisions.get("cuts"), list) else []
+    cut_by_id = {
+        str(item.get("id")): item
+        for item in cuts
+        if isinstance(item, Mapping) and item.get("id")
+    }
+
+    video_segments = []
+    for index, scene in enumerate(raw_scenes):
+        if not isinstance(scene, Mapping):
+            continue
+        shot_id = _safe_text(scene.get("id"), f"shot-{index + 1}")
+        start = _number(scene.get("start_seconds")) or 0
+        end = _number(scene.get("end_seconds")) or start
+        if end < start:
+            continue
+        cut = cut_by_id.get(shot_id, {})
+        media_path = cut.get("source")
+        normalized = str(media_path or "").replace("\\", "/").lower()
+        if "/inputs/reference/" in f"/{normalized.strip('/')}":
+            media_path = None
+        source_in = _number(cut.get("in_seconds"))
+        source_out = _number(cut.get("out_seconds"))
+        video_segments.append({
+            "id": shot_id,
+            "label": _safe_text(scene.get("description"), f"第 {index + 1} 个镜头"),
+            "start_seconds": start,
+            "end_seconds": end,
+            "shot_ids": [shot_id],
+            "preview_url": _media_url(project_id, media_path),
+            "poster_url": _thumb_url(
+                project_id,
+                media_path,
+                time_seconds=(float(source_in) + float(source_out)) / 2
+                if source_in is not None and source_out is not None else None,
+            ),
+            "source_label": Path(str(media_path)).stem if media_path else "素材待确认",
+            "editable": False,
+            "sync_narration": False,
+        })
+
+    raw_sections = script.get("sections") if isinstance(script.get("sections"), list) else []
+    sentence_segments = []
+    narration_segments = []
+    for index, section in enumerate(raw_sections):
+        if not isinstance(section, Mapping):
+            continue
+        section_id = _safe_text(section.get("id"), f"sentence-{index + 1}")
+        start = _number(section.get("start_seconds")) or 0
+        end = _number(section.get("end_seconds")) or start
+        text = _safe_text(section.get("narration")) or _safe_text(section.get("text"))
+        shot_ids = [
+            str(scene.get("id"))
+            for scene in raw_scenes
+            if isinstance(scene, Mapping)
+            and scene.get("id")
+            and (
+                str(scene.get("script_section_id") or "") == section_id
+                or (
+                    (_number(scene.get("start_seconds")) or 0) < end
+                    and (_number(scene.get("end_seconds")) or 0) > start
+                )
+            )
+        ]
+        segment = {
+            "id": section_id,
+            "label": text or _safe_text(section.get("label"), "文案"),
+            "start_seconds": start,
+            "end_seconds": end,
+            "shot_ids": list(dict.fromkeys(shot_ids)),
+            "editable": True,
+            "sync_narration": True,
+        }
+        sentence_segments.append(segment)
+        narration_segments.append(dict(segment, editable=False))
+
+    audio = decisions.get("audio") if isinstance(decisions.get("audio"), Mapping) else {}
+    music = audio.get("music") if isinstance(audio.get("music"), Mapping) else {}
+    sfx_items = audio.get("sfx") if isinstance(audio.get("sfx"), list) else []
+    audio_segments = []
+    music_id = _safe_text(music.get("asset_id"))
+    if music_id:
+        audio_segments.append({
+            "id": music_id,
+            "label": "当前背景音乐",
+            "start_seconds": 0,
+            "end_seconds": duration or 0,
+            "shot_ids": [],
+            "editable": False,
+            "sync_narration": False,
+        })
+    for index, item in enumerate(sfx_items):
+        if not isinstance(item, Mapping):
+            continue
+        start = _number(item.get("start_seconds")) or 0
+        audio_segments.append({
+            "id": _safe_text(item.get("asset_id"), f"sfx-{index + 1}"),
+            "label": "音效",
+            "start_seconds": start,
+            "end_seconds": start,
+            "shot_ids": [],
+            "editable": False,
+            "sync_narration": False,
+        })
+
+    tracks = [
+        {"kind": "video", "label": "画面", "empty_message": None if video_segments else "当前成片没有可识别的画面分镜", "segments": video_segments},
+        {"kind": "narration", "label": "口播", "empty_message": None if narration_segments else "当前成片未配置口播", "segments": narration_segments},
+        {"kind": "copy", "label": "文案", "empty_message": None if sentence_segments else "当前成片未配置字幕文案", "segments": sentence_segments},
+        {"kind": "audio", "label": "背景音乐与音效", "empty_message": None if audio_segments else "当前成片未配置背景音乐", "segments": audio_segments},
+    ]
+
+    version_seed = _safe_text(report.get("video_master_sha256")) or _safe_text(source_path) or project_id
+
+    def candidate_id(kind: str, value: Any) -> str:
+        digest = hashlib.sha256(
+            json.dumps([version_seed, kind, value], ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:12]
+        return f"{kind}-{digest}"
+
+    first_segment = video_segments[0] if video_segments else None
+    last_segment = video_segments[-1] if video_segments else None
+    selected_cover = _safe_text(delivery_review.get("selected_cover_id"))
+    selected_hook = _safe_text(delivery_review.get("selected_hook_id"))
+    selected_bgm = _safe_text(delivery_review.get("selected_bgm_id"))
+    selected_ending = _safe_text(delivery_review.get("selected_ending_id"))
+    cover_specs = [
+        ("产品清晰帧", poster_time, "产品主体清晰，适合作为默认发布封面"),
+        ("中段效果帧", max(1.0, float(duration or 2) / 2), "突出产品使用过程和效果证据"),
+        ("结尾场景帧", max(1.0, float(duration or 2) - 1), "展示完整使用场景，适合稳妥收束"),
+    ] if poster_url else []
+    cover_candidates = []
+    for label, timestamp, summary in cover_specs:
+        item_id = candidate_id("cover", timestamp)
+        cover_candidates.append({
+            "id": item_id,
+            "label": label,
+            "summary": summary,
+            "preview_url": _thumb_url(project_id, source_path, time_seconds=timestamp),
+            "selected": selected_cover == item_id or (not selected_cover and not cover_candidates),
+        })
+    hook_specs = []
+    if first_segment:
+        hook_specs.append(("当前冲突开场", video_segments[:2], "保留当前前三秒的镜头顺序和首句文案"))
+    if len(video_segments) > 2:
+        result_segment = next(
+            (item for item in video_segments[1:] if item["id"] != first_segment["id"]),
+            None,
+        )
+        if result_segment:
+            hook_specs.append(("结果先行开场", [result_segment, first_segment], "先展示使用结果，再回到动作证明"))
+    hook_candidates = []
+    for label, segments, summary in hook_specs:
+        item_id = candidate_id("hook", [item["id"] for item in segments])
+        hook_candidates.append({
+            "id": item_id,
+            "label": label,
+            "summary": summary,
+            "preview_url": segments[0].get("preview_url") or video_url,
+            "selected": selected_hook == item_id or (not selected_hook and not hook_candidates),
+        })
+    bgm_candidates = [{
+        "id": candidate_id("bgm", music_id),
+        "label": "当前背景音乐",
+        "summary": "保留当前混音、淡入淡出和口播避让设置",
+        "preview_url": None,
+        "selected": selected_bgm == candidate_id("bgm", music_id) or not selected_bgm,
+    }] if music_id else []
+    ending_candidates = [{
+        "id": candidate_id("ending", last_segment["id"]),
+        "label": "当前结尾",
+        "summary": "保留最后一个产品画面和行动引导",
+        "preview_url": last_segment.get("poster_url") or poster_url,
+        "selected": selected_ending == candidate_id("ending", last_segment["id"]) or not selected_ending,
+    }] if last_segment else []
+    candidate_groups = [
+        {"kind": "cover", "label": "封面", "empty_message": None if cover_candidates else "暂时无法从成片提取清晰封面", "candidates": cover_candidates},
+        {"kind": "hook", "label": "前三秒", "empty_message": None if hook_candidates else "当前没有可组合的前三秒方案", "candidates": hook_candidates},
+        {"kind": "bgm", "label": "背景音乐", "empty_message": None if bgm_candidates else "当前成片未配置背景音乐", "candidates": bgm_candidates},
+        {"kind": "ending", "label": "结尾", "empty_message": None if ending_candidates else "当前没有可用的结尾画面", "candidates": ending_candidates},
+    ]
+
+    qa_passed = final_review.get("status") == "pass"
+    stored_versions = board.get("_delivery_versions") if isinstance(board.get("_delivery_versions"), list) else []
+    current_delivery = board.get("_current_delivery") if isinstance(board.get("_current_delivery"), Mapping) else {}
+    versions = []
+    for index, version in enumerate(stored_versions):
+        if not isinstance(version, Mapping):
+            continue
+        video = version.get("video") if isinstance(version.get("video"), Mapping) else {}
+        version_id = _safe_text(version.get("version_id"), f"v{index + 1}")
+        versions.append({
+            "id": version_id,
+            "label": f"V{index + 1}",
+            "active": current_delivery.get("version_id") == version_id,
+            "qa_status": "检查通过" if (version.get("qa") or {}).get("status") == "pass" else "检查未通过",
+            "video_url": _media_url(project_id, video.get("path")),
+            "poster_url": _media_url(project_id, video.get("poster_path")) or _thumb_url(project_id, video.get("path"), time_seconds=1),
+            "change_summary": _safe_text(version.get("change_summary"), "该版本暂无变更说明"),
+        })
+    if not versions and video_url:
+        versions = [{
+            "id": candidate_id("version", version_seed),
+            "label": "当前版",
+            "active": True,
+            "qa_status": "检查通过" if qa_passed else "等待检查",
+            "video_url": video_url,
+            "poster_url": poster_url,
+            "change_summary": "当前已认证成片" if qa_passed else "当前成片等待完整检查",
+        }]
+    pending_changes = []
+    for kind, selected, label in (
+        ("cover", selected_cover, "封面"), ("hook", selected_hook, "前三秒"),
+        ("bgm", selected_bgm, "背景音乐"), ("ending", selected_ending, "结尾"),
+    ):
+        if selected:
+            pending_changes.append({"kind": kind, "label": label, "summary": "已选择新方案，等待生成新版"})
+    for override in delivery_review.get("copy_overrides") or []:
+        if isinstance(override, Mapping):
+            pending_changes.append({"kind": "copy", "label": "文案", "summary": "文案已修改，等待生成新版"})
     return {
         "type": "delivery_review",
         "data": {
-            "duration_seconds": _number(source.get("duration_seconds")) if source else None,
-            "qa_status": "检查通过" if output else "等待成片检查",
-            "download_url": _media_url(project_id, source.get("path")) if source else None,
+            "duration_seconds": duration,
+            "qa_status": "检查通过" if qa_passed else "等待成片检查",
+            "download_url": video_url,
             "format_label": _safe_text(output.get("resolution"), "竖屏视频") if output else "竖屏视频",
+            "player": {
+                "video_url": video_url,
+                "poster_url": poster_url,
+                "duration_seconds": duration,
+            },
+            "timeline": {"duration_seconds": duration, "tracks": tracks},
+            "candidate_groups": candidate_groups,
+            "versions": versions,
+            "pending_changes": pending_changes,
         },
     }
 
@@ -730,7 +1152,17 @@ def load_operator_state(
     project_dir: Path, *, permissions: tuple[str, ...] = ("view",)
 ) -> dict[str, Any]:
     project_dir = Path(project_dir)
-    state = project_operator_state(load_board_state(project_dir))
+    board = load_board_state(project_dir)
+    try:
+        from backlot.delivery_versions import DeliveryVersionService
+
+        delivery_versions = DeliveryVersionService(project_dir)
+        board["_delivery_versions"] = delivery_versions.list()
+        board["_current_delivery"] = delivery_versions.current()
+    except (OSError, ValueError):
+        board["_delivery_versions"] = []
+        board["_current_delivery"] = None
+    state = project_operator_state(board)
     state["summary"]["performance"] = _performance_summary(project_dir)
     if (project_dir / "operator" / "operator-managed").exists():
         from backlot.operator_reviews import ReviewService
@@ -754,3 +1186,26 @@ def load_operator_state(
     state["revision"] = operator_revision(state)
     validate_operator_state(state)
     return state
+
+
+def delivery_candidate_ids(project_dir: Path) -> dict[str, set[str]]:
+    """Return the delivery candidates valid for the project's current version."""
+    state = load_operator_state(project_dir)
+    allowed = {kind: set() for kind in ("cover", "hook", "bgm", "ending")}
+    for stage in state.get("stages", []):
+        editor = stage.get("editor") if isinstance(stage, Mapping) else None
+        if not isinstance(editor, Mapping) or editor.get("type") != "delivery_review":
+            continue
+        data = editor.get("data") if isinstance(editor.get("data"), Mapping) else {}
+        for group in data.get("candidate_groups", []):
+            if not isinstance(group, Mapping):
+                continue
+            kind = str(group.get("kind") or "")
+            if kind not in allowed:
+                continue
+            allowed[kind].update(
+                str(item["id"])
+                for item in group.get("candidates", [])
+                if isinstance(item, Mapping) and item.get("id")
+            )
+    return allowed

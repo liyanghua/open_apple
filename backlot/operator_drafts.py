@@ -61,7 +61,8 @@ class DraftService:
 
     def _path(self, actor_id: str, stage: str) -> Path:
         if not _IDENTIFIER.fullmatch(actor_id) or stage not in {
-            "research", "proposal", "script", "scene_plan", "assets", "sample"
+            "research", "proposal", "script", "scene_plan", "assets", "sample", "edit",
+            "delivery_review",
         }:
             raise OperatorError.validation_failed("草稿身份或阶段无效")
         return self.project_dir / "operator" / "drafts" / actor_id / f"{stage}.json"
@@ -77,6 +78,7 @@ class DraftService:
     ) -> dict[str, Any]:
         adapter = get_adapter(stage)
         adapter.touched_fields(changes)
+        adapter.validate_project_operations(self.project_dir, changes)
         existing = self._read_file(actor_id, stage)
         now = self.clock().isoformat()
         draft = {
@@ -195,4 +197,3 @@ class DraftService:
             if transition.get("draft_id") == draft_id:
                 return transition.get("status")
         return None
-

@@ -1,6 +1,8 @@
-"""Explicit registry for the six operator-editable stages."""
+"""Explicit registry for the operator-editable stages."""
 
 from .assets import AssetsAdapter
+from .delivery_review import DeliveryReviewAdapter
+from .edit import EditAdapter
 from .proposal import ProposalAdapter
 from .research import ResearchAdapter
 from .sample import SampleAdapter
@@ -16,6 +18,8 @@ _ADAPTERS = {
         ScriptAdapter(),
         ScenePlanAdapter(),
         AssetsAdapter(),
+        DeliveryReviewAdapter(),
+        EditAdapter(),
         SampleAdapter(),
     )
 }

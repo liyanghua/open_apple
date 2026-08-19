@@ -82,6 +82,12 @@ class BaseAdapter:
     def validate(self, snapshot: dict[str, Any]) -> list[dict[str, str]]:
         return []
 
+    def validate_project_operations(
+        self, project_dir: Path, operations: list[dict[str, Any]]
+    ) -> None:
+        """Validate operations that depend on the current project projection."""
+        return None
+
     def touched_fields(self, operations: list[dict[str, Any]]) -> set[str]:
         fields: set[str] = set()
         for operation in operations:
@@ -113,4 +119,3 @@ class BaseAdapter:
             "reopen_sample": False,
             "render_route": "no_render",
         }
-

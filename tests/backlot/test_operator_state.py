@@ -11,7 +11,7 @@ NINE_STAGES = [
     ("research", "参考解析与素材体检"),
     ("proposal", "创意方案"),
     ("script", "口播与字幕"),
-    ("scene_plan", "镜头映射"),
+    ("scene_plan", "分镜"),
     ("assets", "制作准备"),
     ("sample", "样片确认"),
     ("edit", "修改与精剪"),
@@ -277,6 +277,11 @@ def test_projection_includes_safe_material_concept_and_shot_details() -> None:
     assert proposal["concepts"][0]["visual_approach"] == "真实测试配合短字幕"
     assert proposal["concepts"][0]["key_points"] == ["防刮", "防污"]
 
+    assets = editors["assets"]
+    assert assets["planned_count"] == 0
+    assert assets["prepared_count"] == 0
+    assert assets["items"] == []
+
     shot = editors["scene_plan"]["shots"][0]
     assert editors["scene_plan"]["reference_basis"]["proof_method"] == "真实动作与即时结果成对"
     assert shot["timeline_in_seconds"] == 0
@@ -327,6 +332,85 @@ def test_script_projection_prefers_edited_narration_over_original_text() -> None
     script = next(stage for stage in project_operator_state(board)["stages"] if stage["id"] == "script")
 
     assert script["editor"]["data"]["sections"][0]["text"] == "修改后的口播和字幕"
+
+
+def test_delivery_review_projects_four_tracks_candidates_and_reference_isolation() -> None:
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    board["stages"] = [
+        _stage(name, "completed" if name != "publish" else "pending")
+        for name, _ in NINE_STAGES
+    ]
+    board["artifacts"]["script"]["sections"] = [{
+        "id": "sentence-1",
+        "label": "开场",
+        "text": "一张餐桌每天要扛住多少考验",
+        "start_seconds": 0,
+        "end_seconds": 4,
+    }]
+    board["artifacts"]["scene_plan"]["scenes"] = [
+        {
+            "id": "shot-1", "description": "刮擦冲突", "script_section_id": "sentence-1",
+            "start_seconds": 0, "end_seconds": 2,
+            "overlay_layers": [{"text": "先划一下", "start_seconds": 0, "end_seconds": 2}],
+        },
+        {
+            "id": "shot-2", "description": "擦净结果", "script_section_id": "sentence-1",
+            "start_seconds": 2, "end_seconds": 4,
+            "overlay_layers": [{"text": "一擦就净", "start_seconds": 2, "end_seconds": 4}],
+        },
+    ]
+    board["artifacts"]["edit_decisions"] = {
+        "cuts": [
+            {"id": "shot-1", "source": "projects/table-mat/inputs/source/scratch.mp4", "in_seconds": 1, "out_seconds": 3, "speed": 1},
+            {"id": "shot-2", "source": "projects/table-mat/inputs/source/clean.mp4", "in_seconds": 2, "out_seconds": 4, "speed": 1},
+        ],
+        "audio": {
+            "narration": {"segments": [{"asset_id": "voice-main", "start_seconds": 0, "end_seconds": 4}]},
+            "music": {"asset_id": "music-main", "volume": 0.12, "fade_in_seconds": 0.3, "fade_out_seconds": 0.8, "ducking": {"enabled": True}},
+            "sfx": [{"asset_id": "impact", "start_seconds": 0, "volume": 0.2}],
+        },
+    }
+    board["artifacts"]["render_report"] = {
+        "outputs": [{"path": "renders/final-v2.mp4", "duration_seconds": 4, "resolution": "1080x1920"}],
+        "video_master_sha256": "a" * 64,
+    }
+    board["artifacts"]["final_review"] = {"status": "pass"}
+    board["media"]["renders"] = [{"path": "renders/final-v2.mp4", "duration_seconds": 4}]
+
+    state = project_operator_state(board)
+    delivery = next(stage for stage in state["stages"] if stage["id"] == "compose")["editor"]["data"]
+
+    assert delivery["player"] == {
+        "video_url": "/media/table-mat/renders/final-v2.mp4",
+        "poster_url": "/thumb/table-mat/renders/final-v2.mp4?w=640&t=1",
+        "duration_seconds": 4,
+    }
+    assert [track["kind"] for track in delivery["timeline"]["tracks"]] == ["video", "narration", "copy", "audio"]
+    video_segments = delivery["timeline"]["tracks"][0]["segments"]
+    assert [segment["id"] for segment in video_segments] == ["shot-1", "shot-2"]
+    copy_segments = delivery["timeline"]["tracks"][2]["segments"]
+    assert copy_segments == [{
+        "id": "sentence-1",
+        "label": "一张餐桌每天要扛住多少考验",
+        "start_seconds": 0,
+        "end_seconds": 4,
+        "shot_ids": ["shot-1", "shot-2"],
+        "editable": True,
+        "sync_narration": True,
+    }]
+    assert delivery["timeline"]["tracks"][3]["empty_message"] is None
+    assert [group["kind"] for group in delivery["candidate_groups"]] == ["cover", "hook", "bgm", "ending"]
+    assert delivery["candidate_groups"][0]["candidates"][0]["id"].startswith("cover-")
+    assert delivery["candidate_groups"][2]["candidates"][0]["label"] == "当前背景音乐"
+    assert delivery["versions"][0]["active"] is True
+    assert delivery["pending_changes"] == []
+    assert "inputs/reference" not in json.dumps(delivery, ensure_ascii=False)
+
+    again = project_operator_state(board)
+    delivery_again = next(stage for stage in again["stages"] if stage["id"] == "compose")["editor"]["data"]
+    assert delivery_again["candidate_groups"] == delivery["candidate_groups"]
 
 
 def test_research_projection_supports_image_and_audio_without_broken_posters() -> None:

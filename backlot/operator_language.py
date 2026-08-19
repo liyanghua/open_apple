@@ -7,7 +7,7 @@ STAGE_LABELS = MappingProxyType({
     "research": "参考解析与素材体检",
     "proposal": "创意方案",
     "script": "口播与字幕",
-    "scene_plan": "镜头映射",
+    "scene_plan": "分镜",
     "assets": "制作准备",
     "sample": "样片确认",
     "edit": "修改与精剪",
@@ -27,4 +27,3 @@ STATUS_LABELS = MappingProxyType({
 LEGACY_STAGE_LABELS = MappingProxyType({
     "idea": "创意方案",
 })
-

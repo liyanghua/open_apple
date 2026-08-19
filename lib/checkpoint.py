@@ -44,6 +44,7 @@ CANONICAL_STAGE_ARTIFACTS = {
 SUPPLEMENTARY_ARTIFACTS = {
     "source_media_review",  # Required before first planning stage when user media exists
     "final_review",         # Required by compose stage before presenting to user
+    "delivery_review",      # Optional operator decisions attached to compose
     "video_analysis_brief", # Reference-video grounding artifact carried alongside stages
     "media_index",
     "reference_fingerprint",
@@ -170,6 +171,11 @@ def _validate_artifacts_for_stage(
                 f"Stage {stage!r} with status {status!r} must include {source}: "
                 f"{', '.join(repr(name) for name in missing)}"
             )
+
+    if "delivery_review" in artifacts and stage != "compose":
+        raise CheckpointValidationError(
+            "Artifact 'delivery_review' is an optional compose supplementary artifact"
+        )
 
     for artifact_name, artifact_data in artifacts.items():
         if artifact_name not in ARTIFACT_NAMES:

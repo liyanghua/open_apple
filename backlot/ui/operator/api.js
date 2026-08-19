@@ -34,6 +34,10 @@ export async function fetchProjectState(projectId) {
   return call(`/api/v2/projects/${encodeURIComponent(projectId)}/operator-state`);
 }
 
+export async function fetchDraft(projectId, stage) {
+  return call(`/api/v2/projects/${encodeURIComponent(projectId)}/drafts/${encodeURIComponent(stage)}`);
+}
+
 export async function saveDraft(projectId, stage, draft) {
   return call(`/api/v2/projects/${encodeURIComponent(projectId)}/drafts/${encodeURIComponent(stage)}`, {
     method: "PUT", body: { version: "1.0", ...draft }, mutation: true,
