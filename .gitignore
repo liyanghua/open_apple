@@ -42,6 +42,7 @@ music_library/
 .env
 .env.local
 *.env
+.env_backup
 .youtube-token.json
 # Google service-account / Vertex AI keys — never commit
 gcp-*.json
@@ -97,6 +98,11 @@ venv/
 
 # Backlot local cache (thumbnails)
 .backlot/
+
+# Local agent/scratch state (machine-specific — never shipped)
+.codex/
+.backlot-test/
+strategy/
 
 # Local isolated implementation worktrees
 .worktrees/

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/research_breakdown",
+  "title": "Research Breakdown",
+  "type": "object",
+  "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "profile_ref", "reference_shots", "source_segments", "coverage_summary", "quality_warnings"],
+  "properties": {
+    "version": {"type": "string"}, "project_id": {"type": "string", "minLength": 1}, "created_at": {"type": "string", "format": "date-time"}, "producer": {"type": "string", "minLength": 1},
+    "input_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "profile_ref": {"$ref": "#/$defs/profile_ref"},
+    "reference_shots": {"type": "array", "items": {"$ref": "#/$defs/observation"}},
+    "source_segments": {"type": "array", "items": {"$ref": "#/$defs/observation"}},
+    "coverage_summary": {"$ref": "#/$defs/coverage"}, "quality_warnings": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "profile_ref": {"type": "object", "required": ["profile_id", "version", "sha256"], "properties": {"profile_id": {"type": "string"}, "version": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "additionalProperties": false},
+    "interval": {"type": "object", "required": ["start_seconds", "end_seconds_exclusive"], "properties": {"start_seconds": {"type": "number", "minimum": 0}, "end_seconds_exclusive": {"type": "number", "exclusiveMinimum": 0}}, "additionalProperties": false},
+    "observation": {"type": "object", "required": ["row_id", "media_id", "interval", "values", "evidence_refs", "confidence_by_dimension", "observation_source", "warnings"], "properties": {"row_id": {"type": "string"}, "media_id": {"type": "string"}, "interval": {"$ref": "#/$defs/interval"}, "values": {"type": "object", "additionalProperties": true}, "evidence_refs": {"type": "array", "items": {"type": "string"}}, "confidence_by_dimension": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}}, "observation_source": {"enum": ["direct", "derived", "manual", "missing"]}, "warnings": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false},
+    "coverage": {"type": "object", "required": ["total", "identified", "needs_review", "missing"], "properties": {"total": {"type": "integer", "minimum": 0}, "identified": {"type": "integer", "minimum": 0}, "needs_review": {"type": "integer", "minimum": 0}, "missing": {"type": "integer", "minimum": 0}}, "additionalProperties": false}
+  },
+  "additionalProperties": false
+}

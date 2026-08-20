@@ -123,6 +123,29 @@ class _TransactionSink:
             raise OperatorError("invalid_write_context", "事件内容无效", 409)
         self._events.append({"stream": stream, "event": event})
 
+    def read_json(self, relative_path: str) -> object | None:
+        """Read the transaction overlay first, then the current project file."""
+        self._check(relative_path)
+        staged = self._writes.get(relative_path)
+        if staged is not None:
+            if staged.operation == "delete" or staged.payload is None:
+                return None
+            try:
+                return json.loads(staged.payload.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise OperatorError(
+                    "invalid_write_context", "暂存内容不是有效 JSON", 409
+                ) from exc
+        target = self._store._canonical_path(relative_path)
+        if not target.exists():
+            return None
+        try:
+            return json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OperatorError(
+                "invalid_write_context", "项目内容不是有效 JSON", 409
+            ) from exc
+
     def _deactivate(self) -> None:
         self._active = False
 
@@ -271,14 +294,19 @@ class ProjectCommitStore:
             self._active_token = token
             try:
                 yield sink
-                self._commit_locked(
-                    sink,
-                    action=action,
-                    result=result or {"status": "committed"},
-                    audit=audit or {},
-                    draft_transition=draft_transition,
-                    business_diff=business_diff or [],
-                )
+                try:
+                    self._commit_locked(
+                        sink,
+                        action=action,
+                        result=result or {"status": "committed"},
+                        audit=audit or {},
+                        draft_transition=draft_transition,
+                        business_diff=business_diff or [],
+                    )
+                except BaseException:
+                    if self._read_pointer()["generation_id"] != sink.generation_id:
+                        self._recover_locked()
+                    raise
             finally:
                 sink._deactivate()
                 self._active_token = None

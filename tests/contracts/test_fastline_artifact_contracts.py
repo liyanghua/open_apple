@@ -7,12 +7,17 @@ from pathlib import Path
 import jsonschema
 import pytest
 
+from lib.research_profiles import analysis_profile_ref
 from schemas.artifacts import ARTIFACT_NAMES, load_schema, validate_artifact
 
 
 FASTLINE_ARTIFACTS = [
     "media_index",
     "reference_fingerprint",
+    "research_breakdown",
+    "reference_source_matrix",
+    "research_synthesis",
+    "research_scorecard",
     "production_lock",
     "approval_bundle",
     "asset_plan",
@@ -39,6 +44,22 @@ def _common() -> dict:
 
 def valid_artifact(name: str) -> dict:
     value = _common()
+    breakdown_values = {
+        "ordinal": 1,
+        "shot_size": "近景",
+        "camera_movement": "固定",
+        "camera_angle": "俯拍",
+        "interval": {"start_seconds": 0, "end_seconds_exclusive": 1},
+        "visual_content": "product proof",
+        "dialogue": None,
+        "overlay_text": None,
+        "effect_treatment": None,
+        "analyst_note": None,
+        "evidence_frames": ["artifacts/reference-frames/frame-001.jpg"],
+        "setting": None,
+        "audio_layers": [],
+        "music_profile": None,
+    }
     business = {
         "media_index": {
             "analysis_version": "1",
@@ -61,6 +82,58 @@ def valid_artifact(name: str) -> dict:
             "canonical_request": {"depth": "standard"},
             "output_digest": HASH,
             "abstract_structure": {"beats": 3},
+        },
+        "research_breakdown": {
+            "profile_ref": analysis_profile_ref("ecommerce-storyboard-cn", "1.0"),
+            "reference_shots": [{
+                "row_id": "reference-shot-1", "media_id": "reference-1",
+                "interval": {"start_seconds": 0, "end_seconds_exclusive": 1},
+                "values": breakdown_values,
+                "evidence_refs": ["artifacts/reference-frames/frame-001.jpg"],
+                "confidence_by_dimension": {
+                    key: (0.9 if item is not None else 0.0)
+                    for key, item in breakdown_values.items()
+                },
+                "observation_source": "derived", "warnings": [],
+            }],
+            "source_segments": [],
+            "coverage_summary": {"total": 1, "identified": 1, "needs_review": 0, "missing": 0},
+            "quality_warnings": [],
+        },
+        "reference_source_matrix": {
+            "rows": [{
+                "matrix_row_id": "matrix-1", "reference_scene_id": "reference-1",
+                "reference_time_range": {"start_seconds": 0, "end_seconds_exclusive": 2.5},
+                "reference_intent": "product proof", "source_media_id": "source-1",
+                "source_time_range": {"start_seconds": 1, "end_seconds_exclusive": 3},
+                "match_reason": "owned clip shows the same proof action", "confidence": 0.9,
+                "evidence_frames": ["artifacts/source-frames/product-a.jpg"],
+                "unmatched_gap": None, "resolution": "accept",
+            }],
+            "unmatched_gaps": [],
+        },
+        "research_synthesis": {
+            "summary": "Keep the proof mechanism and use owned footage.",
+            "differentiation_directions": [{
+                "direction_id": "direction-1", "title": "Owned proof",
+                "promise": "Show the result before explaining the feature.",
+                "keep_from_reference": ["action and result"],
+                "change_for_project": ["owned footage"], "avoid": ["reference copy"],
+                "industry_prior_refs": [], "matrix_row_refs": ["matrix-1"],
+                "prerequisites": [], "tradeoffs": [],
+            }],
+            "industry_prior_evaluations": [], "conflicts": [],
+        },
+        "research_scorecard": {
+            "score": 10, "max_score": 10, "status": "pass",
+            "checks": [
+                {"id": check_id, "label": check_id, "score": 2, "status": "pass", "message": "Confirmed"}
+                for check_id in (
+                    "input_coverage", "evidence_traceability", "source_matching",
+                    "production_readiness", "execution_discipline",
+                )
+            ],
+            "hard_failures": [], "warnings": [],
         },
         "production_lock": {
             "lock_version": 1,

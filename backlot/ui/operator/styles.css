@@ -348,6 +348,9 @@ h3 { font-size: 15px; }
   .evidence-panel { padding: 16px 0; }
   .owned-evidence-panel { border-top: 1px solid var(--line); border-left: 0; }
   .shot-evidence-preview { height: min(120vw, 520px); }
+  .research-matching-row .inline-edit-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .research-matching-row .inline-edit-actions button { width: 100%; min-width: 0; white-space: normal; }
+  .research-matching-row .inline-edit-actions button:nth-child(3) { grid-column: 1 / -1; }
 }
 
 @media (max-width: 390px) {

@@ -189,6 +189,11 @@
             "source_count": {"type": "integer", "minimum": 0},
             "usable_count": {"type": "integer", "minimum": 0},
             "risks": {"type": "array", "items": {"type": "string"}},
+            "template": {"type": "object", "required": ["label", "version", "status"], "properties": {"label": {"type": "string"}, "version": {"type": "string"}, "status": {"type": "string"}}, "additionalProperties": false},
+            "breakdown": {"type": "object", "required": ["label", "identified", "needs_review", "missing", "rows"], "properties": {"label": {"type": "string"}, "identified": {"type": "integer", "minimum": 0}, "needs_review": {"type": "integer", "minimum": 0}, "missing": {"type": "integer", "minimum": 0}, "rows": {"type": "array", "items": {"type": "object", "additionalProperties": true}}}, "additionalProperties": false},
+            "matching": {"type": "object", "required": ["label", "rows"], "properties": {"label": {"type": "string"}, "rows": {"type": "array", "items": {"type": "object", "additionalProperties": true}}}, "additionalProperties": false},
+            "directions": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+            "quality": {"type": "object", "required": ["label", "score", "max_score", "status", "checks", "warnings"], "properties": {"label": {"type": "string"}, "score": {"$ref": "#/$defs/nullable_number"}, "max_score": {"$ref": "#/$defs/nullable_number"}, "status": {"type": "string"}, "checks": {"type": "array", "items": {"type": "object", "additionalProperties": true}}, "warnings": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false},
             "sources": {
               "type": "array",
               "items": {
@@ -240,6 +245,8 @@
                 "differentiate": {"type": "array", "items": {"type": "string"}},
                 "preview_url": {"$ref": "#/$defs/nullable_string"},
                 "poster_url": {"$ref": "#/$defs/nullable_string"},
+                "fingerprint_version": {"type": "string"},
+                "fingerprint_upgrade_notice": {"type": "string"},
                 "scenes": {
                   "type": "array",
                   "items": {

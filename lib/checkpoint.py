@@ -48,6 +48,11 @@ SUPPLEMENTARY_ARTIFACTS = {
     "video_analysis_brief", # Reference-video grounding artifact carried alongside stages
     "media_index",
     "reference_fingerprint",
+    "research_breakdown",
+    "reference_source_matrix",
+    "research_synthesis",
+    "research_scorecard",
+    "research_annotations",
     "production_lock",
     "approval_bundle",
     "asset_plan",
@@ -58,7 +63,9 @@ SUPPLEMENTARY_ARTIFACTS = {
 }
 
 FASTLINE_ARTIFACTS = frozenset({
-    "media_index", "reference_fingerprint", "production_lock",
+    "media_index", "reference_fingerprint", "research_breakdown",
+    "reference_source_matrix", "research_synthesis", "research_scorecard",
+    "research_annotations", "production_lock",
     "approval_bundle", "asset_plan", "change_impact", "render_plan",
     "final_props", "sample_report",
 })
@@ -143,6 +150,7 @@ def _validate_artifacts_for_stage(
     artifacts: dict[str, Any],
     pipeline_type: str | None,
     project_dir: Path | None = None,
+    sink=None,
 ) -> None:
     required_artifacts: list[str] = []
     validated_artifacts: dict[str, dict[str, Any]] = {}
@@ -196,7 +204,7 @@ def _validate_artifacts_for_stage(
                 raise ValueError("Project directory is required to verify artifact envelopes")
             if project_dir is not None:
                 validated = unwrap_checkpoint_artifact(
-                    project_dir, artifact_name, artifact_data
+                    project_dir, artifact_name, artifact_data, sink=sink
                 )
             elif isinstance(artifact_data, dict):
                 validate_artifact(artifact_name, artifact_data)
@@ -210,6 +218,43 @@ def _validate_artifacts_for_stage(
         except Exception as exc:
             raise CheckpointValidationError(
                 f"Artifact {artifact_name!r} failed schema validation: {exc}"
+            ) from exc
+
+    if pipeline_type == "cinematic-fast" and stage == "research" and status == "completed":
+        try:
+            from lib.research_validation import validate_research_completion
+
+            validate_research_completion(validated_artifacts["research_scorecard"])
+        except Exception as exc:
+            raise CheckpointValidationError(
+                f"cinematic-fast research quality gate failed: {exc}"
+            ) from exc
+
+    if pipeline_type == "cinematic-fast" and stage == "proposal" and status in {"completed", "awaiting_human"}:
+        try:
+            from lib.artifact_io import unwrap_checkpoint_artifact
+            from lib.research_validation import validate_proposal_research_handoff
+
+            if project_dir is None:
+                raise ValueError("proposal research handoff validation requires project_dir")
+            with (project_dir / "checkpoint_research.json").open(encoding="utf-8") as handle:
+                research_checkpoint = json.load(handle)
+            synthesis = unwrap_checkpoint_artifact(
+                project_dir,
+                "research_synthesis",
+                research_checkpoint["artifacts"]["research_synthesis"],
+            )
+            matrix = unwrap_checkpoint_artifact(
+                project_dir,
+                "reference_source_matrix",
+                research_checkpoint["artifacts"]["reference_source_matrix"],
+            )
+            validate_proposal_research_handoff(
+                validated_artifacts["proposal_packet"], synthesis, matrix
+            )
+        except Exception as exc:
+            raise CheckpointValidationError(
+                f"cinematic-fast proposal research handoff failed: {exc}"
             ) from exc
 
     if (
@@ -230,16 +275,28 @@ def _validate_artifacts_for_stage(
                 research_checkpoint = json.load(handle)
             source_envelope = research_checkpoint["artifacts"]["source_media_review"]
             analysis_envelope = research_checkpoint["artifacts"]["video_analysis_brief"]
+            matrix_envelope = research_checkpoint["artifacts"]["reference_source_matrix"]
+            synthesis_envelope = research_checkpoint["artifacts"].get("research_synthesis")
             source_media_review = unwrap_checkpoint_artifact(
                 project_dir, "source_media_review", source_envelope
             )
             video_analysis_brief = unwrap_checkpoint_artifact(
                 project_dir, "video_analysis_brief", analysis_envelope
             )
+            reference_source_matrix = unwrap_checkpoint_artifact(
+                project_dir, "reference_source_matrix", matrix_envelope
+            )
+            research_synthesis = (
+                unwrap_checkpoint_artifact(project_dir, "research_synthesis", synthesis_envelope)
+                if synthesis_envelope is not None
+                else None
+            )
             validate_scene_mapping(
                 validated_artifacts["scene_plan"],
                 source_media_review,
                 video_analysis_brief,
+                reference_source_matrix,
+                research_synthesis,
             )
         except Exception as exc:
             raise CheckpointValidationError(
@@ -248,7 +305,7 @@ def _validate_artifacts_for_stage(
 
 
 def validate_checkpoint(
-    checkpoint: dict[str, Any], *, project_dir: Path | None = None
+    checkpoint: dict[str, Any], *, project_dir: Path | None = None, sink=None
 ) -> None:
     """Validate checkpoint structure and canonical artifact payloads.
 
@@ -276,7 +333,7 @@ def validate_checkpoint(
         raise CheckpointValidationError("Checkpoint artifacts must be a dictionary")
 
     _validate_artifacts_for_stage(
-        stage, status, artifacts, pipeline_type, project_dir=project_dir
+        stage, status, artifacts, pipeline_type, project_dir=project_dir, sink=sink
     )
 
     try:
@@ -707,7 +764,7 @@ def write_checkpoint(
             else:
                 plan_or_top["decision_log_ref"] = log_ref
 
-    validate_checkpoint(checkpoint, project_dir=project_dir)
+    validate_checkpoint(checkpoint, project_dir=project_dir, sink=write_sink)
 
     path = _checkpoint_path(pipeline_dir, project_id, stage)
     if write_sink is not None:

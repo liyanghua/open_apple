@@ -148,3 +148,27 @@ def test_approval_bundle_stale_preconditions_do_not_write(tmp_path) -> None:
     assert stale.value.code == "review_stale"
     assert not list((project / "artifacts/approvals").glob("*-approved.json"))
 
+
+def test_research_frames_and_artifacts_roll_back_before_transaction_returns(tmp_path) -> None:
+    from backlot.project_commit import ProjectCommitStore
+
+    project = _project(tmp_path)
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(b"frame-data")
+    store = ProjectCommitStore(
+        project,
+        fault_injector=lambda point: (_ for _ in ()).throw(RuntimeError(point))
+        if point == "after_apply" else None,
+    )
+    store.initialize()
+
+    with pytest.raises(RuntimeError, match="after_apply"):
+        with store.transaction(action={"action_id": "research-bundle"}) as sink:
+            sink.stage_json("artifacts/research_breakdown.json", {"version": "new"}, schema="research_breakdown")
+            sink.stage_bytes("artifacts/research-frames/frame-1.jpg", frame, media_type="image/jpeg")
+            sink.stage_json("checkpoint_research.json", {"stage": "research"}, schema="checkpoint")
+
+    assert not (project / "artifacts/research_breakdown.json").exists()
+    assert not (project / "artifacts/research-frames/frame-1.jpg").exists()
+    assert not (project / "checkpoint_research.json").exists()
+    assert store.recover() == "clean"

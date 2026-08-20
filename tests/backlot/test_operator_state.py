@@ -436,6 +436,38 @@ def test_research_projection_supports_image_and_audio_without_broken_posters() -
     assert sources[1]["poster_url"] is None
 
 
+def test_research_scorecard_uses_production_language_for_fixed_checks() -> None:
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    board["artifacts"]["research_scorecard"] = {
+        "score": 10,
+        "max_score": 10,
+        "status": "pass",
+        "checks": [
+            {"id": check_id, "label": check_id, "status": "pass", "message": "Confirmed"}
+            for check_id in (
+                "input_coverage",
+                "evidence_traceability",
+                "source_matching",
+                "production_readiness",
+                "execution_discipline",
+            )
+        ],
+    }
+
+    quality = project_operator_state(board)["stages"][0]["editor"]["data"]["quality"]
+
+    assert [item["label"] for item in quality["checks"]] == [
+        "输入素材检查",
+        "结论依据",
+        "素材匹配",
+        "制作可行性",
+        "执行完整性",
+    ]
+    assert {item["message"] for item in quality["checks"]} == {"已检查，未发现问题"}
+
+
 def test_projection_never_leaks_machine_fields_or_paths() -> None:
     from backlot.operator_state import project_operator_state
 

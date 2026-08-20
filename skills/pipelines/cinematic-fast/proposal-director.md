@@ -14,3 +14,9 @@ and tradeoff for each. Wait for explicit approval before locking
 `render_runtime_selection` decision containing both options (and FFmpeg when
 applicable). If HyperFrames is unavailable, surface that constraint and record
 why it was rejected; never silently default to Remotion.
+
+Research handoff: use `research_synthesis` as the source of differentiated
+directions and `research_scorecard` as the research quality gate. Each concept
+must carry references to its selected direction and the supporting
+reference/source matrix rows; do not reconstruct the mapping from filenames or
+free-text summaries.

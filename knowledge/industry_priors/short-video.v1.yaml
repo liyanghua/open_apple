@@ -1,0 +1,32 @@
+prior_id: short-video
+version: "1.0"
+label: 短视频通用提醒
+rules:
+  - prior_id: short-video-hook-window
+    version: "1.0"
+    applies_when: {format: short_video, objective: attention}
+    target_dimensions: [interval, visual_content]
+    recommended_range: {hook_end_seconds_max: 3}
+    rationale: 开头应尽快出现可见动作、结果或问题，让观众知道这条片在讲什么。
+    confidence: 0.75
+    exceptions: [剧情铺垫型内容, 已有强IP认知的账号]
+    source: https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en
+    provenance_type: external_research
+    evidence_scope: 短视频创意中心公开案例与制作建议
+    reviewed_at: "2026-08-19"
+    reviewer: OpenMontage content ops
+    expires_at: "2027-02-19"
+  - prior_id: short-video-copy-density
+    version: "1.0"
+    applies_when: {format: vertical_short_video, screen: mobile}
+    target_dimensions: [overlay_text, dialogue]
+    recommended_range: {single_message_per_shot: true}
+    rationale: 一镜只承担一个主要信息点，降低花字、口播和动作互相抢注意力的风险。
+    confidence: 0.7
+    exceptions: [信息流快剪, 歌词或节奏型内容]
+    source: https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en
+    provenance_type: reviewed_benchmark
+    evidence_scope: 竖屏商业短视频样本
+    reviewed_at: "2026-08-19"
+    reviewer: OpenMontage content ops
+    expires_at: "2027-02-19"

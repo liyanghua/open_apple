@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/knowledge/industry_prior",
+  "title": "Industry Prior Pack",
+  "type": "object",
+  "required": ["prior_id", "version", "label", "rules"],
+  "properties": {
+    "prior_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
+    "label": {"type": "string", "minLength": 1},
+    "rules": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/rule"}}
+  },
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "required": ["prior_id", "version", "applies_when", "target_dimensions", "recommended_range", "rationale", "confidence", "exceptions", "source", "provenance_type", "evidence_scope", "reviewed_at", "reviewer", "expires_at"],
+      "properties": {
+        "prior_id": {"type": "string", "minLength": 1}, "version": {"type": "string"},
+        "applies_when": {"type": "object", "minProperties": 1, "additionalProperties": true},
+        "target_dimensions": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+        "recommended_range": {"type": "object", "minProperties": 1, "additionalProperties": true},
+        "rationale": {"type": "string", "minLength": 1}, "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "exceptions": {"type": "array", "items": {"type": "string"}}, "source": {"type": "string", "minLength": 1},
+        "provenance_type": {"enum": ["external_research", "reviewed_benchmark", "internal_validated"]},
+        "evidence_scope": {"type": "string", "minLength": 1}, "reviewed_at": {"type": "string", "format": "date"},
+        "reviewer": {"type": "string", "minLength": 1}, "expires_at": {"type": "string", "format": "date"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

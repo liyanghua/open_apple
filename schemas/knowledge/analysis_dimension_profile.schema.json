@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/knowledge/analysis_dimension_profile",
+  "title": "Analysis Dimension Profile",
+  "type": "object",
+  "required": ["profile_id", "version", "pipeline", "use_case", "row_unit", "dimensions"],
+  "properties": {
+    "profile_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
+    "pipeline": {"type": "string", "minLength": 1},
+    "use_case": {"type": "string", "minLength": 1},
+    "row_unit": {"enum": ["shot"]},
+    "dimensions": {
+      "type": "array", "minItems": 1,
+      "items": {"$ref": "#/$defs/dimension"}
+    }
+  },
+  "$defs": {
+    "dimension": {
+      "type": "object",
+      "required": ["key", "label", "value_type", "required", "normalization", "evidence_requirement", "display_order", "visible_by_default"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "label": {"type": "string", "minLength": 1},
+        "value_type": {"enum": ["integer", "number", "string", "string_array", "interval", "object"]},
+        "required": {"type": "boolean"},
+        "allowed_values": {"type": "array", "items": {"type": "string"}},
+        "normalization": {"type": "string", "minLength": 1},
+        "evidence_requirement": {"type": "string", "minLength": 1},
+        "display_order": {"type": "integer", "minimum": 1},
+        "visible_by_default": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

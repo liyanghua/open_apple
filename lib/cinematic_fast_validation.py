@@ -51,6 +51,8 @@ def validate_scene_mapping(
     scene_plan: Mapping[str, Any],
     source_media_review: Mapping[str, Any],
     video_analysis_brief: Mapping[str, Any],
+    reference_source_matrix: Mapping[str, Any] | None = None,
+    research_synthesis: Mapping[str, Any] | None = None,
 ) -> None:
     """Reject scene plans whose source mapping is not grounded and traceable."""
     metadata = scene_plan.get("metadata")
@@ -106,6 +108,11 @@ def validate_scene_mapping(
             reference_scenes[f"reference-{scene_index + 1}"] = item
 
     mapping_ids: list[str] = []
+    matrix_rows = {
+        item.get("matrix_row_id"): item
+        for item in (reference_source_matrix or {}).get("rows", [])
+        if isinstance(item, Mapping) and _nonempty(item.get("matrix_row_id"))
+    }
     for mapping in mappings:
         if not isinstance(mapping, Mapping):
             raise ValueError("every source mapping must be an object")
@@ -121,6 +128,43 @@ def validate_scene_mapping(
         for field in _EVIDENCE_FIELDS:
             if not _nonempty(mapping.get(field)):
                 raise ValueError(f"mapping for {scene_id!r} requires non-empty {field}")
+        if reference_source_matrix is not None:
+            matrix_row_id = mapping.get("matrix_row_id")
+            matrix_row = matrix_rows.get(matrix_row_id)
+            if matrix_row is None or matrix_row.get("resolution") == "pending":
+                raise ValueError(
+                    f"mapping for {scene_id!r} requires a resolved research matrix row"
+                )
+            if mapping.get("matrix_resolution_id") != matrix_row.get("resolution"):
+                raise ValueError(
+                    f"mapping for {scene_id!r} must use the research matrix resolution"
+                )
+            source = owned_sources[source_path]
+            if source.get("media_id") and source.get("media_id") != matrix_row.get("source_media_id"):
+                raise ValueError(
+                    f"mapping for {scene_id!r} must use the approved research matrix source"
+                )
+            matrix_source_interval = matrix_row.get("source_time_range")
+            if isinstance(matrix_source_interval, Mapping):
+                candidate_source_interval = mapping.get("source_interval")
+                if candidate_source_interval != matrix_source_interval:
+                    raise ValueError(
+                        f"mapping for {scene_id!r} must use the approved research matrix source interval"
+                    )
+            if not _nonempty(mapping.get("research_direction_ref")):
+                raise ValueError(
+                    f"mapping for {scene_id!r} requires research_direction_ref"
+                )
+            if research_synthesis is not None:
+                direction_ids = {
+                    item.get("direction_id")
+                    for item in research_synthesis.get("differentiation_directions", [])
+                    if isinstance(item, Mapping)
+                }
+                if mapping.get("research_direction_ref") not in direction_ids:
+                    raise ValueError(
+                        f"mapping for {scene_id!r} references an unknown research direction"
+                    )
         reference_evidence = mapping.get("reference_evidence")
         if not isinstance(reference_evidence, Mapping):
             raise ValueError(f"mapping for {scene_id!r} requires reference_evidence")

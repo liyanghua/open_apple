@@ -71,6 +71,37 @@ def test_rebase_requires_new_preview_and_reports_field_conflicts(project) -> Non
     assert conflict.value.field_errors[0]["field"] == "hook"
 
 
+def test_research_rebase_detects_conflict_on_same_annotation_collection_entry(project) -> None:
+    from backlot.operator_drafts import DraftService
+    from backlot.operator_errors import OperatorError
+
+    service = DraftService(project)
+    draft = service.save(
+        actor_id="user-a",
+        stage="research",
+        base_revision="r" * 64,
+        base_artifact_hash="a" * 64,
+        changes=[
+            {"op": "set_media_disposition", "media_id": "m1", "disposition": "priority"},
+        ],
+    )
+
+    with pytest.raises(OperatorError) as conflict:
+        service.rebase(
+            draft,
+            current_revision="1" * 64,
+            current_artifact_hash="b" * 64,
+            base_snapshot={"media_dispositions": {"m1": "usable"}},
+            current_snapshot={"media_dispositions": {"m1": "unused"}},
+        )
+
+    assert conflict.value.code == "revision_conflict"
+    assert conflict.value.field_errors == [{
+        "field": "media_dispositions.m1",
+        "message": "该字段与你的草稿同时发生了变化",
+    }]
+
+
 def test_terminal_status_projects_from_committed_generation(project) -> None:
     import json
 
@@ -90,4 +121,3 @@ def test_terminal_status_projects_from_committed_generation(project) -> None:
     ):
         pass
     assert service.load("user-a", "proposal")["status"] == "committed"
-

@@ -23,6 +23,8 @@ class ProjectWriteSink(Protocol):
 
     def append_event(self, stream: str, event: object) -> None: ...
 
+    def read_json(self, relative_path: str) -> object | None: ...
+
 
 def require_project_sink(
     project_dir: Path, sink: ProjectWriteSink | None

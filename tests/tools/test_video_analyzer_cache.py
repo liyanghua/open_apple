@@ -29,28 +29,35 @@ def test_video_analyzer_key_reuses_relocated_content_and_hashes_all_analysis_inp
     assert baseline != tool.idempotency_key(relocated)
 
 
-def test_deep_reference_fingerprint_is_written_as_valid_hashed_artifact(tmp_path: Path) -> None:
+def test_deep_analysis_writes_hashed_fingerprint_sidecar_without_claiming_final_artifact(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "reference.mp4"
     source.write_bytes(b"reference")
     project = tmp_path / "project"
+    output_dir = project / "analysis" / "reference"
+    output_dir.mkdir(parents=True)
     tool = VideoAnalyzer()
     brief = {
         "structure_analysis": {"total_scenes": 2, "pacing_profile": {"average_scene_duration": 1.2}},
         "style_profile": {"transition_types": ["cut"]},
     }
 
-    artifact = tool._write_reference_fingerprint(
+    sidecar = tool._write_analysis_fingerprint_sidecar(
         source=source,
         depth="deep",
         max_keyframes=20,
         analysis_version="v1",
         project_dir=project,
+        output_dir=output_dir,
         brief=brief,
     )
 
-    persisted = json.loads((project / "artifacts" / "reference_fingerprint.json").read_text())
-    assert artifact == persisted
-    assert artifact["canonical_request"]["max_keyframes"] == 20
-    assert artifact["abstract_structure"]["total_scenes"] == 2
-    assert verify_hashes(artifact).valid
-
+    persisted = json.loads(
+        (output_dir / "reference_analysis_fingerprint.json").read_text()
+    )
+    assert sidecar == persisted
+    assert sidecar["canonical_request"]["max_keyframes"] == 20
+    assert sidecar["abstract_structure"]["total_scenes"] == 2
+    assert verify_hashes(sidecar).valid
+    assert not (project / "artifacts" / "reference_fingerprint.json").exists()

@@ -16,7 +16,10 @@ def test_research_changes_create_annotations_without_mutating_evidence() -> None
     from backlot.operator_adapters import get_adapter
 
     adapter = get_adapter("research")
-    source = {"source_media_review": {"items": [{"media_id": "m1", "quality": "good"}]}}
+    source = {
+        "project_id": "demo",
+        "source_media_review": {"items": [{"media_id": "m1", "quality": "good"}]},
+    }
     changed = adapter.apply(
         source,
         [
@@ -29,6 +32,47 @@ def test_research_changes_create_annotations_without_mutating_evidence() -> None
     assert changed["research_annotations"]["media_dispositions"]["m1"] == "priority"
     assert changed["research_annotations"]["logo_usage"]["m1"] is True
     assert source.get("research_annotations") is None
+
+
+def test_research_changes_update_top_level_persisted_annotations_in_place() -> None:
+    from backlot.operator_adapters import get_adapter
+
+    adapter = get_adapter("research")
+    source = {
+        "version": "1.0",
+        "project_id": "demo",
+        "revision_id": "revision-1",
+        "media_dispositions": {"m1": "priority"},
+        "business_notes": {},
+    }
+    changed = adapter.apply(
+        source,
+        [{"op": "set_business_note", "target_id": "m1", "text": "保留原片"}],
+    )
+
+    assert changed["media_dispositions"] == {"m1": "priority"}
+    assert changed["business_notes"] == {"m1": "保留原片"}
+    assert "research_annotations" not in changed
+    assert source["business_notes"] == {}
+
+
+@pytest.mark.parametrize(
+    "operation,field",
+    [
+        ({"op": "set_media_disposition", "media_id": "m1", "disposition": "priority"}, "media_dispositions.m1"),
+        ({"op": "set_business_note", "target_id": "m1", "text": "保留"}, "business_notes.m1"),
+        ({"op": "set_logo_usage", "media_id": "m1", "allowed": True}, "logo_usage.m1"),
+        ({"op": "set_claim_boundary", "claim_id": "c1", "text": "仅演示"}, "claim_boundaries.c1"),
+        ({"op": "set_reference_method", "method_id": "proof", "selected": True}, "reference_methods.proof"),
+        ({"op": "set_direction_preference", "direction_id": "d1", "preference": "prefer", "rationale": "适合"}, "direction_preferences.d1"),
+        ({"op": "resolve_matrix_row", "matrix_row_id": "row-1", "resolution": "accept", "source_media_id": "m1", "note": "采用"}, "matrix_resolutions.row-1"),
+        ({"op": "request_local_reanalysis", "target_type": "shot", "target_id": "s1", "dimensions": ["dialogue"], "reason": "听不清"}, "local_reanalysis_requests"),
+    ],
+)
+def test_research_touched_fields_use_persisted_collection_paths(operation, field) -> None:
+    from backlot.operator_adapters import get_adapter
+
+    assert get_adapter("research").touched_fields([operation]) == {field}
 
 
 @pytest.mark.parametrize(

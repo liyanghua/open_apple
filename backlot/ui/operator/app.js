@@ -84,6 +84,9 @@ function renderReferenceAnalysis(container, reference) {
   heading.append(title);
   if (reference.duration_seconds != null) heading.append(node("span", "row-meta", formatDuration(reference.duration_seconds)));
   section.append(heading, node("p", "lead-copy", reference.summary));
+  if (reference.fingerprint_upgrade_notice) {
+    section.append(node("p", "source-risk", reference.fingerprint_upgrade_notice));
+  }
   const preview = rangedVideo(reference, "reference-preview", `${reference.title || "参考爆款"}分析预览`);
   if (preview) section.append(preview);
   const facts = node("div", "reference-facts");
@@ -115,9 +118,62 @@ function renderReferenceAnalysis(container, reference) {
   container.append(section);
 }
 
-function renderResearch(container, data) {
+function researchAction(label, operation, onOperation, className = "quiet-button") {
+  const button = node("button", className, label);
+  button.type = "button";
+  button.addEventListener("click", () => {
+    onOperation(operation);
+    button.textContent = "已记录";
+    button.disabled = true;
+  });
+  return button;
+}
+
+function renderResearch(container, data, { editable = false, onOperation = () => {} } = {}) {
+  if (data.template) {
+    const template = node("section", "content-row research-template");
+    template.append(node("h3", "section-title", "本次拆解模板"));
+    template.append(detailRow("模板", data.template.label));
+    template.append(detailRow("状态", data.template.status));
+    container.append(template);
+  }
   renderReferenceAnalysis(container, data.reference);
-  container.append(node("h3", "section-title", "自有素材理解"));
+  if (data.breakdown) {
+    container.append(node("h3", "section-title", "分镜拆解"));
+    const stats = node("div", "inline-stats");
+    stats.append(detailRow("已识别", `${data.breakdown.identified} 项`));
+    stats.append(detailRow("待确认", `${data.breakdown.needs_review} 项`));
+    stats.append(detailRow("没看清", `${data.breakdown.missing} 项`));
+    container.append(stats);
+    const rows = node("div", "source-list research-breakdown-list");
+    (data.breakdown.rows || []).forEach((row) => {
+      const item = node("article", "content-row research-breakdown-row");
+      const heading = node("div", "source-heading");
+      heading.append(node("h4", "row-title", row.visual_content || "这一镜暂未识别画面内容"));
+      heading.append(node("span", row.needs_review ? "status-chip" : "status-chip is-ready", row.needs_review ? "需要确认" : row.origin));
+      item.append(heading, node("p", "row-meta", formatTimeRange(row.start_seconds, row.end_seconds)));
+      if (row.shot_size) item.append(detailRow("景别", row.shot_size));
+      if (row.camera_angle) item.append(detailRow("机位", row.camera_angle));
+      if (row.camera_movement) item.append(detailRow("运镜", row.camera_movement));
+      if (row.dialogue) item.append(detailRow("台词", row.dialogue));
+      if (row.overlay_text) item.append(detailRow("花字", row.overlay_text));
+      if (row.effect_treatment) item.append(detailRow("特效", row.effect_treatment));
+      if (row.setting) item.append(detailRow("场景", row.setting));
+      if (row.audio_layers?.length) item.append(detailRow("声音", row.audio_layers.join("、")));
+      if (row.music_profile) item.append(detailRow("BGM", row.music_profile));
+      if (row.evidence_frames?.length) item.append(detailRow("画面参考", `${row.evidence_frames.length} 个关键帧`));
+      if (row.analyst_note) item.append(detailRow("备注", row.analyst_note));
+      if (editable) {
+        item.append(researchAction("重新看这一段", {
+          op: "request_local_reanalysis", target_type: "shot", target_id: row.id,
+          dimensions: ["visual_content", "dialogue", "overlay_text"], reason: "制作人员请求重新确认",
+        }, onOperation));
+      }
+      rows.append(item);
+    });
+    container.append(rows);
+  }
+  container.append(node("h3", "section-title", "我的素材"));
   const stats = node("div", "inline-stats");
   stats.append(detailRow("已检查素材", `${data.source_count} 条`));
   stats.append(detailRow("可用素材", `${data.usable_count} 条`));
@@ -151,6 +207,58 @@ function renderResearch(container, data) {
     const list = node("ul", "plain-list");
     data.risks.forEach((risk) => list.append(node("li", "", risk)));
     container.append(node("h3", "section-title", "需要留意"), list);
+  }
+  if (data.matching?.rows?.length) {
+    container.append(node("h3", "section-title", "参考镜头 × 我的素材"));
+    const list = node("div", "source-list research-matching-list");
+    data.matching.rows.forEach((row) => {
+      const item = node("article", "content-row research-matching-row");
+      item.append(node("h4", "row-title", row.reference_intent || "参考镜头"));
+      item.append(node("p", "row-copy", row.match_reason || "暂未找到可信的匹配理由"));
+      item.append(detailRow("推荐素材", row.source_media_id || "还没有合适素材"));
+      item.append(detailRow("当前处理", row.status));
+      if (row.gap) item.append(node("p", "source-risk", row.gap));
+      if (editable) {
+        const actions = node("div", "inline-edit-actions");
+        const choices = [
+          ["采用这段", "accept"], ["换一段", "replace_source"],
+          ["需要补拍或补素材", "bridge"], ["改成别的表达", "rewrite"], ["删除这一镜", "omit"],
+        ];
+        choices.forEach(([label, resolution]) => actions.append(researchAction(label, {
+          op: "resolve_matrix_row", matrix_row_id: row.id, resolution,
+          source_media_id: row.source_media_id || null, note: label,
+        }, onOperation)));
+        item.append(actions);
+      }
+      list.append(item);
+    });
+    container.append(list);
+  }
+  if (data.directions?.length) {
+    container.append(node("h3", "section-title", "可选方向"));
+    data.directions.forEach((direction) => {
+      const item = node("article", "content-row research-direction");
+      item.append(node("h4", "row-title", direction.title));
+      item.append(node("p", "row-copy", direction.promise));
+      if (direction.keep?.length) item.append(node("h5", "detail-heading", "建议保留"), tagList(direction.keep));
+      if (direction.change?.length) item.append(node("h5", "detail-heading", "换成自己的表达"), tagList(direction.change));
+      if (direction.avoid?.length) item.append(node("h5", "detail-heading", "不要照搬"), tagList(direction.avoid));
+      if (editable) {
+        const actions = node("div", "inline-edit-actions");
+        actions.append(researchAction("保留这个方向", {op: "set_direction_preference", direction_id: direction.id, preference: "prefer", rationale: "制作人员选择"}, onOperation, "primary-button"));
+        actions.append(researchAction("暂不采用", {op: "set_direction_preference", direction_id: direction.id, preference: "avoid", rationale: "制作人员暂不采用"}, onOperation));
+        item.append(actions);
+      }
+      container.append(item);
+    });
+  }
+  if (data.quality) {
+    const section = node("section", "content-row research-quality");
+    section.append(node("h3", "section-title", "研究检查结果"));
+    section.append(detailRow("当前结果", data.quality.status));
+    if (data.quality.score != null && data.quality.max_score != null) section.append(detailRow("检查得分", `${data.quality.score}/${data.quality.max_score}`));
+    (data.quality.checks || []).forEach((check) => section.append(detailRow(check.label, `${check.status} · ${check.message}`)));
+    container.append(section);
   }
 }
 
@@ -539,7 +647,7 @@ function renderEditor(container, stage, editor, project, snapshot) {
     });
   };
   const renderers = {
-    research_review: renderResearch,
+    research_review: (target, value) => renderResearch(target, value, { editable: canEdit, onOperation }),
     proposal_choice: renderProposal,
     script_editor: (target, value) => renderScript(target, value, { editable: canEdit, onOperation }),
     shot_mapping: renderShots,
@@ -550,11 +658,10 @@ function renderEditor(container, stage, editor, project, snapshot) {
     unavailable: (target, value) => target.append(node("p", "empty-copy", value.message)),
   };
   (renderers[editor?.type] || renderEmpty)(container, data);
-  if (editor?.type === "research_review") return;
   const editPanel = node("div", "typed-editor-panel");
   const editorBody = node("div", "typed-editor-body");
   const controls = node("div", "editor-controls");
-  if (!["script_editor", "delivery_review"].includes(editor?.type)) {
+  if (!["research_review", "script_editor", "delivery_review"].includes(editor?.type)) {
     renderTypedEditor(editorBody, stage, editor, { editable: canEdit, onOperation });
   }
   if (canEdit) {
@@ -574,7 +681,7 @@ function renderEditor(container, stage, editor, project, snapshot) {
     controls.append(preview);
   }
   controls.append(message);
-  if (!["script_editor", "delivery_review"].includes(editor?.type)) editPanel.append(editorBody);
+  if (!["research_review", "script_editor", "delivery_review"].includes(editor?.type)) editPanel.append(editorBody);
   editPanel.append(controls); container.append(editPanel);
   const impactPanel = node("div", "impact-panel");
   renderImpact(impactPanel, snapshot.previews?.[mutationStage], {

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/research_annotations",
+  "title": "Research Annotations",
+  "type": "object",
+  "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "revision_id", "base_research_revision", "media_dispositions", "logo_usage", "claim_boundaries", "reference_methods", "direction_preferences", "matrix_resolutions", "local_reanalysis_requests", "business_notes"],
+  "properties": {
+    "version": {"type": "string"}, "project_id": {"type": "string", "minLength": 1}, "created_at": {"type": "string", "format": "date-time"}, "producer": {"type": "string", "minLength": 1}, "input_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "revision_id": {"type": "string", "minLength": 1}, "base_research_revision": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "media_dispositions": {"type": "object", "additionalProperties": {"enum": ["priority", "usable", "unused"]}}, "logo_usage": {"type": "object", "additionalProperties": {"type": "boolean"}}, "claim_boundaries": {"type": "object", "additionalProperties": {"type": "string"}}, "reference_methods": {"type": "object", "additionalProperties": {"type": "boolean"}}, "direction_preferences": {"type": "object", "additionalProperties": {"$ref": "#/$defs/direction_preference"}}, "matrix_resolutions": {"type": "object", "additionalProperties": {"$ref": "#/$defs/matrix_resolution"}}, "local_reanalysis_requests": {"type": "array", "items": {"$ref": "#/$defs/reanalysis"}}, "business_notes": {"type": "object", "additionalProperties": {"type": "string"}}
+  },
+  "$defs": {
+    "direction_preference": {"type": "object", "required": ["preference", "rationale"], "properties": {"preference": {"enum": ["prefer", "neutral", "avoid"]}, "rationale": {"type": "string"}}, "additionalProperties": false},
+    "matrix_resolution": {"type": "object", "required": ["resolution", "note"], "properties": {"resolution": {"enum": ["accept", "replace_source", "bridge", "rewrite", "omit"]}, "source_media_id": {"type": ["string", "null"]}, "note": {"type": "string"}}, "additionalProperties": false},
+    "reanalysis": {"type": "object", "required": ["target_type", "target_id", "dimensions", "reason"], "properties": {"target_type": {"enum": ["shot", "source", "matrix_row"]}, "target_id": {"type": "string"}, "dimensions": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "reason": {"type": "string"}}, "additionalProperties": false}
+  },
+  "additionalProperties": false
+}

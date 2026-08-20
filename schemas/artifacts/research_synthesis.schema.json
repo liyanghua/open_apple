@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/research_synthesis",
+  "title": "Research Synthesis",
+  "type": "object",
+  "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "summary", "differentiation_directions", "industry_prior_evaluations", "conflicts"],
+  "properties": {
+    "version": {"type": "string"}, "project_id": {"type": "string", "minLength": 1}, "created_at": {"type": "string", "format": "date-time"}, "producer": {"type": "string", "minLength": 1},
+    "input_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "summary": {"type": "string"}, "differentiation_directions": {"type": "array", "items": {"$ref": "#/$defs/direction"}}, "industry_prior_evaluations": {"type": "array", "items": {"type": "object", "additionalProperties": true}}, "conflicts": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+  },
+  "$defs": {
+    "direction": {"type": "object", "required": ["direction_id", "title", "promise", "keep_from_reference", "change_for_project", "avoid", "industry_prior_refs", "matrix_row_refs", "prerequisites", "tradeoffs"], "properties": {"direction_id": {"type": "string"}, "title": {"type": "string"}, "promise": {"type": "string"}, "keep_from_reference": {"type": "array", "items": {"type": "string"}}, "change_for_project": {"type": "array", "items": {"type": "string"}}, "avoid": {"type": "array", "items": {"type": "string"}}, "industry_prior_refs": {"type": "array", "items": {"type": "string"}}, "matrix_row_refs": {"type": "array", "items": {"type": "string"}}, "prerequisites": {"type": "array", "items": {"type": "string"}}, "tradeoffs": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false}
+  },
+  "additionalProperties": false
+}

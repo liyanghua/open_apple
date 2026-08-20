@@ -27,6 +27,9 @@ reference_basis: "reference pattern or structural observation"
 source_fit: "why this owned source interval fits the beat"
 mapping_reason: "how the source fit serves the shot intent"
 originality_note: "how the treatment remains original"
+matrix_row_id: "resolved research matrix row"
+matrix_resolution_id: "resolution used for this shot"
+research_direction_ref: "selected differentiation direction"
 ```
 
 Accept a mapping only when all four fields explain the reference understanding,
@@ -40,6 +43,10 @@ Set `metadata.reference_media_usage: analysis_only`. Reference media is
 analysis-only evidence: every `source_path` must resolve to the project's owned
 source set, never a reference path, and reference media must never be copied into
 assets or appear in the final edit or render.
+
+The matrix row and resolution are the Research handoff. Choose an interval
+within the approved resolution; do not invent a new reference/source match in
+Scene Plan.
 
 
 Caption policy 1.0.1: every source caption must declare origin, review, interval, and treatment (`retain`, `crop`, `mask`, or `replace`). Retain requires approved rights/copy/claim review. Reference captions are forbidden. Record `caption_source`, `source_caption_action`, and `source_caption_review` per shot; localized crop/mask reasons and safe-zone geometry are mandatory.

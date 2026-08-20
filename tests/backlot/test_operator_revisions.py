@@ -3,6 +3,11 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
+import pytest
+
+
+RESEARCH_HASH = "b" * 64
+
 
 def _setup(tmp_path):
     from backlot.operator_drafts import DraftService
@@ -28,6 +33,55 @@ def _setup(tmp_path):
         before=before, after=after,
     )
     return project, store, draft, before, after, impact, preview, pointer
+
+
+def _research_commit(
+    project,
+    *,
+    changes,
+    base_snapshot,
+    reason="更新研究决定",
+):
+    from backlot.operator_adapters import get_adapter
+    from backlot.operator_drafts import DraftService
+    from backlot.operator_impact import ImpactService
+    from backlot.operator_revisions import RevisionService
+    from backlot.project_commit import ProjectCommitStore
+    from lib.artifact_hashing import semantic_sha256
+
+    store = ProjectCommitStore(project)
+    pointer = store.initialize()
+    draft = DraftService(project).save(
+        actor_id="user-a",
+        stage="research",
+        base_revision=RESEARCH_HASH,
+        base_artifact_hash=semantic_sha256(base_snapshot),
+        changes=changes,
+    )
+    impact = ImpactService(
+        secret=b"research-revision-secret",
+        clock=lambda: datetime(2026, 8, 19, tzinfo=timezone.utc),
+    )
+    preview = impact.preview(
+        draft=draft,
+        actor_id="user-a",
+        base_generation=pointer["generation_id"],
+        before=base_snapshot,
+        after=get_adapter("research").apply(base_snapshot, changes),
+    )
+    return RevisionService(
+        project,
+        store=store,
+        clock=lambda: datetime(2026, 8, 19, 8, 30, tzinfo=timezone.utc),
+    ).commit_draft(
+        draft=draft,
+        actor_id="user-a",
+        reason=reason,
+        preview_token=preview["preview_token"],
+        impact_service=impact,
+        base_generation=pointer["generation_id"],
+        base_snapshot=base_snapshot,
+    )
 
 
 def test_commit_draft_is_append_only_and_atomic(tmp_path) -> None:
@@ -93,3 +147,166 @@ def test_restore_appends_new_revision_instead_of_overwriting_history(tmp_path) -
     assert restored["parent_revision_id"] == first["revision_id"]
     assert len(service.list("proposal")) == 2
     assert json.loads((project / "artifacts/proposal_packet.json").read_text())["hook"] == "新钩子"
+
+
+def test_research_commit_persists_schema_valid_hashed_artifact(tmp_path) -> None:
+    from lib.artifact_hashing import verify_hashes
+    from schemas.artifacts import validate_artifact
+
+    project = tmp_path / "demo"
+    (project / "artifacts").mkdir(parents=True)
+    (project / "project.json").write_text('{"project_id":"demo"}', encoding="utf-8")
+
+    revision = _research_commit(
+        project,
+        base_snapshot={},
+        changes=[
+            {"op": "set_media_disposition", "media_id": "m1", "disposition": "priority"},
+        ],
+    )
+
+    artifact = json.loads(
+        (project / "artifacts/research_annotations.json").read_text(encoding="utf-8")
+    )
+    validate_artifact("research_annotations", artifact)
+    assert verify_hashes(artifact).valid is True
+    assert artifact["revision_id"] == revision["revision_id"]
+    assert artifact["base_research_revision"] == RESEARCH_HASH
+    assert artifact["project_id"] == "demo"
+    assert artifact["producer"] == "backlot.operator_revisions"
+
+
+def test_second_research_edit_preserves_old_and_new_annotation_collections(tmp_path) -> None:
+    from schemas.artifacts import validate_artifact
+
+    project = tmp_path / "demo"
+    (project / "artifacts").mkdir(parents=True)
+    (project / "project.json").write_text('{"project_id":"demo"}', encoding="utf-8")
+
+    _research_commit(
+        project,
+        base_snapshot={},
+        changes=[
+            {"op": "set_media_disposition", "media_id": "m1", "disposition": "priority"},
+            {"op": "set_logo_usage", "media_id": "m1", "allowed": True},
+            {"op": "set_claim_boundary", "claim_id": "claim-1", "text": "仅限演示场景"},
+            {"op": "set_reference_method", "method_id": "proof-pair", "selected": True},
+        ],
+    )
+    first = json.loads(
+        (project / "artifacts/research_annotations.json").read_text(encoding="utf-8")
+    )
+    _research_commit(
+        project,
+        base_snapshot=first,
+        changes=[
+            {
+                "op": "set_direction_preference",
+                "direction_id": "direction-1",
+                "preference": "prefer",
+                "rationale": "更符合自有素材",
+            },
+            {
+                "op": "resolve_matrix_row",
+                "matrix_row_id": "matrix-1",
+                "resolution": "accept",
+                "source_media_id": "m1",
+                "note": "采用现有证明镜头",
+            },
+        ],
+    )
+
+    artifact = json.loads(
+        (project / "artifacts/research_annotations.json").read_text(encoding="utf-8")
+    )
+    validate_artifact("research_annotations", artifact)
+    assert artifact["media_dispositions"] == {"m1": "priority"}
+    assert artifact["logo_usage"] == {"m1": True}
+    assert artifact["claim_boundaries"] == {"claim-1": "仅限演示场景"}
+    assert artifact["reference_methods"] == {"proof-pair": True}
+    assert artifact["direction_preferences"]["direction-1"]["preference"] == "prefer"
+    assert artifact["matrix_resolutions"]["matrix-1"]["source_media_id"] == "m1"
+
+
+def test_research_restore_rebuilds_artifact_revision_provenance(tmp_path) -> None:
+    from backlot.operator_revisions import RevisionService
+    from backlot.project_commit import ProjectCommitStore
+    from lib.artifact_hashing import verify_hashes
+    from schemas.artifacts import validate_artifact
+
+    project = tmp_path / "demo"
+    (project / "artifacts").mkdir(parents=True)
+    (project / "project.json").write_text('{"project_id":"demo"}', encoding="utf-8")
+    first = _research_commit(
+        project,
+        base_snapshot={},
+        changes=[
+            {"op": "set_media_disposition", "media_id": "m1", "disposition": "priority"},
+        ],
+    )
+    first_artifact = json.loads(
+        (project / "artifacts/research_annotations.json").read_text(encoding="utf-8")
+    )
+    _research_commit(
+        project,
+        base_snapshot=first_artifact,
+        changes=[
+            {"op": "set_media_disposition", "media_id": "m1", "disposition": "unused"},
+        ],
+    )
+    current = json.loads(
+        (project / "artifacts/research_annotations.json").read_text(encoding="utf-8")
+    )
+    store = ProjectCommitStore(project)
+    restored = RevisionService(
+        project,
+        store=store,
+        clock=lambda: datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc),
+    ).commit_restore(
+        stage="research",
+        revision_id=first["revision_id"],
+        actor_id="user-a",
+        reason="恢复首版研究决定",
+        current_snapshot=current,
+        idempotency_key="restore-research-one",
+        request_digest="d" * 64,
+        expected_generation=store.initialize()["generation_id"],
+    )
+
+    artifact = json.loads(
+        (project / "artifacts/research_annotations.json").read_text(encoding="utf-8")
+    )
+    validate_artifact("research_annotations", artifact)
+    assert verify_hashes(artifact).valid is True
+    assert artifact["revision_id"] == restored["revision_id"]
+    assert restored["snapshot"]["revision_id"] == restored["revision_id"]
+    assert artifact["revision_id"] != first["snapshot"]["revision_id"]
+    assert artifact["created_at"] == "2026-08-20T09:00:00+00:00"
+    assert artifact["producer"] == "backlot.operator_revisions"
+    assert artifact["base_research_revision"] == first_artifact["base_research_revision"]
+    assert artifact["media_dispositions"] == {"m1": "priority"}
+
+
+def test_research_commit_reports_malformed_legacy_annotations_as_operator_error(tmp_path) -> None:
+    from backlot.operator_errors import OperatorError
+
+    project = tmp_path / "demo"
+    (project / "artifacts").mkdir(parents=True)
+    (project / "project.json").write_text('{"project_id":"demo"}', encoding="utf-8")
+    malformed = {
+        "base_research_revision": RESEARCH_HASH,
+        "logo_usage": {"m1": "yes"},
+        "business_notes": {},
+    }
+
+    with pytest.raises(OperatorError) as failure:
+        _research_commit(
+            project,
+            base_snapshot=malformed,
+            changes=[
+                {"op": "set_business_note", "target_id": "m1", "text": "保留"},
+            ],
+        )
+
+    assert failure.value.code == "validation_failed"
+    assert failure.value.status_code == 422

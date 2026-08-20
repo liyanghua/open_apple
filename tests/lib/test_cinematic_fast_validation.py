@@ -7,6 +7,7 @@ import pytest
 from lib.artifact_io import canonical_artifact_path, write_artifact_atomic
 from lib.checkpoint import CheckpointValidationError, validate_checkpoint
 from lib.cinematic_fast_validation import validate_scene_mapping
+from tests.contracts.test_fastline_artifact_contracts import valid_artifact
 
 
 def _source_review() -> dict:
@@ -14,6 +15,7 @@ def _source_review() -> dict:
         "version": "1.0",
         "files": [
             {
+                "media_id": "source-1",
                 "path": "projects/demo/inputs/source/owned.mp4",
                 "media_type": "video",
                 "reviewed": True,
@@ -97,13 +99,58 @@ def _scene_plan() -> dict:
                 "source_fit": "自有素材完整拍到防刮动作和结果",
                 "mapping_reason": "用冲突钩子完成首镜的证明意图",
                 "originality_note": "仅复用证明节奏，画面和文案均来自本项目",
+                "matrix_row_id": "matrix-1",
+                "matrix_resolution_id": "accept",
+                "research_direction_ref": "direction-1",
             }],
         },
     }
 
 
+def _reference_source_matrix() -> dict:
+    return {
+        "rows": [{
+            "matrix_row_id": "matrix-1",
+            "reference_scene_id": "reference-1",
+            "source_media_id": "source-1",
+            "reference_time_range": {"start_seconds": 0, "end_seconds_exclusive": 2.5},
+            "source_time_range": {"start_seconds": 1, "end_seconds_exclusive": 3},
+            "resolution": "accept",
+        }]
+    }
+
+
+def _research_synthesis() -> dict:
+    return {"differentiation_directions": [{"direction_id": "direction-1"}]}
+
+
 def test_validate_scene_mapping_accepts_complete_owned_source_evidence() -> None:
-    validate_scene_mapping(_scene_plan(), _source_review(), _video_analysis())
+    validate_scene_mapping(_scene_plan(), _source_review(), _video_analysis(), _reference_source_matrix())
+
+
+def test_validate_scene_mapping_rejects_mapping_not_resolved_in_research() -> None:
+    plan = _scene_plan()
+    plan["metadata"]["source_mapping"][0]["matrix_row_id"] = "unknown"
+    with pytest.raises(ValueError, match="resolved research matrix row"):
+        validate_scene_mapping(plan, _source_review(), _video_analysis(), _reference_source_matrix())
+
+
+def test_validate_scene_mapping_rejects_source_or_interval_different_from_matrix() -> None:
+    plan = _scene_plan()
+    plan["metadata"]["source_mapping"][0]["source_interval"]["start_seconds"] = 0
+    with pytest.raises(ValueError, match="approved research matrix source"):
+        validate_scene_mapping(
+            plan, _source_review(), _video_analysis(), _reference_source_matrix(), _research_synthesis()
+        )
+
+
+def test_validate_scene_mapping_rejects_unknown_research_direction() -> None:
+    plan = _scene_plan()
+    plan["metadata"]["source_mapping"][0]["research_direction_ref"] = "unknown"
+    with pytest.raises(ValueError, match="research direction"):
+        validate_scene_mapping(
+            plan, _source_review(), _video_analysis(), _reference_source_matrix(), _research_synthesis()
+        )
 
 
 def test_validate_scene_mapping_accepts_structural_reference_evidence() -> None:
@@ -156,10 +203,17 @@ def _checkpoint(project_dir, scene_plan: dict) -> dict:
         _video_analysis(),
         project_dir=project_dir,
     )
+    matrix_envelope = write_artifact_atomic(
+        canonical_artifact_path(project_dir, "reference_source_matrix"),
+        "reference_source_matrix",
+        valid_artifact("reference_source_matrix"),
+        project_dir=project_dir,
+    )
     (project_dir / "checkpoint_research.json").write_text(
         json.dumps({"artifacts": {
             "source_media_review": source_envelope,
             "video_analysis_brief": analysis_envelope,
+            "reference_source_matrix": matrix_envelope,
         }}),
         encoding="utf-8",
     )

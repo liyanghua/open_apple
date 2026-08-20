@@ -43,6 +43,9 @@
             "items": { "type": "string" },
             "description": "Which research_brief findings support this concept"
           },
+          "research_direction_refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "matrix_row_refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "fingerprint_rule_refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
           "why_this_works": { "type": "string", "description": "Rationale citing research findings — not vibes" }
         },
         "additionalProperties": false

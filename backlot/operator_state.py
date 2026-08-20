@@ -61,6 +61,14 @@ ASSET_STAGE_LABELS = {
     "compose": "成片阶段",
 }
 
+RESEARCH_CHECK_LABELS = {
+    "input_coverage": "输入素材检查",
+    "evidence_traceability": "结论依据",
+    "source_matching": "素材匹配",
+    "production_readiness": "制作可行性",
+    "execution_discipline": "执行完整性",
+}
+
 _ABSOLUTE_PATH = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
 
 
@@ -83,6 +91,13 @@ def _safe_text(value: Any, fallback: str = "") -> str:
     if _ABSOLUTE_PATH.match(text) or "/Users/" in text or "/private/" in text:
         return Path(text).stem
     return text.replace(".json", "")
+
+
+def _research_check_message(value: Any) -> str:
+    message = _safe_text(value)
+    if message.casefold() in {"confirmed", "ok", "pass", "passed"}:
+        return "已检查，未发现问题"
+    return message
 
 
 def _number(value: Any) -> float | int | None:
@@ -132,6 +147,10 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     analysis = _artifact(board, "video_analysis_brief")
     fingerprint = _artifact(board, "reference_fingerprint")
     source = _artifact(board, "source_media_review")
+    breakdown = _artifact(board, "research_breakdown")
+    matrix = _artifact(board, "reference_source_matrix")
+    synthesis = _artifact(board, "research_synthesis")
+    scorecard = _artifact(board, "research_scorecard")
     files = source.get("files") if isinstance(source.get("files"), list) else []
     risks: list[str] = []
     sources: list[dict[str, Any]] = []
@@ -218,6 +237,87 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     risks = list(dict.fromkeys(risks))
     reference_path = reference_source.get("local_path")
     first_frame = next((value for value in frame_by_scene.values() if isinstance(value, str)), None)
+    profile_ref = breakdown.get("profile_ref") if isinstance(breakdown.get("profile_ref"), Mapping) else {}
+    coverage = breakdown.get("coverage_summary") if isinstance(breakdown.get("coverage_summary"), Mapping) else {}
+    breakdown_rows = []
+    for origin, values in (
+        ("参考片", breakdown.get("reference_shots")),
+        ("我的素材", breakdown.get("source_segments")),
+    ):
+        for item in values if isinstance(values, list) else []:
+            if not isinstance(item, Mapping):
+                continue
+            interval = item.get("interval") if isinstance(item.get("interval"), Mapping) else {}
+            observations = item.get("values") if isinstance(item.get("values"), Mapping) else {}
+            breakdown_rows.append({
+                "id": _safe_text(item.get("row_id"), f"breakdown-{len(breakdown_rows) + 1}"),
+                "origin": origin,
+                "media_id": _safe_text(item.get("media_id")),
+                "start_seconds": _number(interval.get("start_seconds")) or 0,
+                "end_seconds": _number(interval.get("end_seconds_exclusive")) or 0,
+                "shot_size": _safe_text(observations.get("shot_size")),
+                "camera_movement": _safe_text(observations.get("camera_movement")),
+                "camera_angle": _safe_text(observations.get("camera_angle")),
+                "visual_content": _safe_text(observations.get("visual_content")),
+                "dialogue": _safe_text(observations.get("dialogue")),
+                "overlay_text": _safe_text(observations.get("overlay_text")),
+                "effect_treatment": _safe_text(observations.get("effect_treatment")),
+                "analyst_note": _safe_text(observations.get("analyst_note")),
+                "evidence_frames": [
+                    _safe_text(frame) for frame in observations.get("evidence_frames") or []
+                    if _safe_text(frame)
+                ],
+                "setting": _safe_text(observations.get("setting")),
+                "audio_layers": [
+                    _safe_text(layer) for layer in observations.get("audio_layers") or []
+                    if _safe_text(layer)
+                ],
+                "music_profile": _safe_text(observations.get("music_profile")),
+                "needs_review": bool(item.get("warnings")) or item.get("observation_source") == "missing",
+            })
+    matrix_rows = []
+    for item in matrix.get("rows") if isinstance(matrix.get("rows"), list) else []:
+        if not isinstance(item, Mapping):
+            continue
+        confidence = _number(item.get("confidence"))
+        resolution = _safe_text(item.get("resolution"), "pending")
+        matrix_rows.append({
+            "id": _safe_text(item.get("matrix_row_id"), f"matrix-{len(matrix_rows) + 1}"),
+            "label": "参考镜头 × 我的素材",
+            "reference_intent": _safe_text(item.get("reference_intent")),
+            "source_media_id": _safe_text(item.get("source_media_id")),
+            "match_reason": _safe_text(item.get("match_reason")),
+            "confidence": confidence,
+            "status": {
+                "pending": "需要确认", "accept": "采用这段", "replace_source": "换一段",
+                "bridge": "需要补拍或补素材", "rewrite": "改成别的表达", "omit": "删除这一镜",
+            }.get(resolution, "需要确认"),
+            "gap": _safe_text(item.get("unmatched_gap")),
+        })
+    directions = []
+    for item in synthesis.get("differentiation_directions") if isinstance(synthesis.get("differentiation_directions"), list) else []:
+        if not isinstance(item, Mapping):
+            continue
+        directions.append({
+            "id": _safe_text(item.get("direction_id"), f"direction-{len(directions) + 1}"),
+            "title": _safe_text(item.get("title"), "可选方向"),
+            "promise": _safe_text(item.get("promise")),
+            "keep": [_safe_text(value) for value in item.get("keep_from_reference") or [] if _safe_text(value)],
+            "change": [_safe_text(value) for value in item.get("change_for_project") or [] if _safe_text(value)],
+            "avoid": [_safe_text(value) for value in item.get("avoid") or [] if _safe_text(value)],
+            "tradeoffs": [_safe_text(value) for value in item.get("tradeoffs") or [] if _safe_text(value)],
+        })
+    quality_checks = []
+    for item in scorecard.get("checks") if isinstance(scorecard.get("checks"), list) else []:
+        if isinstance(item, Mapping):
+            check_id = _safe_text(item.get("id"))
+            quality_checks.append({
+                "label": RESEARCH_CHECK_LABELS.get(
+                    check_id, _safe_text(item.get("label"), check_id)
+                ),
+                "status": {"pass": "已确认", "review": "需要确认", "fail": "需要处理"}.get(_safe_text(item.get("status")), "需要确认"),
+                "message": _research_check_message(item.get("message")),
+            })
     return {
         "type": "research_review",
         "data": {
@@ -226,6 +326,28 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "usable_count": usable,
             "risks": risks,
             "sources": sources,
+            "template": {
+                "label": "电商产品证明分镜模板",
+                "version": _safe_text(profile_ref.get("version"), "1.0"),
+                "status": "已启用" if profile_ref else "等待拆解",
+            },
+            "breakdown": {
+                "label": "分镜拆解",
+                "identified": int(coverage.get("identified") or 0),
+                "needs_review": int(coverage.get("needs_review") or 0),
+                "missing": int(coverage.get("missing") or 0),
+                "rows": breakdown_rows,
+            },
+            "matching": {"label": "参考镜头 × 我的素材", "rows": matrix_rows},
+            "directions": directions,
+            "quality": {
+                "label": "研究检查结果",
+                "score": _number(scorecard.get("score")),
+                "max_score": _number(scorecard.get("max_score")),
+                "status": {"pass": "可以进入方案", "review": "需要确认", "fail": "需要处理"}.get(_safe_text(scorecard.get("status")), "等待检查"),
+                "checks": quality_checks,
+                "warnings": [_safe_text(value) for value in scorecard.get("warnings") or [] if _safe_text(value)],
+            },
             "reference": {
                 "title": _safe_text(reference_source.get("title"), "参考视频"),
                 "summary": summary,
@@ -243,6 +365,12 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
                 "preview_url": _media_url(project_id, reference_path),
                 "poster_url": _thumb_url(project_id, first_frame or reference_path, time_seconds=None if first_frame else 1.5),
                 "scenes": reference_scenes,
+                "fingerprint_version": _safe_text(fingerprint.get("version"), "1.0"),
+                "fingerprint_upgrade_notice": (
+                    "这条参考片还在旧版拆解格式，当前页面先显示已有结论；重新研究后可补齐拍法、节奏和一致性检查"
+                    if _safe_text(fingerprint.get("version"), "1.0") != "2.0"
+                    else ""
+                ),
             },
         },
     }

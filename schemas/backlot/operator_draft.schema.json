@@ -38,7 +38,8 @@
     "researchOperation": {"oneOf": [
       {"$ref": "#/$defs/setMediaDisposition"}, {"$ref": "#/$defs/setBusinessNote"},
       {"$ref": "#/$defs/setLogoUsage"}, {"$ref": "#/$defs/setClaimBoundary"},
-      {"$ref": "#/$defs/setReferenceMethod"}
+      {"$ref": "#/$defs/setReferenceMethod"}, {"$ref": "#/$defs/setDirectionPreference"},
+      {"$ref": "#/$defs/resolveMatrixRow"}, {"$ref": "#/$defs/requestLocalReanalysis"}
     ]},
     "proposalOperation": {"oneOf": [
       {"$ref": "#/$defs/selectConcept"}, {"$ref": "#/$defs/replaceHook"},
@@ -79,6 +80,9 @@
     "setLogoUsage": {"type": "object", "additionalProperties": false, "required": ["op", "media_id", "allowed"], "properties": {"op": {"const": "set_logo_usage"}, "media_id": {"type": "string", "minLength": 1}, "allowed": {"type": "boolean"}}},
     "setClaimBoundary": {"type": "object", "additionalProperties": false, "required": ["op", "claim_id", "text"], "properties": {"op": {"const": "set_claim_boundary"}, "claim_id": {"type": "string", "minLength": 1}, "text": {"type": "string"}}},
     "setReferenceMethod": {"type": "object", "additionalProperties": false, "required": ["op", "method_id", "selected"], "properties": {"op": {"const": "set_reference_method"}, "method_id": {"type": "string", "minLength": 1}, "selected": {"type": "boolean"}}},
+    "setDirectionPreference": {"type": "object", "additionalProperties": false, "required": ["op", "direction_id", "preference", "rationale"], "properties": {"op": {"const": "set_direction_preference"}, "direction_id": {"type": "string", "minLength": 1}, "preference": {"enum": ["prefer", "neutral", "avoid"]}, "rationale": {"type": "string"}}},
+    "resolveMatrixRow": {"type": "object", "additionalProperties": false, "required": ["op", "matrix_row_id", "resolution", "source_media_id", "note"], "properties": {"op": {"const": "resolve_matrix_row"}, "matrix_row_id": {"type": "string", "minLength": 1}, "resolution": {"enum": ["accept", "replace_source", "bridge", "rewrite", "omit"]}, "source_media_id": {"type": ["string", "null"]}, "note": {"type": "string"}}},
+    "requestLocalReanalysis": {"type": "object", "additionalProperties": false, "required": ["op", "target_type", "target_id", "dimensions", "reason"], "properties": {"op": {"const": "request_local_reanalysis"}, "target_type": {"enum": ["shot", "source", "matrix_row"]}, "target_id": {"type": "string", "minLength": 1}, "dimensions": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": true}, "reason": {"type": "string"}}},
     "selectConcept": {"type": "object", "additionalProperties": false, "required": ["op", "concept_id"], "properties": {"op": {"const": "select_concept"}, "concept_id": {"type": "string", "minLength": 1}}},
     "replaceHook": {"type": "object", "additionalProperties": false, "required": ["op", "text"], "properties": {"op": {"const": "replace_hook"}, "text": {"type": "string"}}},
     "reorderSellingPoints": {"type": "object", "additionalProperties": false, "required": ["op", "selling_point_ids"], "properties": {"op": {"const": "reorder_selling_points"}, "selling_point_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}}},

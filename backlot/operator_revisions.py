@@ -8,12 +8,76 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError
 
 from backlot.operator_adapters import get_adapter
 from backlot.operator_errors import OperatorError
 from backlot.project_commit import ProjectCommitStore
 from lib.artifact_hashing import attach_hashes, semantic_sha256
+from schemas.artifacts import validate_artifact
+
+
+_RESEARCH_ANNOTATION_COLLECTIONS: dict[str, type] = {
+    "media_dispositions": dict,
+    "logo_usage": dict,
+    "claim_boundaries": dict,
+    "reference_methods": dict,
+    "direction_preferences": dict,
+    "matrix_resolutions": dict,
+    "local_reanalysis_requests": list,
+    "business_notes": dict,
+}
+
+
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value.lower())
+    )
+
+
+def _research_annotations_artifact(
+    result: dict[str, Any],
+    *,
+    project_id: str,
+    revision_id: str,
+    created_at: str,
+    fallback_base_research_revision: Any,
+) -> dict[str, Any]:
+    nested = result.get("research_annotations")
+    annotations = nested if isinstance(nested, dict) else result
+    base_research_revision = annotations.get("base_research_revision")
+    if not _is_sha256(base_research_revision):
+        base_research_revision = fallback_base_research_revision
+    base_research_revision = str(base_research_revision).lower()
+
+    input_hashes = annotations.get("input_hashes")
+    if not isinstance(input_hashes, dict):
+        input_hashes = {}
+    else:
+        input_hashes = dict(input_hashes)
+    input_hashes.setdefault("base_research_revision", base_research_revision)
+
+    artifact: dict[str, Any] = {
+        "version": str(annotations.get("version") or "1.0"),
+        "project_id": project_id,
+        "created_at": created_at,
+        "producer": "backlot.operator_revisions",
+        "input_hashes": input_hashes,
+        "revision_id": revision_id,
+        "base_research_revision": base_research_revision,
+    }
+    for name, collection_type in _RESEARCH_ANNOTATION_COLLECTIONS.items():
+        artifact[name] = annotations.get(name, collection_type())
+    return artifact
+
+
+def _validate_research_annotations(artifact: dict[str, Any]) -> None:
+    try:
+        validate_artifact("research_annotations", artifact)
+    except ValidationError as exc:
+        raise OperatorError.validation_failed("研究标注内容不符合要求") from exc
 
 
 def _display(value: Any) -> str | int | float | bool | None:
@@ -120,18 +184,30 @@ class RevisionService:
             raise OperatorError("revision_conflict", "当前版本已更新，请重新预览", 409)
         adapter = get_adapter(str(draft["stage"]))
         result = adapter.apply(base_snapshot, draft.get("changes", []))
-        artifact_snapshot = (
-            result.get("research_annotations", {})
-            if draft["stage"] == "research"
-            else result
-        )
-        clean = dict(artifact_snapshot)
-        clean.pop("semantic_sha256", None)
-        clean.pop("artifact_sha256", None)
-        canonical = attach_hashes(clean)
         revisions = self.list(str(draft["stage"]))
         parent = revisions[-1]["revision_id"] if revisions else None
         revision_id = f"rev-{uuid.uuid4().hex}"
+        created_at = self.clock().isoformat()
+        clean = (
+            _research_annotations_artifact(
+                result,
+                project_id=self.store.project_id,
+                revision_id=revision_id,
+                created_at=created_at,
+                fallback_base_research_revision=(
+                    draft.get("base_revision")
+                    if _is_sha256(draft.get("base_revision"))
+                    else draft["base_artifact_hash"]
+                ),
+            )
+            if draft["stage"] == "research"
+            else dict(result)
+        )
+        clean.pop("semantic_sha256", None)
+        clean.pop("artifact_sha256", None)
+        canonical = attach_hashes(clean)
+        if draft["stage"] == "research":
+            _validate_research_annotations(canonical)
         labels = adapter.diff(base_snapshot, result)
         touched = sorted(adapter.touched_fields(draft.get("changes", [])))
         changes = [
@@ -153,7 +229,7 @@ class RevisionService:
             "result_semantic_sha256": semantic_sha256(canonical),
             "actor_id": actor_id,
             "reason": reason,
-            "created_at": self.clock().isoformat(),
+            "created_at": created_at,
             "snapshot": canonical,
             "changes": changes,
         }
@@ -250,15 +326,29 @@ class RevisionService:
         revisions = self.list(stage)
         parent = revisions[-1]["revision_id"] if revisions else None
         result_id = f"rev-{uuid.uuid4().hex}"
-        labels = adapter.diff(current_snapshot, target["snapshot"])
+        created_at = self.clock().isoformat()
+        restored_snapshot = target["snapshot"]
+        if stage == "research":
+            clean = _research_annotations_artifact(
+                restored_snapshot,
+                project_id=self.store.project_id,
+                revision_id=result_id,
+                created_at=created_at,
+                fallback_base_research_revision=restored_snapshot.get(
+                    "base_research_revision"
+                ),
+            )
+            restored_snapshot = attach_hashes(clean)
+            _validate_research_annotations(restored_snapshot)
+        labels = adapter.diff(current_snapshot, restored_snapshot)
         revision = {
             "schema_version": "1.0", "revision_id": result_id,
             "parent_revision_id": parent, "project_id": self.store.project_id,
             "artifact_name": adapter.artifact_name,
             "base_semantic_sha256": semantic_sha256(current_snapshot) if current_snapshot else None,
-            "result_semantic_sha256": semantic_sha256(target["snapshot"]),
+            "result_semantic_sha256": semantic_sha256(restored_snapshot),
             "actor_id": actor_id, "reason": reason or "恢复历史版本",
-            "created_at": self.clock().isoformat(), "snapshot": target["snapshot"],
+            "created_at": created_at, "snapshot": restored_snapshot,
             "changes": [{"field": "restored_revision", "label": label, "before": None, "after": "已恢复"} for label in labels] or [{"field": "restored_revision", "label": "已恢复历史版本", "before": None, "after": "已恢复"}],
         }
         errors = list(self.validator.iter_errors(revision))
@@ -272,7 +362,7 @@ class RevisionService:
             business_diff=labels,
             expected_generation=expected_generation,
         ) as sink:
-            sink.stage_json(f"artifacts/{adapter.artifact_name}.json", target["snapshot"], schema=adapter.artifact_name)
+            sink.stage_json(f"artifacts/{adapter.artifact_name}.json", restored_snapshot, schema=adapter.artifact_name)
             sink.stage_json(relative, revision, schema="operator_revision")
             sink.stage_json(f"operator/current-revisions/{stage}.json", {"revision_id": result_id, "artifact_name": adapter.artifact_name}, schema="revision_pointer")
             checkpoint = self.project_dir / f"checkpoint_{stage}.json"

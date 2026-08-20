@@ -8,6 +8,7 @@ from lib.approval_groups import approve_bundle, build_approval_bundle, reconcile
 from lib.artifact_io import write_artifact_atomic
 from lib.checkpoint import init_project, write_checkpoint
 from lib.pipeline_loader import load_pipeline
+from backlot.project_commit import ProjectCommitStore
 from tests.contracts.test_fastline_artifact_contracts import (
     FASTLINE_ARTIFACTS,
     valid_artifact,
@@ -124,6 +125,9 @@ def _artifact(name: str) -> dict:
             )
         elif name == "media_index":
             value["entries"][0]["path"] = "inputs/source/product-a.mp4"
+        elif name == "reference_source_matrix":
+            value["rows"][0]["reference_time_range"] = {"start_seconds": 0, "end_seconds_exclusive": 5}
+            value["rows"][0]["source_time_range"] = {"start_seconds": 0, "end_seconds_exclusive": 10}
         return value
     if name == "source_media_review":
         return _source_media_review()
@@ -161,6 +165,11 @@ def _artifact(name: str) -> dict:
             "representative_frame": REFERENCE_FRAME,
             "audio_path": REFERENCE_AUDIO,
         }
+    elif name == "proposal_packet":
+        for concept in value["concept_options"]:
+            concept["research_direction_refs"] = ["direction-1"]
+            concept["matrix_row_refs"] = ["matrix-1"]
+            concept["fingerprint_rule_refs"] = ["proof-pair"]
     elif name == "scene_plan":
         value["scenes"][0]["shot_intent"] = "Show the owned product proof beat"
         value["metadata"] = {
@@ -190,6 +199,9 @@ def _artifact(name: str) -> dict:
                 "source_fit": "Owned overview clip covers the complete beat",
                 "mapping_reason": "The clip establishes the product proof intent",
                 "originality_note": "Only the abstract proof structure is reused",
+                "matrix_row_id": "matrix-1",
+                "matrix_resolution_id": "accept",
+                "research_direction_ref": "direction-1",
             }],
         }
     elif name == "asset_manifest":
@@ -285,6 +297,32 @@ def _checkpoint(root: Path, stage: str, status: str, artifacts: dict, **kwargs) 
     )
 
 
+def test_research_artifacts_and_checkpoint_commit_in_one_generation(tmp_path: Path) -> None:
+    project = init_project(PROJECT_ID, title="Atomic Research", pipeline_type=PIPELINE, pipeline_dir=tmp_path)
+    store = ProjectCommitStore(project)
+    store.initialize()
+    names = [
+        "research_brief", "video_analysis_brief", "source_media_review", "media_index",
+        "reference_fingerprint", "research_breakdown", "reference_source_matrix",
+        "research_synthesis", "research_scorecard",
+    ]
+    with store.transaction(action={"action_id": "research-complete"}) as sink:
+        envelopes = {
+            name: write_artifact_atomic(
+                f"artifacts/{name}.json", name, copy.deepcopy(_artifact(name)),
+                project_dir=project, sink=sink,
+            )
+            for name in names
+        }
+        write_checkpoint(
+            tmp_path, PROJECT_ID, "research", "completed", envelopes,
+            pipeline_type=PIPELINE, sink=sink,
+        )
+        assert not (project / "checkpoint_research.json").exists()
+    assert (project / "checkpoint_research.json").exists()
+    assert all((project / f"artifacts/{name}.json").exists() for name in names)
+
+
 def test_cinematic_fast_end_to_end_has_exactly_two_gates_and_no_reference_reuse(tmp_path: Path):
     project = init_project(PROJECT_ID, title="Fastline E2E", pipeline_type=PIPELINE, pipeline_dir=tmp_path)
     manifest = load_pipeline(PIPELINE)
@@ -292,7 +330,11 @@ def test_cinematic_fast_end_to_end_has_exactly_two_gates_and_no_reference_reuse(
     providers = FakePaidProviders()
     remotion = FakeRemotionAdapter()
 
-    _checkpoint(tmp_path, "research", "completed", _envelopes(project, ["research_brief", "video_analysis_brief", "source_media_review", "media_index", "reference_fingerprint"]))
+    _checkpoint(tmp_path, "research", "completed", _envelopes(project, [
+        "research_brief", "video_analysis_brief", "source_media_review", "media_index",
+        "reference_fingerprint", "research_breakdown", "reference_source_matrix",
+        "research_synthesis", "research_scorecard",
+    ]))
     _checkpoint(tmp_path, "proposal", "completed", _envelopes(project, ["proposal_packet", "decision_log"]))
     _checkpoint(tmp_path, "script", "completed", _envelopes(project, ["script"]))
     _checkpoint(tmp_path, "scene_plan", "completed", _envelopes(project, ["scene_plan"]))

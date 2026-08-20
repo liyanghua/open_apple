@@ -1,0 +1,20 @@
+profile_id: ecommerce-storyboard-cn
+version: "1.0"
+pipeline: cinematic-fast
+use_case: ecommerce_product_proof
+row_unit: shot
+dimensions:
+  - {key: ordinal, label: 序号, value_type: integer, required: true, normalization: "视频内从1开始的镜头序号", evidence_requirement: 直接来自镜头顺序, display_order: 1, visible_by_default: true}
+  - {key: shot_size, label: 景别, value_type: string, required: false, allowed_values: [全景, 中景, 近景, 特写], normalization: "统一为中文景别", evidence_requirement: 关键帧或镜头分析, display_order: 2, visible_by_default: true}
+  - {key: camera_movement, label: 镜头, value_type: string, required: false, allowed_values: [固定, 推, 拉, 摇, 移, 跟拍, 手持], normalization: "镜头是否运动及运动方式", evidence_requirement: 场景分析或关键帧序列, display_order: 3, visible_by_default: true}
+  - {key: camera_angle, label: 拍摄方法, value_type: string, required: false, allowed_values: [俯拍, 平视, 仰拍, 过肩, 主观视角], normalization: "统一为拍摄角度", evidence_requirement: 关键帧, display_order: 4, visible_by_default: true}
+  - {key: interval, label: 时长, value_type: interval, required: true, normalization: "数值化为[start_seconds,end_seconds_exclusive)", evidence_requirement: 场景时间码, display_order: 5, visible_by_default: true}
+  - {key: visual_content, label: 画面内容, value_type: string, required: true, normalization: "主体、动作、环境和动作结果", evidence_requirement: 关键帧或视频观察, display_order: 6, visible_by_default: true}
+  - {key: dialogue, label: 台词, value_type: string, required: false, normalization: "口播或对白原文，无法确认时留空", evidence_requirement: ASR或人工确认, display_order: 7, visible_by_default: true}
+  - {key: overlay_text, label: 花字, value_type: string, required: false, normalization: "画面内文字，不与字幕轨混合", evidence_requirement: OCR或关键帧, display_order: 8, visible_by_default: true}
+  - {key: effect_treatment, label: 特效, value_type: string, required: false, normalization: "淡入淡出、字幕动画和画面处理", evidence_requirement: 视频观察, display_order: 9, visible_by_default: true}
+  - {key: analyst_note, label: 备注, value_type: string, required: false, normalization: "仅保存人工补充，不臆造空值", evidence_requirement: 人工标注, display_order: 10, visible_by_default: true}
+  - {key: evidence_frames, label: 画面参考, value_type: string_array, required: false, normalization: "关键帧或代表帧路径", evidence_requirement: 抽帧产物, display_order: 11, visible_by_default: true}
+  - {key: setting, label: 场景, value_type: string, required: false, normalization: "地点、内外、时间和环境", evidence_requirement: 关键帧或视频观察, display_order: 12, visible_by_default: true}
+  - {key: audio_layers, label: 音频类型, value_type: string_array, required: false, normalization: "人声、环境声、音乐和音效分层", evidence_requirement: 音频探测或听辨, display_order: 13, visible_by_default: true}
+  - {key: music_profile, label: BGM, value_type: string, required: false, normalization: "音乐类型、能量和节奏特征", evidence_requirement: 音频探测或听辨, display_order: 14, visible_by_default: true}

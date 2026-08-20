@@ -594,20 +594,25 @@ class VideoAnalyzer(BaseTool):
 
         self._save_brief(brief, output_dir)
 
+        analysis_fingerprint_path = None
         if depth == "deep" and not is_url and inputs.get("project_dir"):
-            self._write_reference_fingerprint(
+            self._write_analysis_fingerprint_sidecar(
                 source=Path(source),
                 depth=depth,
                 max_keyframes=max_keyframes,
                 analysis_version=inputs.get("analysis_version", "1"),
                 project_dir=Path(inputs["project_dir"]),
+                output_dir=output_dir,
                 brief=brief,
             )
+            analysis_fingerprint_path = output_dir / "reference_analysis_fingerprint.json"
 
         elapsed = time.time() - start
         artifacts = [str(output_dir / "video_analysis_brief.json")]
         if keyframe_dir.exists():
             artifacts.append(str(keyframe_dir))
+        if analysis_fingerprint_path is not None:
+            artifacts.append(str(analysis_fingerprint_path))
 
         return ToolResult(
             success=True,
@@ -630,7 +635,7 @@ class VideoAnalyzer(BaseTool):
         data = json.loads(result.stdout)
         return float(data.get("format", {}).get("duration", 0))
 
-    def _write_reference_fingerprint(
+    def _write_analysis_fingerprint_sidecar(
         self,
         *,
         source: Path,
@@ -638,10 +643,12 @@ class VideoAnalyzer(BaseTool):
         max_keyframes: int,
         analysis_version: str,
         project_dir: Path,
+        output_dir: Path,
         brief: dict[str, Any],
     ) -> dict[str, Any]:
-        from lib.artifact_hashing import canonical_bytes
-        from lib.artifact_io import write_artifact_atomic
+        """Persist analyzer provenance without claiming the Research artifact."""
+        from lib.artifact_hashing import attach_hashes, canonical_bytes
+        from lib.cache_io import atomic_write_json
         from lib.media_index import fingerprint_media
 
         fingerprint = fingerprint_media(source)
@@ -671,13 +678,9 @@ class VideoAnalyzer(BaseTool):
             "output_digest": hashlib.sha256(canonical_bytes(brief)).hexdigest(),
             "abstract_structure": abstract_structure,
         }
-        envelope = write_artifact_atomic(
-            "artifacts/reference_fingerprint.json",
-            "reference_fingerprint",
-            raw,
-            project_dir=project_dir,
-        )
-        return envelope["data"]
+        sidecar = attach_hashes(raw)
+        atomic_write_json(output_dir / "reference_analysis_fingerprint.json", sidecar)
+        return sidecar
 
     def _compute_keyframe_timestamps(
         self, scenes: list[dict], max_frames: int, depth: str

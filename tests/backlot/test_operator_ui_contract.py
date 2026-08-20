@@ -77,6 +77,7 @@ def test_operator_ui_has_stable_desktop_and_mobile_layout_constraints() -> None:
     assert "@media (max-width: 1280px)" in css
     assert "@media (max-width: 390px)" in css
     assert "min-width: 0" in css
+    assert ".research-matching-row .inline-edit-actions" in css
 
 
 def test_operator_ui_renders_detailed_sources_concepts_and_clip_previews() -> None:
@@ -98,11 +99,14 @@ def test_operator_ui_renders_detailed_sources_concepts_and_clip_previews() -> No
     assert "shot-preview" in css
 
 
-def test_research_review_is_read_only_without_business_note_controls() -> None:
+def test_research_review_uses_scoped_decision_controls_without_generic_editor() -> None:
     app = _read(OPERATOR_ROOT / "app.js")
     editors = _read(OPERATOR_ROOT / "editors.js")
 
-    assert 'if (editor?.type === "research_review") return;' in app
+    assert 'research_review: (target, value) => renderResearch' in app
+    assert '!["research_review", "script_editor", "delivery_review"].includes(editor?.type)' in app
+    assert "resolve_matrix_row" in app
+    assert "request_local_reanalysis" in app
     assert "业务备注" not in editors
     assert 'editor?.type === "research_review"' not in editors
 

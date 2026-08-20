@@ -145,7 +145,7 @@ def write_artifact_atomic(
 
 
 def load_artifact_envelope(
-    project_dir: str | os.PathLike[str], envelope: dict[str, Any]
+    project_dir: str | os.PathLike[str], envelope: dict[str, Any], *, sink: Any = None
 ) -> dict[str, Any]:
     """Load and verify a v2 envelope against its project-local disk copy."""
     if not _is_v2_envelope(envelope):
@@ -155,11 +155,16 @@ def load_artifact_envelope(
 
     relative = _artifact_relative_path(envelope["path"])
     target = _contained_path(Path(project_dir), relative)
-    try:
-        with open(target, encoding="utf-8") as handle:
-            disk_value = json.load(handle)
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Could not load artifact envelope from disk: {exc}") from exc
+    if sink is not None:
+        disk_value = sink.read_json(relative.as_posix())
+        if disk_value is None:
+            raise ValueError("Could not load artifact envelope from staged view")
+    else:
+        try:
+            with open(target, encoding="utf-8") as handle:
+                disk_value = json.load(handle)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Could not load artifact envelope from disk: {exc}") from exc
 
     data = envelope["data"]
     if not isinstance(data, dict):
@@ -200,6 +205,8 @@ def unwrap_checkpoint_artifact(
     project_dir: str | os.PathLike[str],
     name: str,
     artifact: Any,
+    *,
+    sink: Any = None,
 ) -> Any:
     """Read v2 envelopes while retaining legacy raw dict/path compatibility."""
     if _is_v2_envelope(artifact):
@@ -207,7 +214,7 @@ def unwrap_checkpoint_artifact(
             raise ValueError(
                 f"Artifact envelope name {artifact['name']!r} does not match {name!r}"
             )
-        return load_artifact_envelope(project_dir, artifact)
+        return load_artifact_envelope(project_dir, artifact, sink=sink)
 
     if isinstance(artifact, str):
         relative = _artifact_relative_path(artifact)
@@ -222,7 +229,7 @@ def unwrap_checkpoint_artifact(
                 raise ValueError(
                     f"Artifact envelope name {loaded['name']!r} does not match {name!r}"
                 )
-            return load_artifact_envelope(project_dir, loaded)
+            return load_artifact_envelope(project_dir, loaded, sink=sink)
         artifact = loaded
 
     if isinstance(artifact, dict):

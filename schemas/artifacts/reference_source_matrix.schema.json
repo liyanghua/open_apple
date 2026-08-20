@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/reference_source_matrix",
+  "title": "Reference Source Matrix",
+  "type": "object",
+  "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "rows", "unmatched_gaps"],
+  "properties": {
+    "version": {"type": "string"}, "project_id": {"type": "string", "minLength": 1}, "created_at": {"type": "string", "format": "date-time"}, "producer": {"type": "string", "minLength": 1},
+    "input_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "rows": {"type": "array", "items": {"$ref": "#/$defs/row"}}, "unmatched_gaps": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+  },
+  "$defs": {
+    "interval": {"type": "object", "required": ["start_seconds", "end_seconds_exclusive"], "properties": {"start_seconds": {"type": "number", "minimum": 0}, "end_seconds_exclusive": {"type": "number", "exclusiveMinimum": 0}}, "additionalProperties": false},
+    "row": {"type": "object", "required": ["matrix_row_id", "reference_scene_id", "reference_time_range", "reference_intent", "source_media_id", "source_time_range", "match_reason", "confidence", "evidence_frames", "unmatched_gap", "resolution"], "properties": {"matrix_row_id": {"type": "string"}, "reference_scene_id": {"type": "string"}, "reference_time_range": {"$ref": "#/$defs/interval"}, "reference_intent": {"type": "string"}, "source_media_id": {"type": ["string", "null"]}, "source_time_range": {"oneOf": [{"$ref": "#/$defs/interval"}, {"type": "null"}]}, "match_reason": {"type": "string"}, "confidence": {"type": "number", "minimum": 0, "maximum": 1}, "evidence_frames": {"type": "array", "items": {"type": "string"}}, "unmatched_gap": {"type": ["string", "null"]}, "resolution": {"enum": ["pending", "accept", "replace_source", "bridge", "rewrite", "omit"]}}, "additionalProperties": false}
+  },
+  "additionalProperties": false
+}

@@ -25,7 +25,9 @@ def _store(tmp_path: Path, fault: str):
 
 
 @pytest.mark.parametrize("fault", ["after_prepare", "after_apply"])
-def test_recovery_rolls_back_when_pointer_was_not_committed(tmp_path, fault) -> None:
+def test_transaction_rolls_back_immediately_when_pointer_was_not_committed(
+    tmp_path, fault
+) -> None:
     from backlot.project_commit import ProjectCommitStore
 
     project, store = _store(tmp_path, fault)
@@ -33,7 +35,6 @@ def test_recovery_rolls_back_when_pointer_was_not_committed(tmp_path, fault) -> 
         with store.transaction(action={"action_id": fault}) as sink:
             sink.stage_json("artifacts/script.json", {"version": "new"}, schema="script")
 
-    assert ProjectCommitStore(project).recover() == "recovered"
     assert json.loads((project / "artifacts/script.json").read_text()) == {"version": "old"}
     assert ProjectCommitStore(project).recover() == "clean"
 
@@ -55,11 +56,15 @@ def test_recovery_rolls_forward_and_drains_outbox_once(tmp_path, fault) -> None:
     assert len((project / "operator/actions.jsonl").read_text().splitlines()) == 1
 
 
-def test_recovery_freezes_on_unrecognized_canonical_content(tmp_path) -> None:
+def test_startup_recovery_freezes_on_unrecognized_canonical_content(
+    tmp_path, monkeypatch
+) -> None:
     from backlot.operator_errors import OperatorError
     from backlot.project_commit import ProjectCommitStore
 
     project, store = _store(tmp_path, "after_apply")
+    # Simulate process termination before the transaction exception handler can run.
+    monkeypatch.setattr(store, "_recover_locked", lambda: False)
     with pytest.raises(RuntimeError):
         with store.transaction(action={"action_id": "ambiguous"}) as sink:
             sink.stage_json("artifacts/script.json", {"version": "new"}, schema="script")
@@ -69,4 +74,3 @@ def test_recovery_freezes_on_unrecognized_canonical_content(tmp_path) -> None:
         ProjectCommitStore(project).recover()
     assert failure.value.code == "recovery_required"
     assert (project / "operator/recovery-required").exists()
-

@@ -1,0 +1,32 @@
+prior_id: ecommerce-proof
+version: "1.0"
+label: 电商产品证明提醒
+rules:
+  - prior_id: ecommerce-action-result-pair
+    version: "1.0"
+    applies_when: {use_case: ecommerce_product_proof}
+    target_dimensions: [visual_content, interval]
+    recommended_range: {action_and_result_in_same_beat: true}
+    rationale: 卖点最好由可见动作和即时结果共同证明，避免只靠口播或花字下结论。
+    confidence: 0.85
+    exceptions: [无法直接演示的服务, 需要资质验证的专业主张]
+    source: https://www.facebook.com/business/ads-guide/update/reels
+    provenance_type: reviewed_benchmark
+    evidence_scope: 电商产品展示与效果证明短视频
+    reviewed_at: "2026-08-19"
+    reviewer: OpenMontage content ops
+    expires_at: "2027-02-19"
+  - prior_id: ecommerce-product-readable
+    version: "1.0"
+    applies_when: {use_case: ecommerce_product_proof, objective: conversion}
+    target_dimensions: [shot_size, camera_angle, visual_content]
+    recommended_range: {product_and_result_readable: true}
+    rationale: 证明镜头中产品、操作动作和结果必须看得清，景别和角度服务于证据，而不是只追求氛围。
+    confidence: 0.8
+    exceptions: [悬念揭晓型开场, 品牌情绪片]
+    source: https://www.facebook.com/business/ads-guide/update/reels
+    provenance_type: external_research
+    evidence_scope: 移动端 Reels 商业内容制作建议
+    reviewed_at: "2026-08-19"
+    reviewer: OpenMontage content ops
+    expires_at: "2027-02-19"
