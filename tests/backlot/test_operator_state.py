@@ -436,6 +436,28 @@ def test_research_projection_supports_image_and_audio_without_broken_posters() -
     assert sources[1]["poster_url"] is None
 
 
+def test_research_projection_has_fixed_substages_and_disabled_reference_state() -> None:
+    from backlot.operator_state import project_operator_state
+
+    state = project_operator_state(_board_state())
+    research = next(stage for stage in state["stages"] if stage["id"] == "research")["editor"]["data"]
+    assert [item["id"] for item in research["substages"]] == [
+        "reference", "sources", "matching", "direction", "quality",
+    ]
+    assert research["substages"][0]["state"] == "completed"
+
+    without_reference = copy.deepcopy(_board_state())
+    without_reference["artifacts"].pop("video_analysis_brief")
+    without_reference["artifacts"].pop("reference_fingerprint")
+    if isinstance(without_reference["artifacts"].get("research_breakdown"), dict):
+        without_reference["artifacts"]["research_breakdown"].pop("reference_shots", None)
+    state_without_reference = project_operator_state(without_reference)
+    research_without_reference = next(stage for stage in state_without_reference["stages"] if stage["id"] == "research")["editor"]["data"]
+    reference_substage = research_without_reference["substages"][0]
+    assert reference_substage["state"] == "not_needed"
+    assert reference_substage["message"] == "本项目没有参考片，这一步不需要处理"
+
+
 def test_research_scorecard_uses_production_language_for_fixed_checks() -> None:
     from backlot.operator_state import project_operator_state
 

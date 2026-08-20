@@ -130,22 +130,61 @@ function researchAction(label, operation, onOperation, className = "quiet-button
 }
 
 function renderResearch(container, data, { editable = false, onOperation = () => {} } = {}) {
+  const substageNav = node("nav", "research-substage-nav");
+  substageNav.setAttribute("aria-label", "Research 子阶段");
+  const panelWrap = node("div", "research-substage-panels");
+  const panels = new Map();
+  const substages = data.substages || [
+    { id: "reference", label: "参考片怎么拍", state: data.reference ? "completed" : "not_needed", message: data.reference ? "已拆解参考片" : "本项目没有参考片，这一步不需要处理" },
+    { id: "sources", label: "我的素材能不能接上", state: "completed", message: "已检查自有素材" },
+    { id: "matching", label: "参考镜头和我的素材怎么对应", state: "completed", message: "已完成逐镜头匹配" },
+    { id: "direction", label: "这条片准备怎么做", state: "completed", message: "已整理可选方向" },
+    { id: "quality", label: "还有什么没看清", state: "completed", message: "已完成检查" },
+  ];
+  substages.forEach((substage, index) => {
+    const button = node("button", `research-substage${substage.state === "not_needed" ? " is-not-needed" : ""}`);
+    button.type = "button";
+    button.append(node("span", "research-substage-index", String(index + 1).padStart(2, "0")));
+    const copy = node("span", "research-substage-copy");
+    copy.append(node("strong", "research-substage-label", substage.label), node("small", "research-substage-state", substage.state === "not_needed" ? "本项目不需要" : substage.message));
+    button.append(copy);
+    button.addEventListener("click", () => {
+      panels.forEach((panel, id) => panel.hidden = id !== substage.id);
+      substageNav.querySelectorAll("button").forEach((item) => item.classList.toggle("is-active", item === button));
+    });
+    substageNav.append(button);
+    const panel = node("section", `research-substage-panel${substage.state === "not_needed" ? " is-not-needed" : ""}`);
+    panel.dataset.substage = substage.id;
+    panel.hidden = index !== 0;
+    const panelHeading = node("div", "research-substage-panel-heading");
+    panelHeading.append(node("h3", "section-title", substage.label), node("p", "research-substage-message", substage.message));
+    panel.append(panelHeading);
+    panels.set(substage.id, panel);
+    panelWrap.append(panel);
+  });
+  if (substageNav.firstElementChild) substageNav.firstElementChild.classList.add("is-active");
+  container.append(substageNav, panelWrap);
+  const referencePanel = panels.get("reference") || container;
+  const sourcesPanel = panels.get("sources") || container;
+  const matchingPanel = panels.get("matching") || container;
+  const directionPanel = panels.get("direction") || container;
+  const qualityPanel = panels.get("quality") || container;
   if (data.template) {
     const template = node("section", "content-row research-template");
     template.append(node("h3", "section-title", "本次拆解模板"));
     template.append(detailRow("模板", data.template.label));
     template.append(detailRow("状态", data.template.status));
-    container.append(template);
+    referencePanel.prepend(template);
   }
-  renderReferenceAnalysis(container, data.reference);
+  if (data.reference) renderReferenceAnalysis(referencePanel, data.reference);
   if (data.breakdown) {
-    container.append(node("h3", "section-title", "分镜拆解"));
+    referencePanel.append(node("h3", "section-title", "分镜拆解"));
     const stats = node("div", "inline-stats");
     stats.append(detailRow("已识别", `${data.breakdown.identified} 项`));
     stats.append(detailRow("待确认", `${data.breakdown.needs_review} 项`));
     stats.append(detailRow("没看清", `${data.breakdown.missing} 项`));
-    container.append(stats);
-    const rows = node("div", "source-list research-breakdown-list");
+    referencePanel.append(stats);
+    const rows = node("div", "research-shot-rail research-breakdown-list");
     (data.breakdown.rows || []).forEach((row) => {
       const item = node("article", "content-row research-breakdown-row");
       const heading = node("div", "source-heading");
@@ -171,13 +210,13 @@ function renderResearch(container, data, { editable = false, onOperation = () =>
       }
       rows.append(item);
     });
-    container.append(rows);
+    referencePanel.append(rows);
   }
-  container.append(node("h3", "section-title", "我的素材"));
+  sourcesPanel.append(node("h3", "section-title", "我的素材"));
   const stats = node("div", "inline-stats");
   stats.append(detailRow("已检查素材", `${data.source_count} 条`));
   stats.append(detailRow("可用素材", `${data.usable_count} 条`));
-  container.append(stats);
+  sourcesPanel.append(stats);
   if (data.sources?.length) {
     const list = node("div", "source-list");
     data.sources.forEach((source) => {
@@ -201,16 +240,16 @@ function renderResearch(container, data, { editable = false, onOperation = () =>
       if (preview) body.append(preview);
       item.append(media, body); list.append(item);
     });
-    container.append(node("h3", "section-title", "素材明细"), list);
+    sourcesPanel.append(node("h3", "section-title", "素材明细"), list);
   }
   if (data.risks?.length) {
     const list = node("ul", "plain-list");
     data.risks.forEach((risk) => list.append(node("li", "", risk)));
-    container.append(node("h3", "section-title", "需要留意"), list);
+    sourcesPanel.append(node("h3", "section-title", "需要留意"), list);
   }
   if (data.matching?.rows?.length) {
-    container.append(node("h3", "section-title", "参考镜头 × 我的素材"));
-    const list = node("div", "source-list research-matching-list");
+    matchingPanel.append(node("h3", "section-title", "参考镜头 × 我的素材"));
+    const list = node("div", "research-shot-rail research-matching-list");
     data.matching.rows.forEach((row) => {
       const item = node("article", "content-row research-matching-row");
       item.append(node("h4", "row-title", row.reference_intent || "参考镜头"));
@@ -232,10 +271,10 @@ function renderResearch(container, data, { editable = false, onOperation = () =>
       }
       list.append(item);
     });
-    container.append(list);
+    matchingPanel.append(list);
   }
   if (data.directions?.length) {
-    container.append(node("h3", "section-title", "可选方向"));
+    directionPanel.append(node("h3", "section-title", "可选方向"));
     data.directions.forEach((direction) => {
       const item = node("article", "content-row research-direction");
       item.append(node("h4", "row-title", direction.title));
@@ -249,7 +288,7 @@ function renderResearch(container, data, { editable = false, onOperation = () =>
         actions.append(researchAction("暂不采用", {op: "set_direction_preference", direction_id: direction.id, preference: "avoid", rationale: "制作人员暂不采用"}, onOperation));
         item.append(actions);
       }
-      container.append(item);
+      directionPanel.append(item);
     });
   }
   if (data.quality) {
@@ -258,7 +297,7 @@ function renderResearch(container, data, { editable = false, onOperation = () =>
     section.append(detailRow("当前结果", data.quality.status));
     if (data.quality.score != null && data.quality.max_score != null) section.append(detailRow("检查得分", `${data.quality.score}/${data.quality.max_score}`));
     (data.quality.checks || []).forEach((check) => section.append(detailRow(check.label, `${check.status} · ${check.message}`)));
-    container.append(section);
+    qualityPanel.append(section);
   }
 }
 

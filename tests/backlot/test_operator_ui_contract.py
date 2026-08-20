@@ -111,6 +111,15 @@ def test_research_review_uses_scoped_decision_controls_without_generic_editor() 
     assert 'editor?.type === "research_review"' not in editors
 
 
+def test_research_ui_renders_fixed_substages_and_horizontal_shot_rail() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+    for term in ("research-substage-nav", "research-substage-panel", "research-shot-rail", "本项目没有参考片，这一步不需要处理"):
+        assert term in app
+    for term in (".research-substage-nav", ".research-shot-rail", "overflow-x: auto", ".research-substage.is-not-needed"):
+        assert term in css
+
+
 def test_script_uses_inline_editing_without_a_duplicate_editor_form() -> None:
     app = _read(OPERATOR_ROOT / "app.js")
     editors = _read(OPERATOR_ROOT / "editors.js")

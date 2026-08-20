@@ -237,6 +237,7 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     risks = list(dict.fromkeys(risks))
     reference_path = reference_source.get("local_path")
     first_frame = next((value for value in frame_by_scene.values() if isinstance(value, str)), None)
+    has_reference = bool(reference_path or reference_scenes or fingerprint or analysis)
     profile_ref = breakdown.get("profile_ref") if isinstance(breakdown.get("profile_ref"), Mapping) else {}
     coverage = breakdown.get("coverage_summary") if isinstance(breakdown.get("coverage_summary"), Mapping) else {}
     breakdown_rows = []
@@ -318,12 +319,41 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
                 "status": {"pass": "已确认", "review": "需要确认", "fail": "需要处理"}.get(_safe_text(item.get("status")), "需要确认"),
                 "message": _research_check_message(item.get("message")),
             })
+    substage_state = lambda has_content: "completed" if has_content else "pending"
+    substages = [
+        {
+            "id": "reference", "label": "参考片怎么拍",
+            "state": substage_state(has_reference) if has_reference else "not_needed",
+            "message": "已拆出参考片的拍法、节奏和可借鉴机制" if has_reference else "本项目没有参考片，这一步不需要处理",
+        },
+        {
+            "id": "sources", "label": "我的素材能不能接上",
+            "state": substage_state(bool(files or breakdown_rows)),
+            "message": "已检查自有素材可用区间和证明能力" if files or breakdown_rows else "正在等待素材体检结果",
+        },
+        {
+            "id": "matching", "label": "参考镜头和我的素材怎么对应",
+            "state": substage_state(bool(matrix_rows)),
+            "message": "已给出每个需要保留、改写或补足的镜头处理" if matrix_rows else "暂时没有需要逐镜头匹配的内容",
+        },
+        {
+            "id": "direction", "label": "这条片准备怎么做",
+            "state": substage_state(bool(directions)),
+            "message": "已整理可采用的表达方向和不要照搬的部分" if directions else "正在整理适合本项目的表达方向",
+        },
+        {
+            "id": "quality", "label": "还有什么没看清",
+            "state": substage_state(bool(scorecard)),
+            "message": "已检查关键卖点、素材和下一步制作条件" if scorecard else "正在汇总需要确认的风险",
+        },
+    ]
     return {
         "type": "research_review",
         "data": {
             "reference_summary": summary,
             "source_count": len(files),
             "usable_count": usable,
+            "substages": substages,
             "risks": risks,
             "sources": sources,
             "template": {

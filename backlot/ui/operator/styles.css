@@ -218,6 +218,26 @@ h3 { font-size: 15px; }
 .content-row { position: relative; min-width: 0; padding: 18px 4px; border-bottom: 1px solid var(--line); }
 .content-row.is-selected { padding-left: 14px; border-left: 3px solid var(--accent); }
 .row-title { margin: 5px 0 6px; }
+
+.research-substage-nav { display: flex; gap: 8px; margin: 18px 0 14px; padding-bottom: 4px; overflow-x: auto; scrollbar-width: thin; }
+.research-substage { flex: 0 0 190px; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 8px; min-height: 58px; padding: 9px 10px; color: var(--ink); text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.research-substage:hover { background: var(--canvas); }
+.research-substage.is-active { background: var(--accent-soft); border-color: #b9ddcf; }
+.research-substage.is-not-needed { color: #8b9494; background: #f0f2f1; border-style: dashed; cursor: default; }
+.research-substage-index { color: var(--muted); font-size: 11px; font-weight: 700; }
+.research-substage-copy { display: grid; gap: 4px; min-width: 0; }
+.research-substage-label { font-size: 13px; line-height: 1.25; }
+.research-substage-state, .research-substage-message { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.research-substage.is-not-needed .research-substage-state, .research-substage-panel.is-not-needed .research-substage-message { color: #7f8887; }
+.research-substage-panels { min-width: 0; }
+.research-substage-panel { min-width: 0; padding: 8px 0 18px; }
+.research-substage-panel[hidden] { display: none; }
+.research-substage-panel-heading { margin-bottom: 12px; }
+.research-substage-panel-heading .section-title { margin: 0 0 4px; }
+.research-substage-message { margin: 0; }
+.research-shot-rail { display: flex; gap: 14px; min-width: 0; padding: 4px 2px 18px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: thin; }
+.research-shot-rail > .research-breakdown-row, .research-shot-rail > .research-matching-row { flex: 0 0 min(340px, 82vw); min-height: 300px; padding: 16px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); scroll-snap-align: start; }
+.research-shot-rail > .research-matching-row { min-height: 240px; }
 .row-copy { margin: 0; color: #445055; line-height: 1.65; }
 .row-meta { color: var(--muted); font-size: 12px; }
 .script-row-heading { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; }

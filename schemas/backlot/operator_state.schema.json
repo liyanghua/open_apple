@@ -188,6 +188,22 @@
             "reference_summary": {"type": "string"},
             "source_count": {"type": "integer", "minimum": 0},
             "usable_count": {"type": "integer", "minimum": 0},
+            "substages": {
+              "type": "array",
+              "minItems": 5,
+              "maxItems": 5,
+              "items": {
+                "type": "object",
+                "required": ["id", "label", "state", "message"],
+                "properties": {
+                  "id": {"enum": ["reference", "sources", "matching", "direction", "quality"]},
+                  "label": {"type": "string"},
+                  "state": {"enum": ["completed", "in_progress", "awaiting_human", "pending", "not_needed"]},
+                  "message": {"type": "string"}
+                },
+                "additionalProperties": false
+              }
+            },
             "risks": {"type": "array", "items": {"type": "string"}},
             "template": {"type": "object", "required": ["label", "version", "status"], "properties": {"label": {"type": "string"}, "version": {"type": "string"}, "status": {"type": "string"}}, "additionalProperties": false},
             "breakdown": {"type": "object", "required": ["label", "identified", "needs_review", "missing", "rows"], "properties": {"label": {"type": "string"}, "identified": {"type": "integer", "minimum": 0}, "needs_review": {"type": "integer", "minimum": 0}, "missing": {"type": "integer", "minimum": 0}, "rows": {"type": "array", "items": {"type": "object", "additionalProperties": true}}}, "additionalProperties": false},
