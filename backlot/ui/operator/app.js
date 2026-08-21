@@ -571,13 +571,13 @@ function renderScript(container, data, { editable, onOperation }) {
     if (editable) {
       const edit = node("button", "inline-edit-button", "编辑");
       edit.type = "button";
-      edit.setAttribute("aria-label", `编辑这段口播与字幕：${section.label}`);
+      edit.setAttribute("aria-label", `编辑这段剧本：${section.label}`);
       edit.addEventListener("click", () => {
         const form = node("div", "script-inline-editor");
         const input = document.createElement("textarea");
         input.rows = 3;
         input.value = copy.textContent || "";
-        input.setAttribute("aria-label", `${section.label} 口播与字幕内容`);
+        input.setAttribute("aria-label", `${section.label} 剧本文案`);
         const actions = node("div", "inline-edit-actions");
         const cancel = node("button", "quiet-button", "取消"); cancel.type = "button";
         const save = node("button", "primary-button", "保存修改"); save.type = "button";
@@ -600,7 +600,7 @@ function renderScript(container, data, { editable, onOperation }) {
     if (section.pacing) item.append(detailRow("时间和节奏", section.pacing));
     if (section.visual_intent) item.append(detailRow("画面要完成什么", section.visual_intent));
     if (section.evidence_requirements?.length) item.append(detailRow("哪些内容必须真实证明", section.evidence_requirements.join("；")));
-    if (section.control_rule_refs?.length) item.append(detailRow("遵守的导演规则", section.control_rule_refs.join("；")));
+    if (section.director_rules?.length) item.append(detailRow("本段遵守的导演规则", section.director_rules.join("；")));
     if (section.feedback) item.append(node("p", "control-feedback", `调整意见：${section.feedback}`));
     if (editable && data.status !== "approved") {
       const actions = node("div", "control-plan-actions");
@@ -699,7 +699,7 @@ function renderShots(container, data) {
   });
 }
 
-function renderAssets(container, data, { editable = false, onOperation = () => {} } = {}) {
+function renderAssets(container, data, { editable = false, onOperation = () => {}, onNavigate = () => {} } = {}) {
   const execution = data.execution_plan;
   if (execution) {
     const plan = node("section", "shot-execution-plan");
@@ -714,7 +714,15 @@ function renderAssets(container, data, { editable = false, onOperation = () => {
       if (shot.narration) card.append(detailRow("口播", shot.narration));
       if (shot.screen_copy) card.append(detailRow("字幕", shot.screen_copy));
       card.append(detailRow("画面动作", shot.subject_action), detailRow("拍摄方式", [shot.setting, shot.framing, shot.camera].filter(Boolean).join(" · ")));
-      if (shot.source_label) card.append(detailRow("使用素材", shot.source_label), node("p", "source-facts", shot.source_reason));
+      if (shot.source_label) {
+        card.append(detailRow("使用素材", shot.source_label));
+        card.append(detailRow("已选片段", shot.source_in_seconds == null || shot.source_out_seconds == null ? "待确认" : formatTimeRange(shot.source_in_seconds, shot.source_out_seconds)));
+        card.append(node("span", `status-chip${shot.source_coverage === "需要调整" ? " is-warning" : ""}`, shot.source_coverage || "素材待核对"));
+        card.append(node("p", "source-facts", shot.source_reason));
+        const adjustSource = node("button", "quiet-button", "调整素材片段"); adjustSource.type = "button";
+        adjustSource.addEventListener("click", () => onNavigate());
+        card.append(adjustSource);
+      }
       else card.append(node("p", "asset-warning", shot.gap_class === "evidential" ? "缺少真实证据素材" : "缺少表达性素材"));
       if (shot.generation_proposals?.length) {
         shot.generation_proposals.forEach((proposal) => {
@@ -1072,7 +1080,11 @@ function renderEditor(container, stage, editor, project, snapshot) {
     proposal_choice: (target, value) => renderProposal(target, value, { editable: canEdit, onOperation }),
     script_editor: (target, value) => renderScript(target, value, { editable: canEdit, onOperation }),
     shot_mapping: renderShots,
-    asset_review: (target, value) => renderAssets(target, value, { editable: canEdit, onOperation }),
+    asset_review: (target, value) => renderAssets(target, value, {
+      editable: canEdit,
+      onOperation,
+      onNavigate: () => store.selectStage(project.stages.find((item) => item.label === "分镜")?.id),
+    }),
     sample_review: renderSample,
     edit_review: renderEdit,
     delivery_review: (target, value) => renderDelivery(target, value, { editable: canEdit, onOperation, pendingOperations: changes }),

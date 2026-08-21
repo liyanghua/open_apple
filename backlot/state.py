@@ -644,7 +644,7 @@ _BUNDLE_STATUS_PRECEDENCE = {
 _STAGE_TASK_LABELS = {
     "research": "正在分析参考视频和检查自有素材",
     "proposal": "正在确定视频方向和卖点顺序",
-    "script": "正在优化口播和字幕文案",
+    "script": "正在生成制作剧本",
     "scene_plan": "正在安排镜头顺序和素材时间段",
     "assets": "正在确认方案、素材和声音配置",
     "sample": "正在制作样片",

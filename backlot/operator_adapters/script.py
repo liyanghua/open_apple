@@ -22,7 +22,7 @@ class ScriptAdapter(BaseAdapter):
         "approve_production_script": frozenset({"op"}),
     }
     field_labels = {
-        "sections": "口播与字幕段落",
+        "sections": "剧本段落",
         "subtitle_profile_id": "字幕样式",
         "strip_trailing_punctuation": "字幕尾部标点",
     }

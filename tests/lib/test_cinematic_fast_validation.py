@@ -144,6 +144,46 @@ def test_validate_scene_mapping_rejects_source_or_interval_different_from_matrix
         )
 
 
+def test_validate_scene_mapping_accepts_a_source_subclip_within_matrix_range() -> None:
+    plan = _scene_plan()
+    plan["metadata"]["source_mapping"][0]["source_interval"] = {
+        "start_seconds": 1.2,
+        "end_seconds_exclusive": 2.8,
+    }
+
+    validate_scene_mapping(
+        plan, _source_review(), _video_analysis(), _reference_source_matrix(), _research_synthesis()
+    )
+
+
+def test_validate_scene_mapping_bridges_legacy_matrix_id_using_evidence_frame() -> None:
+    source = _source_review()
+    source["files"][0]["media_id"] = "content-addressed-id"
+    source["files"][0]["representative_frames"] = ["analysis/source/owned/frame-1.jpg"]
+    matrix = _reference_source_matrix()
+    matrix["rows"][0]["source_media_id"] = "source-legacy"
+    matrix["rows"][0]["evidence_frames"] = ["analysis/source/owned/frame-1.jpg"]
+
+    validate_scene_mapping(
+        _scene_plan(), source, _video_analysis(), matrix, _research_synthesis()
+    )
+
+
+def test_validate_scene_mapping_allows_owned_footage_for_rewritten_matrix_row() -> None:
+    matrix = _reference_source_matrix()
+    matrix["rows"][0].update(
+        source_media_id=None,
+        source_time_range=None,
+        resolution="rewrite",
+    )
+    plan = _scene_plan()
+    plan["metadata"]["source_mapping"][0]["matrix_resolution_id"] = "rewrite"
+
+    validate_scene_mapping(
+        plan, _source_review(), _video_analysis(), matrix, _research_synthesis()
+    )
+
+
 def test_validate_scene_mapping_rejects_unknown_research_direction() -> None:
     plan = _scene_plan()
     plan["metadata"]["source_mapping"][0]["research_direction_ref"] = "unknown"

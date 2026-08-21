@@ -142,6 +142,51 @@ def _artifact(board: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     return value
 
 
+def _owned_media_path(value: Any) -> str:
+    """Normalize project-prefixed owned media paths for catalog lookups."""
+    if not isinstance(value, str):
+        return ""
+    parts = [part for part in value.replace("\\", "/").split("/") if part]
+    try:
+        start = parts.index("inputs")
+    except ValueError:
+        return "/".join(parts)
+    return "/".join(parts[start:])
+
+
+_CONTROL_SECTION_LABELS = {
+    "content_direction": "内容方向",
+    "story_pacing": "故事和节奏",
+    "visual_rules": "视觉规则",
+    "fact_continuity": "事实和连续性",
+    "originality_boundary": "原创边界",
+}
+_CONTROL_RULE_REF = re.compile(r"^(?P<section>[a-z_]+)\.rules\[(?P<index>\d+)\]$")
+
+
+def _director_rules_for_display(
+    control_plan: Mapping[str, Any], refs: Any,
+) -> list[str]:
+    """Resolve internal control-plan pointers into operator-facing instructions."""
+    raw_sections = control_plan.get("sections")
+    sections = raw_sections if isinstance(raw_sections, Mapping) else {}
+    rules: list[str] = []
+    for ref in refs if isinstance(refs, list) else []:
+        match = _CONTROL_RULE_REF.match(ref) if isinstance(ref, str) else None
+        if match is None:
+            continue
+        section_id = match.group("section")
+        section = sections.get(section_id)
+        section_rules = section.get("rules") if isinstance(section, Mapping) else []
+        index = int(match.group("index"))
+        if not isinstance(section_rules, list) or index >= len(section_rules):
+            continue
+        rule = _safe_text(section_rules[index])
+        if rule:
+            rules.append(f"{_CONTROL_SECTION_LABELS.get(section_id, '导演总控单')}：{rule}")
+    return rules
+
+
 def _generation_tasks_for_operator(project_dir: Path, project_id: str) -> list[dict[str, Any]]:
     tasks = []
     directory = project_dir / "operator" / "shot-generation" / "tasks"
@@ -549,6 +594,7 @@ def _proposal_editor(board: Mapping[str, Any]) -> dict[str, Any]:
 
 def _script_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     script = _artifact(board, "script")
+    control_plan = _artifact(board, "creative_control_plan")
     raw_sections = script.get("sections") if isinstance(script.get("sections"), list) else []
     sections = []
     for index, section in enumerate(raw_sections):
@@ -572,6 +618,9 @@ def _script_editor(board: Mapping[str, Any]) -> dict[str, Any]:
                 _safe_text(value) for value in section.get("control_rule_refs") or []
                 if _safe_text(value)
             ],
+            "director_rules": _director_rules_for_display(
+                control_plan, section.get("control_rule_refs")
+            ),
             "review": _safe_text(section.get("review"), "pending"),
             "feedback": _safe_text(section.get("feedback")),
         })
@@ -778,6 +827,12 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         for item in source_files
         if isinstance(item, Mapping) and item.get("media_id")
     }
+    media_index = _artifact(board, "media_index")
+    media_by_path = {
+        _owned_media_path(item.get("path")): item
+        for item in media_index.get("entries") or []
+        if isinstance(item, Mapping) and _owned_media_path(item.get("path"))
+    }
     planned_assets = plan.get("planned_assets") if isinstance(plan.get("planned_assets"), list) else []
     realized_assets = manifest.get("assets") if isinstance(manifest.get("assets"), list) else []
     realized_ids = {
@@ -858,6 +913,27 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(shot, Mapping):
             continue
         source = shot.get("source_selection") if isinstance(shot.get("source_selection"), Mapping) else None
+        source_in = _number(source.get("start_seconds")) if source else None
+        source_out = _number(source.get("end_seconds")) if source else None
+        source_media = media_by_path.get(_owned_media_path(source.get("path"))) if source else None
+        source_probe = source_media.get("probe") if isinstance(source_media, Mapping) else {}
+        source_duration = _number(source_probe.get("duration_seconds")) if isinstance(source_probe, Mapping) else None
+        selected_duration = source_out - source_in if source_in is not None and source_out is not None else None
+        shot_duration = _number(shot.get("duration_seconds"))
+        source_coverage = "等待核对"
+        if source_media is not None:
+            source_coverage = "需要调整"
+        if (
+            source_duration is not None
+            and source_in is not None
+            and source_out is not None
+            and source_out > source_in
+            and source_out <= source_duration + 0.001
+            and shot_duration is not None
+            and selected_duration is not None
+            and selected_duration + 0.001 >= shot_duration
+        ):
+            source_coverage = "素材已覆盖"
         proposals = []
         for proposal in shot.get("generation_proposals") or []:
             if not isinstance(proposal, Mapping):
@@ -891,6 +967,10 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "gap_strategy": _safe_text(shot.get("gap_strategy")),
             "source_label": Path(str(source.get("path"))).stem if source else "",
             "source_reason": _safe_text(source.get("fit_reason")) if source else "",
+            "source_in_seconds": source_in,
+            "source_out_seconds": source_out,
+            "source_duration_seconds": source_duration,
+            "source_coverage": source_coverage,
             "reference_mechanisms": [str(value) for value in shot.get("reference_mechanisms") or []],
             "industry_notes": [str(value) for value in shot.get("industry_notes") or []],
             "control_rule_refs": [str(value) for value in shot.get("control_rule_refs") or []],

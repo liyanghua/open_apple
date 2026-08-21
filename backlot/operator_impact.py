@@ -18,7 +18,7 @@ from lib.change_evaluation import evaluate_change_impact
 _STAGE_LABELS = {
     "research": "参考解析与素材体检",
     "proposal": "创意方案",
-    "script": "口播与字幕",
+    "script": "剧本生成",
     "scene_plan": "分镜",
     "assets": "制作准备",
     "sample": "样片确认",
@@ -135,7 +135,7 @@ class ImpactService:
         ]
         affected = [_STAGE_LABELS[str(draft["stage"])]]
         if draft["stage"] == "research" and signals.get("reopen_creative"):
-            affected.extend(["创意方案", "口播与字幕", "分镜"])
+            affected.extend(["创意方案", "剧本生成", "分镜"])
         if impact["render_route"] != "no_render":
             affected.extend(["制作准备", "修改与精剪"])
         if impact["reopen_sample"]:

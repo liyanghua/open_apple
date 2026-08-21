@@ -257,7 +257,7 @@ Backlot 下一版保留当前结构，但默认转换为四区运营工作台：
 |---|---|
 | research | 参考解析与素材体检 |
 | proposal | 创意方案 |
-| script | 口播与字幕 |
+| script | 剧本生成 |
 | scene_plan | 镜头映射 |
 | assets | 制作准备 |
 | sample | 样片确认 |

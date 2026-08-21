@@ -84,6 +84,20 @@ def _decision_pick(index: Mapping[str, Any], *needles: str) -> Any:
     return None
 
 
+def _resolve_project_id(*artifacts: Any) -> str:
+    """Return the shared project ID or fail before a lock can cross projects."""
+    project_ids = {
+        str(_mapping(_unwrap(artifact)).get("project_id"))
+        for artifact in artifacts
+        if _mapping(_unwrap(artifact)).get("project_id") not in {None, "", "unknown"}
+    }
+    if len(project_ids) > 1:
+        raise ValueError("conflicting project IDs in production lock inputs")
+    if not project_ids:
+        raise ValueError("production lock inputs are missing a project ID")
+    return next(iter(project_ids))
+
+
 def _extract_locked_values(
     *, proposal: Any, script: Any, scene_plan: Any, asset_plan: Any, decisions: Any
 ) -> dict[str, Any]:
@@ -214,12 +228,8 @@ def build_production_lock(
     ]
     body = {
         "version": "1.0",
-        "project_id": str(
-            _first(
-                _mapping(_unwrap(proposal)).get("project_id"),
-                _mapping(_unwrap(script)).get("project_id"),
-                "unknown",
-            )
+        "project_id": _resolve_project_id(
+            proposal, script, scene_plan, asset_plan, decisions,
         ),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "producer": "production_lock",

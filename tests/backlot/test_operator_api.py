@@ -71,7 +71,7 @@ def test_operator_state_endpoint_returns_versioned_chinese_projection(
     assert response.status_code == 200
     body = response.json()
     assert body["schema_version"] == "1.0"
-    assert body["summary"]["current_stage"] == "口播与字幕"
+    assert body["summary"]["current_stage"] == "剧本生成"
     assert body["legacy"]["read_only"] is True
 
 

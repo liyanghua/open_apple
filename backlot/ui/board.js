@@ -574,7 +574,7 @@ const STAGE_LABELS_ZH = {
   research: "参考解析与素材体检",
   proposal: "创意方案",
   idea: "创意方案",
-  script: "口播与字幕",
+  script: "剧本生成",
   scene_plan: "分镜",
   assets: "制作准备",
   sample: "样片确认",

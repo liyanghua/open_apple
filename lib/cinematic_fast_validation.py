@@ -14,6 +14,35 @@ _EVIDENCE_FIELDS = (
 )
 
 
+def _matches_matrix_source(
+    source: Mapping[str, Any], matrix_row: Mapping[str, Any]
+) -> bool:
+    """Bridge legacy Research labels to content-addressed source media IDs.
+
+    Early Research artifacts used sequence labels such as ``source-04`` while
+    source-media review now persists content-addressed IDs.  Both records
+    retain representative evidence frames, which provides a grounded identity
+    bridge without accepting an arbitrary source substitution.
+    """
+    if matrix_row.get("source_media_id") is None:
+        # A rewrite row records a deliberately missing source (for example an
+        # original CTA). It may use any reviewed owned footage, but never a
+        # reference asset; that invariant is enforced by the caller's source
+        # path check.
+        return matrix_row.get("resolution") == "rewrite"
+    if source.get("media_id") == matrix_row.get("source_media_id"):
+        return True
+    source_frames = {
+        value for value in source.get("representative_frames", [])
+        if isinstance(value, str) and value
+    }
+    matrix_frames = {
+        value for value in matrix_row.get("evidence_frames", [])
+        if isinstance(value, str) and value
+    }
+    return bool(source_frames & matrix_frames)
+
+
 def _nonempty(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
@@ -140,16 +169,22 @@ def validate_scene_mapping(
                     f"mapping for {scene_id!r} must use the research matrix resolution"
                 )
             source = owned_sources[source_path]
-            if source.get("media_id") and source.get("media_id") != matrix_row.get("source_media_id"):
+            if not _matches_matrix_source(source, matrix_row):
                 raise ValueError(
                     f"mapping for {scene_id!r} must use the approved research matrix source"
                 )
             matrix_source_interval = matrix_row.get("source_time_range")
             if isinstance(matrix_source_interval, Mapping):
                 candidate_source_interval = mapping.get("source_interval")
-                if candidate_source_interval != matrix_source_interval:
+                matrix_start, matrix_end = _validate_interval(
+                    {"source_interval": matrix_source_interval}, "source_interval"
+                )
+                source_start, source_end = _validate_interval(
+                    mapping, "source_interval"
+                )
+                if source_start < matrix_start or source_end > matrix_end:
                     raise ValueError(
-                        f"mapping for {scene_id!r} must use the approved research matrix source interval"
+                        f"mapping for {scene_id!r} must stay within the approved research matrix source interval"
                     )
             if not _nonempty(mapping.get("research_direction_ref")):
                 raise ValueError(

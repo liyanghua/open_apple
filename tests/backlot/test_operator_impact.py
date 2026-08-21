@@ -114,4 +114,4 @@ def test_research_decisions_explain_their_downstream_stages() -> None:
         draft=draft, actor_id="operator", base_generation="c" * 64,
         before={}, after={"matrix_resolutions": {"rebound": {"resolution": "rewrite"}}},
     )
-    assert preview["affected_stages"] == ["参考解析与素材体检", "创意方案", "口播与字幕", "分镜"]
+    assert preview["affected_stages"] == ["参考解析与素材体检", "创意方案", "剧本生成", "分镜"]

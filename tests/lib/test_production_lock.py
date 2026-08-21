@@ -81,6 +81,40 @@ def test_build_lock_contains_hashes_and_decision_ids():
     }
 
 
+def test_build_lock_uses_project_id_from_asset_plan_when_earlier_artifacts_are_unscoped():
+    lock = build_production_lock(
+        proposal={"production_plan": {"render_runtime": "remotion", "composition_mode": "templated"}},
+        script={"text": "一条可执行的剧本"},
+        scene_plan={"scenes": []},
+        asset_plan={"project_id": "table-mat-mix-v7"},
+        decisions={"project_id": "table-mat-mix-v7", "decisions": []},
+    )
+
+    assert lock["project_id"] == "table-mat-mix-v7"
+
+
+def test_build_lock_rejects_conflicting_project_ids():
+    with pytest.raises(ValueError, match="conflicting project IDs"):
+        build_production_lock(
+            proposal={"project_id": "first", "production_plan": {"render_runtime": "remotion", "composition_mode": "templated"}},
+            script={"project_id": "second", "text": "一条可执行的剧本"},
+            scene_plan={},
+            asset_plan={},
+            decisions={"decisions": []},
+        )
+
+
+def test_build_lock_rejects_missing_project_id():
+    with pytest.raises(ValueError, match="project ID"):
+        build_production_lock(
+            proposal={"production_plan": {"render_runtime": "remotion", "composition_mode": "templated"}},
+            script={"text": "一条可执行的剧本"},
+            scene_plan={},
+            asset_plan={},
+            decisions={"decisions": []},
+        )
+
+
 def test_append_revision_is_append_only_and_uses_same_pair(tmp_path: Path):
     project = tmp_path / "demo"
     (project / "artifacts").mkdir(parents=True)

@@ -10,7 +10,7 @@ import pytest
 NINE_STAGES = [
     ("research", "参考解析与素材体检"),
     ("proposal", "创意方案"),
-    ("script", "口播与字幕"),
+    ("script", "剧本生成"),
     ("scene_plan", "分镜"),
     ("assets", "制作准备"),
     ("sample", "样片确认"),
@@ -307,6 +307,51 @@ def test_projection_includes_safe_material_concept_and_shot_details() -> None:
     validate_operator_state(state)
 
 
+def test_execution_plan_uses_media_index_to_report_source_coverage() -> None:
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    board["artifacts"]["media_index"] = {
+        "entries": [{
+            "path": "projects/table-mat/inputs/source/source-0.mp4",
+            "probe": {"duration_seconds": 3},
+            "representative_frames": ["analysis/source-0/frame.jpg"],
+        }],
+    }
+    board["artifacts"]["shot_execution_plan"] = {
+        "plan_id": "execution-1",
+        "plan_version": 1,
+        "status": "draft",
+        "shots": [{
+            "id": "shot-1", "order": 1, "purpose": "展示真实擦拭结果",
+            "duration_seconds": 2, "narration": "擦一擦就好打理。", "screen_copy": "易擦拭",
+            "subject_action": "擦拭透明桌垫", "setting": "餐桌", "framing": "近景",
+            "camera": "固定", "lighting": "自然光", "sound": "保留擦拭声",
+            "evidence_type": "real_proof", "coverage_status": "enough", "gap_class": "none",
+            "gap_strategy": "none", "reference_mechanisms": [], "industry_notes": [],
+            "control_rule_refs": [], "generation_proposals": [], "selected_generation_task_id": None,
+            "source_selection": {
+                "media_id": "source-0", "path": "inputs/source/source-0.mp4",
+                "start_seconds": 1, "end_seconds": 3, "fit_reason": "完整呈现擦拭结果",
+            },
+        }],
+    }
+
+    assets = next(stage for stage in project_operator_state(board)["stages"] if stage["id"] == "assets")
+    execution_shot = assets["editor"]["data"]["execution_plan"]["shots"][0]
+
+    assert execution_shot["source_coverage"] == "素材已覆盖"
+    assert execution_shot["source_duration_seconds"] == 3
+
+    board["artifacts"]["shot_execution_plan"]["shots"][0]["source_selection"]["end_seconds"] = 4
+    assets = next(stage for stage in project_operator_state(board)["stages"] if stage["id"] == "assets")
+    assert assets["editor"]["data"]["execution_plan"]["shots"][0]["source_coverage"] == "需要调整"
+
+    del board["artifacts"]["media_index"]
+    assets = next(stage for stage in project_operator_state(board)["stages"] if stage["id"] == "assets")
+    assert assets["editor"]["data"]["execution_plan"]["shots"][0]["source_coverage"] == "等待核对"
+
+
 def test_legacy_shot_mapping_uses_structural_reference_without_fake_clip() -> None:
     from backlot.operator_state import project_operator_state
 
@@ -332,6 +377,28 @@ def test_script_projection_prefers_edited_narration_over_original_text() -> None
     script = next(stage for stage in project_operator_state(board)["stages"] if stage["id"] == "script")
 
     assert script["editor"]["data"]["sections"][0]["text"] == "修改后的口播和字幕"
+
+
+def test_script_projection_resolves_director_rules_for_operator_display() -> None:
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    board["artifacts"]["creative_control_plan"] = {
+        "sections": {
+            "content_direction": {"rules": ["主信息只讲透明保护，不遮住木纹。"]},
+            "story_pacing": {"rules": ["前两秒先出现清楚的产品动作。"]},
+        },
+    }
+    board["artifacts"]["script"]["sections"][0]["control_rule_refs"] = [
+        "content_direction.rules[0]", "story_pacing.rules[0]",
+    ]
+
+    script = next(stage for stage in project_operator_state(board)["stages"] if stage["id"] == "script")
+
+    assert script["editor"]["data"]["sections"][0]["director_rules"] == [
+        "内容方向：主信息只讲透明保护，不遮住木纹。",
+        "故事和节奏：前两秒先出现清楚的产品动作。",
+    ]
 
 
 def test_delivery_review_projects_four_tracks_candidates_and_reference_isolation() -> None:

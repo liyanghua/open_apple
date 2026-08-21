@@ -36,7 +36,7 @@ def test_operator_ui_supports_nine_business_stages_and_view_states() -> None:
     for label in (
         "参考解析与素材体检",
         "创意方案",
-        "口播与字幕",
+        "剧本生成",
         "分镜",
         "制作准备",
         "样片确认",
@@ -187,7 +187,7 @@ def test_script_uses_inline_editing_without_a_duplicate_editor_form() -> None:
     css = _read(OPERATOR_ROOT / "styles.css")
 
     for term in (
-        "script-inline-editor", "编辑这段口播与字幕", "保存修改", "取消",
+        "script-inline-editor", "编辑这段剧本", "保存修改", "取消",
         "replace_section_narration", "flushSave",
     ):
         assert term in app
@@ -226,15 +226,24 @@ def test_shot_mapping_compares_reference_and_owned_evidence_side_by_side() -> No
         assert term in css
 
 
-def test_shot_mapping_editor_explains_owned_source_range() -> None:
+def test_shot_mapping_editor_keeps_selected_ranges_collapsed_until_adjustment() -> None:
     editors = _read(OPERATOR_ROOT / "editors.js")
     css = _read(OPERATOR_ROOT / "styles.css")
 
-    for term in ("这条素材用哪一段", "参考视频仅用于分析", "从第几秒开始", "到第几秒结束"):
+    for term in ("已选片段", "调整素材片段", "range.hidden = hasRange"):
         assert term in editors
+    assert "这条素材用哪一段" not in editors
+    assert "填写开始和结束秒数；参考视频仅用于分析" not in editors
     assert "素材出点" not in editors
     for term in (".shot-range-editor", ".shot-range-inputs", ".editor-help"):
         assert term in css
+
+
+def test_execution_cards_link_back_to_scene_plan_for_source_adjustments() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+
+    for term in ("已选片段", "source_coverage", "调整素材片段", "onNavigate()"):
+        assert term in app
 
 
 def test_asset_stage_shows_planned_progress_and_reasons() -> None:

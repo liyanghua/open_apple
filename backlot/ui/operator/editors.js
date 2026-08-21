@@ -66,12 +66,21 @@ export function renderTypedEditor(container, stage, editor, { editable, onOperat
     });
     add("开头钩子", textInput(data.concepts?.find((item) => item.id === data.selected_id)?.hook, (text) => emit({ op: "replace_hook", text })));
   } else if (editor?.type === "shot_mapping") {
-    container.append(node("p", "editor-help", "为每条分镜选择原视频中要使用的片段，填写开始和结束秒数；参考视频仅用于分析，不会进入成片。"));
+    container.append(node("p", "editor-help", "分镜已安排好要用的自有素材。只有需要改片段时，再展开对应镜头调整。"));
     (data.shots || []).forEach((shot) => {
       const group = node("fieldset", "shot-range-editor");
-      const legend = node("legend", "shot-range-title", `${shot.id || "镜头"} 这条素材用哪一段`);
+      const legend = node("legend", "shot-range-title", `${shot.id || "镜头"} · ${shot.title || "素材片段"}`);
       const source = node("p", "editor-help", `素材：${shot.source_label || "尚未映射"}`);
+      const hasRange = shot.source_in_seconds != null && shot.source_out_seconds != null;
+      const selectedRange = node(
+        "p",
+        "editor-help",
+        hasRange
+          ? `已选片段：${Number(shot.source_in_seconds).toFixed(1)}-${Number(shot.source_out_seconds).toFixed(1)} 秒`
+          : "尚未选择片段，请补充素材区间。",
+      );
       const range = node("div", "shot-range-inputs");
+      range.hidden = hasRange;
       const start = numberInput(shot.source_in_seconds ?? shot.in_seconds ?? 0, () => emitRange());
       const end = numberInput(shot.source_out_seconds ?? shot.out_seconds ?? 0, () => emitRange());
       start.disabled = !editable;
@@ -83,7 +92,18 @@ export function renderTypedEditor(container, stage, editor, { editable, onOperat
         out_seconds: Number(end.value),
       });
       range.append(field("从第几秒开始", start), field("到第几秒结束", end));
-      group.append(legend, source, range);
+      group.append(legend, source, selectedRange);
+      if (hasRange) {
+        const adjust = node("button", "quiet-button", "调整素材片段");
+        adjust.type = "button";
+        adjust.disabled = !editable;
+        adjust.addEventListener("click", () => {
+          range.hidden = !range.hidden;
+          adjust.textContent = range.hidden ? "调整素材片段" : "收起调整";
+        });
+        group.append(adjust);
+      }
+      group.append(range);
       container.append(group);
     });
   } else if (editor?.type === "asset_review") {

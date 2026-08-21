@@ -48,7 +48,7 @@ def _impact() -> dict:
             "before": "原文",
             "after": "新文",
         }],
-        "affected_stages": ["口播与字幕", "制作准备"],
+        "affected_stages": ["剧本生成", "制作准备"],
         "affected_scene_ids": ["SC04"],
         "render_mode": "保留画面，仅更新声音",
         "reopen_reviews": ["creative_lock", "sample"],

@@ -373,6 +373,7 @@
         "visual_intent": {"type": "string"},
         "evidence_requirements": {"type": "array", "items": {"type": "string"}},
         "control_rule_refs": {"type": "array", "items": {"type": "string"}},
+        "director_rules": {"type": "array", "items": {"type": "string"}},
         "review": {"enum": ["pending", "approved", "needs_adjustment"]},
         "feedback": {"type": "string"}
       },
