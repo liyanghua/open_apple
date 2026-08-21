@@ -1,4 +1,4 @@
-import { fetchProjectState, fetchDraft, watchProject, saveDraft, previewDraft, commitDraft, fetchVersions, restoreVersion } from "./api.js";
+import { fetchProjectState, fetchDraft, watchProject, saveDraft, previewDraft, commitDraft, fetchVersions, restoreVersion, quoteShotGeneration, createShotGeneration, adoptShotGeneration } from "./api.js";
 import { createOperatorStore } from "./store.js";
 import { STATUS_MARKS, VIEW_STATES, formatDuration, formatTimeRange } from "./language.js";
 import { renderTypedEditor } from "./editors.js";
@@ -140,6 +140,77 @@ function mergeResearchOperation(operations, operation) {
   const key = researchOperationKey(operation);
   if (!key) return [...operations, operation];
   return [...operations.filter((item) => researchOperationKey(item) !== key), operation];
+}
+
+function proposalOperationKey(operation) {
+  if (operation.op === "review_control_section") return `control-section:${operation.section_id}`;
+  if (operation.op === "approve_control_plan") return "control-plan:approval";
+  return null;
+}
+
+function mergeProposalOperation(operations, operation) {
+  const key = proposalOperationKey(operation);
+  if (!key) return [...operations, operation];
+  return [...operations.filter((item) => proposalOperationKey(item) !== key), operation];
+}
+
+function applyProposalControlPlanDraft(data, operations) {
+  if (!operations.length || !data?.control_plan) return data;
+  const sections = (data.control_plan.sections || []).map((section) => ({ ...section }));
+  const controlPlan = { ...data.control_plan, sections };
+  for (const operation of operations) {
+    if (operation.op === "review_control_section") {
+      const section = sections.find((item) => item.id === operation.section_id);
+      if (!section) continue;
+      section.review = operation.decision;
+      section.feedback = operation.feedback || "";
+    }
+    if (operation.op === "approve_control_plan") controlPlan.status = "approved";
+  }
+  return { ...data, control_plan: controlPlan };
+}
+
+function scriptOperationKey(operation) {
+  if (operation.op === "review_script_section") return `script-section:${operation.section_id}`;
+  if (operation.op === "approve_production_script") return "script:approval";
+  return null;
+}
+
+function executionOperationKey(operation) {
+  if (operation.op === "set_shot_gap_strategy") return `shot-gap:${operation.shot_id}`;
+  if (operation.op === "approve_shot_execution_plan") return "shot-plan:approval";
+  return null;
+}
+
+function mergeKeyedOperation(operations, operation, keyFor) {
+  const key = keyFor(operation);
+  if (!key) return [...operations, operation];
+  return [...operations.filter((item) => keyFor(item) !== key), operation];
+}
+
+function applyScriptDraft(data, operations) {
+  const value = { ...data, sections: (data.sections || []).map((section) => ({ ...section })) };
+  operations.forEach((operation) => {
+    if (operation.op === "review_script_section") {
+      const section = value.sections.find((item) => item.id === operation.section_id);
+      if (section) { section.review = operation.decision; section.feedback = operation.feedback || ""; }
+    }
+    if (operation.op === "approve_production_script") value.status = "approved";
+  });
+  return value;
+}
+
+function applyExecutionPlanDraft(data, operations) {
+  if (!data.execution_plan) return data;
+  const executionPlan = { ...data.execution_plan, shots: (data.execution_plan.shots || []).map((shot) => ({ ...shot })) };
+  operations.forEach((operation) => {
+    if (operation.op === "set_shot_gap_strategy") {
+      const shot = executionPlan.shots.find((item) => item.id === operation.shot_id);
+      if (shot) shot.gap_strategy = operation.strategy;
+    }
+    if (operation.op === "approve_shot_execution_plan") { executionPlan.status = "approved"; executionPlan.locked = true; }
+  });
+  return { ...data, execution_plan: executionPlan };
 }
 
 function renderDecisionInbox(container, data, { editable, onOperation, onPreview, pendingOperations = [] }) {
@@ -487,9 +558,10 @@ function renderProposal(container, data, { editable = false, onOperation = () =>
 
 function renderScript(container, data, { editable, onOperation }) {
   container.append(detailRow("预计成片时长", formatDuration(data.duration_seconds)));
+  if (data.script_version) container.append(detailRow("制作剧本版本", `第 ${data.script_version} 版`));
   if (!data.sections?.length) return renderEmpty(container);
   data.sections.forEach((section) => {
-    const item = node("article", "content-row script-row");
+    const item = node("article", `content-row script-row${section.review === "approved" ? " is-approved" : section.review === "needs_adjustment" ? " needs-adjustment" : ""}`);
     const heading = node("div", "script-row-heading");
     const title = node("div", "script-row-title");
     title.append(node("span", "row-meta", formatTimeRange(section.start_seconds, section.end_seconds)));
@@ -523,8 +595,38 @@ function renderScript(container, data, { editable, onOperation }) {
       heading.append(edit);
     }
     item.append(heading, copy);
+    if (section.section_goal) item.append(detailRow("这一段要让观众明白什么", section.section_goal));
+    if (section.screen_copy) item.append(detailRow("屏幕上强调什么", section.screen_copy));
+    if (section.pacing) item.append(detailRow("时间和节奏", section.pacing));
+    if (section.visual_intent) item.append(detailRow("画面要完成什么", section.visual_intent));
+    if (section.evidence_requirements?.length) item.append(detailRow("哪些内容必须真实证明", section.evidence_requirements.join("；")));
+    if (section.control_rule_refs?.length) item.append(detailRow("遵守的导演规则", section.control_rule_refs.join("；")));
+    if (section.feedback) item.append(node("p", "control-feedback", `调整意见：${section.feedback}`));
+    if (editable && data.status !== "approved") {
+      const actions = node("div", "control-plan-actions");
+      const approve = node("button", "quiet-button", "这段可以"); approve.type = "button";
+      approve.addEventListener("click", () => onOperation({ op: "review_script_section", section_id: section.id, decision: "approved", feedback: "" }));
+      const adjust = node("button", "quiet-button", "这段要调整"); adjust.type = "button";
+      adjust.addEventListener("click", () => {
+        const feedback = window.prompt("告诉 Agent 这段要怎么调整", section.feedback || "");
+        if (feedback?.trim()) onOperation({ op: "review_script_section", section_id: section.id, decision: "needs_adjustment", feedback: feedback.trim() });
+      });
+      actions.append(approve, adjust); item.append(actions);
+    }
     container.append(item);
   });
+  if (editable && data.status !== "approved") {
+    const lock = node("button", "primary-button", "全部段落确认，锁定制作剧本"); lock.type = "button";
+    lock.disabled = data.sections.some((section) => section.review !== "approved");
+    lock.addEventListener("click", () => onOperation({ op: "approve_production_script" }));
+    container.append(lock);
+  }
+  if (data.status === "approved") {
+    const handoff = node("section", "control-plan-handoff");
+    handoff.append(node("h4", "detail-heading", "制作剧本已锁定"));
+    handoff.append(node("p", "row-copy", "下一步可以按已确认的段落任务和证据要求生成分镜。"));
+    container.append(handoff);
+  }
 }
 
 function renderReferenceEvidence(parent, evidence, index) {
@@ -597,7 +699,109 @@ function renderShots(container, data) {
   });
 }
 
-function renderAssets(container, data) {
+function renderAssets(container, data, { editable = false, onOperation = () => {} } = {}) {
+  const execution = data.execution_plan;
+  if (execution) {
+    const plan = node("section", "shot-execution-plan");
+    const stateText = execution.locked ? "已锁定" : "待确认";
+    plan.append(node("h3", "section-title", "镜头执行单"), detailRow("当前版本", `第 ${execution.plan_version} 版 · ${stateText}`));
+    const rail = node("div", "shot-execution-rail");
+    (execution.shots || []).forEach((shot) => {
+      const card = node("article", "shot-execution-card");
+      const heading = node("div", "shot-header");
+      heading.append(node("strong", "shot-number", String(shot.order).padStart(2, "0")), node("h4", "row-title", shot.purpose || "镜头任务"));
+      card.append(heading, detailRow("时长", formatDuration(shot.duration_seconds)));
+      if (shot.narration) card.append(detailRow("口播", shot.narration));
+      if (shot.screen_copy) card.append(detailRow("字幕", shot.screen_copy));
+      card.append(detailRow("画面动作", shot.subject_action), detailRow("拍摄方式", [shot.setting, shot.framing, shot.camera].filter(Boolean).join(" · ")));
+      if (shot.source_label) card.append(detailRow("使用素材", shot.source_label), node("p", "source-facts", shot.source_reason));
+      else card.append(node("p", "asset-warning", shot.gap_class === "evidential" ? "缺少真实证据素材" : "缺少表达性素材"));
+      if (shot.generation_proposals?.length) {
+        shot.generation_proposals.forEach((proposal) => {
+          const proposalBox = node("section", "generation-proposal");
+          proposalBox.append(node("span", "status-chip", "生成演示"));
+          proposalBox.append(detailRow("生成方式", `${proposal.model_family} · ${proposal.operation}`));
+          proposalBox.append(detailRow("预览费用", proposal.estimated_fast_cost_usd == null ? "待检测" : `$${Number(proposal.estimated_fast_cost_usd).toFixed(2)}`));
+          proposalBox.append(node("p", "source-risk", proposal.evidence_risk));
+          const generate = node("button", "primary-button", "生成预览"); generate.type = "button";
+          generate.disabled = !execution.locked;
+          generate.title = execution.locked ? "查看费用并发起生成" : "执行单锁定后才能生成";
+          generate.addEventListener("click", async () => {
+            try {
+              generate.disabled = true; generate.textContent = "正在检查费用";
+              const quote = await quoteShotGeneration(projectId, {
+                shot_id: shot.id, proposal_id: proposal.id, quality: "fast",
+              });
+              const confirmed = window.confirm(
+                `供应方：${quote.provider}\n模型：${quote.model}\n档位：${quote.variant}\n时长：${quote.duration_seconds} 秒 · ${quote.resolution}\n预计费用：$${Number(quote.estimated_cost_usd).toFixed(2)}\n剩余预算：$${Number(quote.remaining_budget_usd).toFixed(2)}\n风险：${quote.evidence_risk}\n\n确认生成预览吗？`
+              );
+              if (!confirmed) { generate.disabled = false; generate.textContent = "生成预览"; return; }
+              const task = await createShotGeneration(projectId, {
+                shot_id: shot.id,
+                proposal_id: proposal.id,
+                plan_version: quote.plan_version,
+                quality: "fast",
+                confirmed_estimated_cost_usd: quote.estimated_cost_usd,
+              });
+              generate.textContent = task.status === "completed" ? "预览已生成" : "已开始生成";
+              await refresh();
+            } catch (error) {
+              generate.disabled = false; generate.textContent = error.message || "生成预览";
+            }
+          });
+          proposalBox.append(generate);
+          const relatedTasks = (execution.generation_tasks || []).filter((task) => task.shot_id === shot.id && task.proposal_id === proposal.id);
+          relatedTasks.forEach((task) => {
+            const taskRow = node("section", "generation-task");
+            const label = task.status === "completed" ? "已完成" : task.status === "needs_confirmation" ? "需要确认" : task.status === "failed" ? "生成失败" : task.status === "generating" ? "生成中" : "排队中";
+            taskRow.append(node("span", "status-chip", label));
+            if (task.output_url) {
+              const video = document.createElement("video");
+              video.controls = true; video.playsInline = true; video.preload = "metadata"; video.src = task.output_url;
+              video.className = "generated-shot-preview"; taskRow.append(video);
+            }
+            if (task.error) taskRow.append(node("p", "source-risk", task.error));
+            proposalBox.append(taskRow);
+          });
+          const fastTask = [...relatedTasks].reverse().find((task) => task.quality === "fast" && task.status === "completed");
+          const standardTask = [...relatedTasks].reverse().find((task) => task.quality === "standard" && task.status === "completed");
+          if (fastTask && !standardTask) {
+            const standard = node("button", "quiet-button", "方向可用，生成清晰版"); standard.type = "button";
+            standard.addEventListener("click", async () => {
+              try {
+                standard.disabled = true; standard.textContent = "正在检查费用";
+                const quote = await quoteShotGeneration(projectId, { shot_id: shot.id, proposal_id: proposal.id, quality: "standard", parent_task_id: fastTask.task_id });
+                const confirmed = window.confirm(`供应方：${quote.provider}\n模型：${quote.model}\n档位：${quote.variant}\n时长：${quote.duration_seconds} 秒 · ${quote.resolution}\n预计费用：$${Number(quote.estimated_cost_usd).toFixed(2)}\n剩余预算：$${Number(quote.remaining_budget_usd).toFixed(2)}\n风险：${quote.evidence_risk}\n\n确认生成清晰版吗？`);
+                if (!confirmed) { standard.disabled = false; standard.textContent = "方向可用，生成清晰版"; return; }
+                await createShotGeneration(projectId, { shot_id: shot.id, proposal_id: proposal.id, plan_version: quote.plan_version, quality: "standard", parent_task_id: fastTask.task_id, confirmed_estimated_cost_usd: quote.estimated_cost_usd });
+                standard.textContent = "已开始生成清晰版"; await refresh();
+              } catch (error) { standard.disabled = false; standard.textContent = error.message || "生成清晰版"; }
+            });
+            proposalBox.append(standard);
+          }
+          if (standardTask) {
+            const adopt = node("button", "quiet-button", shot.selected_generation_task_id === standardTask.task_id ? "当前已用于本镜头" : "用于本镜头"); adopt.type = "button";
+            adopt.disabled = shot.selected_generation_task_id === standardTask.task_id;
+            adopt.addEventListener("click", async () => {
+              try { adopt.disabled = true; await adoptShotGeneration(projectId, standardTask.task_id); adopt.textContent = "当前已用于本镜头"; await refresh(); }
+              catch (error) { adopt.disabled = false; adopt.textContent = error.message || "用于本镜头"; }
+            });
+            proposalBox.append(adopt);
+          }
+          card.append(proposalBox);
+        });
+      }
+      rail.append(card);
+    });
+    plan.append(rail);
+    if (editable && !execution.locked) {
+      const lock = node("button", "primary-button", "锁定镜头执行单"); lock.type = "button";
+      lock.disabled = (execution.shots || []).some((shot) => shot.coverage_status === "gap" && shot.gap_strategy === "none");
+      lock.addEventListener("click", () => onOperation({ op: "approve_shot_execution_plan" }));
+      plan.append(lock);
+    }
+    container.append(plan);
+  }
   const planned = Number(data.planned_count || 0);
   const prepared = Number(data.prepared_count || 0);
   const waiting = Number(data.waiting_confirmation_count || 0);
@@ -839,7 +1043,10 @@ function renderEditor(container, stage, editor, project, snapshot) {
     if (changes.length) await saveNow();
   };
   const onOperation = (operation) => {
-    changes = mergeResearchOperation(changes, operation);
+    if (editor?.type === "proposal_choice") changes = mergeProposalOperation(changes, operation);
+    else if (editor?.type === "script_editor") changes = mergeKeyedOperation(changes, operation, scriptOperationKey);
+    else if (editor?.type === "asset_review") changes = mergeKeyedOperation(changes, operation, executionOperationKey);
+    else changes = mergeResearchOperation(changes, operation);
     scheduleSave();
     snapshotStore.setDraft(mutationStage, {
       ...(snapshot.drafts?.[mutationStage] || {}),
@@ -856,22 +1063,26 @@ function renderEditor(container, stage, editor, project, snapshot) {
       setTimeout(() => document.querySelector(".impact-panel")?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 0);
     } catch (error) { message.textContent = error.message; }
   };
+  let editorData = data;
+  if (editor?.type === "proposal_choice") editorData = applyProposalControlPlanDraft(data, changes);
+  if (editor?.type === "script_editor") editorData = applyScriptDraft(data, changes);
+  if (editor?.type === "asset_review") editorData = applyExecutionPlanDraft(data, changes);
   const renderers = {
     research_review: (target, value) => renderResearch(target, value, { editable: canEdit, onOperation, onPreview: previewNow, pendingOperations: changes }),
     proposal_choice: (target, value) => renderProposal(target, value, { editable: canEdit, onOperation }),
     script_editor: (target, value) => renderScript(target, value, { editable: canEdit, onOperation }),
     shot_mapping: renderShots,
-    asset_review: renderAssets,
+    asset_review: (target, value) => renderAssets(target, value, { editable: canEdit, onOperation }),
     sample_review: renderSample,
     edit_review: renderEdit,
     delivery_review: (target, value) => renderDelivery(target, value, { editable: canEdit, onOperation, pendingOperations: changes }),
     unavailable: (target, value) => target.append(node("p", "empty-copy", value.message)),
   };
-  (renderers[editor?.type] || renderEmpty)(container, data);
+  (renderers[editor?.type] || renderEmpty)(container, editorData);
   const editPanel = node("div", "typed-editor-panel");
   const editorBody = node("div", "typed-editor-body");
   const controls = node("div", "editor-controls");
-  if (!["research_review", "script_editor", "delivery_review"].includes(editor?.type)) {
+  if (!["research_review", "script_editor", "asset_review", "delivery_review"].includes(editor?.type)) {
     renderTypedEditor(editorBody, stage, editor, { editable: canEdit, onOperation });
   }
   if (canEdit) {
@@ -887,7 +1098,7 @@ function renderEditor(container, stage, editor, project, snapshot) {
     }
   }
   controls.append(message);
-  if (!["research_review", "script_editor", "delivery_review"].includes(editor?.type)) editPanel.append(editorBody);
+  if (!["research_review", "script_editor", "asset_review", "delivery_review"].includes(editor?.type)) editPanel.append(editorBody);
   editPanel.append(controls); container.append(editPanel);
   const impactPanel = node("div", "impact-panel");
   renderImpact(impactPanel, snapshot.previews?.[mutationStage], {
@@ -969,15 +1180,27 @@ function render(snapshot) {
 async function refresh({ showLoading = false } = {}) {
   if (showLoading) store.setLoading();
   try {
-    const existingDraft = store.get().drafts?.delivery_review;
-    const [project, draft] = await Promise.all([
+    const existingDrafts = store.get().drafts || {};
+    const [project, proposalDraft, scriptDraft, assetsDraft, deliveryDraft] = await Promise.all([
       fetchProjectState(projectId),
-      existingDraft?.status === "local"
-        ? Promise.resolve(existingDraft)
+      existingDrafts.proposal?.status === "local"
+        ? Promise.resolve(existingDrafts.proposal)
+        : fetchDraft(projectId, "proposal").catch(() => null),
+      existingDrafts.script?.status === "local"
+        ? Promise.resolve(existingDrafts.script)
+        : fetchDraft(projectId, "script").catch(() => null),
+      existingDrafts.assets?.status === "local"
+        ? Promise.resolve(existingDrafts.assets)
+        : fetchDraft(projectId, "assets").catch(() => null),
+      existingDrafts.delivery_review?.status === "local"
+        ? Promise.resolve(existingDrafts.delivery_review)
         : fetchDraft(projectId, "delivery_review").catch(() => null),
     ]);
     store.setProject(project);
-    snapshotStore.setDraft("delivery_review", draft?.status === "active" || draft?.status === "local" ? draft : null);
+    snapshotStore.setDraft("proposal", proposalDraft?.status === "active" || proposalDraft?.status === "local" ? proposalDraft : null);
+    snapshotStore.setDraft("script", scriptDraft?.status === "active" || scriptDraft?.status === "local" ? scriptDraft : null);
+    snapshotStore.setDraft("assets", assetsDraft?.status === "active" || assetsDraft?.status === "local" ? assetsDraft : null);
+    snapshotStore.setDraft("delivery_review", deliveryDraft?.status === "active" || deliveryDraft?.status === "local" ? deliveryDraft : null);
   } catch {
     store.setError();
   }

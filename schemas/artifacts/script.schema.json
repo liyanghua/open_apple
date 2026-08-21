@@ -7,6 +7,9 @@
   "required": ["version", "title", "total_duration_seconds", "sections"],
   "properties": {
     "version": { "type": "string", "const": "1.0" },
+    "script_id": { "type": "string", "minLength": 1 },
+    "script_version": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["draft", "needs_revision", "approved"] },
     "creative_control_ref": { "$ref": "#/$defs/creative_control_ref" },
     "title": { "type": "string" },
     "total_duration_seconds": { "type": "number", "minimum": 1 },
@@ -41,6 +44,15 @@
           "id": { "type": "string" },
           "label": { "type": "string" },
           "text": { "type": "string" },
+          "narration": { "type": "string" },
+          "screen_copy": { "type": "string" },
+          "section_goal": { "type": "string" },
+          "pacing": { "type": "string" },
+          "visual_intent": { "type": "string" },
+          "evidence_requirements": { "type": "array", "items": { "type": "string" } },
+          "control_rule_refs": { "type": "array", "items": { "type": "string" } },
+          "review": { "enum": ["pending", "approved", "needs_adjustment"] },
+          "feedback": { "type": "string" },
           "start_seconds": { "type": "number", "minimum": 0 },
           "end_seconds": { "type": "number", "minimum": 0 },
           "speaker_directions": { "type": "string" },
@@ -99,8 +111,18 @@
       },
       "minItems": 1
     },
+    "approval": { "$ref": "#/$defs/approval" },
     "metadata": { "type": "object" }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "approved" } }, "required": ["status"] },
+      "then": { "required": ["approval"] }
+    }
+  ],
   "additionalProperties": false,
-  "$defs": { "creative_control_ref": { "type": "object", "required": ["plan_id", "plan_version", "artifact_sha256"], "properties": { "plan_id": { "type": "string" }, "plan_version": { "type": "integer", "minimum": 1 }, "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }, "additionalProperties": false } }
+  "$defs": {
+    "creative_control_ref": { "type": "object", "required": ["plan_id", "plan_version", "artifact_sha256"], "properties": { "plan_id": { "type": "string" }, "plan_version": { "type": "integer", "minimum": 1 }, "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }, "additionalProperties": false },
+    "approval": { "type": "object", "required": ["approved_by", "approved_at"], "properties": { "approved_by": { "type": "string", "minLength": 1 }, "approved_at": { "type": "string", "format": "date-time" } }, "additionalProperties": false }
+  }
 }

@@ -34,7 +34,7 @@ def test_creative_lock_bundle_requires_a_locked_director_control_plan(tmp_path: 
     from lib.approval_groups import build_approval_bundle
 
     project = tmp_path / "project"; (project / "artifacts").mkdir(parents=True)
-    for stage in ("proposal", "script", "scene_plan", "assets"):
+    for stage in ("proposal", "scene_plan", "assets"):
         (project / f"checkpoint_{stage}.json").write_text(
             json.dumps({
                 "stage": stage,
@@ -46,7 +46,7 @@ def test_creative_lock_bundle_requires_a_locked_director_control_plan(tmp_path: 
     manifest = {
         "approval_groups": {
             "creative_lock": {
-                "members": ["proposal", "script", "scene_plan", "assets"],
+                "members": ["proposal", "scene_plan", "assets"],
                 "terminal_stage": "assets",
                 "required_artifacts": ["proposal_packet", "creative_control_plan"],
             }

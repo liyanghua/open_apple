@@ -104,7 +104,7 @@ def test_research_review_uses_scoped_decision_controls_without_generic_editor() 
     editors = _read(OPERATOR_ROOT / "editors.js")
 
     assert 'research_review: (target, value) => renderResearch' in app
-    assert '!["research_review", "script_editor", "delivery_review"].includes(editor?.type)' in app
+    assert '!["research_review", "script_editor", "asset_review", "delivery_review"].includes(editor?.type)' in app
     assert "resolve_matrix_row" in app
     assert "request_local_reanalysis" in app
     assert "业务备注" not in editors
@@ -137,6 +137,31 @@ def test_proposal_ui_hands_off_locked_control_plan_to_script_generation() -> Non
     assert "读取已锁定的导演总控单并生成制作剧本" in app
     assert "creative_control_ref" in director
     assert "missing or not approved" in director
+
+
+def test_proposal_control_section_reviews_survive_workspace_refreshes() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+
+    assert 'fetchDraft(projectId, "proposal")' in app
+    assert "proposalOperationKey" in app
+    assert "applyProposalControlPlanDraft" in app
+    assert "pendingOperations: changes" in app
+
+
+def test_production_script_and_execution_plan_use_business_confirmation_language() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+
+    for phrase in ("这段可以", "这段要调整", "制作剧本已锁定", "锁定镜头执行单"):
+        assert phrase in app
+    assert "shot-execution-rail" in app
+    assert "overflow-x: auto" in css
+    assert "生成预览" in app
+    assert "执行单锁定后才能生成" in app
+    assert "quoteShotGeneration" in app
+    assert "createShotGeneration" in app
+    assert "供应方" in app
+    assert "剩余预算" in app
 
 
 def test_research_decisions_stay_in_place_and_confirm_as_one_flow() -> None:

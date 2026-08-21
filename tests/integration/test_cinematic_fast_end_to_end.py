@@ -146,6 +146,59 @@ def _artifact(name: str) -> dict:
             "locked_at": "2026-08-17T00:00:00+00:00",
             "locked_by": "tester",
         }
+    if name == "script":
+        return {
+            "version": "1.0",
+            "script_id": "script-cinematic-fast-e2e",
+            "script_version": 1,
+            "status": "approved",
+            "creative_control_ref": {
+                "plan_id": "creative-control-cinematic-fast-e2e",
+                "plan_version": 1,
+                "artifact_sha256": "a" * 64,
+            },
+            "title": "透明桌垫制作剧本",
+            "total_duration_seconds": 10,
+            "sections": [{
+                "id": "section-1",
+                "label": "真实证明",
+                "text": "先看真实动作。",
+                "narration": "先看真实动作。",
+                "screen_copy": "真实演示",
+                "start_seconds": 0,
+                "end_seconds": 10,
+                "section_goal": "先建立产品证据",
+                "pacing": "前快后停",
+                "visual_intent": "完整呈现自有素材中的动作",
+                "evidence_requirements": ["使用真实自有素材"],
+                "control_rule_refs": ["fact_continuity"],
+                "review": "approved",
+                "feedback": "",
+            }],
+            "approval": {"approved_by": "tester", "approved_at": "2026-08-17T00:00:00+00:00"},
+        }
+    if name == "shot_execution_plan":
+        return {
+            "version": "1.0",
+            "project_id": PROJECT_ID,
+            "plan_id": "shot-plan-cinematic-fast-e2e",
+            "plan_version": 1,
+            "status": "approved",
+            "created_at": "2026-08-17T00:00:00+00:00",
+            "creative_control_ref": {"artifact": "creative_control_plan", "version": 1, "artifact_sha256": "a" * 64},
+            "script_ref": {"artifact": "script", "version": 1, "artifact_sha256": "b" * 64},
+            "scene_plan_ref": {"artifact": "scene_plan", "version": 1, "artifact_sha256": "c" * 64},
+            "shots": [{
+                "id": "scene-1", "order": 1, "purpose": "建立真实产品证据", "duration_seconds": 10,
+                "narration": "先看真实动作。", "screen_copy": "真实演示", "subject_action": "展示自有素材中的产品动作",
+                "setting": "家庭桌面", "framing": "近景", "camera": "固定", "lighting": "自然光", "sound": "保留动作声",
+                "evidence_type": "real_proof", "coverage_status": "enough", "gap_class": "none", "gap_strategy": "none",
+                "source_selection": {"media_id": "product-b", "path": "inputs/source/product-b.mp4", "start_seconds": 0, "end_seconds": 10, "fit_reason": "完整覆盖证据动作"},
+                "reference_mechanisms": ["动作后给出结果"], "industry_notes": [], "control_rule_refs": ["fact_continuity"],
+                "generation_proposals": [], "selected_generation_task_id": None,
+            }],
+            "approval": {"approved_by": "tester", "approved_at": "2026-08-17T00:00:00+00:00"},
+        }
     if name in FASTLINE_ARTIFACTS:
         value = copy.deepcopy(valid_artifact(name))
         value["project_id"] = PROJECT_ID
@@ -356,7 +409,7 @@ def test_research_artifacts_and_checkpoint_commit_in_one_generation(tmp_path: Pa
     assert all((project / f"artifacts/{name}.json").exists() for name in names)
 
 
-def test_cinematic_fast_end_to_end_has_exactly_two_gates_and_no_reference_reuse(tmp_path: Path):
+def test_cinematic_fast_end_to_end_has_script_execution_sample_gates_and_no_reference_reuse(tmp_path: Path):
     project = init_project(PROJECT_ID, title="Fastline E2E", pipeline_type=PIPELINE, pipeline_dir=tmp_path)
     manifest = load_pipeline(PIPELINE)
     awaiting_human_stages: list[str] = []
@@ -374,10 +427,13 @@ def test_cinematic_fast_end_to_end_has_exactly_two_gates_and_no_reference_reuse(
         "completed",
         _envelopes(project, ["proposal_packet", "creative_control_plan", "decision_log"]),
     )
-    _checkpoint(tmp_path, "script", "completed", _envelopes(project, ["script"]))
+    script_artifacts = _envelopes(project, ["script"])
+    _checkpoint(tmp_path, "script", "awaiting_human", script_artifacts, approval_group="script_lock")
+    awaiting_human_stages.append("script")
+    _checkpoint(tmp_path, "script", "completed", script_artifacts, human_approved=True, approval_group="script_lock")
     _checkpoint(tmp_path, "scene_plan", "completed", _envelopes(project, ["scene_plan"]))
 
-    asset_inputs = _envelopes(project, ["asset_plan", "production_lock"])
+    asset_inputs = _envelopes(project, ["shot_execution_plan", "asset_plan", "production_lock"])
     _checkpoint(tmp_path, "assets", "in_progress", asset_inputs, approval_group="creative_lock")
     assert providers.calls == []
 
@@ -434,7 +490,7 @@ def test_cinematic_fast_end_to_end_has_exactly_two_gates_and_no_reference_reuse(
     _checkpoint(tmp_path, "compose", "completed", _envelopes(project, ["render_report", "final_review"]))
     _checkpoint(tmp_path, "publish", "completed", _envelopes(project, ["publish_log"]))
 
-    assert awaiting_human_stages == ["assets", "sample"]
+    assert awaiting_human_stages == ["script", "assets", "sample"]
     assert providers.calls == ["tts", "music"]
     assert remotion.sample_calls == 1
     assert remotion.full_render_calls == 1

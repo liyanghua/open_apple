@@ -6,7 +6,7 @@ from lib.pipeline_loader import get_stage_order, load_pipeline
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_cinematic_fast_has_fixed_stage_order_and_two_gates():
+def test_cinematic_fast_has_fixed_stage_order_and_script_execution_sample_gates():
     manifest = load_pipeline("cinematic-fast")
     assert get_stage_order(manifest) == [
         "research", "proposal", "script", "scene_plan", "assets",
@@ -17,17 +17,21 @@ def test_cinematic_fast_has_fixed_stage_order_and_two_gates():
         for stage in manifest["stages"]
         if stage.get("human_approval_default")
     ]
-    assert gated == ["assets", "sample"]
+    assert gated == ["script", "assets", "sample"]
+    script_group = manifest["approval_groups"]["script_lock"]
+    assert script_group["members"] == ["script"]
+    assert script_group["terminal_stage"] == "script"
     group = manifest["approval_groups"]["creative_lock"]
-    assert group["members"] == ["proposal", "script", "scene_plan", "assets"]
+    assert group["members"] == ["proposal", "scene_plan", "assets"]
     assert group["terminal_stage"] == "assets"
+    assert manifest["stages"][2]["approval_group_terminal"] is True
     assert manifest["stages"][4]["approval_group_terminal"] is True
 
 
 def test_cinematic_fast_sample_and_compose_contracts():
     manifest = load_pipeline("cinematic-fast")
     stages = {stage["name"]: stage for stage in manifest["stages"]}
-    assert stages["assets"]["produces"] == ["asset_plan", "production_lock", "approval_bundle"]
+    assert stages["assets"]["produces"] == ["shot_execution_plan", "asset_plan", "production_lock", "approval_bundle"]
     assert stages["sample"]["produces"] == [
         "asset_manifest", "final_props", "render_plan", "sample_report",
         "caption_policy_revision",

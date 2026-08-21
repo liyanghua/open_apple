@@ -51,6 +51,7 @@ ARTIFACT_NAMES = [
     "caption_policy_revision",
     "brand_profile",
     "creative_control_plan",
+    "shot_execution_plan",
 ]
 
 

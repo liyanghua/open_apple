@@ -75,6 +75,8 @@ FASTLINE_ARTIFACTS = frozenset({
 # is deliberately not required for proposal itself: that is where the plan is
 # authored and reviewed.
 _CREATIVE_CONTROL_REQUIRED_STAGES = frozenset({"script", "scene_plan", "assets"})
+_PRODUCTION_SCRIPT_REQUIRED_STAGES = frozenset({"scene_plan", "assets"})
+_SHOT_EXECUTION_REQUIRED_STAGES = frozenset({"sample", "edit", "compose", "publish"})
 
 
 def get_pipeline_stages(pipeline_type: str | None) -> list[str]:
@@ -477,6 +479,71 @@ def _enforce_approved_creative_control_plan(
         )
 
 
+def _enforce_approved_artifact_status(
+    project_dir: Path,
+    pipeline_type: str | None,
+    stage: str,
+    status: str,
+    *,
+    artifact_name: str,
+    required_stages: frozenset[str],
+    business_label: str,
+) -> None:
+    if (
+        pipeline_type != "cinematic-fast"
+        or stage not in required_stages
+        or status not in {"awaiting_human", "completed"}
+    ):
+        return
+    path = project_dir / "artifacts" / f"{artifact_name}.json"
+    artifact: dict[str, Any] | None = None
+    try:
+        candidate = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(candidate, dict):
+            artifact = candidate
+    except (OSError, json.JSONDecodeError):
+        artifact = None
+    if not artifact or artifact.get("status") != "approved":
+        raise CheckpointValidationError(
+            f"PREREQUISITE VIOLATION: stage {stage!r} cannot advance; "
+            f"{business_label}还没有“已锁定”状态（status 必须为 approved）。"
+        )
+
+
+def _enforce_approved_production_script(
+    project_dir: Path,
+    pipeline_type: str | None,
+    stage: str,
+    status: str,
+) -> None:
+    _enforce_approved_artifact_status(
+        project_dir,
+        pipeline_type,
+        stage,
+        status,
+        artifact_name="script",
+        required_stages=_PRODUCTION_SCRIPT_REQUIRED_STAGES,
+        business_label="制作剧本",
+    )
+
+
+def _enforce_approved_shot_execution_plan(
+    project_dir: Path,
+    pipeline_type: str | None,
+    stage: str,
+    status: str,
+) -> None:
+    _enforce_approved_artifact_status(
+        project_dir,
+        pipeline_type,
+        stage,
+        status,
+        artifact_name="shot_execution_plan",
+        required_stages=_SHOT_EXECUTION_REQUIRED_STAGES,
+        business_label="镜头执行单",
+    )
+
+
 def _enforce_stage_prerequisites(
     pipeline_dir: Path,
     project_id: str,
@@ -739,6 +806,18 @@ def write_checkpoint(
     )
 
     _enforce_approved_creative_control_plan(
+        project_dir,
+        pipeline_type,
+        stage,
+        status,
+    )
+    _enforce_approved_production_script(
+        project_dir,
+        pipeline_type,
+        stage,
+        status,
+    )
+    _enforce_approved_shot_execution_plan(
         project_dir,
         pipeline_type,
         stage,

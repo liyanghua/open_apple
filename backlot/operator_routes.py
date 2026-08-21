@@ -28,6 +28,7 @@ from backlot.operator_reviews import ReviewService
 from backlot.project_commit import ProjectCommitStore
 from backlot.project_creation import ProjectCreationService
 from backlot.skill_catalog import SkillCatalog
+from backlot.shot_generation import ShotGenerationService
 from lib.artifact_hashing import semantic_sha256
 
 
@@ -278,6 +279,48 @@ def create_operator_router(
     async def discard_draft(project_id: str, stage: str, request: Request) -> dict:
         session = authenticate(request, project_id, "edit", csrf=True)
         return DraftService(project(project_id)).discard(session.actor.user_id, stage)
+
+    @router.post("/projects/{project_id}/shot-generations/quote")
+    async def quote_shot_generation(project_id: str, request: Request) -> dict:
+        authenticate(request, project_id, "read")
+        payload = await body(request)
+        return ShotGenerationService(project(project_id)).quote(
+            shot_id=str(payload.get("shot_id") or ""),
+            proposal_id=str(payload.get("proposal_id") or ""),
+            quality=str(payload.get("quality") or ""),
+            parent_task_id=(str(payload["parent_task_id"]) if payload.get("parent_task_id") else None),
+        )
+
+    @router.post("/projects/{project_id}/shot-generations")
+    async def create_shot_generation(project_id: str, request: Request) -> dict:
+        session = authenticate(request, project_id, "edit", csrf=True)
+        payload = await body(request)
+        key = request.headers.get("idempotency-key", "").strip()
+        if not key:
+            raise OperatorError.validation_failed("缺少重复提交保护标识")
+        return ShotGenerationService(project(project_id)).enqueue(
+            actor_id=session.actor.user_id,
+            idempotency_key=key,
+            shot_id=str(payload.get("shot_id") or ""),
+            proposal_id=str(payload.get("proposal_id") or ""),
+            plan_version=int(payload.get("plan_version") or 0),
+            quality=str(payload.get("quality") or ""),
+            confirmed_estimated_cost_usd=float(payload.get("confirmed_estimated_cost_usd") or -1),
+            parent_task_id=(str(payload["parent_task_id"]) if payload.get("parent_task_id") else None),
+        )
+
+    @router.get("/projects/{project_id}/shot-generations/{task_id}")
+    async def read_shot_generation(project_id: str, task_id: str, request: Request) -> dict:
+        authenticate(request, project_id, "read")
+        return ShotGenerationService(project(project_id)).get(task_id)
+
+    @router.post("/projects/{project_id}/shot-generations/{task_id}/adopt")
+    async def adopt_shot_generation(project_id: str, task_id: str, request: Request) -> dict:
+        session = authenticate(request, project_id, "edit", csrf=True)
+        return ShotGenerationService(project(project_id)).adopt(
+            actor_id=session.actor.user_id,
+            task_id=task_id,
+        )
 
     @router.post("/projects/{project_id}/drafts/{stage}/impact")
     async def preview_impact(project_id: str, stage: str, request: Request) -> dict:

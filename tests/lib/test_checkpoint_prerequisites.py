@@ -7,6 +7,8 @@ from tests.contracts.test_phase0_contracts import sample_artifact
 from lib.checkpoint import (
     CheckpointValidationError,
     _enforce_approved_creative_control_plan,
+    _enforce_approved_production_script,
+    _enforce_approved_shot_execution_plan,
     init_project,
     validate_checkpoint,
     write_checkpoint,
@@ -222,6 +224,51 @@ def test_fastline_production_stages_require_an_approved_director_control_plan(
 def test_fastline_director_control_plan_does_not_block_a_heartbeat(tmp_path) -> None:
     _enforce_approved_creative_control_plan(
         tmp_path / "run", "cinematic-fast", "script", "in_progress"
+    )
+
+
+def test_fastline_scene_plan_requires_an_approved_production_script(tmp_path) -> None:
+    project_dir = tmp_path / "run"
+    (project_dir / "artifacts").mkdir(parents=True)
+    path = project_dir / "artifacts" / "script.json"
+
+    with pytest.raises(CheckpointValidationError, match="制作剧本.*已锁定"):
+        _enforce_approved_production_script(
+            project_dir, "cinematic-fast", "scene_plan", "completed"
+        )
+    path.write_text(json.dumps({"status": "draft"}), encoding="utf-8")
+    with pytest.raises(CheckpointValidationError, match="制作剧本.*已锁定"):
+        _enforce_approved_production_script(
+            project_dir, "cinematic-fast", "assets", "awaiting_human"
+        )
+    path.write_text(json.dumps({"status": "approved"}), encoding="utf-8")
+    _enforce_approved_production_script(
+        project_dir, "cinematic-fast", "scene_plan", "completed"
+    )
+
+
+def test_fastline_sample_requires_a_locked_shot_execution_plan(tmp_path) -> None:
+    project_dir = tmp_path / "run"
+    (project_dir / "artifacts").mkdir(parents=True)
+    path = project_dir / "artifacts" / "shot_execution_plan.json"
+
+    with pytest.raises(CheckpointValidationError, match="镜头执行单.*已锁定"):
+        _enforce_approved_shot_execution_plan(
+            project_dir, "cinematic-fast", "sample", "completed"
+        )
+    path.write_text(json.dumps({"status": "approved"}), encoding="utf-8")
+    _enforce_approved_shot_execution_plan(
+        project_dir, "cinematic-fast", "sample", "completed"
+    )
+
+
+def test_fastline_new_confirmation_gates_do_not_block_heartbeats(tmp_path) -> None:
+    project_dir = tmp_path / "run"
+    _enforce_approved_production_script(
+        project_dir, "cinematic-fast", "scene_plan", "in_progress"
+    )
+    _enforce_approved_shot_execution_plan(
+        project_dir, "cinematic-fast", "sample", "in_progress"
     )
 
 

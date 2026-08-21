@@ -6,6 +6,11 @@ half-open in/out frames, safe caption zones, crop and speed decisions. Keep
 the scene plan deterministic and do not create an independent approval stop;
 the `creative_lock` bundle covers it at `assets`.
 
+Before mapping shots, require the canonical `script` artifact to have
+`status: approved`. Use each section's goal, pacing, visual intent, evidence
+requirements, and control-rule references as constraints. A draft or partially
+reviewed script is not permission to enter Scene Plan.
+
 Every source mapping must be stored in `metadata.source_mapping[]`, keyed to the
 canonical scene and owned source interval. Each mapped scene must also have a
 non-empty canonical `scenes[].shot_intent`. Record every mapping in this shape:

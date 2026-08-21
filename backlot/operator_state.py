@@ -142,6 +142,31 @@ def _artifact(board: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     return value
 
 
+def _generation_tasks_for_operator(project_dir: Path, project_id: str) -> list[dict[str, Any]]:
+    tasks = []
+    directory = project_dir / "operator" / "shot-generation" / "tasks"
+    for path in sorted(directory.glob("*.json")) if directory.exists() else []:
+        try:
+            task = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(task, Mapping) or not isinstance(task.get("task_id"), str):
+            continue
+        output = task.get("output_path")
+        tasks.append({
+            "task_id": task["task_id"],
+            "shot_id": _safe_text(task.get("shot_id")),
+            "proposal_id": _safe_text(task.get("proposal_id")),
+            "quality": _safe_text(task.get("quality")),
+            "status": _safe_text(task.get("status")),
+            "seed": task.get("seed") if isinstance(task.get("seed"), int) else None,
+            "output_url": _media_url(project_id, output),
+            "actual_cost_usd": _number(task.get("actual_cost_usd")),
+            "error": _safe_text(task.get("error")),
+        })
+    return tasks
+
+
 def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     research = _artifact(board, "research_brief")
     analysis = _artifact(board, "video_analysis_brief")
@@ -533,12 +558,29 @@ def _script_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "id": _safe_text(section.get("id"), f"section-{index + 1}"),
             "label": _safe_text(section.get("label"), "内容"),
             "text": _safe_text(section.get("narration")) or _safe_text(section.get("text")),
+            "screen_copy": _safe_text(section.get("screen_copy")),
             "start_seconds": _number(section.get("start_seconds")) or 0,
             "end_seconds": _number(section.get("end_seconds")) or 0,
+            "section_goal": _safe_text(section.get("section_goal")),
+            "pacing": _safe_text(section.get("pacing")),
+            "visual_intent": _safe_text(section.get("visual_intent")),
+            "evidence_requirements": [
+                _safe_text(value) for value in section.get("evidence_requirements") or []
+                if _safe_text(value)
+            ],
+            "control_rule_refs": [
+                _safe_text(value) for value in section.get("control_rule_refs") or []
+                if _safe_text(value)
+            ],
+            "review": _safe_text(section.get("review"), "pending"),
+            "feedback": _safe_text(section.get("feedback")),
         })
     return {
         "type": "script_editor",
         "data": {
+            "script_id": _safe_text(script.get("script_id")),
+            "script_version": int(script.get("script_version") or 1),
+            "status": _safe_text(script.get("status"), "draft"),
             "duration_seconds": _number(script.get("total_duration_seconds")),
             "sections": sections,
         },
@@ -810,6 +852,51 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     prepared_count = sum(item["status"] == "已准备" for item in projected)
     waiting_confirmation_count = sum(item["status"] == "等待确认" for item in projected)
     spent = _number((board.get("cost") or {}).get("total_spent_usd"))
+    execution = _artifact(board, "shot_execution_plan")
+    execution_shots = []
+    for index, shot in enumerate(execution.get("shots") or []):
+        if not isinstance(shot, Mapping):
+            continue
+        source = shot.get("source_selection") if isinstance(shot.get("source_selection"), Mapping) else None
+        proposals = []
+        for proposal in shot.get("generation_proposals") or []:
+            if not isinstance(proposal, Mapping):
+                continue
+            proposals.append({
+                "id": _safe_text(proposal.get("id")),
+                "operation": _safe_text(proposal.get("operation")),
+                "model_family": _safe_text(proposal.get("model_family"), "seedance"),
+                "duration_seconds": _number(proposal.get("duration_seconds")),
+                "aspect_ratio": _safe_text(proposal.get("aspect_ratio")),
+                "estimated_fast_cost_usd": _number(proposal.get("estimated_fast_cost_usd")),
+                "estimated_standard_cost_usd": _number(proposal.get("estimated_standard_cost_usd")),
+                "evidence_risk": _safe_text(proposal.get("evidence_risk")),
+            })
+        execution_shots.append({
+            "id": _safe_text(shot.get("id"), f"shot-{index + 1}"),
+            "order": int(shot.get("order") or index + 1),
+            "purpose": _safe_text(shot.get("purpose")),
+            "duration_seconds": _number(shot.get("duration_seconds")),
+            "narration": _safe_text(shot.get("narration")),
+            "screen_copy": _safe_text(shot.get("screen_copy")),
+            "subject_action": _safe_text(shot.get("subject_action")),
+            "setting": _safe_text(shot.get("setting")),
+            "framing": _safe_text(shot.get("framing")),
+            "camera": _safe_text(shot.get("camera")),
+            "lighting": _safe_text(shot.get("lighting")),
+            "sound": _safe_text(shot.get("sound")),
+            "evidence_type": _safe_text(shot.get("evidence_type")),
+            "coverage_status": _safe_text(shot.get("coverage_status")),
+            "gap_class": _safe_text(shot.get("gap_class")),
+            "gap_strategy": _safe_text(shot.get("gap_strategy")),
+            "source_label": Path(str(source.get("path"))).stem if source else "",
+            "source_reason": _safe_text(source.get("fit_reason")) if source else "",
+            "reference_mechanisms": [str(value) for value in shot.get("reference_mechanisms") or []],
+            "industry_notes": [str(value) for value in shot.get("industry_notes") or []],
+            "control_rule_refs": [str(value) for value in shot.get("control_rule_refs") or []],
+            "generation_proposals": proposals,
+            "selected_generation_task_id": shot.get("selected_generation_task_id"),
+        })
     return {
         "type": "asset_review",
         "data": {
@@ -822,6 +909,13 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "waiting_confirmation_count": waiting_confirmation_count,
             "paid_generation_approved": paid_approved,
             "items": projected,
+            "execution_plan": {
+                "plan_id": _safe_text(execution.get("plan_id")),
+                "plan_version": int(execution.get("plan_version") or 1),
+                "status": _safe_text(execution.get("status"), "draft"),
+                "locked": execution.get("status") == "approved",
+                "shots": execution_shots,
+            } if execution else None,
         },
     }
 
@@ -1340,7 +1434,12 @@ def project_operator_state(board_state: Mapping[str, Any]) -> dict[str, Any]:
 
     pending_review = None
     if current_raw.get("status") == "awaiting_human":
-        kind = "creative_lock" if current_name == "assets" else "sample" if current_name == "sample" else "stage"
+        kind = (
+            "script_lock" if current_name == "script"
+            else "creative_lock" if current_name == "assets"
+            else "sample" if current_name == "sample"
+            else "stage"
+        )
         pending_review = {
             "kind": kind,
             "label": f"请确认{current['label']}",
@@ -1401,6 +1500,15 @@ def load_operator_state(
         board["_delivery_versions"] = []
         board["_current_delivery"] = None
     state = project_operator_state(board)
+    tasks = _generation_tasks_for_operator(project_dir, state["project_id"])
+    for stage in state["stages"]:
+        editor = stage.get("editor") if isinstance(stage, Mapping) else None
+        if not isinstance(editor, dict) or editor.get("type") != "asset_review":
+            continue
+        data = editor.get("data")
+        execution = data.get("execution_plan") if isinstance(data, dict) else None
+        if isinstance(execution, dict):
+            execution["generation_tasks"] = tasks
     state["summary"]["performance"] = _performance_summary(project_dir)
     if (project_dir / "operator" / "operator-managed").exists():
         from backlot.operator_reviews import ReviewService
@@ -1409,7 +1517,11 @@ def load_operator_state(
         if review is None:
             state["pending_review"] = None
         else:
-            kind_label = "创意方案" if review["kind"] == "creative_lock" else "样片"
+            kind_label = (
+                "制作剧本" if review["kind"] == "script_lock"
+                else "创意方案" if review["kind"] == "creative_lock"
+                else "样片"
+            )
             state["pending_review"] = {
                 "kind": review["kind"],
                 "label": f"请确认{kind_label}",

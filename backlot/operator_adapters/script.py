@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .base import BaseAdapter, item_by_id, reorder
+from .base import BaseAdapter, invalid, item_by_id, reorder
 
 
 class ScriptAdapter(BaseAdapter):
@@ -18,6 +18,8 @@ class ScriptAdapter(BaseAdapter):
         "set_subtitle_profile": frozenset({"op", "profile_id"}),
         "set_emphasis_words": frozenset({"op", "section_id", "words"}),
         "set_strip_trailing_punctuation": frozenset({"op", "enabled"}),
+        "review_script_section": frozenset({"op", "section_id", "decision", "feedback"}),
+        "approve_production_script": frozenset({"op"}),
     }
     field_labels = {
         "sections": "口播与字幕段落",
@@ -29,6 +31,13 @@ class ScriptAdapter(BaseAdapter):
         return item_by_id(snapshot.setdefault("sections", []), section_id, "section")
 
     def _apply_one(self, snapshot: dict[str, Any], name: str, operation: dict[str, Any]) -> None:
+        if name == "approve_production_script":
+            if not snapshot.get("sections") or any(
+                section.get("review") != "approved" for section in snapshot.get("sections", [])
+            ):
+                raise invalid("请先确认制作剧本的每一段，再锁定整份剧本", "sections")
+            snapshot["status"] = "approved"
+            return
         if name == "reorder_sections":
             snapshot["sections"] = reorder(snapshot.get("sections", []), operation["section_ids"], "section")
             return
@@ -39,7 +48,16 @@ class ScriptAdapter(BaseAdapter):
             snapshot["strip_trailing_punctuation"] = operation["enabled"]
             return
         section = self._section(snapshot, operation["section_id"])
-        if name == "replace_section_narration":
+        if name == "review_script_section":
+            decision = operation["decision"]
+            if decision not in {"approved", "needs_adjustment"}:
+                raise invalid("请选择“这段可以”或“这段要调整”", "decision")
+            if decision == "needs_adjustment" and not str(operation["feedback"]).strip():
+                raise invalid("请说明这段要怎么调整", "feedback")
+            section["review"] = decision
+            section["feedback"] = str(operation["feedback"]).strip()
+            snapshot["status"] = "needs_revision" if decision == "needs_adjustment" else "draft"
+        elif name == "replace_section_narration":
             section["narration"] = operation["text"]
         elif name == "replace_section_screen_copy":
             section["screen_copy"] = operation["text"]
@@ -49,6 +67,8 @@ class ScriptAdapter(BaseAdapter):
             section["emphasis_words"] = operation["words"]
 
     def _touched_field(self, name: str, operation: dict[str, Any]) -> str:
+        if name == "approve_production_script":
+            return "status"
         if name == "reorder_sections":
             return "sections.order"
         if name == "set_subtitle_profile":
@@ -60,6 +80,7 @@ class ScriptAdapter(BaseAdapter):
             "replace_section_screen_copy": "screen_copy",
             "set_section_delivery": "delivery",
             "set_emphasis_words": "emphasis_words",
+            "review_script_section": "review",
         }[name]
         return f"sections.{operation['section_id']}.{suffix}"
 
@@ -88,6 +109,5 @@ class ScriptAdapter(BaseAdapter):
 
     def change_signals(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
         names = {self._check_operation(item) for item in operations}
-        creative = bool(names & {"replace_section_narration", "reorder_sections"})
+        creative = bool(names & {"replace_section_narration", "reorder_sections", "review_script_section"})
         return {"reopen_creative": creative, "reopen_sample": True, "render_route": "full_render"}
-

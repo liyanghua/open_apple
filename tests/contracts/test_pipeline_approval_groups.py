@@ -14,6 +14,27 @@ def test_valid_group_passes():
     _validate_approval_groups(_manifest())
 
 
+def test_single_stage_group_can_gate_independently():
+    manifest = {
+        "name": "test",
+        "stages": [{
+            "name": "script",
+            "produces": ["script"],
+            "approval_group_terminal": True,
+            "human_approval_default": True,
+        }],
+        "approval_groups": {
+            "script_lock": {
+                "members": ["script"],
+                "terminal_stage": "script",
+                "required_artifacts": ["script"],
+            }
+        },
+    }
+
+    _validate_approval_groups(manifest)
+
+
 @pytest.mark.parametrize("mutate", [
     lambda m: m["approval_groups"]["creative"].update(terminal_stage="script"),
     lambda m: m["approval_groups"]["creative"].update(members=["missing", "assets"]),

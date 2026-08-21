@@ -206,7 +206,7 @@ class OperatorMigrationService:
             group_manifest = {
                 "approval_groups": {
                     "creative_lock": {
-                        "members": ["proposal", "script", "scene_plan", "assets"],
+                        "members": ["proposal", "scene_plan", "assets"],
                         "terminal_stage": "assets", "required_artifacts": [],
                     }
                 }

@@ -62,6 +62,24 @@ export async function commitDraft(projectId, stage, previewToken, reason) {
   });
 }
 
+export async function quoteShotGeneration(projectId, request) {
+  return call(`/api/v2/projects/${encodeURIComponent(projectId)}/shot-generations/quote`, {
+    method: "POST", body: request, mutation: false,
+  });
+}
+
+export async function createShotGeneration(projectId, request) {
+  return call(`/api/v2/projects/${encodeURIComponent(projectId)}/shot-generations`, {
+    method: "POST", body: request, mutation: true,
+  });
+}
+
+export async function adoptShotGeneration(projectId, taskId) {
+  return call(`/api/v2/projects/${encodeURIComponent(projectId)}/shot-generations/${encodeURIComponent(taskId)}/adopt`, {
+    method: "POST", body: {}, mutation: true,
+  });
+}
+
 export async function fetchVersions(projectId, stage) {
   return call(`/api/v2/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(stage)}`);
 }

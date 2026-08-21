@@ -20,7 +20,7 @@ def _bundle(version: int, script_hash: str) -> dict:
         "bundle_version": version,
         "group": "creative_lock",
         "terminal_stage": "assets",
-        "members": ["proposal", "script", "scene_plan", "assets"],
+        "members": ["proposal", "scene_plan", "assets"],
         "artifact_refs": [
             {
                 "name": "script",

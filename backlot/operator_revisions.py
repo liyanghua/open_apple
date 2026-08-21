@@ -205,6 +205,11 @@ class RevisionService:
         )
         clean.pop("semantic_sha256", None)
         clean.pop("artifact_sha256", None)
+        if draft["stage"] in {"script", "assets"} and clean.get("status") == "approved":
+            clean["approval"] = {
+                "approved_by": actor_id,
+                "approved_at": created_at,
+            }
         canonical = attach_hashes(clean)
         if draft["stage"] == "research":
             _validate_research_annotations(canonical)

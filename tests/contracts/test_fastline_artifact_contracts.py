@@ -149,7 +149,7 @@ def valid_artifact(name: str) -> dict:
             "bundle_version": 1,
             "group": "creative_lock",
             "terminal_stage": "assets",
-            "members": ["proposal", "script", "scene_plan", "assets"],
+            "members": ["proposal", "scene_plan", "assets"],
             "artifact_refs": [{
                 "name": "asset_plan", "path": "artifacts/asset_plan.json",
                 "semantic_sha256": HASH, "artifact_sha256": HASH,

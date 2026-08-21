@@ -277,6 +277,8 @@ h3 { font-size: 15px; }
 .row-meta { color: var(--muted); font-size: 12px; }
 .script-row-heading { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; }
 .script-row-title { min-width: 0; }
+.script-row.is-approved { border-left: 3px solid var(--accent); padding-left: 14px; }
+.script-row.needs-adjustment { border-left: 3px solid var(--attention); padding-left: 14px; }
 .inline-edit-button { flex: 0 0 auto; padding: 5px 8px; color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; font: inherit; font-size: 12px; }
 .inline-edit-button:hover { background: var(--accent-soft); }
 .inline-edit-button:disabled { opacity: 0.45; cursor: default; }
@@ -311,6 +313,15 @@ h3 { font-size: 15px; }
 .asset-source-summary { margin: 6px 0 0; color: var(--ink); line-height: 1.5; }
 .asset-plan-row .row-copy { margin-top: 6px; }
 .asset-plan-row .source-facts { margin: 6px 0 0; }
+.shot-execution-plan { margin: 8px 0 28px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+.shot-execution-rail { display: flex; gap: 14px; min-width: 0; padding: 4px 2px 18px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: thin; }
+.shot-execution-card { flex: 0 0 min(390px, 84vw); min-height: 420px; padding: 16px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); scroll-snap-align: start; }
+.shot-execution-card .detail-row { padding: 9px 0; }
+.generation-proposal { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.generation-proposal .primary-button { width: 100%; margin-top: 10px; }
+.generation-proposal .primary-button:disabled { color: var(--muted); background: var(--canvas); border-color: var(--line); cursor: not-allowed; }
+.generation-task { display: grid; gap: 8px; margin: 12px 0; padding: 10px; background: var(--canvas); border-radius: 5px; }
+.generated-shot-preview { display: block; width: 100%; aspect-ratio: 9 / 16; max-height: 250px; background: #111; border-radius: 4px; }
 
 .preview-video { display: block; width: min(100%, 360px); margin: 20px auto 0; aspect-ratio: 9 / 16; background: #111; border-radius: var(--radius); }
 .preview-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }

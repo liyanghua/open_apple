@@ -129,7 +129,7 @@ def test_awaiting_then_approved_archives_history_without_gate_skip(tmp_path):
     assert assets["history_entries"][0]["status"] == "awaiting_human"
 
 
-def test_cinematic_fast_board_exposes_exactly_two_human_gates(tmp_path):
+def test_cinematic_fast_board_exposes_script_execution_and_sample_gates(tmp_path):
     project = tmp_path / "fastline"
     _write(
         project / "project.json",
@@ -156,6 +156,7 @@ def test_cinematic_fast_board_exposes_exactly_two_human_gates(tmp_path):
 
     state = load_board_state(project)
     assert [stage["name"] for stage in state["stages"] if stage["gated"]] == [
+        "script",
         "assets",
         "sample",
     ]
