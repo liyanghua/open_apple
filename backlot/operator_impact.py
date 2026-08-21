@@ -134,6 +134,8 @@ class ImpactService:
             for field in touched
         ]
         affected = [_STAGE_LABELS[str(draft["stage"])]]
+        if draft["stage"] == "research" and signals.get("reopen_creative"):
+            affected.extend(["创意方案", "口播与字幕", "分镜"])
         if impact["render_route"] != "no_render":
             affected.extend(["制作准备", "修改与精剪"])
         if impact["reopen_sample"]:

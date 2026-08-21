@@ -95,3 +95,23 @@ def test_delivery_preview_uses_business_labels_and_copy_values() -> None:
     assert fields["copy_overrides.s01"]["label"] == "文案"
     assert fields["copy_overrides.s01"]["before"] is None
     assert fields["copy_overrides.s01"]["after"] == "新的完整文案"
+
+
+def test_research_decisions_explain_their_downstream_stages() -> None:
+    from backlot.operator_impact import ImpactService
+
+    draft = {
+        "schema_version": "1.0", "draft_id": "research-draft", "project_id": "project",
+        "stage": "research", "base_revision": "a" * 64, "base_artifact_hash": "b" * 64,
+        "adapter": "research-v1", "status": "active", "created_by": "operator",
+        "created_at": "2026-08-20T00:00:00+00:00", "updated_at": "2026-08-20T00:00:00+00:00",
+        "changes": [{
+            "op": "resolve_matrix_row", "matrix_row_id": "rebound", "resolution": "rewrite",
+            "source_media_id": None, "note": "改成柔韧不易变形",
+        }],
+    }
+    preview = ImpactService(secret=b"research-impact-preview").preview(
+        draft=draft, actor_id="operator", base_generation="c" * 64,
+        before={}, after={"matrix_resolutions": {"rebound": {"resolution": "rewrite"}}},
+    )
+    assert preview["affected_stages"] == ["参考解析与素材体检", "创意方案", "口播与字幕", "分镜"]

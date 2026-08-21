@@ -20,3 +20,12 @@ directions and `research_scorecard` as the research quality gate. Each concept
 must carry references to its selected direction and the supporting
 reference/source matrix rows; do not reconstruct the mapping from filenames or
 free-text summaries.
+
+After the user selects one direction, generate the `creative_control_plan`
+inside the proposal packet before writing script or scene plan. Use plain
+production language and cover exactly five sections: content direction,
+story and pacing, visual rules, facts and continuity, and originality boundary.
+Each section must cite Research evidence and separate an industry reminder from
+a project fact. The Backlot presents each section for confirmation; only an
+approved plan may hand off to Script. A request to adjust a section is feedback
+for the next Agent run, not a silent edit to the contract.

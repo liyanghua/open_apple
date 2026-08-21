@@ -92,6 +92,32 @@ def _approval_input_hash(checkpoint: dict[str, Any]) -> str:
     return semantic_sha256(stable)
 
 
+def _require_approved_creative_control_plan(
+    project_dir: Path, group_name: str, group: dict[str, Any]
+) -> None:
+    """Require the fastline director contract before opening its creative gate."""
+
+    if (
+        group_name != "creative_lock"
+        or "creative_control_plan" not in group.get("required_artifacts", [])
+    ):
+        return
+
+    proposal_path = project_dir / "checkpoint_proposal.json"
+    try:
+        proposal = json.loads(proposal_path.read_text(encoding="utf-8"))
+        plan = (proposal.get("artifacts") or {}).get("creative_control_plan")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        plan = None
+    if isinstance(plan, dict) and isinstance(plan.get("data"), dict):
+        plan = plan["data"]
+
+    if not isinstance(plan, dict) or plan.get("status") != "approved":
+        raise ValueError(
+            "creative_lock requires creative_control_plan status=approved before approval"
+        )
+
+
 def build_approval_bundle(
     project_dir: Path, manifest: dict[str, Any], group_name: str, *, sink=None
 ) -> dict[str, Any]:
@@ -101,6 +127,7 @@ def build_approval_bundle(
     group = (manifest.get("approval_groups") or {}).get(group_name)
     if not group:
         raise ValueError(f"unknown approval group: {group_name}")
+    _require_approved_creative_control_plan(project_dir, group_name, group)
     project_id = project_dir.name
     refs: list[dict[str, Any]] = []
     input_hashes: dict[str, str] = {}

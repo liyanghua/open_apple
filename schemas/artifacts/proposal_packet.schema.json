@@ -7,6 +7,18 @@
   "required": ["version", "concept_options", "selected_concept", "production_plan", "cost_estimate", "approval"],
   "properties": {
     "version": { "type": "string", "const": "1.0" },
+    "creative_control_plan": {
+      "type": "object",
+      "required": ["plan_id", "plan_version", "status", "selected_direction_id", "sections"],
+      "properties": {
+        "plan_id": {"type": "string"}, "plan_version": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["draft", "needs_revision", "approved"]}, "selected_direction_id": {"type": "string"},
+        "sections": {"type": "object", "required": ["content_direction", "story_pacing", "visual_rules", "fact_continuity", "originality_boundary"], "additionalProperties": true},
+        "section_reviews": {"type": "object", "additionalProperties": {"type": "string"}},
+        "feedback": {"type": "object", "additionalProperties": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
     "concept_options": {
       "type": "array",
       "items": {

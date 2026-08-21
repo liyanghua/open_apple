@@ -6,6 +6,7 @@ from tests.contracts.test_phase0_contracts import sample_artifact
 
 from lib.checkpoint import (
     CheckpointValidationError,
+    _enforce_approved_creative_control_plan,
     init_project,
     validate_checkpoint,
     write_checkpoint,
@@ -191,6 +192,37 @@ def test_in_progress_heartbeat_is_not_blocked_by_prerequisites(tmp_path) -> None
     )
 
     assert path.exists()
+
+
+@pytest.mark.parametrize("stage", ["script", "scene_plan", "assets"])
+def test_fastline_production_stages_require_an_approved_director_control_plan(
+    tmp_path, stage
+) -> None:
+    project_dir = tmp_path / "run"
+    (project_dir / "artifacts").mkdir(parents=True)
+    plan_path = project_dir / "artifacts" / "creative_control_plan.json"
+
+    with pytest.raises(CheckpointValidationError, match="导演总控单.*已锁定"):
+        _enforce_approved_creative_control_plan(
+            project_dir, "cinematic-fast", stage, "completed"
+        )
+
+    plan_path.write_text(json.dumps({"status": "draft"}), encoding="utf-8")
+    with pytest.raises(CheckpointValidationError, match="导演总控单.*已锁定"):
+        _enforce_approved_creative_control_plan(
+            project_dir, "cinematic-fast", stage, "awaiting_human"
+        )
+
+    plan_path.write_text(json.dumps({"status": "approved"}), encoding="utf-8")
+    _enforce_approved_creative_control_plan(
+        project_dir, "cinematic-fast", stage, "completed"
+    )
+
+
+def test_fastline_director_control_plan_does_not_block_a_heartbeat(tmp_path) -> None:
+    _enforce_approved_creative_control_plan(
+        tmp_path / "run", "cinematic-fast", "script", "in_progress"
+    )
 
 
 def test_unknown_style_playbook_fails_before_project_creation(tmp_path) -> None:

@@ -176,6 +176,29 @@ def test_research_commit_persists_schema_valid_hashed_artifact(tmp_path) -> None
     assert artifact["producer"] == "backlot.operator_revisions"
 
 
+def test_research_commit_keeps_completed_research_checkpoint(tmp_path) -> None:
+    project = tmp_path / "demo"
+    (project / "artifacts").mkdir(parents=True)
+    (project / "project.json").write_text('{"project_id":"demo"}', encoding="utf-8")
+    checkpoint = {
+        "stage": "research", "status": "completed",
+        "artifacts": {"research_brief": {"summary": "已完成"}},
+    }
+    (project / "checkpoint_research.json").write_text(
+        json.dumps(checkpoint), encoding="utf-8"
+    )
+
+    _research_commit(
+        project,
+        base_snapshot={},
+        changes=[
+            {"op": "set_direction_preference", "direction_id": "direction-1", "preference": "prefer", "rationale": "采用"},
+        ],
+    )
+
+    assert json.loads((project / "checkpoint_research.json").read_text(encoding="utf-8")) == checkpoint
+
+
 def test_second_research_edit_preserves_old_and_new_annotation_collections(tmp_path) -> None:
     from schemas.artifacts import validate_artifact
 

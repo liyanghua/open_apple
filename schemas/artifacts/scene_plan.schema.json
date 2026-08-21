@@ -7,6 +7,7 @@
   "required": ["version", "scenes"],
   "properties": {
     "version": { "type": "string", "const": "1.0" },
+    "creative_control_ref": { "$ref": "#/$defs/creative_control_ref" },
     "caption_policy_version": { "type": "string", "const": "1.0" },
     "style_playbook": { "type": "string", "description": "Name of the active style playbook" },
     "scenes": {
@@ -120,6 +121,7 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "creative_control_ref": { "type": "object", "required": ["plan_id", "plan_version", "artifact_sha256"], "properties": { "plan_id": { "type": "string" }, "plan_version": { "type": "integer", "minimum": 1 }, "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }, "additionalProperties": false },
     "caption_treatment": {
       "type": "object", "required": ["caption_id", "action", "review", "interval", "reason"], "additionalProperties": false,
       "properties": {

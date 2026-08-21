@@ -120,6 +120,42 @@ def test_research_ui_renders_fixed_substages_and_horizontal_shot_rail() -> None:
         assert term in css
 
 
+def test_research_ui_has_decision_inbox_and_proposal_handoff() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+    for term in ("需要我确认", "decision-inbox", "proposal-handoff", "复制给 Code Agent", "会影响"):
+        assert term in app
+    for term in (".decision-inbox", ".decision-card", ".proposal-handoff"):
+        assert term in css
+
+
+def test_proposal_ui_hands_off_locked_control_plan_to_script_generation() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    director = _read(REPO_ROOT / "skills/pipelines/cinematic-fast/script-director.md")
+    assert "control-plan-handoff" in app
+    assert "生成制作剧本" in app
+    assert "读取已锁定的导演总控单并生成制作剧本" in app
+    assert "creative_control_ref" in director
+    assert "missing or not approved" in director
+
+
+def test_research_decisions_stay_in_place_and_confirm_as_one_flow() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+    for term in (
+        "activeResearchSubstage", "pendingOperations", "researchOperationKey",
+        "已完成", "查看影响并确认", "确认并保存决定",
+    ):
+        assert term in app
+    assert 'activeResearchSubstage = "quality"' in app
+    assert "direction.title" in app
+    assert "去选方向" not in app
+    assert 'store.selectStage("proposal")' not in app
+    assert "继续 ${projectId}" in app
+    for term in (".decision-progress", ".decision-choice", ".decision-confirm-bar", ".is-selected"):
+        assert term in css
+
+
 def test_script_uses_inline_editing_without_a_duplicate_editor_form() -> None:
     app = _read(OPERATOR_ROOT / "app.js")
     editors = _read(OPERATOR_ROOT / "editors.js")

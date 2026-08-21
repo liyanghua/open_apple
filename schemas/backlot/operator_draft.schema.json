@@ -46,6 +46,7 @@
       {"$ref": "#/$defs/reorderSellingPoints"}, {"$ref": "#/$defs/replaceNarrativeStructure"},
       {"$ref": "#/$defs/setDuration"}, {"$ref": "#/$defs/replaceCta"},
       {"$ref": "#/$defs/setReferenceTreatment"}, {"$ref": "#/$defs/setGapStrategy"}
+      ,{"$ref": "#/$defs/reviewControlSection"}, {"$ref": "#/$defs/approveControlPlan"}
     ]},
     "scriptOperation": {"oneOf": [
       {"$ref": "#/$defs/replaceSectionNarration"}, {"$ref": "#/$defs/replaceSectionScreenCopy"},
@@ -91,6 +92,8 @@
     "replaceCta": {"type": "object", "additionalProperties": false, "required": ["op", "text"], "properties": {"op": {"const": "replace_cta"}, "text": {"type": "string"}}},
     "setReferenceTreatment": {"type": "object", "additionalProperties": false, "required": ["op", "retained", "changed"], "properties": {"op": {"const": "set_reference_treatment"}, "retained": {"type": "array", "items": {"type": "string"}}, "changed": {"type": "array", "items": {"type": "string"}}}},
     "setGapStrategy": {"type": "object", "additionalProperties": false, "required": ["op", "strategy"], "properties": {"op": {"const": "set_gap_strategy"}, "strategy": {"type": "string", "minLength": 1}}},
+    "reviewControlSection": {"type": "object", "additionalProperties": false, "required": ["op", "section_id", "decision", "feedback"], "properties": {"op": {"const": "review_control_section"}, "section_id": {"enum": ["content_direction", "story_pacing", "visual_rules", "fact_continuity", "originality_boundary"]}, "decision": {"enum": ["approved", "needs_adjustment"]}, "feedback": {"type": "string"}}},
+    "approveControlPlan": {"type": "object", "additionalProperties": false, "required": ["op"], "properties": {"op": {"const": "approve_control_plan"}}},
     "replaceSectionNarration": {"type": "object", "additionalProperties": false, "required": ["op", "section_id", "text"], "properties": {"op": {"const": "replace_section_narration"}, "section_id": {"type": "string", "minLength": 1}, "text": {"type": "string"}}},
     "replaceSectionScreenCopy": {"type": "object", "additionalProperties": false, "required": ["op", "section_id", "text"], "properties": {"op": {"const": "replace_section_screen_copy"}, "section_id": {"type": "string", "minLength": 1}, "text": {"type": "string"}}},
     "reorderSections": {"type": "object", "additionalProperties": false, "required": ["op", "section_ids"], "properties": {"op": {"const": "reorder_sections"}, "section_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}}},

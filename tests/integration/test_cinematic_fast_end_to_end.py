@@ -113,6 +113,39 @@ def _final_review() -> dict:
 
 
 def _artifact(name: str) -> dict:
+    if name == "creative_control_plan":
+        sections = {
+            section_id: {
+                "title": section_id,
+                "summary": "已确认的制作约束",
+                "rules": ["按总控单执行"],
+                "evidence_refs": [],
+                "industry_notes": [],
+            }
+            for section_id in (
+                "content_direction",
+                "story_pacing",
+                "visual_rules",
+                "fact_continuity",
+                "originality_boundary",
+            )
+        }
+        return {
+            "version": "1.0",
+            "project_id": PROJECT_ID,
+            "created_at": "2026-08-17T00:00:00+00:00",
+            "producer": "proposal-director-test",
+            "input_hashes": {"proposal_packet": "a" * 64},
+            "plan_id": "creative-control-cinematic-fast-e2e",
+            "plan_version": 1,
+            "status": "approved",
+            "selected_direction_id": "direction-1",
+            "sections": sections,
+            "section_reviews": {key: "approved" for key in sections},
+            "feedback": {},
+            "locked_at": "2026-08-17T00:00:00+00:00",
+            "locked_by": "tester",
+        }
     if name in FASTLINE_ARTIFACTS:
         value = copy.deepcopy(valid_artifact(name))
         value["project_id"] = PROJECT_ID
@@ -335,7 +368,12 @@ def test_cinematic_fast_end_to_end_has_exactly_two_gates_and_no_reference_reuse(
         "reference_fingerprint", "research_breakdown", "reference_source_matrix",
         "research_synthesis", "research_scorecard",
     ]))
-    _checkpoint(tmp_path, "proposal", "completed", _envelopes(project, ["proposal_packet", "decision_log"]))
+    _checkpoint(
+        tmp_path,
+        "proposal",
+        "completed",
+        _envelopes(project, ["proposal_packet", "creative_control_plan", "decision_log"]),
+    )
     _checkpoint(tmp_path, "script", "completed", _envelopes(project, ["script"]))
     _checkpoint(tmp_path, "scene_plan", "completed", _envelopes(project, ["scene_plan"]))
 

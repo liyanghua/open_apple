@@ -70,6 +70,12 @@ FASTLINE_ARTIFACTS = frozenset({
     "final_props", "sample_report",
 })
 
+# The fastline's director control plan is created during proposal and becomes
+# the creative contract for every downstream planning/preparation stage.  It
+# is deliberately not required for proposal itself: that is where the plan is
+# authored and reviewed.
+_CREATIVE_CONTROL_REQUIRED_STAGES = frozenset({"script", "scene_plan", "assets"})
+
 
 def get_pipeline_stages(pipeline_type: str | None) -> list[str]:
     """Return the ordered stage list for a specific pipeline.
@@ -432,6 +438,45 @@ def _stage_requires_approval(pipeline_type: Optional[str], stage: str) -> Option
     return get_stage_human_approval_default(manifest, stage)
 
 
+def _enforce_approved_creative_control_plan(
+    project_dir: Path,
+    pipeline_type: str | None,
+    stage: str,
+    status: str,
+) -> None:
+    """Block fastline production advancement until the director contract is locked.
+
+    The proposal UI can keep a plan in ``draft`` or ``needs_revision`` while
+    the operator reviews it.  Those states are useful for editing, but must
+    never be treated as authorization to generate the script, map shots, or
+    prepare production assets.  Heartbeats remain writable so the board can
+    report progress and the next session can resume.
+    """
+
+    if (
+        pipeline_type != "cinematic-fast"
+        or stage not in _CREATIVE_CONTROL_REQUIRED_STAGES
+        or status not in {"awaiting_human", "completed"}
+    ):
+        return
+
+    plan_path = project_dir / "artifacts" / "creative_control_plan.json"
+    plan: dict[str, Any] | None = None
+    try:
+        with plan_path.open(encoding="utf-8") as handle:
+            candidate = json.load(handle)
+        if isinstance(candidate, dict):
+            plan = candidate
+    except (OSError, json.JSONDecodeError):
+        plan = None
+
+    if not plan or plan.get("status") != "approved":
+        raise CheckpointValidationError(
+            f"PREREQUISITE VIOLATION: stage {stage!r} cannot advance; "
+            "导演总控单还没有“已锁定”状态（status 必须为 approved）。"
+        )
+
+
 def _enforce_stage_prerequisites(
     pipeline_dir: Path,
     project_id: str,
@@ -688,6 +733,13 @@ def write_checkpoint(
     _enforce_stage_prerequisites(
         pipeline_dir,
         project_id,
+        pipeline_type,
+        stage,
+        status,
+    )
+
+    _enforce_approved_creative_control_plan(
+        project_dir,
         pipeline_type,
         stage,
         status,

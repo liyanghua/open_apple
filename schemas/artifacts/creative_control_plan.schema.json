@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/creative_control_plan",
+  "title": "Creative Control Plan",
+  "description": "The director's plain-language creative contract locked inside the proposal stage.",
+  "type": "object",
+  "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "plan_id", "plan_version", "status", "selected_direction_id", "sections"],
+  "properties": {
+    "version": {"type": "string"},
+    "project_id": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "producer": {"type": "string", "minLength": 1},
+    "input_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+    "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "plan_id": {"type": "string", "minLength": 1},
+    "plan_version": {"type": "integer", "minimum": 1},
+    "status": {"enum": ["draft", "needs_revision", "approved"]},
+    "selected_direction_id": {"type": "string", "minLength": 1},
+    "sections": {
+      "type": "object",
+      "required": ["content_direction", "story_pacing", "visual_rules", "fact_continuity", "originality_boundary"],
+      "additionalProperties": false,
+      "properties": {
+        "content_direction": {"$ref": "#/$defs/section"},
+        "story_pacing": {"$ref": "#/$defs/section"},
+        "visual_rules": {"$ref": "#/$defs/section"},
+        "fact_continuity": {"$ref": "#/$defs/section"},
+        "originality_boundary": {"$ref": "#/$defs/section"}
+      }
+    },
+    "section_reviews": {"type": "object", "additionalProperties": {"enum": ["pending", "approved", "needs_adjustment"]}},
+    "feedback": {"type": "object", "additionalProperties": {"type": "string"}},
+    "research_refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "locked_at": {"type": ["string", "null"], "format": "date-time"},
+    "locked_by": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "section": {
+      "type": "object",
+      "required": ["title", "summary", "rules"],
+      "properties": {
+        "title": {"type": "string"},
+        "summary": {"type": "string"},
+        "rules": {"type": "array", "items": {"type": "string"}},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "industry_notes": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

@@ -204,6 +204,8 @@
                 "additionalProperties": false
               }
             },
+            "decision_inbox": {"type": "array", "items": {"type": "object", "required": ["id", "kind", "title", "message", "impact", "matrix_row_id", "source_media_id", "choices"], "properties": {"id": {"type": "string", "minLength": 1}, "kind": {"enum": ["material_gap", "direction"]}, "title": {"type": "string"}, "message": {"type": "string"}, "impact": {"type": "string"}, "matrix_row_id": {"$ref": "#/$defs/nullable_string"}, "source_media_id": {"$ref": "#/$defs/nullable_string"}, "choices": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false}},
+            "proposal_handoff": {"type": "object", "required": ["state", "message", "selected_direction_ids", "resolved_matrix_row_ids"], "properties": {"state": {"enum": ["checking", "needs_decision", "ready"]}, "message": {"type": "string"}, "selected_direction_ids": {"type": "array", "items": {"type": "string"}}, "resolved_matrix_row_ids": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false},
             "risks": {"type": "array", "items": {"type": "string"}},
             "template": {"type": "object", "required": ["label", "version", "status"], "properties": {"label": {"type": "string"}, "version": {"type": "string"}, "status": {"type": "string"}}, "additionalProperties": false},
             "breakdown": {"type": "object", "required": ["label", "identified", "needs_review", "missing", "rows"], "properties": {"label": {"type": "string"}, "identified": {"type": "integer", "minimum": 0}, "needs_review": {"type": "integer", "minimum": 0}, "missing": {"type": "integer", "minimum": 0}, "rows": {"type": "array", "items": {"type": "object", "additionalProperties": true}}}, "additionalProperties": false},
@@ -326,10 +328,33 @@
               }
             },
             "selected_id": {"$ref": "#/$defs/nullable_string"},
-            "estimated_cost_usd": {"$ref": "#/$defs/nullable_number"}
+            "estimated_cost_usd": {"$ref": "#/$defs/nullable_number"},
+            "control_plan": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/creative_control_plan"}]}
           },
           "additionalProperties": false
         }
+      },
+      "additionalProperties": false
+    },
+    "creative_control_plan": {
+      "type": "object",
+      "required": ["plan_id", "plan_version", "status", "selected_direction_id", "sections"],
+      "properties": {
+        "plan_id": {"type": "string"}, "plan_version": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["draft", "needs_revision", "approved"]}, "selected_direction_id": {"type": "string"},
+        "sections": {"type": "array", "items": {"$ref": "#/$defs/creative_control_section"}},
+        "feedback": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "creative_control_section": {
+      "type": "object",
+      "required": ["id", "label", "summary", "rules", "evidence_refs", "industry_notes", "review", "feedback"],
+      "properties": {
+        "id": {"type": "string"}, "label": {"type": "string"}, "summary": {"type": "string"},
+        "rules": {"type": "array", "items": {"type": "string"}},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}}, "industry_notes": {"type": "array", "items": {"type": "string"}},
+        "review": {"enum": ["pending", "approved", "needs_adjustment"]}, "feedback": {"type": "string"}
       },
       "additionalProperties": false
     },

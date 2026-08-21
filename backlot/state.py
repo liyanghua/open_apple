@@ -255,6 +255,7 @@ ARTIFACT_FILES = {
     "change_impact": "change_impact.json",
     "render_plan": "render_plan.json",
     "production_lock": "production_lock.json",
+    "creative_control_plan": "creative_control_plan.json",
 }
 
 

@@ -9,6 +9,7 @@ const byId = (id) => document.getElementById(id);
 const projectId = decodeURIComponent(window.location.pathname.split("/").filter(Boolean).pop() || "");
 const store = createOperatorStore();
 const snapshotStore = store;
+let activeResearchSubstage = "reference";
 
 function node(tag, className, text) {
   const element = document.createElement(tag);
@@ -129,7 +130,100 @@ function researchAction(label, operation, onOperation, className = "quiet-button
   return button;
 }
 
-function renderResearch(container, data, { editable = false, onOperation = () => {} } = {}) {
+function researchOperationKey(operation) {
+  if (operation.op === "resolve_matrix_row") return `matrix:${operation.matrix_row_id}`;
+  if (operation.op === "set_direction_preference" && operation.preference === "prefer") return "direction:preferred";
+  return null;
+}
+
+function mergeResearchOperation(operations, operation) {
+  const key = researchOperationKey(operation);
+  if (!key) return [...operations, operation];
+  return [...operations.filter((item) => researchOperationKey(item) !== key), operation];
+}
+
+function renderDecisionInbox(container, data, { editable, onOperation, onPreview, pendingOperations = [] }) {
+  const inbox = data.decision_inbox || [];
+  const section = node("section", "decision-inbox");
+  section.append(node("h3", "section-title", "需要我确认"));
+  if (!inbox.length) {
+    section.append(node("p", "editor-help", "关键卖点、素材和方向都已有处理结果，可以进入创意方案。"));
+    container.append(section);
+    return;
+  }
+  const selectionFor = (decision) => {
+    if (decision.kind === "material_gap") return [...pendingOperations].reverse().find((item) => item.op === "resolve_matrix_row" && item.matrix_row_id === decision.matrix_row_id);
+    return [...pendingOperations].reverse().find((item) => item.op === "set_direction_preference" && item.preference === "prefer");
+  };
+  const selectedCount = inbox.filter((decision) => selectionFor(decision)).length;
+  const progress = node("div", "decision-progress");
+  progress.append(node("strong", "", `已完成 ${selectedCount}/${inbox.length}`), node("span", "", selectedCount === inbox.length ? "可以统一确认" : `还剩 ${inbox.length - selectedCount} 项`));
+  section.append(progress, node("p", "editor-help", "先逐项选择，所有决定会一起预览影响，不会立即进入下一阶段。"));
+  inbox.forEach((decision) => {
+    const selected = selectionFor(decision);
+    const card = node("article", `decision-card${selected ? " is-decided" : ""}`);
+    card.append(node("h4", "row-title", decision.title), node("p", "row-copy", decision.message), node("p", "decision-impact", `会影响：${decision.impact}`));
+    if (editable) {
+      const actions = node("div", "decision-choices");
+      const addChoice = (label, detail, operation, isSelected) => {
+        const choice = node("button", `decision-choice${isSelected ? " is-selected" : ""}`);
+        choice.type = "button"; choice.setAttribute("aria-pressed", String(isSelected));
+        const copy = node("span", "decision-choice-copy");
+        copy.append(node("strong", "", label));
+        if (detail) copy.append(node("small", "", detail));
+        choice.append(copy, node("span", "decision-choice-mark", isSelected ? "已选择" : "选择"));
+        choice.addEventListener("click", () => { activeResearchSubstage = "quality"; onOperation(operation); });
+        actions.append(choice);
+      };
+      if (decision.kind === "material_gap") {
+      const choices = [["需要补拍或补素材", "bridge"], ["改成别的表达", "rewrite"], ["删除这一镜", "omit"]];
+        choices.forEach(([label, resolution]) => addChoice(label, resolution === "bridge" ? "保留卖点，补齐可信画面" : resolution === "rewrite" ? "使用现有证据，调整卖点说法" : "从方案中移除这一镜", {
+          op: "resolve_matrix_row", matrix_row_id: decision.matrix_row_id, resolution,
+          source_media_id: decision.source_media_id, note: label,
+        }, selected?.resolution === resolution));
+      } else {
+        (data.directions || []).forEach((direction) => addChoice(direction.title, direction.promise, {
+          op: "set_direction_preference", direction_id: direction.id, preference: "prefer", rationale: "制作人员选择",
+        }, selected?.direction_id === direction.id));
+      }
+      card.append(actions);
+    }
+    section.append(card);
+  });
+  if (editable) {
+    const confirmBar = node("div", "decision-confirm-bar");
+    const summary = node("div", "");
+    summary.append(node("strong", "", selectedCount === inbox.length ? `${inbox.length} 项决定已选好` : "完成全部选择后统一确认"), node("small", "", "提交前会展示对创意方案、口播字幕和分镜的影响"));
+    const confirm = node("button", "primary-button", "查看影响并确认");
+    confirm.type = "button"; confirm.disabled = selectedCount !== inbox.length;
+    confirm.addEventListener("click", onPreview);
+    confirmBar.append(summary, confirm); section.append(confirmBar);
+  }
+  container.append(section);
+}
+
+function renderProposalHandoff(container, data) {
+  const handoff = data.proposal_handoff;
+  if (!handoff) return;
+  const section = node("section", `proposal-handoff is-${handoff.state}`);
+  section.append(node("h3", "section-title", "下一步"), node("p", "row-copy", handoff.message));
+  if (handoff.state === "ready") {
+    const command = `继续 ${projectId}，读取已确认的 Research 决策并生成创意方案`;
+    section.append(node("p", "editor-help", "当前工作台还没有直连 Code Agent。复制下面这句话，到 Agent 窗口发送即可继续。"));
+    const commandBox = node("div", "agent-command");
+    commandBox.append(node("code", "", command));
+    const button = node("button", "primary-button", "复制给 Code Agent");
+    button.type = "button";
+    button.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(command); button.textContent = "已复制"; }
+      catch { button.textContent = "请手动复制上面的指令"; }
+    });
+    commandBox.append(button); section.append(commandBox);
+  }
+  container.append(section);
+}
+
+function renderResearch(container, data, { editable = false, onOperation = () => {}, onPreview = () => {}, pendingOperations = [] } = {}) {
   const substageNav = node("nav", "research-substage-nav");
   substageNav.setAttribute("aria-label", "Research 子阶段");
   const panelWrap = node("div", "research-substage-panels");
@@ -141,34 +235,39 @@ function renderResearch(container, data, { editable = false, onOperation = () =>
     { id: "direction", label: "这条片准备怎么做", state: "completed", message: "已整理可选方向" },
     { id: "quality", label: "还有什么没看清", state: "completed", message: "已完成检查" },
   ];
+  if (!substages.some((item) => item.id === activeResearchSubstage)) activeResearchSubstage = substages[0]?.id || "reference";
   substages.forEach((substage, index) => {
     const button = node("button", `research-substage${substage.state === "not_needed" ? " is-not-needed" : ""}`);
     button.type = "button";
+    button.dataset.researchSubstage = substage.id;
     button.append(node("span", "research-substage-index", String(index + 1).padStart(2, "0")));
     const copy = node("span", "research-substage-copy");
     copy.append(node("strong", "research-substage-label", substage.label), node("small", "research-substage-state", substage.state === "not_needed" ? "本项目不需要" : substage.message));
     button.append(copy);
     button.addEventListener("click", () => {
+      activeResearchSubstage = substage.id;
       panels.forEach((panel, id) => panel.hidden = id !== substage.id);
       substageNav.querySelectorAll("button").forEach((item) => item.classList.toggle("is-active", item === button));
     });
     substageNav.append(button);
     const panel = node("section", `research-substage-panel${substage.state === "not_needed" ? " is-not-needed" : ""}`);
     panel.dataset.substage = substage.id;
-    panel.hidden = index !== 0;
+    panel.hidden = substage.id !== activeResearchSubstage;
     const panelHeading = node("div", "research-substage-panel-heading");
     panelHeading.append(node("h3", "section-title", substage.label), node("p", "research-substage-message", substage.message));
     panel.append(panelHeading);
     panels.set(substage.id, panel);
     panelWrap.append(panel);
   });
-  if (substageNav.firstElementChild) substageNav.firstElementChild.classList.add("is-active");
+  const activeSubstageButton = substageNav.querySelector(`[data-research-substage="${activeResearchSubstage}"]`);
+  if (activeSubstageButton) activeSubstageButton.classList.add("is-active");
   container.append(substageNav, panelWrap);
   const referencePanel = panels.get("reference") || container;
   const sourcesPanel = panels.get("sources") || container;
   const matchingPanel = panels.get("matching") || container;
   const directionPanel = panels.get("direction") || container;
   const qualityPanel = panels.get("quality") || container;
+  renderDecisionInbox(qualityPanel, data, { editable, onOperation, onPreview, pendingOperations });
   if (data.template) {
     const template = node("section", "content-row research-template");
     template.append(node("h3", "section-title", "本次拆解模板"));
@@ -299,9 +398,66 @@ function renderResearch(container, data, { editable = false, onOperation = () =>
     (data.quality.checks || []).forEach((check) => section.append(detailRow(check.label, `${check.status} · ${check.message}`)));
     qualityPanel.append(section);
   }
+  renderProposalHandoff(qualityPanel, data);
 }
 
-function renderProposal(container, data) {
+function renderControlPlan(container, plan, { editable = false, onOperation = () => {} } = {}) {
+  const section = node("section", `control-plan ${plan.status === "approved" ? "is-approved" : ""}`);
+  const heading = node("div", "control-plan-heading");
+  heading.append(node("div", "eyebrow", "导演总控单"), node("h3", "section-title", plan.status === "approved" ? "已锁定，后面的口播和分镜按这份执行" : "先把整条片的做法定下来"));
+  heading.append(node("p", "editor-help", "这不是口播稿，而是整条片共同遵守的五条制作约定。"));
+  section.append(heading);
+  (plan.sections || []).forEach((item) => {
+    const card = node("article", `control-plan-section ${item.review === "approved" ? "is-approved" : item.review === "needs_adjustment" ? "needs-adjustment" : ""}`);
+    const title = node("div", "control-plan-section-title");
+    title.append(node("h4", "row-title", item.label));
+    title.append(node("span", "status-chip", item.review === "approved" ? "已确认" : item.review === "needs_adjustment" ? "需要调整" : "待确认"));
+    card.append(title, node("p", "row-copy", item.summary || "Agent 正在整理这一部分"));
+    if (item.rules?.length) { card.append(node("h5", "detail-heading", "制作时照着做"), tagList(item.rules, "control-rule-list")); }
+    if (item.industry_notes?.length) { card.append(node("h5", "detail-heading", "行业提醒"), tagList(item.industry_notes, "control-note-list")); }
+    if (item.feedback) card.append(node("p", "control-feedback", `上次意见：${item.feedback}`));
+    if (editable && plan.status !== "approved") {
+      const actions = node("div", "control-plan-actions");
+      const approve = node("button", "quiet-button", "这部分没问题"); approve.type = "button";
+      approve.addEventListener("click", () => {
+        item.review = "approved"; card.classList.add("is-approved"); card.classList.remove("needs-adjustment");
+        onOperation({ op: "review_control_section", section_id: item.id, decision: "approved", feedback: "" });
+        lock.disabled = (plan.sections || []).some((entry) => entry.review !== "approved");
+      });
+      const adjust = node("button", "quiet-button", "需要调整"); adjust.type = "button";
+      adjust.addEventListener("click", () => {
+        const feedback = window.prompt("告诉 Agent 需要怎么调整（例如：节奏更快、不要承诺没有证据的功能）", item.feedback || "");
+        if (feedback != null && feedback.trim()) {
+          item.review = "needs_adjustment"; item.feedback = feedback.trim(); card.classList.add("needs-adjustment"); card.classList.remove("is-approved");
+          onOperation({ op: "review_control_section", section_id: item.id, decision: "needs_adjustment", feedback: feedback.trim() });
+          lock.disabled = true;
+        }
+      });
+      actions.append(approve, adjust); card.append(actions);
+    }
+    section.append(card);
+  });
+  if (editable && plan.status !== "approved") {
+    const lock = node("button", "primary-button", "五部分都确认，锁定导演总控单"); lock.type = "button";
+    lock.disabled = !(plan.sections || []).length || (plan.sections || []).some((item) => item.review !== "approved");
+    lock.addEventListener("click", () => onOperation({ op: "approve_control_plan" }));
+    section.append(lock);
+  }
+  if (plan.status === "approved") {
+    const handoff = node("section", "control-plan-handoff");
+    handoff.append(node("h4", "detail-heading", "下一步：生成制作剧本"));
+    handoff.append(node("p", "row-copy", "导演总控单已锁定。接下来由 Agent 根据这份合同生成口播、字幕、段落节奏和镜头意图。"));
+    const command = `继续 ${projectId}，读取已锁定的导演总控单并生成制作剧本`;
+    const box = node("div", "agent-command");
+    box.append(node("code", "", command));
+    const copy = node("button", "primary-button", "复制给 Code Agent"); copy.type = "button";
+    copy.addEventListener("click", async () => { try { await navigator.clipboard.writeText(command); copy.textContent = "已复制"; } catch { copy.textContent = "请手动复制上面的指令"; } });
+    box.append(copy); handoff.append(box); section.append(handoff);
+  }
+  container.append(section);
+}
+
+function renderProposal(container, data, { editable = false, onOperation = () => {} } = {}) {
   if (!data.concepts?.length) return renderEmpty(container);
   if (data.estimated_cost_usd != null) container.append(detailRow("预计制作成本", `$${Number(data.estimated_cost_usd).toFixed(2)}`));
   data.concepts.forEach((concept) => {
@@ -320,6 +476,13 @@ function renderProposal(container, data) {
     item.append(summary, details);
     container.append(item);
   });
+  if (data.control_plan) renderControlPlan(container, data.control_plan, { editable, onOperation });
+  else {
+    const waiting = node("section", "control-plan waiting");
+    waiting.append(node("h3", "section-title", data.selected_id ? "下一步：生成导演总控单" : "先选一个创意方向"));
+    waiting.append(node("p", "row-copy", data.selected_id ? "方向选定后，Agent 会把五类一致性规则整理成一份可确认的导演总控单。" : "选定方向后，才会生成整条片共同遵守的做法。"));
+    container.append(waiting);
+  }
 }
 
 function renderScript(container, data, { editable, onOperation }) {
@@ -676,7 +839,7 @@ function renderEditor(container, stage, editor, project, snapshot) {
     if (changes.length) await saveNow();
   };
   const onOperation = (operation) => {
-    changes = [...changes, operation];
+    changes = mergeResearchOperation(changes, operation);
     scheduleSave();
     snapshotStore.setDraft(mutationStage, {
       ...(snapshot.drafts?.[mutationStage] || {}),
@@ -685,9 +848,17 @@ function renderEditor(container, stage, editor, project, snapshot) {
       status: "local",
     });
   };
+  const previewNow = async () => {
+    try {
+      await flushSave();
+      const value = await previewDraft(project.project_id, mutationStage);
+      snapshotStore.setPreview(mutationStage, value); message.textContent = "影响预览已生成";
+      setTimeout(() => document.querySelector(".impact-panel")?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 0);
+    } catch (error) { message.textContent = error.message; }
+  };
   const renderers = {
-    research_review: (target, value) => renderResearch(target, value, { editable: canEdit, onOperation }),
-    proposal_choice: renderProposal,
+    research_review: (target, value) => renderResearch(target, value, { editable: canEdit, onOperation, onPreview: previewNow, pendingOperations: changes }),
+    proposal_choice: (target, value) => renderProposal(target, value, { editable: canEdit, onOperation }),
     script_editor: (target, value) => renderScript(target, value, { editable: canEdit, onOperation }),
     shot_mapping: renderShots,
     asset_review: renderAssets,
@@ -709,15 +880,11 @@ function renderEditor(container, stage, editor, project, snapshot) {
       save.addEventListener("click", () => flushSave().then(() => { message.textContent = "修改已暂存"; }).catch((error) => { message.textContent = error.message; }));
       controls.append(save);
     }
-    const preview = node("button", "quiet-button", editor?.type === "delivery_review" ? "查看影响" : "预览修改影响"); preview.type = "button";
-    preview.addEventListener("click", async () => {
-      try {
-        await flushSave();
-        const value = await previewDraft(project.project_id, mutationStage);
-        snapshotStore.setPreview(mutationStage, value); message.textContent = "影响预览已生成";
-      } catch (error) { message.textContent = error.message; }
-    });
-    controls.append(preview);
+    if (editor?.type !== "research_review") {
+      const preview = node("button", "quiet-button", editor?.type === "delivery_review" ? "查看影响" : "预览修改影响"); preview.type = "button";
+      preview.addEventListener("click", previewNow);
+      controls.append(preview);
+    }
   }
   controls.append(message);
   if (!["research_review", "script_editor", "delivery_review"].includes(editor?.type)) editPanel.append(editorBody);
@@ -730,7 +897,7 @@ function renderEditor(container, stage, editor, project, snapshot) {
       try { await commitDraft(project.project_id, mutationStage, value.preview_token, "运营人员确认修改"); snapshotStore.setDraft(mutationStage, null); message.textContent = editor?.type === "delivery_review" ? "已提交，正在生成新版" : "已提交，正在更新项目"; await refresh(); }
       catch (error) { message.textContent = error.message; }
     }, onClose: () => snapshotStore.setPreview(mutationStage, null),
-  }, { commitLabel: editor?.type === "delivery_review" ? "生成新版" : "确认并提交" });
+  }, { commitLabel: editor?.type === "delivery_review" ? "生成新版" : editor?.type === "research_review" ? "确认并保存决定" : "确认并提交" });
   container.append(impactPanel);
   if (editor?.type === "delivery_review") return;
   const history = node("div", "revision-panel");
@@ -771,6 +938,7 @@ function render(snapshot) {
   project.stages.forEach((stage, index) => {
     const button = node("button", `stage-button${stage.id === snapshot.selectedStageId ? " is-active" : ""}`);
     button.type = "button";
+    button.dataset.stageId = stage.id;
     button.setAttribute("aria-pressed", String(stage.id === snapshot.selectedStageId));
     button.addEventListener("click", () => store.selectStage(stage.id));
     button.append(node("span", "stage-index", String(index + 1).padStart(2, "0")));

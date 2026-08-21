@@ -259,15 +259,38 @@ class RevisionService:
                 canonical,
                 schema=adapter.artifact_name,
             )
+            if draft["stage"] == "proposal" and isinstance(canonical.get("creative_control_plan"), dict):
+                plan = dict(canonical["creative_control_plan"])
+                plan.pop("semantic_sha256", None)
+                plan.pop("artifact_sha256", None)
+                plan_artifact = {
+                    "version": "1.0", "project_id": self.store.project_id,
+                    "created_at": created_at, "producer": "backlot.operator_revisions",
+                    "input_hashes": {"proposal_packet": semantic_sha256(canonical)},
+                    "plan_id": str(plan.get("plan_id") or f"creative-control-{self.store.project_id}"),
+                    "plan_version": int(plan.get("plan_version") or 1),
+                    "status": str(plan.get("status") or "draft"),
+                    "selected_direction_id": str(plan.get("selected_direction_id") or canonical.get("selected_concept_id") or "selected"),
+                    "sections": plan.get("sections") or {},
+                    "section_reviews": plan.get("section_reviews") or {},
+                    "feedback": plan.get("feedback") or {},
+                }
+                if plan_artifact["status"] == "approved":
+                    plan_artifact.update({"locked_at": created_at, "locked_by": actor_id})
+                sink.stage_json("artifacts/creative_control_plan.json", attach_hashes(plan_artifact), schema="creative_control_plan")
             sink.stage_json(revision_relative, revision, schema="operator_revision")
             sink.stage_json(
                 f"operator/current-revisions/{draft['stage']}.json",
                 {"revision_id": revision_id, "artifact_name": adapter.artifact_name},
                 schema="revision_pointer",
             )
-            checkpoint = self.project_dir / f"checkpoint_{draft['stage']}.json"
-            if checkpoint.exists():
-                sink.stage_delete(checkpoint.relative_to(self.project_dir).as_posix())
+            # Research annotations are human decisions on completed evidence.
+            # They enrich the next stage; they do not invalidate the Research
+            # checkpoint or force its completed state back to pending.
+            if draft["stage"] != "research":
+                checkpoint = self.project_dir / f"checkpoint_{draft['stage']}.json"
+                if checkpoint.exists():
+                    sink.stage_delete(checkpoint.relative_to(self.project_dir).as_posix())
         return revision
 
     def compare(
@@ -365,7 +388,8 @@ class RevisionService:
             sink.stage_json(f"artifacts/{adapter.artifact_name}.json", restored_snapshot, schema=adapter.artifact_name)
             sink.stage_json(relative, revision, schema="operator_revision")
             sink.stage_json(f"operator/current-revisions/{stage}.json", {"revision_id": result_id, "artifact_name": adapter.artifact_name}, schema="revision_pointer")
-            checkpoint = self.project_dir / f"checkpoint_{stage}.json"
-            if checkpoint.exists():
-                sink.stage_delete(checkpoint.relative_to(self.project_dir).as_posix())
+            if stage != "research":
+                checkpoint = self.project_dir / f"checkpoint_{stage}.json"
+                if checkpoint.exists():
+                    sink.stage_delete(checkpoint.relative_to(self.project_dir).as_posix())
         return revision

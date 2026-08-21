@@ -458,6 +458,41 @@ def test_research_projection_has_fixed_substages_and_disabled_reference_state() 
     assert reference_substage["message"] == "本项目没有参考片，这一步不需要处理"
 
 
+def test_research_projection_groups_only_blocking_decisions_and_exposes_proposal_handoff() -> None:
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    board["artifacts"].update({
+        "reference_source_matrix": {"rows": [
+            {"matrix_row_id": "rebound", "reference_intent": "展示回弹", "resolution": "bridge", "unmatched_gap": "现有素材没有回弹释放瞬间"},
+            {"matrix_row_id": "cta", "reference_intent": "结尾行动引导", "resolution": "rewrite", "unmatched_gap": "现有素材没有原创 CTA 画面"},
+            {"matrix_row_id": "scratch", "reference_intent": "耐刮证明", "resolution": "accept", "source_media_id": "source-3"},
+        ]},
+        "research_synthesis": {"differentiation_directions": [
+            {"direction_id": "proof", "title": "四段证据一条讲清楚", "promise": "用动作证明产品"},
+        ]},
+        "research_scorecard": {"status": "pass", "score": 10, "max_score": 10, "checks": []},
+    })
+
+    research = project_operator_state(board)["stages"][0]["editor"]["data"]
+    assert [item["id"] for item in research["decision_inbox"]] == ["matrix-rebound", "matrix-cta", "direction"]
+    assert research["proposal_handoff"]["state"] == "needs_decision"
+    assert research["proposal_handoff"]["message"] == "还有 3 项需要你确认，确认后即可进入创意方案"
+    assert research["substages"][-1]["state"] == "awaiting_human"
+
+    board["artifacts"]["research_annotations"] = {
+        "matrix_resolutions": {
+            "rebound": {"resolution": "rewrite", "source_media_id": None, "note": "改成柔韧不易变形"},
+            "cta": {"resolution": "rewrite", "source_media_id": None, "note": "使用原创 CTA"},
+        },
+        "direction_preferences": {"proof": {"preference": "prefer", "rationale": "优先展示动作证据"}},
+    }
+    decided = project_operator_state(board)["stages"][0]["editor"]["data"]
+    assert decided["decision_inbox"] == []
+    assert decided["proposal_handoff"]["state"] == "ready"
+    assert decided["proposal_handoff"]["selected_direction_ids"] == ["proof"]
+
+
 def test_research_scorecard_uses_production_language_for_fixed_checks() -> None:
     from backlot.operator_state import project_operator_state
 

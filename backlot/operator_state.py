@@ -151,6 +151,7 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     matrix = _artifact(board, "reference_source_matrix")
     synthesis = _artifact(board, "research_synthesis")
     scorecard = _artifact(board, "research_scorecard")
+    annotations = _artifact(board, "research_annotations")
     files = source.get("files") if isinstance(source.get("files"), list) else []
     risks: list[str] = []
     sources: list[dict[str, Any]] = []
@@ -308,6 +309,30 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "avoid": [_safe_text(value) for value in item.get("avoid") or [] if _safe_text(value)],
             "tradeoffs": [_safe_text(value) for value in item.get("tradeoffs") or [] if _safe_text(value)],
         })
+    matrix_decisions = annotations.get("matrix_resolutions") if isinstance(annotations.get("matrix_resolutions"), Mapping) else {}
+    direction_decisions = annotations.get("direction_preferences") if isinstance(annotations.get("direction_preferences"), Mapping) else {}
+    decision_inbox = []
+    for row in matrix_rows:
+        is_blocking_gap = row["status"] in {"需要补拍或补素材", "改成别的表达", "删除这一镜"} and bool(row["gap"])
+        if is_blocking_gap and row["id"] not in matrix_decisions:
+            decision_inbox.append({
+                "id": f"matrix-{row['id']}", "kind": "material_gap", "title": row["reference_intent"] or "这个卖点怎么处理",
+                "message": row["gap"],
+                "impact": "会影响这一镜的素材选择、卖点表达，以及后续脚本和分镜",
+                "matrix_row_id": row["id"], "source_media_id": row["source_media_id"] or None,
+                "choices": ["需要补拍或补素材", "改成别的表达", "删除这一镜"],
+            })
+    if directions and not any(
+        isinstance(value, Mapping) and value.get("preference") == "prefer"
+        for value in direction_decisions.values()
+    ):
+        decision_inbox.append({
+            "id": "direction", "kind": "direction", "title": "这条片准备怎么做",
+            "message": "请先选定一个可选方向，创意方案会据此确定开头、卖点顺序和原创表达。",
+            "impact": "会影响创意方案的范围、参考机制取舍和原创边界",
+            "matrix_row_id": None, "source_media_id": None,
+            "choices": ["保留这个方向", "暂不采用"],
+        })
     quality_checks = []
     for item in scorecard.get("checks") if isinstance(scorecard.get("checks"), list) else []:
         if isinstance(item, Mapping):
@@ -343,10 +368,27 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         },
         {
             "id": "quality", "label": "还有什么没看清",
-            "state": substage_state(bool(scorecard)),
-            "message": "已检查关键卖点、素材和下一步制作条件" if scorecard else "正在汇总需要确认的风险",
+            "state": "awaiting_human" if decision_inbox else substage_state(bool(scorecard)),
+            "message": f"还有 {len(decision_inbox)} 项需要你确认" if decision_inbox else (
+                "已检查关键卖点、素材和下一步制作条件" if scorecard else "正在汇总需要确认的风险"
+            ),
         },
     ]
+    selected_direction_ids = [
+        direction_id for direction_id, value in direction_decisions.items()
+        if isinstance(value, Mapping) and value.get("preference") == "prefer"
+    ]
+    scorecard_passed = _safe_text(scorecard.get("status")) == "pass"
+    proposal_handoff = {
+        "state": "ready" if scorecard_passed and not decision_inbox else ("needs_decision" if decision_inbox else "checking"),
+        "message": (
+            "研究检查已通过，可以进入创意方案"
+            if scorecard_passed and not decision_inbox
+            else (f"还有 {len(decision_inbox)} 项需要你确认，确认后即可进入创意方案" if decision_inbox else "研究检查完成后即可进入创意方案")
+        ),
+        "selected_direction_ids": selected_direction_ids,
+        "resolved_matrix_row_ids": sorted(matrix_decisions),
+    }
     return {
         "type": "research_review",
         "data": {
@@ -354,6 +396,8 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "source_count": len(files),
             "usable_count": usable,
             "substages": substages,
+            "decision_inbox": decision_inbox,
+            "proposal_handoff": proposal_handoff,
             "risks": risks,
             "sources": sources,
             "template": {
@@ -432,12 +476,48 @@ def _proposal_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         })
     selected = proposal.get("selected_concept")
     selected_id = _safe_text(selected.get("concept_id")) if isinstance(selected, Mapping) else ""
+    raw_plan = proposal.get("creative_control_plan")
+    if not isinstance(raw_plan, Mapping):
+        candidate_plan = _artifact(board, "creative_control_plan")
+        raw_plan = candidate_plan if isinstance(candidate_plan, Mapping) and candidate_plan.get("sections") else None
+    control_plan = None
+    if isinstance(raw_plan, Mapping):
+        labels = {
+            "content_direction": "内容方向",
+            "story_pacing": "故事和节奏",
+            "visual_rules": "视觉规则",
+            "fact_continuity": "事实和连续性",
+            "originality_boundary": "原创边界",
+        }
+        sections = []
+        raw_sections = raw_plan.get("sections") if isinstance(raw_plan.get("sections"), Mapping) else {}
+        reviews = raw_plan.get("section_reviews") if isinstance(raw_plan.get("section_reviews"), Mapping) else {}
+        feedback = raw_plan.get("feedback") if isinstance(raw_plan.get("feedback"), Mapping) else {}
+        for section_id, label in labels.items():
+            section = raw_sections.get(section_id) if isinstance(raw_sections.get(section_id), Mapping) else {}
+            sections.append({
+                "id": section_id, "label": label,
+                "summary": _safe_text(section.get("summary")),
+                "rules": [_safe_text(item) for item in section.get("rules") or [] if _safe_text(item)],
+                "evidence_refs": [_safe_text(item) for item in section.get("evidence_refs") or [] if _safe_text(item)],
+                "industry_notes": [_safe_text(item) for item in section.get("industry_notes") or [] if _safe_text(item)],
+                "review": _safe_text(reviews.get(section_id), "pending"),
+                "feedback": _safe_text(feedback.get(section_id)),
+            })
+        control_plan = {
+            "plan_id": _safe_text(raw_plan.get("plan_id")),
+            "plan_version": int(raw_plan.get("plan_version") or 1),
+            "status": _safe_text(raw_plan.get("status"), "draft"),
+            "selected_direction_id": _safe_text(raw_plan.get("selected_direction_id"), selected_id),
+            "sections": sections,
+        }
     return {
         "type": "proposal_choice",
         "data": {
             "concepts": concepts,
             "selected_id": selected_id or None,
             "estimated_cost_usd": _number((proposal.get("cost_estimate") or {}).get("total_estimated_usd")),
+            "control_plan": control_plan,
         },
     }
 

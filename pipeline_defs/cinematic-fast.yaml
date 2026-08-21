@@ -53,7 +53,7 @@ approval_groups:
   creative_lock:
     members: [proposal, script, scene_plan, assets]
     terminal_stage: assets
-    required_artifacts: [proposal_packet, script, scene_plan, asset_plan, production_lock]
+    required_artifacts: [proposal_packet, creative_control_plan, script, scene_plan, asset_plan, production_lock]
 
 stages:
   - name: research
@@ -71,7 +71,7 @@ stages:
     approval_group: creative_lock
     required_artifacts_in: [research_brief, research_synthesis, research_scorecard]
     optional_artifacts_in: [video_analysis_brief, source_media_review, research_breakdown, reference_source_matrix, reference_fingerprint]
-    produces: [proposal_packet, decision_log]
+    produces: [proposal_packet, creative_control_plan, decision_log]
     tools_available: []
     checkpoint_required: true
     human_approval_default: false
@@ -81,7 +81,7 @@ stages:
   - name: script
     skill: pipelines/cinematic-fast/script-director
     approval_group: creative_lock
-    required_artifacts_in: [proposal_packet]
+    required_artifacts_in: [proposal_packet, creative_control_plan]
     optional_artifacts_in: [source_media_review]
     produces: [script]
     tools_available: [transcriber]
@@ -94,7 +94,7 @@ stages:
   - name: scene_plan
     skill: pipelines/cinematic-fast/scene-director
     approval_group: creative_lock
-    required_artifacts_in: [script, source_media_review, video_analysis_brief, reference_fingerprint, research_breakdown, reference_source_matrix, research_synthesis]
+    required_artifacts_in: [script, creative_control_plan, source_media_review, video_analysis_brief, reference_fingerprint, research_breakdown, reference_source_matrix, research_synthesis]
     optional_artifacts_in: [proposal_packet, research_synthesis, research_annotations]
     produces: [scene_plan]
     tools_available: [frame_sampler, scene_detect]
@@ -108,7 +108,7 @@ stages:
     skill: pipelines/cinematic-fast/asset-director
     approval_group: creative_lock
     approval_group_terminal: true
-    required_artifacts_in: [proposal_packet, script, scene_plan]
+    required_artifacts_in: [proposal_packet, creative_control_plan, script, scene_plan]
     produces: [asset_plan, production_lock, approval_bundle]
     tools_available: [tts_selector, audio_mixer, subtitle_gen, media_proxy]
     required_tools: []
@@ -132,7 +132,7 @@ stages:
 
   - name: edit
     skill: pipelines/cinematic-fast/edit-director
-    required_artifacts_in: [final_props, render_plan, sample_report, caption_policy_revision]
+    required_artifacts_in: [creative_control_plan, final_props, render_plan, sample_report, caption_policy_revision]
     produces: [edit_decisions, change_impact]
     tools_available: []
     checkpoint_required: true
@@ -142,7 +142,7 @@ stages:
 
   - name: compose
     skill: pipelines/cinematic-fast/compose-director
-    required_artifacts_in: [edit_decisions, asset_manifest, final_props, render_plan, caption_policy_revision]
+    required_artifacts_in: [creative_control_plan, edit_decisions, asset_manifest, final_props, render_plan, caption_policy_revision]
     produces: [render_report, final_review]
     required_tools: [video_compose, final_qa]
     tools_available: [video_compose, final_qa]
