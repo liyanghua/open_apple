@@ -155,6 +155,13 @@ def _delivery_file_kind(path: str) -> str:
     return "other"
 
 
+def _delivery_url(project_id: str, relative_path: str) -> str | None:
+    normalized = f"/{relative_path.strip('/').lower()}/"
+    if "/inputs/reference/" in normalized:
+        return None
+    return _media_url(project_id, relative_path)
+
+
 def _delivery_package_files(
     board: Mapping[str, Any], project_id: str, package_path: str,
 ) -> list[dict[str, Any]]:
@@ -186,7 +193,7 @@ def _delivery_package_files(
             "relative_path": relative,
             "label": path.name,
             "kind": _delivery_file_kind(relative),
-            "download_url": _media_url(project_id, relative),
+            "download_url": _delivery_url(project_id, relative),
             "size_bytes": path.stat().st_size,
         })
     return files
@@ -1548,7 +1555,7 @@ def _delivery_editor(
                 evidence.append({
                     "relative_path": path,
                     "label": Path(path).name,
-                    "download_url": _media_url(project_id, path),
+                    "download_url": _delivery_url(project_id, path),
                 })
         data["delivery"] = {
             "entries": entries,

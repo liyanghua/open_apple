@@ -341,6 +341,27 @@ def test_publish_stage_lists_files_from_project_delivery_package(tmp_path: Path)
     assert delivery["package_files"][0]["download_url"] == "/media/table-mat/exports/table-mat/metadata/metadata.json"
 
 
+def test_publish_stage_does_not_expose_reference_files_as_downloads(tmp_path: Path) -> None:
+    from backlot.operator_state import project_operator_state, validate_operator_state
+
+    reference = tmp_path / "inputs" / "reference"
+    reference.mkdir(parents=True)
+    (reference / "reference.mp4").write_bytes(b"reference")
+    board = _board_state()
+    board["_project_dir"] = tmp_path
+    board["artifacts"]["publish_log"] = {
+        "version": "1.0",
+        "entries": [{
+            "platform": "local", "status": "exported",
+            "export_path": "inputs/reference", "timestamp": "2026-08-22T10:00:00Z",
+        }],
+    }
+    state = project_operator_state(board)
+    validate_operator_state(state)
+    files = next(stage for stage in state["stages"] if stage["id"] == "publish")["editor"]["data"]["delivery"]["package_files"]
+    assert files[0]["download_url"] is None
+
+
 def test_sample_editor_exposes_execution_trace_summary_and_shots() -> None:
     from backlot.operator_state import project_operator_state, validate_operator_state
 
