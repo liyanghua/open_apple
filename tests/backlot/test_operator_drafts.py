@@ -38,6 +38,20 @@ def test_one_active_draft_per_user_stage_and_user_isolation(project) -> None:
     assert service.discard("user-a", "proposal")["status"] == "discarded"
 
 
+def test_assets_draft_accepts_execution_plan_approval_operation(project) -> None:
+    from backlot.operator_drafts import DraftService
+
+    draft = DraftService(project).save(
+        actor_id="user-a",
+        stage="assets",
+        base_revision="r" * 64,
+        base_artifact_hash="a" * 64,
+        changes=[{"op": "approve_shot_execution_plan"}],
+    )
+
+    assert draft["changes"] == [{"op": "approve_shot_execution_plan"}]
+
+
 def test_rebase_requires_new_preview_and_reports_field_conflicts(project) -> None:
     from backlot.operator_drafts import DraftService
     from backlot.operator_errors import OperatorError

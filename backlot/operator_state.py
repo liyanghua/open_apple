@@ -994,6 +994,7 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
                 "plan_version": int(execution.get("plan_version") or 1),
                 "status": _safe_text(execution.get("status"), "draft"),
                 "locked": execution.get("status") == "approved",
+                "handoff_ready": execution.get("status") == "approved",
                 "shots": execution_shots,
             } if execution else None,
         },
@@ -1470,6 +1471,21 @@ def project_operator_state(board_state: Mapping[str, Any]) -> dict[str, Any]:
             })
             for name in STAGE_LABELS
         ]
+        # The operator commit removes the awaiting-human checkpoint after the
+        # execution plan is approved. Treat that durable approval as the
+        # completed Assets gate until the Agent writes the next checkpoint.
+        execution_plan = _artifact(board, "shot_execution_plan")
+        if execution_plan.get("status") == "approved":
+            raw_stages = [
+                {
+                    **stage,
+                    "status": "completed",
+                    "human_approved": True,
+                }
+                if stage.get("name") == "assets" and stage.get("status") in {"pending", "awaiting_human"}
+                else stage
+                for stage in raw_stages
+            ]
     elif not raw_stages:
         raw_stages = [{"name": "unknown", "status": "pending", "versions": 0}]
 

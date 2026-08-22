@@ -352,6 +352,26 @@ def test_execution_plan_uses_media_index_to_report_source_coverage() -> None:
     assert assets["editor"]["data"]["execution_plan"]["shots"][0]["source_coverage"] == "等待核对"
 
 
+def test_approved_execution_plan_completes_assets_and_exposes_agent_handoff() -> None:
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    board["stages"] = [_stage(name, "pending" if name == "assets" else status) for name, status in {
+        "research": "completed", "proposal": "completed", "script": "completed",
+        "scene_plan": "completed", "assets": "pending", "sample": "pending",
+        "edit": "pending", "compose": "pending", "publish": "pending",
+    }.items()]
+    board["artifacts"]["shot_execution_plan"] = {"status": "approved", "plan_version": 2, "shots": []}
+
+    state = project_operator_state(board)
+    stages = {stage["id"]: stage for stage in state["stages"]}
+    assets = stages["assets"]["editor"]["data"]
+
+    assert stages["assets"]["status"] == "已完成"
+    assert stages["sample"]["status"] == "未开始"
+    assert assets["execution_plan"]["handoff_ready"] is True
+
+
 def test_legacy_shot_mapping_uses_structural_reference_without_fake_clip() -> None:
     from backlot.operator_state import project_operator_state
 

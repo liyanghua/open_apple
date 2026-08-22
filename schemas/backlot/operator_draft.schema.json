@@ -65,7 +65,8 @@
       {"$ref": "#/$defs/setTts"}, {"$ref": "#/$defs/setBgm"},
       {"$ref": "#/$defs/setSubtitleProfile"}, {"$ref": "#/$defs/setRuntime"},
       {"$ref": "#/$defs/setCompositionMode"}, {"$ref": "#/$defs/authorizePaidGeneration"},
-      {"$ref": "#/$defs/setAssetGap"}
+      {"$ref": "#/$defs/setAssetGap"}, {"$ref": "#/$defs/setShotGapStrategy"},
+      {"$ref": "#/$defs/approveShotExecutionPlan"}
     ]},
     "sampleOperation": {"oneOf": [
       {"$ref": "#/$defs/addTimecodeComment"}, {"$ref": "#/$defs/replaceSectionNarration"},
@@ -116,6 +117,8 @@
     "setCompositionMode": {"type": "object", "additionalProperties": false, "required": ["op", "mode"], "properties": {"op": {"const": "set_composition_mode"}, "mode": {"enum": ["templated", "atelier"]}}},
     "authorizePaidGeneration": {"type": "object", "additionalProperties": false, "required": ["op", "approved", "estimated_cost_usd"], "properties": {"op": {"const": "authorize_paid_generation"}, "approved": {"type": "boolean"}, "estimated_cost_usd": {"type": ["number", "null"], "minimum": 0}}},
     "setAssetGap": {"type": "object", "additionalProperties": false, "required": ["op", "gap_id", "strategy"], "properties": {"op": {"const": "set_asset_gap"}, "gap_id": {"type": "string", "minLength": 1}, "strategy": {"type": "string", "minLength": 1}}},
+    "setShotGapStrategy": {"type": "object", "additionalProperties": false, "required": ["op", "shot_id", "strategy"], "properties": {"op": {"const": "set_shot_gap_strategy"}, "shot_id": {"type": "string", "minLength": 1}, "strategy": {"enum": ["real_capture", "rephrase", "remove", "generate"]}}},
+    "approveShotExecutionPlan": {"type": "object", "additionalProperties": false, "required": ["op"], "properties": {"op": {"const": "approve_shot_execution_plan"}}},
     "addTimecodeComment": {"type": "object", "additionalProperties": false, "required": ["op", "start_seconds", "end_seconds", "text"], "properties": {"op": {"const": "add_timecode_comment"}, "start_seconds": {"type": "number", "minimum": 0}, "end_seconds": {"type": "number", "exclusiveMinimum": 0}, "text": {"type": "string", "minLength": 1}}},
     "selectDeliveryCandidate": {"oneOf": [
       {"type": "object", "additionalProperties": false, "required": ["op", "candidate_kind", "candidate_id"], "properties": {"op": {"const": "select_delivery_candidate"}, "candidate_kind": {"const": "cover"}, "candidate_id": {"type": "string", "pattern": "^cover-[A-Za-z0-9][A-Za-z0-9._-]*$"}}},

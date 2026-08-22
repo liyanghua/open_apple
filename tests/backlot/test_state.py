@@ -70,6 +70,22 @@ class TestBoardState:
         assert artifacts["source_media_review"] == review
         assert artifacts["media_index"] == {"items": [1, 2]}
 
+    def test_collects_approved_shot_execution_plan_after_assets_checkpoint_is_removed(self, projects_root):
+        p = _make_project(projects_root, "execution-handoff")
+        _write(p / "project.json", {
+            "project_id": "execution-handoff", "title": "Execution Handoff",
+            "pipeline_type": "cinematic-fast",
+        })
+        _write(p / "artifacts" / "shot_execution_plan.json", {
+            "project_id": "execution-handoff", "status": "approved",
+            "plan_id": "shots-1", "plan_version": 1, "shots": [{"id": "shot-1"}],
+        })
+
+        artifacts = load_board_state(p)["artifacts"]
+
+        assert artifacts["shot_execution_plan"]["status"] == "approved"
+        assert artifacts["shot_execution_plan"]["shots"] == [{"id": "shot-1"}]
+
     def test_full_project(self, projects_root):
         p = _make_project(projects_root, "film")
         _write(p / "project.json", {"project_id": "film", "title": "My Film",

@@ -803,22 +803,48 @@ function renderAssets(container, data, { editable = false, onOperation = () => {
     });
     plan.append(rail);
     if (editable && !execution.locked) {
-      const lock = node("button", "primary-button", "锁定镜头执行单"); lock.type = "button";
+      const lock = node("button", "primary-button", "锁定镜头执行单并查看影响"); lock.type = "button";
       lock.disabled = (execution.shots || []).some((shot) => shot.coverage_status === "gap" && shot.gap_strategy === "none");
       lock.addEventListener("click", () => onOperation({ op: "approve_shot_execution_plan" }));
       plan.append(lock);
+      plan.append(node("p", "editor-help", "点击后会自动展示影响；确认提交后，制作准备才会完成并交接给 Code Agent。"));
+    }
+    if (execution.handoff_ready) {
+      const handoff = node("section", "control-plan-handoff");
+      handoff.append(node("h4", "detail-heading", "制作准备已完成"));
+      handoff.append(node("p", "row-copy", "镜头执行单已锁定。请切换到 Code Agent，按这份执行单生成样片。"));
+      const command = `继续 ${projectId}，读取已锁定的镜头执行单并生成样片`;
+      const box = node("div", "agent-command");
+      box.append(node("code", "", command));
+      const copy = node("button", "primary-button", "复制给 Code Agent"); copy.type = "button";
+      copy.addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(command); copy.textContent = "已复制"; }
+        catch { copy.textContent = "请手动复制上面的指令"; }
+      });
+      box.append(copy); handoff.append(box); plan.append(handoff);
     }
     container.append(plan);
   }
   const planned = Number(data.planned_count || 0);
   const prepared = Number(data.prepared_count || 0);
   const waiting = Number(data.waiting_confirmation_count || 0);
+  const proxyItems = (data.items || []).filter((item) => item.type === "video_proxy");
+  const proxyPrepared = proxyItems.filter((item) => item.status === "已准备").length;
+  const proxyWaiting = proxyItems.filter((item) => item.status === "等待确认").length;
   const progress = node("section", "asset-progress");
-  progress.append(node("h3", "section-title", "制作进展"));
-  progress.append(node("p", "lead-copy", planned ? `已准备 ${prepared} / ${planned} 项制作资产` : "制作清单尚未生成"));
+  progress.append(node("h3", "section-title", "制作就绪"));
+  progress.append(node("p", "lead-copy", planned ? `制作方案已锁定，${prepared} / ${planned} 项准备工作已完成` : "制作方案尚未锁定"));
+  if (proxyItems.length) {
+    const proxyStatus = proxyWaiting
+      ? `${proxyWaiting} 条等待确认`
+      : proxyPrepared === proxyItems.length
+        ? "已就绪"
+        : `${proxyItems.length - proxyPrepared} 条待系统处理`;
+    progress.append(detailRow("源素材准备", `${proxyItems.length} 条 · ${proxyStatus}`));
+  }
   if (waiting) progress.append(node("p", "asset-warning", `${waiting} 项涉及付费生成，等待确认后才会调用模型`));
   if (data.paid_generation_approved === false) progress.append(node("p", "editor-help", "当前未批准付费生成；免费代理和已有素材不受影响。"));
-  progress.append(node("p", "editor-help", "源素材代理不是分镜，只是原始视频的剪辑工作副本；分镜顺序和镜头时长请看第四步“分镜”。"));
+  progress.append(node("p", "editor-help", "镜头内容、素材片段和镜头顺序请看第四步“分镜”；这里仅显示是否具备进入样片的条件。"));
   container.append(progress);
 
   container.append(detailRow("口播", data.narration_status));
@@ -827,23 +853,6 @@ function renderAssets(container, data, { editable = false, onOperation = () => {
   const cost = data.estimated_cost_usd == null ? "暂未提供" : `$${Number(data.estimated_cost_usd).toFixed(2)}`;
   container.append(detailRow("已记录费用", cost));
 
-  if (data.items?.length) {
-    container.append(node("h3", "section-title", "制作清单"));
-    const list = node("div", "asset-plan-list");
-    data.items.forEach((item) => {
-      const row = node("article", "asset-plan-row");
-      const heading = node("div", "asset-plan-heading");
-      heading.append(node("strong", "asset-plan-label", item.label));
-      heading.append(node("span", `status-chip${item.status === "已准备" ? " is-ready" : ""}`, item.status));
-      row.append(heading);
-      if (item.source_summary) row.append(node("p", "asset-source-summary", item.source_summary));
-      row.append(node("p", "row-copy", item.reason));
-      const facts = [item.source_range, item.stage_label, item.provider, item.paid ? "付费项" : ""].filter(Boolean);
-      if (facts.length) row.append(node("p", "source-facts", facts.join(" · ")));
-      list.append(row);
-    });
-    container.append(list);
-  }
 }
 
 function renderSample(container, data) {
@@ -1062,6 +1071,10 @@ function renderEditor(container, stage, editor, project, snapshot) {
       changes,
       status: "local",
     });
+    if (operation.op === "approve_shot_execution_plan") {
+      // Locking is a gated handoff: save the draft, then show confirmation.
+      setTimeout(() => previewNow(), 260);
+    }
   };
   const previewNow = async () => {
     try {

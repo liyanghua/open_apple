@@ -152,7 +152,7 @@ def test_production_script_and_execution_plan_use_business_confirmation_language
     app = _read(OPERATOR_ROOT / "app.js")
     css = _read(OPERATOR_ROOT / "styles.css")
 
-    for phrase in ("这段可以", "这段要调整", "制作剧本已锁定", "锁定镜头执行单"):
+    for phrase in ("这段可以", "这段要调整", "制作剧本已锁定", "锁定镜头执行单", "制作准备已完成", "读取已锁定的镜头执行单并生成样片"):
         assert phrase in app
     assert "shot-execution-rail" in app
     assert "overflow-x: auto" in css
@@ -251,10 +251,11 @@ def test_asset_stage_shows_planned_progress_and_reasons() -> None:
     state = _read(REPO_ROOT / "backlot" / "operator_state.py")
     css = _read(OPERATOR_ROOT / "styles.css")
 
-    for term in ("制作进展", "制作清单", "data.items", "item.reason", "waiting_confirmation_count"):
+    for term in ("制作就绪", "proxyItems", "源素材准备", "waiting_confirmation_count"):
         assert term in app or term in state
-    for term in ("asset-progress", "asset-plan-list", "asset-plan-row"):
-        assert term in css
+    assert "制作清单" not in app
+    assert "item.reason" not in app
+    assert "asset-progress" in css
 
 
 def test_delivery_stage_is_an_operator_review_workbench() -> None:
