@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/gold_sample",
+  "title": "Gold Sample Set",
+  "description": "Tiered evaluation sample set (Design_Review_2026-08-22.md P2): Gold / Silver / Bad / Hard Negative. Every sample carries pointwise scores, pairwise refs, claims/QA with timestamp evidence, failure tags, expert reason, human adoption, and an online-outcome placeholder (online data is posterior feedback only and never replaces pre-publication human confirmation). Samples carry a group_key (SKU/category/creative-pattern) for leakage-free Group Split.",
+  "type": "object",
+  "required": [
+    "version", "goldset_id", "project_id", "created_at", "judge_version",
+    "rubric_version", "samples"
+  ],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "goldset_id": { "type": "string", "minLength": 1 },
+    "project_id": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "judge_version": { "type": "string" },
+    "rubric_version": { "type": "string" },
+    "samples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sample_id", "video_ref", "tier", "group_key", "labels", "split"],
+        "properties": {
+          "sample_id": { "type": "string", "minLength": 1 },
+          "video_ref": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+              "path": { "type": "string" },
+              "artifact_sha256": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
+          "tier": { "type": "string", "enum": ["gold", "silver", "bad", "hard_negative"] },
+          "group_key": { "type": "string", "minLength": 1, "description": "SKU/类目/创意模式，用于 Group Split 防同模板泄漏" },
+          "labels": {
+            "type": "object",
+            "required": ["pointwise", "pairwise_refs", "claims_qa", "failure_tags", "expert_reason", "human_adoption", "online_outcome"],
+            "properties": {
+              "pointwise": { "type": "object", "additionalProperties": { "type": ["number", "null"] } },
+              "pairwise_refs": { "type": "array", "items": { "type": "string" } },
+              "claims_qa": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["claim_id", "verdict"],
+                  "properties": {
+                    "claim_id": { "type": "string" },
+                    "verdict": { "type": "string", "enum": ["pass", "fail", "unsupported"] },
+                    "evidence_ref": { "type": "string" },
+                    "timestamp_evidence": { "type": "string" }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "failure_tags": { "type": "array", "items": { "type": "string" } },
+              "expert_reason": { "type": "string" },
+              "human_adoption": { "type": ["boolean", "null"] },
+              "online_outcome": {
+                "oneOf": [{ "type": "null" }, { "type": "object" }],
+                "description": "线上数据接口占位：仅作后验反馈，不替代前置人工确认"
+              }
+            },
+            "additionalProperties": false
+          },
+          "annotators": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["annotator_id", "role"],
+              "properties": {
+                "annotator_id": { "type": "string" },
+                "role": { "type": "string", "enum": ["primary", "secondary", "arbiter"] },
+                "annotated_at": { "type": "string", "format": "date-time" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "split": { "type": ["string", "null"], "enum": ["train", "dev", "test", null] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "semantic_sha256": { "type": "string" },
+    "artifact_sha256": { "type": "string" }
+  },
+  "additionalProperties": false
+}

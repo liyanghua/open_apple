@@ -70,6 +70,25 @@ class TestBoardState:
         assert artifacts["source_media_review"] == review
         assert artifacts["media_index"] == {"items": [1, 2]}
 
+    def test_scoped_evaluation_reports_project_without_overwriting(self, projects_root):
+        """评审 #3：sample/final 两份 evaluation_report 各自可寻址，默认键取 final。"""
+        p = _make_project(projects_root, "scoped-eval")
+        _write(p / "project.json", {
+            "project_id": "scoped-eval", "title": "Scoped Eval", "pipeline_type": "cinematic-fast",
+        })
+        unscoped = {"scope": "sample", "status": "revise"}
+        sample = {"scope": "sample", "status": "pass"}
+        final = {"scope": "final", "status": "revise"}
+        _write(p / "artifacts" / "evaluation_report.json", unscoped)
+        _write(p / "artifacts" / "evaluation_report.sample.json", sample)
+        _write(p / "artifacts" / "evaluation_report.final.json", final)
+
+        artifacts = load_board_state(p)["artifacts"]
+
+        assert artifacts["evaluation_report"] == final  # 默认键 = final 范围
+        assert artifacts["evaluation_report.sample"] == sample
+        assert artifacts["evaluation_report.final"] == final
+
     def test_collects_approved_shot_execution_plan_after_assets_checkpoint_is_removed(self, projects_root):
         p = _make_project(projects_root, "execution-handoff")
         _write(p / "project.json", {

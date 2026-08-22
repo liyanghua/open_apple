@@ -32,6 +32,22 @@
     "section_reviews": {"type": "object", "additionalProperties": {"enum": ["pending", "approved", "needs_adjustment"]}},
     "feedback": {"type": "object", "additionalProperties": {"type": "string"}},
     "research_refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "hook_plan_ref": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["name", "path"],
+          "properties": {
+            "name": { "type": "string" },
+            "path": { "type": "string" },
+            "artifact_sha256": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      ],
+      "description": "Optional reference to the per-candidate hook_plan artifact (Design_Review P1-1)"
+    },
     "locked_at": {"type": ["string", "null"], "format": "date-time"},
     "locked_by": {"type": ["string", "null"]}
   },

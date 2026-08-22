@@ -15,8 +15,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from lib.artifact_hashing import attach_hashes, semantic_sha256
+from lib.artifact_hashing import (
+    artifact_sha256,
+    attach_hashes,
+    semantic_sha256,
+)
 from schemas.artifacts import validate_artifact
+
+_ENVELOPE_FIELDS = frozenset(
+    {"name", "path", "semantic_sha256", "artifact_sha256", "data"}
+)
 
 
 @dataclass(frozen=True)
@@ -44,10 +52,50 @@ def _first(*values: Any, default: Any = None) -> Any:
 
 
 def _unwrap(value: Any) -> Any:
-    """Accept both a raw artifact and a v2 checkpoint envelope."""
-    if isinstance(value, Mapping) and isinstance(value.get("data"), Mapping):
-        return value["data"]
+    """Accept both a raw artifact and a complete v2 checkpoint envelope.
+
+    Only a Mapping carrying the full v2 envelope field set is unwrapped; a
+    plain artifact that merely contains a ``data`` key is left untouched so
+    an object script cannot smuggle content through duck-typed unwrapping.
+    """
+    if isinstance(value, Mapping) and _ENVELOPE_FIELDS.issubset(value):
+        data = value["data"]
+        if isinstance(data, Mapping):
+            return data
     return value
+
+
+def _verify_lock_input(name: str, value: Any) -> None:
+    """Reject object-script lock inputs before any value is extracted.
+
+    - A Mapping with a ``data`` payload that is not a complete v2 envelope is
+      refused: the lock must not trust half an envelope.
+    - A complete v2 envelope must carry hashes that match its embedded
+      content, so a forged envelope (declared hash of the on-disk artifact,
+      mutated ``data``) cannot mint a lock over content nobody approved.
+    - Raw attached artifacts (hash fields but no ``data`` wrapper) and plain
+      dicts pass through unchanged; their values are hashed as-is.
+    - Plain-JSON safety is enforced by ``canonical_bytes`` during hashing:
+      callables/custom objects raise a path-qualified TypeError.
+    """
+    if not isinstance(value, Mapping) or "data" not in value:
+        return
+    if not _ENVELOPE_FIELDS.issubset(value):
+        raise ValueError(
+            f"production_lock input {name!r} looks like a v2 envelope but is missing "
+            "name/path/hash fields; refusing a partial envelope"
+        )
+    data = value.get("data")
+    if not isinstance(data, Mapping):
+        raise ValueError(f"production_lock input {name!r} envelope data must be a JSON object")
+    semantic_ok = value.get("semantic_sha256") == semantic_sha256(data)
+    artifact_ok = value.get("artifact_sha256") == artifact_sha256(data)
+    if not (semantic_ok and artifact_ok):
+        raise ValueError(
+            f"production_lock input {name!r} envelope hashes do not match its embedded "
+            f"content (semantic={semantic_ok}, artifact={artifact_ok}) — object-script "
+            "bypass rejected"
+        )
 
 
 def _plan_value(proposal: Mapping[str, Any], *keys: str) -> Any:
@@ -206,14 +254,23 @@ def _extract_locked_values(
 def build_production_lock(
     *, proposal: Any, script: Any, scene_plan: Any, asset_plan: Any, decisions: Any
 ) -> dict[str, Any]:
-    """Build and validate a new production lock from stage artifacts."""
-    sources = {
-        "proposal": _unwrap(proposal),
-        "script": _unwrap(script),
-        "scene_plan": _unwrap(scene_plan),
-        "asset_plan": _unwrap(asset_plan),
-        "decisions": _unwrap(decisions),
+    """Build and validate a new production lock from stage artifacts.
+
+    Trust boundary: inputs are verified before extraction.  Envelope inputs
+    must carry content-matching hashes (a forged envelope with mutated
+    ``data`` is rejected), partial envelopes are refused, and non-plain-JSON
+    values fail with a path-qualified TypeError during hashing.
+    """
+    raw_sources = {
+        "proposal": proposal,
+        "script": script,
+        "scene_plan": scene_plan,
+        "asset_plan": asset_plan,
+        "decisions": decisions,
     }
+    for source_name, value in raw_sources.items():
+        _verify_lock_input(source_name, value)
+    sources = {name: _unwrap(value) for name, value in raw_sources.items()}
     values = _extract_locked_values(**sources)
     decision_data = _unwrap(decisions)
     decision_entries = (

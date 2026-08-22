@@ -38,3 +38,7 @@ required by their `evidence_refs` via `sink.stage_bytes`, and
 the staged view before the transaction exits; do not write these files directly
 to the project directory. A failure must be recoverable by the commit store;
 after recovery, no partial Research bundle may remain visible.
+
+## caption_style_fingerprint (P1-1)
+
+Build `caption_style_fingerprint` (schema `schemas/artifacts/caption_style_fingerprint.schema.json`, builder `lib/caption_style.py`) from `research_breakdown` overlay observations. Reference without caption text → `applicability: not_applicable`; with captions → `needs_review` until a human confirms font family / size hierarchy / weight / stroke (automated part only seeds overlay samples, evidence frames and effect treatment). Never copy reference font files or caption assets — Remotion renders from this spec with open-source approximations.

@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/caption_style_fingerprint",
+  "title": "Caption Style Fingerprint",
+  "description": "Reference caption style fingerprint (Design_Review_2026-08-22.md P1-1): font family/style approximation, size hierarchy, weight, fill, stroke, shadow, background bar, opacity, position, safe zone, line breaks and entrance/emphasis animation — extracted from the reference and open to manual correction. Remotion renders from this spec only; reference font files and assets are never copied. Projects without a captioned reference mark not_applicable.",
+  "type": "object",
+  "required": [
+    "version",
+    "project_id",
+    "created_at",
+    "applicability",
+    "source",
+    "style",
+    "binding",
+    "notes"
+  ],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "project_id": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "applicability": {
+      "type": "string",
+      "enum": ["extracted", "needs_review", "not_applicable"],
+      "description": "extracted=可直接按样式渲染; needs_review=已提取待人工修正; not_applicable=参考片无字幕"
+    },
+    "source": {
+      "type": "object",
+      "required": ["research_breakdown_ref", "evidence_frames"],
+      "properties": {
+        "research_breakdown_ref": { "type": ["object", "null"] },
+        "evidence_frames": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "携带参考字幕的帧证据路径"
+        },
+        "overlay_text_samples": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "research_breakdown 中采集到的参考字幕文本样例"
+        }
+      },
+      "additionalProperties": false
+    },
+    "style": {
+      "type": "object",
+      "required": ["font_family", "size_hierarchy", "weight", "fill_color", "stroke", "position", "safe_zone_profile", "max_chars_per_line", "entrance_animation", "sync_mode"],
+      "properties": {
+        "font_family": { "type": "string", "description": "开源字体或风格近似名称（不搬运参考片字体文件）" },
+        "font_style_approx": { "type": "string", "description": "对参考字体风格的自然语言近似描述" },
+        "size_hierarchy": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 1 },
+          "description": "字号层级（主字幕/强调词），按重要性排序"
+        },
+        "weight": { "type": "string", "enum": ["normal", "medium", "semibold", "bold", "heavy"] },
+        "fill_color": { "type": "string", "description": "填充色 hex" },
+        "stroke": {
+          "type": "object",
+          "properties": {
+            "color": { "type": "string" },
+            "width_px": { "type": "number", "minimum": 0 }
+          },
+          "additionalProperties": true
+        },
+        "shadow": { "type": ["object", "null"], "additionalProperties": true },
+        "background_bar": { "type": ["object", "null"], "additionalProperties": true },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "position": { "type": "string", "description": "屏幕位置（自然语言，如 中下 1/3）" },
+        "safe_zone_profile": { "type": "string", "enum": ["douyin_9_16", "wechat_9_16", "xiaohongshu_9_16"] },
+        "bottom_offset_px": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 600,
+          "description": "字幕距画面底部的渲染偏移（px）。单一数据源：Remotion 渲染与 QA 安全区校验必须使用同一数值（评审 #9b），缺省 120"
+        },
+        "max_chars_per_line": { "type": "integer", "minimum": 1 },
+        "line_breaks": { "type": "string", "description": "断行方式（按词/按短语/按字数）" },
+        "entrance_animation": { "type": "string", "description": "入场动效（自然语言，如 整句淡入）" },
+        "emphasis_animation": { "type": "string", "description": "强调词动效（如 放大+变色）" },
+        "sync_mode": { "type": "string", "enum": ["follow_visual", "follow_narration", "static"] }
+      },
+      "additionalProperties": false
+    },
+    "binding": {
+      "type": "object",
+      "required": ["brand_required_rules", "reference_only_rules"],
+      "properties": {
+        "brand_required_rules": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "品牌/产品必须保留的字幕规则"
+        },
+        "reference_only_rules": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "只是参考片表现手法的规则，可替换"
+        }
+      },
+      "additionalProperties": false
+    },
+    "notes": { "type": "string" },
+    "semantic_sha256": { "type": "string" },
+    "artifact_sha256": { "type": "string" }
+  },
+  "additionalProperties": false
+}

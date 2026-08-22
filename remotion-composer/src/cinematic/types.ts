@@ -53,6 +53,7 @@ export interface CinematicCaptionConfig {
   color?: string;
   highlightColor?: string;
   backgroundColor?: string;
+  captionStyle?: import("../components/SafeCaptionTrack").CaptionStyleSpec;
 }
 
 export interface CinematicRendererProps {

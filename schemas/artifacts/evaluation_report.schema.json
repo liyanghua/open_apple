@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/evaluation_report",
+  "title": "Evaluation Report",
+  "description": "The single evaluation artifact for a rendered output (sample or final scope). Binds a subject render to its L1a hard gate, creative advisory, execution diff and repair targets. L1a hard gate failures with fatal severity must stop publish; creative advisory is informational in the first phase (Design_Review_2026-08-22.md P0/P1).",
+  "type": "object",
+  "required": [
+    "version",
+    "project_id",
+    "scope",
+    "created_at",
+    "judge_version",
+    "rubric_version",
+    "subject_ref",
+    "subject_version",
+    "subject_hash",
+    "hard_gate",
+    "creative_advisory",
+    "repair_targets",
+    "status",
+    "recommended_action"
+  ],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "project_id": { "type": "string", "minLength": 1 },
+    "scope": {
+      "type": "string",
+      "enum": ["sample", "final"],
+      "description": "sample = evaluation of the 10-15s sample render; final = evaluation of the full deliverable render"
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "judge_version": {
+      "type": "string",
+      "description": "Version of the judge/rubric implementation that produced this report; scores across judge versions are not comparable"
+    },
+    "rubric_version": { "type": "string" },
+    "subject_ref": {
+      "type": "object",
+      "required": ["name", "path"],
+      "properties": {
+        "name": { "type": "string", "description": "Artifact or file the evaluation is about, e.g. final_review or renders/final.mp4" },
+        "path": { "type": "string" },
+        "artifact_sha256": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "subject_version": { "type": "string" },
+    "subject_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "评审 #12：被评估对象（媒体文件或 artifact）的 sha256，必填且不可为空——评价必须绑定到可核验的版本"
+    },
+    "execution_diff_ref": {
+      "type": ["object", "null"],
+      "required": ["name", "path"],
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "artifact_sha256": { "type": "string" }
+      },
+      "additionalProperties": false,
+      "description": "Reference to the planned-vs-actual execution diff (e.g. sample_execution_trace); null when not applicable"
+    },
+    "hard_gate": {
+      "type": "object",
+      "required": ["pass", "checks"],
+      "properties": {
+        "pass": { "type": "boolean" },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "status", "severity", "message", "fixable"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "status": { "type": "string", "enum": ["pass", "fail", "skip"] },
+              "severity": { "type": "string", "enum": ["fatal", "warning", "info"] },
+              "message": { "type": "string", "description": "Business-readable failure description, never an internal JSON path" },
+              "evidence": {
+                "type": "object",
+                "description": "Where the evidence is: measured value, time range, file location"
+              },
+              "affected_shots": { "type": "array", "items": { "type": "string" } },
+              "fixable": { "type": "boolean" },
+              "fix_suggestion": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "required": ["executed", "total", "minimum", "sufficient"],
+          "properties": {
+            "executed": { "type": "integer", "minimum": 0, "description": "实际执行（非 skip）的 L1a 检查数" },
+            "total": { "type": "integer", "minimum": 0, "description": "报告中的 L1a 检查总数" },
+            "minimum": { "type": "integer", "minimum": 0, "description": "判定 pass 所需的最小执行数阈值" },
+            "sufficient": { "type": "boolean", "description": "覆盖率是否达到阈值；不足时报告不得为 pass" }
+          },
+          "additionalProperties": false,
+          "description": "L1a 覆盖率：防止大量 skip 仍判定 pass"
+        }
+      },
+      "additionalProperties": false
+    },
+    "creative_advisory": {
+      "type": "object",
+      "required": ["scored", "dimensions", "summary"],
+      "properties": {
+        "scored": { "type": "boolean", "description": "false when no VLM judge ran; backfilled reports mark scored=false" },
+        "summary": { "type": "string" },
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "score": { "type": "number", "minimum": 0, "maximum": 10 },
+              "note": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "repair_targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["check_id", "action", "affected_shots"],
+        "properties": {
+          "check_id": { "type": "string" },
+          "action": {
+            "type": "string",
+            "enum": ["rewrite_hook", "edit_caption", "replace_asset", "shorten_shot"]
+          },
+          "affected_shots": { "type": "array", "items": { "type": "string" } },
+          "note": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pass", "revise", "fail"],
+      "description": "pass = hard gate clean; revise = fixable L1a failures found; fail = fatal L1a failures, must not publish"
+    },
+    "recommended_action": {
+      "type": "string",
+      "enum": ["proceed", "repair", "reject"]
+    },
+    "semantic_sha256": { "type": "string" },
+    "artifact_sha256": { "type": "string" }
+  },
+  "additionalProperties": false
+}

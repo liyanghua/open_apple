@@ -4,58 +4,127 @@
   "title": "Backlot Operator Project State",
   "type": "object",
   "required": [
-    "schema_version", "project_id", "title", "pipeline", "skill", "summary",
-    "stages", "workspace", "pending_review", "permissions", "active_job",
-    "revision", "legacy"
+    "schema_version",
+    "project_id",
+    "title",
+    "pipeline",
+    "skill",
+    "summary",
+    "stages",
+    "workspace",
+    "pending_review",
+    "permissions",
+    "active_job",
+    "revision",
+    "legacy"
   ],
   "properties": {
-    "schema_version": {"const": "1.0"},
-    "project_id": {"type": "string", "minLength": 1},
-    "title": {"type": "string", "minLength": 1},
-    "pipeline": {"type": "string", "minLength": 1},
+    "schema_version": {
+      "const": "1.0"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pipeline": {
+      "type": "string",
+      "minLength": 1
+    },
     "skill": {
       "oneOf": [
-        {"type": "null"},
+        {
+          "type": "null"
+        },
         {
           "type": "object",
-          "required": ["id", "version"],
+          "required": [
+            "id",
+            "version"
+          ],
           "properties": {
-            "id": {"type": "string", "minLength": 1},
-            "version": {"type": "string", "minLength": 1}
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            }
           },
           "additionalProperties": false
         }
       ]
     },
-    "summary": {"$ref": "#/$defs/summary"},
+    "summary": {
+      "$ref": "#/$defs/summary"
+    },
     "stages": {
       "type": "array",
       "minItems": 1,
-      "items": {"$ref": "#/$defs/stage"}
+      "items": {
+        "$ref": "#/$defs/stage"
+      }
     },
-    "workspace": {"$ref": "#/$defs/workspace"},
+    "workspace": {
+      "$ref": "#/$defs/workspace"
+    },
     "pending_review": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "#/$defs/pending_review"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/pending_review"
+        }
       ]
     },
     "permissions": {
       "type": "array",
       "uniqueItems": true,
-      "items": {"enum": ["view", "edit", "review", "manage"]}
+      "items": {
+        "enum": [
+          "view",
+          "edit",
+          "review",
+          "manage"
+        ]
+      }
     },
-    "active_job": {"type": "null"},
-    "revision": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "legacy": {"$ref": "#/$defs/legacy"}
+    "active_job": {
+      "type": "null"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "legacy": {
+      "$ref": "#/$defs/legacy"
+    }
   },
   "additionalProperties": false,
   "$defs": {
-    "nullable_string": {"type": ["string", "null"]},
-    "nullable_number": {"type": ["number", "null"], "minimum": 0},
+    "nullable_string": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "nullable_number": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
     "delivery_media_url": {
       "oneOf": [
-        {"type": "null"},
+        {
+          "type": "null"
+        },
         {
           "type": "string",
           "pattern": "^/(?!.*%(?:4[1-9A-Fa-f]|5[0-9A]|6[1-9A-Fa-f]|7[0-9A]))(?!.*(?:^|/)inputs/reference(?:/|$))(?:media|thumb)/"
@@ -69,30 +138,74 @@
     "summary": {
       "type": "object",
       "required": [
-        "current_stage", "current_task", "progress_percent", "next_action",
-        "estimated_seconds", "estimate_confidence", "spent_usd"
+        "current_stage",
+        "current_task",
+        "progress_percent",
+        "next_action",
+        "estimated_seconds",
+        "estimate_confidence",
+        "spent_usd"
       ],
       "properties": {
-        "current_stage": {"type": "string", "minLength": 1},
-        "current_task": {"type": "string", "minLength": 1},
-        "progress_percent": {"type": "integer", "minimum": 0, "maximum": 100},
-        "next_action": {"type": "string", "minLength": 1},
+        "current_stage": {
+          "type": "string",
+          "minLength": 1
+        },
+        "current_task": {
+          "type": "string",
+          "minLength": 1
+        },
+        "progress_percent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "next_action": {
+          "type": "string",
+          "minLength": 1
+        },
         "estimated_seconds": {
-          "oneOf": [{"type": "null"}, {"type": "integer", "minimum": 0}]
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 0
+            }
+          ]
         },
         "estimate_confidence": {
           "oneOf": [
-            {"type": "null"},
-            {"enum": ["low", "medium", "high"]}
+            {
+              "type": "null"
+            },
+            {
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            }
           ]
         },
-        "spent_usd": {"$ref": "#/$defs/nullable_number"},
+        "spent_usd": {
+          "$ref": "#/$defs/nullable_number"
+        },
         "performance": {
           "type": "object",
-          "required": ["promise", "message"],
+          "required": [
+            "promise",
+            "message"
+          ],
           "properties": {
-            "promise": {"$ref": "#/$defs/nullable_string"},
-            "message": {"type": "string", "minLength": 1}
+            "promise": {
+              "$ref": "#/$defs/nullable_string"
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            }
           },
           "additionalProperties": false
         }
@@ -102,141 +215,557 @@
     "stage": {
       "type": "object",
       "required": [
-        "id", "label", "status", "version", "updated_at", "updated_by",
-        "editable", "summary", "warnings", "editor"
+        "id",
+        "label",
+        "status",
+        "version",
+        "updated_at",
+        "updated_by",
+        "editable",
+        "summary",
+        "warnings",
+        "editor"
       ],
       "properties": {
-        "id": {"type": "string", "minLength": 1},
-        "label": {"type": "string", "minLength": 1},
-        "status": {
-          "enum": ["未开始", "制作中", "等待确认", "已完成", "处理失败", "状态未知"]
+        "id": {
+          "type": "string",
+          "minLength": 1
         },
-        "version": {"type": "integer", "minimum": 0},
-        "updated_at": {"$ref": "#/$defs/nullable_string"},
-        "updated_by": {"$ref": "#/$defs/nullable_string"},
-        "editable": {"type": "boolean"},
-        "summary": {"type": "string"},
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "未开始",
+            "制作中",
+            "等待确认",
+            "已完成",
+            "处理失败",
+            "状态未知"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "updated_at": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "updated_by": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "editable": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string"
+        },
         "warnings": {
           "type": "array",
-          "items": {"type": "string", "minLength": 1}
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
-        "editor": {"$ref": "#/$defs/editor"}
+        "editor": {
+          "$ref": "#/$defs/editor"
+        }
       },
       "additionalProperties": false
     },
     "workspace": {
       "type": "object",
-      "required": ["stage_id", "editor", "read_only", "upgrade_action"],
+      "required": [
+        "stage_id",
+        "editor",
+        "read_only",
+        "upgrade_action"
+      ],
       "properties": {
-        "stage_id": {"type": "string", "minLength": 1},
-        "editor": {"$ref": "#/$defs/editor"},
-        "read_only": {"const": true},
-        "upgrade_action": {"$ref": "#/$defs/nullable_string"}
+        "stage_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "editor": {
+          "$ref": "#/$defs/editor"
+        },
+        "read_only": {
+          "const": true
+        },
+        "upgrade_action": {
+          "$ref": "#/$defs/nullable_string"
+        }
       },
       "additionalProperties": false
     },
     "pending_review": {
       "type": "object",
-      "required": ["kind", "label", "summary", "subject_version"],
+      "required": [
+        "kind",
+        "label",
+        "summary",
+        "subject_version"
+      ],
       "properties": {
-        "kind": {"enum": ["script_lock", "creative_lock", "sample", "stage"]},
-        "label": {"type": "string", "minLength": 1},
-        "summary": {"type": "string", "minLength": 1},
-        "subject_version": {"type": "integer", "minimum": 0},
-        "review_id": {"type": "string", "minLength": 1},
-        "subject_hash": {"oneOf": [{"type": "null"}, {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}]},
+        "kind": {
+          "enum": [
+            "script_lock",
+            "creative_lock",
+            "sample",
+            "stage"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subject_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "review_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subject_hash": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[a-fA-F0-9]{64}$"
+            }
+          ]
+        },
         "actions": {
           "type": "array",
           "uniqueItems": true,
-          "items": {"enum": ["批准", "拒绝"]}
+          "items": {
+            "enum": [
+              "批准",
+              "拒绝"
+            ]
+          }
         }
       },
       "additionalProperties": false
     },
     "legacy": {
       "type": "object",
-      "required": ["read_only", "source_pipeline", "upgrade_available", "message"],
+      "required": [
+        "read_only",
+        "source_pipeline",
+        "upgrade_available",
+        "message"
+      ],
       "properties": {
-        "read_only": {"type": "boolean"},
-        "source_pipeline": {"type": "string", "minLength": 1},
-        "upgrade_available": {"type": "boolean"},
-        "message": {"type": "string"}
+        "read_only": {
+          "type": "boolean"
+        },
+        "source_pipeline": {
+          "type": "string",
+          "minLength": 1
+        },
+        "upgrade_available": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     },
     "editor": {
       "oneOf": [
-        {"$ref": "#/$defs/research_editor"},
-        {"$ref": "#/$defs/proposal_editor"},
-        {"$ref": "#/$defs/script_editor"},
-        {"$ref": "#/$defs/shot_editor"},
-        {"$ref": "#/$defs/asset_editor"},
-        {"$ref": "#/$defs/sample_editor"},
-        {"$ref": "#/$defs/edit_editor"},
-        {"$ref": "#/$defs/delivery_editor"},
-        {"$ref": "#/$defs/unavailable_editor"}
+        {
+          "$ref": "#/$defs/research_editor"
+        },
+        {
+          "$ref": "#/$defs/proposal_editor"
+        },
+        {
+          "$ref": "#/$defs/script_editor"
+        },
+        {
+          "$ref": "#/$defs/shot_editor"
+        },
+        {
+          "$ref": "#/$defs/asset_editor"
+        },
+        {
+          "$ref": "#/$defs/sample_editor"
+        },
+        {
+          "$ref": "#/$defs/edit_editor"
+        },
+        {
+          "$ref": "#/$defs/delivery_editor"
+        },
+        {
+          "$ref": "#/$defs/unavailable_editor"
+        }
       ]
     },
     "research_editor": {
       "type": "object",
-      "required": ["type", "data"],
+      "required": [
+        "type",
+        "data"
+      ],
       "properties": {
-        "type": {"const": "research_review"},
+        "type": {
+          "const": "research_review"
+        },
         "data": {
           "type": "object",
-          "required": ["reference_summary", "source_count", "usable_count", "risks", "sources", "reference"],
+          "required": [
+            "reference_summary",
+            "source_count",
+            "usable_count",
+            "risks",
+            "sources",
+            "reference"
+          ],
           "properties": {
-            "reference_summary": {"type": "string"},
-            "source_count": {"type": "integer", "minimum": 0},
-            "usable_count": {"type": "integer", "minimum": 0},
+            "reference_summary": {
+              "type": "string"
+            },
+            "source_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "usable_count": {
+              "type": "integer",
+              "minimum": 0
+            },
             "substages": {
               "type": "array",
               "minItems": 5,
               "maxItems": 5,
               "items": {
                 "type": "object",
-                "required": ["id", "label", "state", "message"],
+                "required": [
+                  "id",
+                  "label",
+                  "state",
+                  "message"
+                ],
                 "properties": {
-                  "id": {"enum": ["reference", "sources", "matching", "direction", "quality"]},
-                  "label": {"type": "string"},
-                  "state": {"enum": ["completed", "in_progress", "awaiting_human", "pending", "not_needed"]},
-                  "message": {"type": "string"}
+                  "id": {
+                    "enum": [
+                      "reference",
+                      "sources",
+                      "matching",
+                      "direction",
+                      "quality"
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "enum": [
+                      "completed",
+                      "in_progress",
+                      "awaiting_human",
+                      "pending",
+                      "not_needed"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  }
                 },
                 "additionalProperties": false
               }
             },
-            "decision_inbox": {"type": "array", "items": {"type": "object", "required": ["id", "kind", "title", "message", "impact", "matrix_row_id", "source_media_id", "choices"], "properties": {"id": {"type": "string", "minLength": 1}, "kind": {"enum": ["material_gap", "direction"]}, "title": {"type": "string"}, "message": {"type": "string"}, "impact": {"type": "string"}, "matrix_row_id": {"$ref": "#/$defs/nullable_string"}, "source_media_id": {"$ref": "#/$defs/nullable_string"}, "choices": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false}},
-            "proposal_handoff": {"type": "object", "required": ["state", "message", "selected_direction_ids", "resolved_matrix_row_ids"], "properties": {"state": {"enum": ["checking", "needs_decision", "ready"]}, "message": {"type": "string"}, "selected_direction_ids": {"type": "array", "items": {"type": "string"}}, "resolved_matrix_row_ids": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false},
-            "risks": {"type": "array", "items": {"type": "string"}},
-            "template": {"type": "object", "required": ["label", "version", "status"], "properties": {"label": {"type": "string"}, "version": {"type": "string"}, "status": {"type": "string"}}, "additionalProperties": false},
-            "breakdown": {"type": "object", "required": ["label", "identified", "needs_review", "missing", "rows"], "properties": {"label": {"type": "string"}, "identified": {"type": "integer", "minimum": 0}, "needs_review": {"type": "integer", "minimum": 0}, "missing": {"type": "integer", "minimum": 0}, "rows": {"type": "array", "items": {"type": "object", "additionalProperties": true}}}, "additionalProperties": false},
-            "matching": {"type": "object", "required": ["label", "rows"], "properties": {"label": {"type": "string"}, "rows": {"type": "array", "items": {"type": "object", "additionalProperties": true}}}, "additionalProperties": false},
-            "directions": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
-            "quality": {"type": "object", "required": ["label", "score", "max_score", "status", "checks", "warnings"], "properties": {"label": {"type": "string"}, "score": {"$ref": "#/$defs/nullable_number"}, "max_score": {"$ref": "#/$defs/nullable_number"}, "status": {"type": "string"}, "checks": {"type": "array", "items": {"type": "object", "additionalProperties": true}}, "warnings": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false},
+            "decision_inbox": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "kind",
+                  "title",
+                  "message",
+                  "impact",
+                  "matrix_row_id",
+                  "source_media_id",
+                  "choices"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "kind": {
+                    "enum": [
+                      "material_gap",
+                      "direction"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "impact": {
+                    "type": "string"
+                  },
+                  "matrix_row_id": {
+                    "$ref": "#/$defs/nullable_string"
+                  },
+                  "source_media_id": {
+                    "$ref": "#/$defs/nullable_string"
+                  },
+                  "choices": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "proposal_handoff": {
+              "type": "object",
+              "required": [
+                "state",
+                "message",
+                "selected_direction_ids",
+                "resolved_matrix_row_ids"
+              ],
+              "properties": {
+                "state": {
+                  "enum": [
+                    "checking",
+                    "needs_decision",
+                    "ready"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "selected_direction_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "resolved_matrix_row_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "risks": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "template": {
+              "type": "object",
+              "required": [
+                "label",
+                "version",
+                "status"
+              ],
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "breakdown": {
+              "type": "object",
+              "required": [
+                "label",
+                "identified",
+                "needs_review",
+                "missing",
+                "rows"
+              ],
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "identified": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "needs_review": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "missing": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "matching": {
+              "type": "object",
+              "required": [
+                "label",
+                "rows"
+              ],
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "directions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "quality": {
+              "type": "object",
+              "required": [
+                "label",
+                "score",
+                "max_score",
+                "status",
+                "checks",
+                "warnings"
+              ],
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "score": {
+                  "$ref": "#/$defs/nullable_number"
+                },
+                "max_score": {
+                  "$ref": "#/$defs/nullable_number"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "checks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "warnings": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
             "sources": {
               "type": "array",
               "items": {
                 "type": "object",
                 "required": [
-                  "id", "label", "media_type", "summary", "reviewed", "usable_for", "risks",
-                  "duration_seconds", "resolution", "fps", "best_in_seconds", "best_out_seconds",
-                  "preview_url", "poster_url"
+                  "id",
+                  "label",
+                  "media_type",
+                  "summary",
+                  "reviewed",
+                  "usable_for",
+                  "risks",
+                  "duration_seconds",
+                  "resolution",
+                  "fps",
+                  "best_in_seconds",
+                  "best_out_seconds",
+                  "preview_url",
+                  "poster_url"
                 ],
                 "properties": {
-                  "id": {"type": "string", "minLength": 1},
-                  "label": {"type": "string"},
-                  "media_type": {"type": "string"},
-                  "summary": {"type": "string"},
-                  "reviewed": {"type": "boolean"},
-                  "usable_for": {"type": "array", "items": {"type": "string"}},
-                  "risks": {"type": "array", "items": {"type": "string"}},
-                  "duration_seconds": {"$ref": "#/$defs/nullable_number"},
-                  "resolution": {"type": "string"},
-                  "fps": {"$ref": "#/$defs/nullable_number"},
-                  "best_in_seconds": {"$ref": "#/$defs/nullable_number"},
-                  "best_out_seconds": {"$ref": "#/$defs/nullable_number"},
-                  "preview_url": {"$ref": "#/$defs/nullable_string"},
-                  "poster_url": {"$ref": "#/$defs/nullable_string"}
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "media_type": {
+                    "type": "string"
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "reviewed": {
+                    "type": "boolean"
+                  },
+                  "usable_for": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "risks": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "duration_seconds": {
+                    "$ref": "#/$defs/nullable_number"
+                  },
+                  "resolution": {
+                    "type": "string"
+                  },
+                  "fps": {
+                    "$ref": "#/$defs/nullable_number"
+                  },
+                  "best_in_seconds": {
+                    "$ref": "#/$defs/nullable_number"
+                  },
+                  "best_out_seconds": {
+                    "$ref": "#/$defs/nullable_number"
+                  },
+                  "preview_url": {
+                    "$ref": "#/$defs/nullable_string"
+                  },
+                  "poster_url": {
+                    "$ref": "#/$defs/nullable_string"
+                  }
                 },
                 "additionalProperties": false
               }
@@ -244,41 +773,125 @@
             "reference": {
               "type": "object",
               "required": [
-                "title", "summary", "duration_seconds", "hook", "beat_order", "proof_method",
-                "avg_evidence_seconds", "camera_method", "caption_method", "typography", "transitions",
-                "replicate", "differentiate", "preview_url", "poster_url", "scenes"
+                "title",
+                "summary",
+                "duration_seconds",
+                "hook",
+                "beat_order",
+                "proof_method",
+                "avg_evidence_seconds",
+                "camera_method",
+                "caption_method",
+                "typography",
+                "transitions",
+                "replicate",
+                "differentiate",
+                "preview_url",
+                "poster_url",
+                "scenes"
               ],
               "properties": {
-                "title": {"type": "string"},
-                "summary": {"type": "string"},
-                "duration_seconds": {"$ref": "#/$defs/nullable_number"},
-                "hook": {"type": "string"},
-                "beat_order": {"type": "array", "items": {"type": "string"}},
-                "proof_method": {"type": "string"},
-                "avg_evidence_seconds": {"$ref": "#/$defs/nullable_number"},
-                "camera_method": {"type": "string"},
-                "caption_method": {"type": "string"},
-                "typography": {"type": "string"},
-                "transitions": {"type": "array", "items": {"type": "string"}},
-                "replicate": {"type": "array", "items": {"type": "string"}},
-                "differentiate": {"type": "array", "items": {"type": "string"}},
-                "preview_url": {"$ref": "#/$defs/nullable_string"},
-                "poster_url": {"$ref": "#/$defs/nullable_string"},
-                "fingerprint_version": {"type": "string"},
-                "fingerprint_upgrade_notice": {"type": "string"},
+                "title": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "duration_seconds": {
+                  "$ref": "#/$defs/nullable_number"
+                },
+                "hook": {
+                  "type": "string"
+                },
+                "beat_order": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "proof_method": {
+                  "type": "string"
+                },
+                "avg_evidence_seconds": {
+                  "$ref": "#/$defs/nullable_number"
+                },
+                "camera_method": {
+                  "type": "string"
+                },
+                "caption_method": {
+                  "type": "string"
+                },
+                "typography": {
+                  "type": "string"
+                },
+                "transitions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "replicate": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "differentiate": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "preview_url": {
+                  "$ref": "#/$defs/nullable_string"
+                },
+                "poster_url": {
+                  "$ref": "#/$defs/nullable_string"
+                },
+                "fingerprint_version": {
+                  "type": "string"
+                },
+                "fingerprint_upgrade_notice": {
+                  "type": "string"
+                },
                 "scenes": {
                   "type": "array",
                   "items": {
                     "type": "object",
-                    "required": ["id", "description", "screen_copy", "energy", "start_seconds", "end_seconds", "poster_url"],
+                    "required": [
+                      "id",
+                      "description",
+                      "screen_copy",
+                      "energy",
+                      "start_seconds",
+                      "end_seconds",
+                      "poster_url"
+                    ],
                     "properties": {
-                      "id": {"type": "string", "minLength": 1},
-                      "description": {"type": "string"},
-                      "screen_copy": {"type": "string"},
-                      "energy": {"type": "string"},
-                      "start_seconds": {"type": "number", "minimum": 0},
-                      "end_seconds": {"type": "number", "minimum": 0},
-                      "poster_url": {"$ref": "#/$defs/nullable_string"}
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "screen_copy": {
+                        "type": "string"
+                      },
+                      "energy": {
+                        "type": "string"
+                      },
+                      "start_seconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "end_seconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "poster_url": {
+                        "$ref": "#/$defs/nullable_string"
+                      }
                     },
                     "additionalProperties": false
                   }
@@ -294,43 +907,105 @@
     },
     "proposal_editor": {
       "type": "object",
-      "required": ["type", "data"],
+      "required": [
+        "type",
+        "data"
+      ],
       "properties": {
-        "type": {"const": "proposal_choice"},
+        "type": {
+          "const": "proposal_choice"
+        },
         "data": {
           "type": "object",
-          "required": ["concepts", "selected_id", "estimated_cost_usd"],
+          "required": [
+            "concepts",
+            "selected_id",
+            "estimated_cost_usd"
+          ],
           "properties": {
             "concepts": {
               "type": "array",
               "items": {
                 "type": "object",
                 "required": [
-                  "id", "title", "hook", "duration_seconds", "core_message", "target_audience",
-                  "tone", "visual_approach", "why_this_works", "key_points", "cta",
-                  "narrative_structure", "target_platform"
+                  "id",
+                  "title",
+                  "hook",
+                  "duration_seconds",
+                  "core_message",
+                  "target_audience",
+                  "tone",
+                  "visual_approach",
+                  "why_this_works",
+                  "key_points",
+                  "cta",
+                  "narrative_structure",
+                  "target_platform"
                 ],
                 "properties": {
-                  "id": {"type": "string", "minLength": 1},
-                  "title": {"type": "string"},
-                  "hook": {"type": "string"},
-                  "duration_seconds": {"$ref": "#/$defs/nullable_number"},
-                  "core_message": {"type": "string"},
-                  "target_audience": {"type": "string"},
-                  "tone": {"type": "string"},
-                  "visual_approach": {"type": "string"},
-                  "why_this_works": {"type": "string"},
-                  "key_points": {"type": "array", "items": {"type": "string"}},
-                  "cta": {"type": "string"},
-                  "narrative_structure": {"type": "string"},
-                  "target_platform": {"type": "string"}
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "hook": {
+                    "type": "string"
+                  },
+                  "duration_seconds": {
+                    "$ref": "#/$defs/nullable_number"
+                  },
+                  "core_message": {
+                    "type": "string"
+                  },
+                  "target_audience": {
+                    "type": "string"
+                  },
+                  "tone": {
+                    "type": "string"
+                  },
+                  "visual_approach": {
+                    "type": "string"
+                  },
+                  "why_this_works": {
+                    "type": "string"
+                  },
+                  "key_points": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "cta": {
+                    "type": "string"
+                  },
+                  "narrative_structure": {
+                    "type": "string"
+                  },
+                  "target_platform": {
+                    "type": "string"
+                  }
                 },
                 "additionalProperties": false
               }
             },
-            "selected_id": {"$ref": "#/$defs/nullable_string"},
-            "estimated_cost_usd": {"$ref": "#/$defs/nullable_number"},
-            "control_plan": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/creative_control_plan"}]}
+            "selected_id": {
+              "$ref": "#/$defs/nullable_string"
+            },
+            "estimated_cost_usd": {
+              "$ref": "#/$defs/nullable_number"
+            },
+            "control_plan": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/creative_control_plan"
+                }
+              ]
+            }
           },
           "additionalProperties": false
         }
@@ -339,61 +1014,207 @@
     },
     "creative_control_plan": {
       "type": "object",
-      "required": ["plan_id", "plan_version", "status", "selected_direction_id", "sections"],
+      "required": [
+        "plan_id",
+        "plan_version",
+        "status",
+        "selected_direction_id",
+        "sections"
+      ],
       "properties": {
-        "plan_id": {"type": "string"}, "plan_version": {"type": "integer", "minimum": 1},
-        "status": {"enum": ["draft", "needs_revision", "approved"]}, "selected_direction_id": {"type": "string"},
-        "sections": {"type": "array", "items": {"$ref": "#/$defs/creative_control_section"}},
-        "feedback": {"type": "string"}
+        "plan_id": {
+          "type": "string"
+        },
+        "plan_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "needs_revision",
+            "approved"
+          ]
+        },
+        "selected_direction_id": {
+          "type": "string"
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/creative_control_section"
+          }
+        },
+        "feedback": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     },
     "creative_control_section": {
       "type": "object",
-      "required": ["id", "label", "summary", "rules", "evidence_refs", "industry_notes", "review", "feedback"],
+      "required": [
+        "id",
+        "label",
+        "summary",
+        "rules",
+        "evidence_refs",
+        "industry_notes",
+        "review",
+        "feedback"
+      ],
       "properties": {
-        "id": {"type": "string"}, "label": {"type": "string"}, "summary": {"type": "string"},
-        "rules": {"type": "array", "items": {"type": "string"}},
-        "evidence_refs": {"type": "array", "items": {"type": "string"}}, "industry_notes": {"type": "array", "items": {"type": "string"}},
-        "review": {"enum": ["pending", "approved", "needs_adjustment"]}, "feedback": {"type": "string"}
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "industry_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "review": {
+          "enum": [
+            "pending",
+            "approved",
+            "needs_adjustment"
+          ]
+        },
+        "feedback": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     },
     "timed_section": {
       "type": "object",
-      "required": ["id", "label", "text", "start_seconds", "end_seconds"],
+      "required": [
+        "id",
+        "label",
+        "text",
+        "start_seconds",
+        "end_seconds"
+      ],
       "properties": {
-        "id": {"type": "string", "minLength": 1},
-        "label": {"type": "string"},
-        "text": {"type": "string"},
-        "screen_copy": {"type": "string"},
-        "start_seconds": {"type": "number", "minimum": 0},
-        "end_seconds": {"type": "number", "minimum": 0},
-        "section_goal": {"type": "string"},
-        "pacing": {"type": "string"},
-        "visual_intent": {"type": "string"},
-        "evidence_requirements": {"type": "array", "items": {"type": "string"}},
-        "control_rule_refs": {"type": "array", "items": {"type": "string"}},
-        "director_rules": {"type": "array", "items": {"type": "string"}},
-        "review": {"enum": ["pending", "approved", "needs_adjustment"]},
-        "feedback": {"type": "string"}
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "screen_copy": {
+          "type": "string"
+        },
+        "start_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "end_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "section_goal": {
+          "type": "string"
+        },
+        "pacing": {
+          "type": "string"
+        },
+        "visual_intent": {
+          "type": "string"
+        },
+        "evidence_requirements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "control_rule_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "director_rules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "review": {
+          "enum": [
+            "pending",
+            "approved",
+            "needs_adjustment"
+          ]
+        },
+        "feedback": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     },
     "script_editor": {
       "type": "object",
-      "required": ["type", "data"],
+      "required": [
+        "type",
+        "data"
+      ],
       "properties": {
-        "type": {"const": "script_editor"},
+        "type": {
+          "const": "script_editor"
+        },
         "data": {
           "type": "object",
-          "required": ["duration_seconds", "sections"],
+          "required": [
+            "duration_seconds",
+            "sections"
+          ],
           "properties": {
-            "duration_seconds": {"$ref": "#/$defs/nullable_number"},
-            "script_id": {"type": "string"},
-            "script_version": {"type": "integer", "minimum": 1},
-            "status": {"enum": ["draft", "needs_revision", "approved"]},
-            "sections": {"type": "array", "items": {"$ref": "#/$defs/timed_section"}}
+            "duration_seconds": {
+              "$ref": "#/$defs/nullable_number"
+            },
+            "script_id": {
+              "type": "string"
+            },
+            "script_version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "status": {
+              "enum": [
+                "draft",
+                "needs_revision",
+                "approved"
+              ]
+            },
+            "sections": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/timed_section"
+              }
+            }
           },
           "additionalProperties": false
         }
@@ -403,76 +1224,201 @@
     "shot": {
       "type": "object",
       "required": [
-        "id", "beat", "screen_copy", "source_label", "in_seconds", "out_seconds",
-        "timeline_in_seconds", "timeline_out_seconds", "source_in_seconds", "source_out_seconds",
-        "preview_url", "poster_url", "intent", "framing", "movement", "narrative_role",
-        "source_summary", "source_usable_for", "mapping_reason", "reference_evidence"
+        "id",
+        "beat",
+        "screen_copy",
+        "source_label",
+        "in_seconds",
+        "out_seconds",
+        "timeline_in_seconds",
+        "timeline_out_seconds",
+        "source_in_seconds",
+        "source_out_seconds",
+        "preview_url",
+        "poster_url",
+        "intent",
+        "framing",
+        "movement",
+        "narrative_role",
+        "source_summary",
+        "source_usable_for",
+        "mapping_reason",
+        "reference_evidence"
       ],
       "properties": {
-        "id": {"type": "string", "minLength": 1},
-        "beat": {"type": "string"},
-        "screen_copy": {"type": "string"},
-        "source_label": {"type": "string"},
-        "in_seconds": {"type": "number", "minimum": 0},
-        "out_seconds": {"type": "number", "minimum": 0},
-        "timeline_in_seconds": {"type": "number", "minimum": 0},
-        "timeline_out_seconds": {"type": "number", "minimum": 0},
-        "source_in_seconds": {"$ref": "#/$defs/nullable_number"},
-        "source_out_seconds": {"$ref": "#/$defs/nullable_number"},
-        "preview_url": {"$ref": "#/$defs/nullable_string"},
-        "poster_url": {"$ref": "#/$defs/nullable_string"},
-        "intent": {"type": "string"},
-        "framing": {"type": "string"},
-        "movement": {"type": "string"},
-        "narrative_role": {"type": "string"},
-        "source_summary": {"type": "string"},
-        "source_usable_for": {"type": "array", "items": {"type": "string"}},
-        "mapping_reason": {"type": "string"},
-        "reference_evidence": {"$ref": "#/$defs/reference_evidence"}
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "beat": {
+          "type": "string"
+        },
+        "screen_copy": {
+          "type": "string"
+        },
+        "source_label": {
+          "type": "string"
+        },
+        "in_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "out_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "timeline_in_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "timeline_out_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "source_in_seconds": {
+          "$ref": "#/$defs/nullable_number"
+        },
+        "source_out_seconds": {
+          "$ref": "#/$defs/nullable_number"
+        },
+        "preview_url": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "poster_url": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "intent": {
+          "type": "string"
+        },
+        "framing": {
+          "type": "string"
+        },
+        "movement": {
+          "type": "string"
+        },
+        "narrative_role": {
+          "type": "string"
+        },
+        "source_summary": {
+          "type": "string"
+        },
+        "source_usable_for": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mapping_reason": {
+          "type": "string"
+        },
+        "reference_evidence": {
+          "$ref": "#/$defs/reference_evidence"
+        }
       },
       "additionalProperties": false
     },
     "reference_evidence": {
       "type": "object",
       "required": [
-        "mode", "reference_scene_id", "description", "mechanism", "rationale",
-        "start_seconds", "end_seconds", "preview_url", "poster_url"
+        "mode",
+        "reference_scene_id",
+        "description",
+        "mechanism",
+        "rationale",
+        "start_seconds",
+        "end_seconds",
+        "preview_url",
+        "poster_url"
       ],
       "properties": {
-        "mode": {"enum": ["direct_segment", "structural_only", "none"]},
-        "reference_scene_id": {"type": "string"},
-        "description": {"type": "string"},
-        "mechanism": {"type": "string"},
-        "rationale": {"type": "string"},
-        "start_seconds": {"$ref": "#/$defs/nullable_number"},
-        "end_seconds": {"$ref": "#/$defs/nullable_number"},
-        "preview_url": {"$ref": "#/$defs/nullable_string"},
-        "poster_url": {"$ref": "#/$defs/nullable_string"}
+        "mode": {
+          "enum": [
+            "direct_segment",
+            "structural_only",
+            "none"
+          ]
+        },
+        "reference_scene_id": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "mechanism": {
+          "type": "string"
+        },
+        "rationale": {
+          "type": "string"
+        },
+        "start_seconds": {
+          "$ref": "#/$defs/nullable_number"
+        },
+        "end_seconds": {
+          "$ref": "#/$defs/nullable_number"
+        },
+        "preview_url": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "poster_url": {
+          "$ref": "#/$defs/nullable_string"
+        }
       },
       "additionalProperties": false
     },
     "shot_editor": {
       "type": "object",
-      "required": ["type", "data"],
+      "required": [
+        "type",
+        "data"
+      ],
       "properties": {
-        "type": {"const": "shot_mapping"},
+        "type": {
+          "const": "shot_mapping"
+        },
         "data": {
           "type": "object",
-          "required": ["duration_seconds", "reference_basis", "shots"],
+          "required": [
+            "duration_seconds",
+            "reference_basis",
+            "shots"
+          ],
           "properties": {
-            "duration_seconds": {"$ref": "#/$defs/nullable_number"},
+            "duration_seconds": {
+              "$ref": "#/$defs/nullable_number"
+            },
             "reference_basis": {
               "type": "object",
-              "required": ["summary", "beat_order", "proof_method", "avg_evidence_seconds"],
+              "required": [
+                "summary",
+                "beat_order",
+                "proof_method",
+                "avg_evidence_seconds"
+              ],
               "properties": {
-                "summary": {"type": "string"},
-                "beat_order": {"type": "array", "items": {"type": "string"}},
-                "proof_method": {"type": "string"},
-                "avg_evidence_seconds": {"$ref": "#/$defs/nullable_number"}
+                "summary": {
+                  "type": "string"
+                },
+                "beat_order": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "proof_method": {
+                  "type": "string"
+                },
+                "avg_evidence_seconds": {
+                  "$ref": "#/$defs/nullable_number"
+                }
               },
               "additionalProperties": false
             },
-            "shots": {"type": "array", "items": {"$ref": "#/$defs/shot"}}
+            "shots": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/shot"
+              }
+            }
           },
           "additionalProperties": false
         }
@@ -481,29 +1427,64 @@
     },
     "asset_editor": {
       "type": "object",
-      "required": ["type", "data"],
+      "required": [
+        "type",
+        "data"
+      ],
       "properties": {
-        "type": {"const": "asset_review"},
+        "type": {
+          "const": "asset_review"
+        },
         "data": {
           "type": "object",
           "required": [
-            "narration_status", "subtitle_status", "music_status", "estimated_cost_usd",
-            "planned_count", "prepared_count", "waiting_confirmation_count",
-            "paid_generation_approved", "items"
+            "narration_status",
+            "subtitle_status",
+            "music_status",
+            "estimated_cost_usd",
+            "planned_count",
+            "prepared_count",
+            "waiting_confirmation_count",
+            "paid_generation_approved",
+            "items"
           ],
           "properties": {
-            "narration_status": {"type": "string"},
-            "subtitle_status": {"type": "string"},
-            "music_status": {"type": "string"},
-            "estimated_cost_usd": {"$ref": "#/$defs/nullable_number"},
-            "planned_count": {"type": "integer", "minimum": 0},
-            "prepared_count": {"type": "integer", "minimum": 0},
-            "waiting_confirmation_count": {"type": "integer", "minimum": 0},
-            "paid_generation_approved": {"type": "boolean"},
+            "narration_status": {
+              "type": "string"
+            },
+            "subtitle_status": {
+              "type": "string"
+            },
+            "music_status": {
+              "type": "string"
+            },
+            "estimated_cost_usd": {
+              "$ref": "#/$defs/nullable_number"
+            },
+            "planned_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "prepared_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "waiting_confirmation_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "paid_generation_approved": {
+              "type": "boolean"
+            },
             "execution_plan": {
               "oneOf": [
-                {"type": "null"},
-                {"type": "object", "additionalProperties": true}
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": true
+                }
               ]
             },
             "items": {
@@ -511,21 +1492,52 @@
               "items": {
                 "type": "object",
                 "required": [
-                  "id", "label", "type", "provider", "stage_label", "status",
-                  "reason", "source_summary", "source_range", "paid", "cost_estimate_usd"
+                  "id",
+                  "label",
+                  "type",
+                  "provider",
+                  "stage_label",
+                  "status",
+                  "reason",
+                  "source_summary",
+                  "source_range",
+                  "paid",
+                  "cost_estimate_usd"
                 ],
                 "properties": {
-                  "id": {"type": "string"},
-                  "label": {"type": "string"},
-                  "type": {"type": "string"},
-                  "provider": {"type": "string"},
-                  "stage_label": {"type": "string"},
-                  "status": {"type": "string"},
-                  "reason": {"type": "string"},
-                  "source_summary": {"type": "string"},
-                  "source_range": {"type": "string"},
-                  "paid": {"type": "boolean"},
-                  "cost_estimate_usd": {"$ref": "#/$defs/nullable_number"}
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "provider": {
+                    "type": "string"
+                  },
+                  "stage_label": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "source_summary": {
+                    "type": "string"
+                  },
+                  "source_range": {
+                    "type": "string"
+                  },
+                  "paid": {
+                    "type": "boolean"
+                  },
+                  "cost_estimate_usd": {
+                    "$ref": "#/$defs/nullable_number"
+                  }
                 },
                 "additionalProperties": false
               }
@@ -538,26 +1550,58 @@
     },
     "sample_editor": {
       "type": "object",
-      "required": ["type", "data"],
+      "required": [
+        "type",
+        "data"
+      ],
       "properties": {
-        "type": {"const": "sample_review"},
+        "type": {
+          "const": "sample_review"
+        },
         "data": {
           "type": "object",
-          "required": ["duration_seconds", "preview_url", "qa_status", "review_summary"],
+          "required": [
+            "duration_seconds",
+            "preview_url",
+            "qa_status",
+            "review_summary"
+          ],
           "properties": {
-            "duration_seconds": {"$ref": "#/$defs/nullable_number"},
-            "preview_url": {"$ref": "#/$defs/nullable_string"},
-            "qa_status": {"type": "string"},
-            "review_summary": {"type": "string"},
+            "duration_seconds": {
+              "$ref": "#/$defs/nullable_number"
+            },
+            "preview_url": {
+              "$ref": "#/$defs/nullable_string"
+            },
+            "qa_status": {
+              "type": "string"
+            },
+            "review_summary": {
+              "type": "string"
+            },
             "execution_trace": {
               "oneOf": [
-                {"type": "null"},
+                {
+                  "type": "null"
+                },
                 {
                   "type": "object",
-                  "required": ["summary", "shots"],
+                  "required": [
+                    "summary",
+                    "shots"
+                  ],
                   "properties": {
-                    "summary": {"type": "object", "additionalProperties": true},
-                    "shots": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+                    "summary": {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    "shots": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    }
                   },
                   "additionalProperties": false
                 }
@@ -571,50 +1615,136 @@
     },
     "edit_editor": {
       "type": "object",
-      "required": ["type", "data"],
+      "required": [
+        "type",
+        "data"
+      ],
       "properties": {
-        "type": {"const": "edit_review"},
+        "type": {
+          "const": "edit_review"
+        },
         "data": {
           "type": "object",
-          "required": ["change_scope", "reasons", "affected_shot_count"],
+          "required": [
+            "change_scope",
+            "reasons",
+            "affected_shot_count"
+          ],
           "properties": {
-            "change_scope": {"type": "string"},
-            "reasons": {"type": "array", "items": {"type": "string"}},
-            "affected_shot_count": {"type": "integer", "minimum": 0},
-            "summary": {"type": "string"},
-            "preview_url": {"$ref": "#/$defs/nullable_string"},
-            "preview_duration_seconds": {"$ref": "#/$defs/nullable_number"},
-            "capabilities": {"type": "array", "items": {"type": "string"}},
+            "change_scope": {
+              "type": "string"
+            },
+            "reasons": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "affected_shot_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "summary": {
+              "type": "string"
+            },
+            "preview_url": {
+              "$ref": "#/$defs/nullable_string"
+            },
+            "preview_duration_seconds": {
+              "$ref": "#/$defs/nullable_number"
+            },
+            "capabilities": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "shots": {
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["id", "title", "source_label", "source_in_seconds", "source_out_seconds", "duration_seconds", "enabled", "speed", "caption", "narration", "reason", "preview_url", "poster_url"],
+                "required": [
+                  "id",
+                  "title",
+                  "source_label",
+                  "source_in_seconds",
+                  "source_out_seconds",
+                  "duration_seconds",
+                  "enabled",
+                  "speed",
+                  "caption",
+                  "narration",
+                  "reason",
+                  "preview_url",
+                  "poster_url"
+                ],
                 "properties": {
-                  "id": {"type": "string"},
-                  "title": {"type": "string"},
-                  "source_label": {"type": "string"},
-                  "source_in_seconds": {"$ref": "#/$defs/nullable_number"},
-                  "source_out_seconds": {"$ref": "#/$defs/nullable_number"},
-                  "duration_seconds": {"type": "number", "minimum": 0},
-                  "enabled": {"type": "boolean"},
-                  "speed": {"type": "number", "exclusiveMinimum": 0},
-                  "caption": {"type": "string"},
-                  "narration": {"type": "string"},
-                  "reason": {"type": "string"},
-                  "preview_url": {"$ref": "#/$defs/nullable_string"},
-                  "poster_url": {"$ref": "#/$defs/nullable_string"}
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "source_label": {
+                    "type": "string"
+                  },
+                  "source_in_seconds": {
+                    "$ref": "#/$defs/nullable_number"
+                  },
+                  "source_out_seconds": {
+                    "$ref": "#/$defs/nullable_number"
+                  },
+                  "duration_seconds": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "speed": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "caption": {
+                    "type": "string"
+                  },
+                  "narration": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "preview_url": {
+                    "$ref": "#/$defs/nullable_string"
+                  },
+                  "poster_url": {
+                    "$ref": "#/$defs/nullable_string"
+                  }
                 },
                 "additionalProperties": false
               }
             },
             "audio": {
               "type": "object",
-              "required": ["music_volume", "sfx_volume", "narration_enabled"],
+              "required": [
+                "music_volume",
+                "sfx_volume",
+                "narration_enabled"
+              ],
               "properties": {
-                "music_volume": {"type": "number", "minimum": 0, "maximum": 1},
-                "sfx_volume": {"type": "number", "minimum": 0, "maximum": 1},
-                "narration_enabled": {"type": "boolean"}
+                "music_volume": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "sfx_volume": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "narration_enabled": {
+                  "type": "boolean"
+                }
               },
               "additionalProperties": false
             }
@@ -626,32 +1756,65 @@
     },
     "delivery_editor": {
       "type": "object",
-      "required": ["type", "data"],
+      "required": [
+        "type",
+        "data"
+      ],
       "properties": {
-        "type": {"const": "delivery_review"},
+        "type": {
+          "const": "delivery_review"
+        },
         "data": {
           "type": "object",
-          "required": ["duration_seconds", "qa_status", "download_url", "format_label"],
+          "required": [
+            "duration_seconds",
+            "qa_status",
+            "download_url",
+            "format_label"
+          ],
           "properties": {
-            "duration_seconds": {"$ref": "#/$defs/nullable_number"},
-            "qa_status": {"type": "string"},
-            "download_url": {"$ref": "#/$defs/delivery_media_url"},
-            "format_label": {"type": "string"},
-            "player": {"$ref": "#/$defs/delivery_player"},
-            "timeline": {"$ref": "#/$defs/delivery_timeline"},
+            "duration_seconds": {
+              "$ref": "#/$defs/nullable_number"
+            },
+            "qa_status": {
+              "type": "string"
+            },
+            "download_url": {
+              "$ref": "#/$defs/delivery_media_url"
+            },
+            "format_label": {
+              "type": "string"
+            },
+            "player": {
+              "$ref": "#/$defs/delivery_player"
+            },
+            "timeline": {
+              "$ref": "#/$defs/delivery_timeline"
+            },
             "candidate_groups": {
               "type": "array",
-              "items": {"$ref": "#/$defs/delivery_candidate_group"}
+              "items": {
+                "$ref": "#/$defs/delivery_candidate_group"
+              }
             },
             "versions": {
               "type": "array",
-              "items": {"$ref": "#/$defs/delivery_version"}
+              "items": {
+                "$ref": "#/$defs/delivery_version"
+              }
             },
             "pending_changes": {
               "type": "array",
-              "items": {"$ref": "#/$defs/delivery_pending_change"}
+              "items": {
+                "$ref": "#/$defs/delivery_pending_change"
+              }
             },
-            "delivery": {"$ref": "#/$defs/delivery_publish_info"}
+            "evaluation": {
+              "$ref": "#/$defs/delivery_evaluation"
+            },
+            "delivery": {
+              "$ref": "#/$defs/delivery_publish_info"
+            }
           },
           "additionalProperties": false
         }
@@ -660,82 +1823,174 @@
     },
     "delivery_publish_info": {
       "type": "object",
-      "required": ["entries", "notes"],
+      "required": [
+        "entries",
+        "notes"
+      ],
       "properties": {
         "entries": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["platform", "platform_label", "status", "status_label", "title", "description", "hashtags"],
+            "required": [
+              "platform",
+              "platform_label",
+              "status",
+              "status_label",
+              "title",
+              "description",
+              "hashtags"
+            ],
             "properties": {
-              "platform": {"type": "string"},
-              "platform_label": {"type": "string"},
-              "status": {"type": "string"},
-              "status_label": {"type": "string"},
-              "title": {"type": "string"},
-              "description": {"type": "string"},
-              "hashtags": {"type": "array", "items": {"type": "string"}},
-              "export_path": {"type": "string"},
-              "timestamp": {"type": "string"}
+              "platform": {
+                "type": "string"
+              },
+              "platform_label": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "status_label": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "hashtags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "export_path": {
+                "type": "string"
+              },
+              "timestamp": {
+                "type": "string"
+              }
             },
             "additionalProperties": false
           }
         },
-        "package_path": {"type": "string"},
+        "package_path": {
+          "type": "string"
+        },
         "package_files": {
           "type": "array",
-          "items": {"$ref": "#/$defs/delivery_package_file"}
+          "items": {
+            "$ref": "#/$defs/delivery_package_file"
+          }
         },
-        "notes": {"type": "string"},
-        "hero_output": {"type": "string"},
+        "notes": {
+          "type": "string"
+        },
+        "hero_output": {
+          "type": "string"
+        },
         "qa_evidence": {
           "type": "array",
-          "items": {"$ref": "#/$defs/delivery_evidence"}
+          "items": {
+            "$ref": "#/$defs/delivery_evidence"
+          }
         }
       },
       "additionalProperties": false
     },
     "delivery_package_file": {
       "type": "object",
-      "required": ["relative_path", "label", "kind", "download_url"],
+      "required": [
+        "relative_path",
+        "label",
+        "kind",
+        "download_url"
+      ],
       "properties": {
-        "relative_path": {"type": "string"},
-        "label": {"type": "string"},
-        "kind": {"enum": ["video", "subtitle", "thumbnail", "metadata", "other"]},
-        "download_url": {"$ref": "#/$defs/delivery_media_url"},
-        "size_bytes": {"type": "integer", "minimum": 0}
+        "relative_path": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "video",
+            "subtitle",
+            "thumbnail",
+            "metadata",
+            "other"
+          ]
+        },
+        "download_url": {
+          "$ref": "#/$defs/delivery_media_url"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
       },
       "additionalProperties": false
     },
     "delivery_evidence": {
       "type": "object",
-      "required": ["relative_path", "label", "download_url"],
+      "required": [
+        "relative_path",
+        "label",
+        "download_url"
+      ],
       "properties": {
-        "relative_path": {"type": "string"},
-        "label": {"type": "string"},
-        "download_url": {"$ref": "#/$defs/delivery_media_url"}
+        "relative_path": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "download_url": {
+          "$ref": "#/$defs/delivery_media_url"
+        }
       },
       "additionalProperties": false
     },
     "delivery_player": {
       "type": "object",
-      "required": ["video_url", "poster_url", "duration_seconds"],
+      "required": [
+        "video_url",
+        "poster_url",
+        "duration_seconds"
+      ],
       "properties": {
-        "video_url": {"$ref": "#/$defs/delivery_media_url"},
-        "poster_url": {"$ref": "#/$defs/delivery_media_url"},
-        "duration_seconds": {"$ref": "#/$defs/nullable_number"}
+        "video_url": {
+          "$ref": "#/$defs/delivery_media_url"
+        },
+        "poster_url": {
+          "$ref": "#/$defs/delivery_media_url"
+        },
+        "duration_seconds": {
+          "$ref": "#/$defs/nullable_number"
+        }
       },
       "oneOf": [
         {
           "properties": {
-            "video_url": {"type": "null"},
-            "poster_url": {"type": "null"}
+            "video_url": {
+              "type": "null"
+            },
+            "poster_url": {
+              "type": "null"
+            }
           }
         },
         {
           "properties": {
-            "video_url": {"$ref": "#/$defs/required_delivery_media_url"},
-            "poster_url": {"$ref": "#/$defs/required_delivery_media_url"}
+            "video_url": {
+              "$ref": "#/$defs/required_delivery_media_url"
+            },
+            "poster_url": {
+              "$ref": "#/$defs/required_delivery_media_url"
+            }
           }
         }
       ],
@@ -743,132 +1998,425 @@
     },
     "delivery_timeline": {
       "type": "object",
-      "required": ["duration_seconds", "tracks"],
+      "required": [
+        "duration_seconds",
+        "tracks"
+      ],
       "properties": {
-        "duration_seconds": {"$ref": "#/$defs/nullable_number"},
+        "duration_seconds": {
+          "$ref": "#/$defs/nullable_number"
+        },
         "tracks": {
           "type": "array",
-          "items": {"$ref": "#/$defs/delivery_track"}
+          "items": {
+            "$ref": "#/$defs/delivery_track"
+          }
         }
       },
       "additionalProperties": false
     },
     "delivery_track": {
       "type": "object",
-      "required": ["kind", "label", "segments", "empty_message"],
+      "required": [
+        "kind",
+        "label",
+        "segments",
+        "empty_message"
+      ],
       "properties": {
-        "kind": {"enum": ["video", "narration", "copy", "audio"]},
-        "label": {"type": "string"},
+        "kind": {
+          "enum": [
+            "video",
+            "narration",
+            "copy",
+            "audio"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
         "segments": {
           "type": "array",
-          "items": {"$ref": "#/$defs/delivery_segment"}
+          "items": {
+            "$ref": "#/$defs/delivery_segment"
+          }
         },
-        "empty_message": {"$ref": "#/$defs/nullable_string"}
+        "empty_message": {
+          "$ref": "#/$defs/nullable_string"
+        }
       },
       "additionalProperties": false
     },
     "delivery_segment": {
       "type": "object",
       "required": [
-        "id", "label", "start_seconds", "end_seconds", "shot_ids",
-        "editable", "sync_narration"
+        "id",
+        "label",
+        "start_seconds",
+        "end_seconds",
+        "shot_ids",
+        "editable",
+        "sync_narration"
       ],
       "properties": {
-        "id": {"type": "string", "minLength": 1},
-        "label": {"type": "string"},
-        "start_seconds": {"type": "number", "minimum": 0},
-        "end_seconds": {"type": "number", "minimum": 0},
-        "shot_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
-        "editable": {"type": "boolean"},
-        "sync_narration": {"type": "boolean"},
-        "preview_url": {"$ref": "#/$defs/delivery_media_url"},
-        "poster_url": {"$ref": "#/$defs/delivery_media_url"},
-        "source_label": {"type": "string"}
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string"
+        },
+        "start_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "end_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "shot_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "editable": {
+          "type": "boolean"
+        },
+        "sync_narration": {
+          "type": "boolean"
+        },
+        "preview_url": {
+          "$ref": "#/$defs/delivery_media_url"
+        },
+        "poster_url": {
+          "$ref": "#/$defs/delivery_media_url"
+        },
+        "source_label": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     },
     "delivery_candidate_group": {
       "type": "object",
-      "required": ["kind", "label", "candidates", "empty_message"],
+      "required": [
+        "kind",
+        "label",
+        "candidates",
+        "empty_message"
+      ],
       "properties": {
-        "kind": {"enum": ["cover", "hook", "bgm", "ending"]},
-        "label": {"type": "string"},
+        "kind": {
+          "enum": [
+            "cover",
+            "hook",
+            "bgm",
+            "ending"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
         "candidates": {
           "type": "array",
-          "items": {"$ref": "#/$defs/delivery_candidate"}
+          "items": {
+            "$ref": "#/$defs/delivery_candidate"
+          }
         },
-        "empty_message": {"$ref": "#/$defs/nullable_string"}
+        "empty_message": {
+          "$ref": "#/$defs/nullable_string"
+        }
       },
       "allOf": [
         {
-          "if": {"properties": {"kind": {"const": "cover"}}},
-          "then": {"properties": {"candidates": {"items": {"properties": {"id": {"pattern": "^cover-"}}}}}}
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "cover"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "candidates": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "pattern": "^cover-"
+                    }
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": {"properties": {"kind": {"const": "hook"}}},
-          "then": {"properties": {"candidates": {"items": {"properties": {"id": {"pattern": "^hook-"}}}}}}
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "hook"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "candidates": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "pattern": "^hook-"
+                    }
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": {"properties": {"kind": {"const": "bgm"}}},
-          "then": {"properties": {"candidates": {"items": {"properties": {"id": {"pattern": "^bgm-"}}}}}}
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "bgm"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "candidates": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "pattern": "^bgm-"
+                    }
+                  }
+                }
+              }
+            }
+          }
         },
         {
-          "if": {"properties": {"kind": {"const": "ending"}}},
-          "then": {"properties": {"candidates": {"items": {"properties": {"id": {"pattern": "^ending-"}}}}}}
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "ending"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "candidates": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "pattern": "^ending-"
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       ],
       "additionalProperties": false
     },
     "delivery_candidate": {
       "type": "object",
-      "required": ["id", "label", "summary", "preview_url", "selected"],
+      "required": [
+        "id",
+        "label",
+        "summary",
+        "preview_url",
+        "selected"
+      ],
       "properties": {
-        "id": {"type": "string", "pattern": "^(?:cover|hook|bgm|ending)-[A-Za-z0-9][A-Za-z0-9._-]*$"},
-        "label": {"type": "string"},
-        "summary": {"type": "string"},
-        "preview_url": {"$ref": "#/$defs/delivery_media_url"},
-        "selected": {"type": "boolean"}
+        "id": {
+          "type": "string",
+          "pattern": "^(?:cover|hook|bgm|ending)-[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "label": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "preview_url": {
+          "$ref": "#/$defs/delivery_media_url"
+        },
+        "selected": {
+          "type": "boolean"
+        }
       },
       "additionalProperties": false
     },
     "delivery_version": {
       "type": "object",
-      "required": ["id", "label", "active", "qa_status", "video_url", "poster_url"],
+      "required": [
+        "id",
+        "label",
+        "active",
+        "qa_status",
+        "video_url",
+        "poster_url"
+      ],
       "properties": {
-        "id": {"type": "string", "minLength": 1},
-        "label": {"type": "string"},
-        "active": {"type": "boolean"},
-        "qa_status": {"type": "string"},
-        "video_url": {"$ref": "#/$defs/delivery_media_url"},
-        "poster_url": {"$ref": "#/$defs/delivery_media_url"},
-        "summary": {"type": "string"},
-        "change_summary": {"type": "string"}
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "qa_status": {
+          "type": "string"
+        },
+        "video_url": {
+          "$ref": "#/$defs/delivery_media_url"
+        },
+        "poster_url": {
+          "$ref": "#/$defs/delivery_media_url"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "change_summary": {
+          "type": "string"
+        }
       },
       "anyOf": [
-        {"required": ["summary"]},
-        {"required": ["change_summary"]}
+        {
+          "required": [
+            "summary"
+          ]
+        },
+        {
+          "required": [
+            "change_summary"
+          ]
+        }
       ],
       "additionalProperties": false
     },
+    "delivery_evaluation": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "recommended_action": {
+          "type": "string"
+        },
+        "judge_version": {
+          "type": "string"
+        },
+        "hard_gate_fails": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "fixable": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "advisory": {
+          "type": "object",
+          "properties": {
+            "scored": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "dimensions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "score": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
     "delivery_pending_change": {
       "type": "object",
-      "required": ["kind", "label", "summary"],
+      "required": [
+        "kind",
+        "label",
+        "summary"
+      ],
       "properties": {
-        "kind": {"enum": ["cover", "hook", "bgm", "ending", "copy"]},
-        "label": {"type": "string"},
-        "summary": {"type": "string"}
+        "kind": {
+          "enum": [
+            "cover",
+            "hook",
+            "bgm",
+            "ending",
+            "copy"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     },
     "unavailable_editor": {
       "type": "object",
-      "required": ["type", "data"],
+      "required": [
+        "type",
+        "data"
+      ],
       "properties": {
-        "type": {"const": "unavailable"},
+        "type": {
+          "const": "unavailable"
+        },
         "data": {
           "type": "object",
-          "required": ["message"],
-          "properties": {"message": {"type": "string", "minLength": 1}},
+          "required": [
+            "message"
+          ],
+          "properties": {
+            "message": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
           "additionalProperties": false
         }
       },

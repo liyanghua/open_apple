@@ -169,3 +169,15 @@ def test_unwrap_checkpoint_artifact_supports_legacy_dict_and_string_path(
     assert artifact_io.unwrap_checkpoint_artifact(
         tmp_path, "example", "artifacts/legacy.json"
     ) == raw
+
+
+def test_scoped_artifact_path_is_contained(tmp_path) -> None:
+    target = artifact_io.scoped_artifact_path(tmp_path, "evaluation_report", "final")
+    assert target == (tmp_path / "artifacts" / "evaluation_report.final.json").resolve()
+
+
+def test_scoped_artifact_path_rejects_unknown_scope(tmp_path) -> None:
+    with pytest.raises(ValueError, match="does not support scope"):
+        artifact_io.scoped_artifact_path(tmp_path, "evaluation_report", "draft")
+    with pytest.raises(ValueError, match="does not support scope"):
+        artifact_io.scoped_artifact_path(tmp_path, "script", "final")

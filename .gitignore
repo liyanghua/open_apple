@@ -106,3 +106,9 @@ strategy/
 
 # Local isolated implementation worktrees
 .worktrees/
+
+# Local session caches / scratch state (never shipped)
+.playwright-cli/
+.pnpm-store/
+.vite/
+DEV_STATE.md

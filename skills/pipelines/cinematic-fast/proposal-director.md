@@ -29,3 +29,7 @@ Each section must cite Research evidence and separate an industry reminder from
 a project fact. The Backlot presents each section for confirmation; only an
 approved plan may hand off to Script. A request to adjust a section is feedback
 for the next Agent run, not a silent edit to the contract.
+
+## hook_plan (P1-1)
+
+Produce `hook_plan` (schema `schemas/artifacts/hook_plan.schema.json`, builder `lib/hook_plan.py`) and reference it from `creative_control_plan.hook_plan_ref`. It records the first 1-1.5s visual, first audible information, the promise, the real evidence backing it, the hook pattern and the differences from sibling candidate directions — in natural language, no internal JSON paths.

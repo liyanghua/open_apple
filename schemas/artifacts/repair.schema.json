@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/repair",
+  "title": "Repair",
+  "description": "One localized repair decision (Design_Review_2026-08-22.md P1-3): rewrite_hook / edit_caption / replace_asset / shorten_shot. Each repair records its targets, the evaluation findings it addresses, the production-lock hash it must not violate, and the smallest safe render route (no_render / still / sample / mux_only / full_render). Repairs never clear unrelated shots, never roll back stages, and never silently change locked rules.",
+  "type": "object",
+  "required": [
+    "version",
+    "project_id",
+    "repair_id",
+    "rework_round",
+    "action",
+    "issue_tags",
+    "targets",
+    "evaluation_report_ref",
+    "production_lock_hash",
+    "lock_compliant",
+    "render_route",
+    "affected_shot_ids",
+    "created_at"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repair_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rework_round": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "rewrite_hook",
+        "edit_caption",
+        "replace_asset",
+        "shorten_shot"
+      ]
+    },
+    "issue_tags": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "unclear_promise",
+          "unsupported_claim",
+          "information_gap",
+          "weak_hook",
+          "slow_start",
+          "cover_mismatch",
+          "repetition",
+          "density_spike",
+          "dead_air",
+          "weak_payoff",
+          "identity_drift",
+          "artifact",
+          "hierarchy_failure",
+          "generic_visual",
+          "pronunciation",
+          "timing",
+          "music_masking",
+          "music_tone_mismatch",
+          "loudness",
+          "unsafe_text",
+          "wrong_duration",
+          "mobile_illegibility",
+          "weak_offer",
+          "late_cta",
+          "ambiguous_cta",
+          "brand_mismatch",
+          "blank_frame",
+          "crop_mismatch",
+          "claim_rejected",
+          "caption_overlap",
+          "render_failure",
+          "infra_sidequest"
+        ]
+      }
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "type",
+          "id"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "hook",
+              "caption",
+              "asset",
+              "shot"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "evaluation_report_ref": {
+      "type": "object",
+      "required": [
+        "name",
+        "path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "artifact_sha256": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "production_lock_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "修复针对的 production_lock 版本；修复不得改变锁定规则"
+    },
+    "lock_compliant": {
+      "type": "boolean"
+    },
+    "render_route": {
+      "type": "string",
+      "enum": [
+        "no_render",
+        "still",
+        "sample",
+        "mux_only",
+        "full_render"
+      ]
+    },
+    "affected_shot_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "affected_stages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "受影响阶段（如 edit/compose/sample），用于影响范围展示"
+    },
+    "note": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "semantic_sha256": {
+      "type": "string"
+    },
+    "artifact_sha256": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

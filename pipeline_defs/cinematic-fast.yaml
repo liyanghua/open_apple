@@ -62,7 +62,7 @@ approval_groups:
 stages:
   - name: research
     skill: pipelines/cinematic-fast/research-director
-    produces: [research_brief, video_analysis_brief, source_media_review, media_index, reference_fingerprint, research_breakdown, reference_source_matrix, research_synthesis, research_scorecard]
+    produces: [research_brief, video_analysis_brief, source_media_review, media_index, reference_fingerprint, research_breakdown, reference_source_matrix, research_synthesis, research_scorecard, caption_style_fingerprint]
     required_tools: [video_analyzer, scene_detect, frame_sampler]
     tools_available: [video_analyzer, scene_detect, frame_sampler]
     checkpoint_required: true
@@ -75,7 +75,7 @@ stages:
     approval_group: creative_lock
     required_artifacts_in: [research_brief, research_synthesis, research_scorecard]
     optional_artifacts_in: [video_analysis_brief, source_media_review, research_breakdown, reference_source_matrix, reference_fingerprint]
-    produces: [proposal_packet, creative_control_plan, decision_log]
+    produces: [proposal_packet, creative_control_plan, hook_plan, decision_log]
     tools_available: []
     checkpoint_required: true
     human_approval_default: false
@@ -125,14 +125,14 @@ stages:
 
   - name: sample
     skill: pipelines/cinematic-fast/sample-director
-    required_artifacts_in: [shot_execution_plan, asset_plan, production_lock, approval_bundle]
+    required_artifacts_in: [shot_execution_plan, asset_plan, production_lock, approval_bundle, caption_style_fingerprint]
     optional_artifacts_in: [script, scene_plan]
-    produces: [asset_manifest, final_props, render_plan, sample_report, sample_execution_trace, caption_policy_revision]
-    required_tools: [tts_selector, audio_mixer, subtitle_gen, media_proxy, video_compose, final_qa]
-    tools_available: [tts_selector, audio_mixer, subtitle_gen, media_proxy, video_compose, final_qa]
+    produces: [asset_manifest, final_props, render_plan, sample_report, sample_execution_trace, caption_policy_revision, evaluation_report]
+    required_tools: [tts_selector, audio_mixer, subtitle_gen, media_proxy, video_compose, final_qa, technical_validator]
+    tools_available: [tts_selector, audio_mixer, subtitle_gen, media_proxy, video_compose, final_qa, technical_validator]
     checkpoint_required: true
     human_approval_default: true
-    review_focus: [10-15 second sample uses approved lock, quick QA passes, no timing drift]
+    review_focus: [10-15 second sample uses approved lock, quick QA passes, no timing drift, evaluation_report produced for sample scope]
     success_criteria: [Existing assets reused where possible, sample renders through video_compose, quick QA passes]
 
   - name: edit
@@ -147,21 +147,21 @@ stages:
 
   - name: compose
     skill: pipelines/cinematic-fast/compose-director
-    required_artifacts_in: [creative_control_plan, edit_decisions, asset_manifest, final_props, render_plan, caption_policy_revision]
-    produces: [render_report, final_review]
-    required_tools: [video_compose, final_qa]
-    tools_available: [video_compose, final_qa]
+    required_artifacts_in: [creative_control_plan, edit_decisions, asset_manifest, final_props, render_plan, caption_policy_revision, caption_style_fingerprint]
+    produces: [render_report, final_review, evaluation_report]
+    required_tools: [video_compose, final_qa, technical_validator]
+    tools_available: [video_compose, final_qa, technical_validator]
     checkpoint_required: true
     human_approval_default: false
-    review_focus: [Render route matches plan, full QA checks black frames, freeze, loudness, safe zones and encoding]
+    review_focus: [Render route matches plan, full QA checks black frames, freeze, loudness, safe zones and encoding, evaluation_report produced for final scope with no fatal L1a failures]
     success_criteria: [Full render or validated mux completes, final QA passes]
 
   - name: publish
     skill: pipelines/cinematic-fast/publish-director
-    required_artifacts_in: [render_report, final_review]
+    required_artifacts_in: [render_report, final_review, evaluation_report]
     produces: [publish_log]
     tools_available: []
     checkpoint_required: true
     human_approval_default: false
-    review_focus: [Local package is complete, platform upload is not attempted without separate authority]
+    review_focus: [Local package is complete, platform upload is not attempted without separate authority, evaluation_report hard_gate passed and status is not fail before publishing]
     success_criteria: [Local deliverable and metadata package exist]

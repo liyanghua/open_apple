@@ -21,6 +21,8 @@ export type SafeCaptionProps = {
   maxWidth?: number;
   stripTrailingPunctuation?: boolean;
   emphasisRules?: EmphasisRule[];
+  /** 评审 #9b：字幕底部渲染偏移（与指纹 bottom_offset_px 同一数值）。 */
+  bottomMarginPx?: number;
 };
 
 type LayoutOptions = Omit<SafeCaptionProps, "captions">;
@@ -125,7 +127,7 @@ export const captionBoxForCue = (
   const lineCount = Math.max(1, Math.ceil(textWidth / maxWidth));
   const width = lineCount === 1 ? Math.min(maxWidth, textWidth) : maxWidth;
   const left = Math.round((1080 - width) / 2);
-  const bottom = 1920 - profile.bottom;
+  const bottom = 1920 - (options.bottomMarginPx ?? profile.bottom);
   const height = Math.round(fontSize * profile.lineHeight * lineCount);
   const top = bottom - height;
   const emphasisBoxes = emphasisRules
@@ -221,8 +223,7 @@ export const SafeCaptionTrack: React.FC<SafeCaptionProps> = ({
   maxWidth = 864,
   stripTrailingPunctuation: shouldStrip = true,
   emphasisRules = [],
-}) => {
-  const {fps} = useVideoConfig();
+}) => {  const {fps} = useVideoConfig();
   return (
     <AbsoluteFill style={{pointerEvents: "none"}}>
       {captions.map((caption, index) => {
@@ -267,4 +268,64 @@ export const SafeCaptionTrack: React.FC<SafeCaptionProps> = ({
       })}
     </AbsoluteFill>
   );
+};
+
+// ---------------------------------------------------------------------------
+// Caption style spec (Design_Review P1-1): renderer contract for the
+// caption_style_fingerprint artifact. Python `lib/caption_style.py` produces
+// the same shape; keep the two mappings in sync.
+// ---------------------------------------------------------------------------
+
+export type CaptionPosition = "bottom" | "center" | "top";
+export type CaptionEntrance = "pop" | "fade" | "slide_up" | "none";
+
+export type CaptionStyleSpec = {
+  fontFamily?: string;
+  fontSize?: number;
+  emphasizeFontSize?: number;
+  fontWeight?: number;
+  fillColor?: string;
+  strokeColor?: string;
+  strokeWidthPx?: number;
+  backgroundColor?: string;
+  opacity?: number;
+  position?: CaptionPosition;
+  entranceAnimation?: CaptionEntrance;
+  /** 评审 #9b：字幕底部偏移单一数据源（指纹 bottom_offset_px），缺省 120。 */
+  bottomOffsetPx?: number;
+};
+
+export type ResolvedCaptionStyle = {
+  fontFamily: string;
+  fontSize: number;
+  emphasizeFontSize: number;
+  fontWeight: number;
+  fillColor: string;
+  strokeColor: string;
+  strokeWidthPx: number;
+  backgroundColor: string;
+  opacity: number;
+  position: CaptionPosition;
+  entranceAnimation: CaptionEntrance;
+  bottomOffsetPx: number;
+};
+
+export const resolveCaptionOverlayStyle = (
+  captionStyle: CaptionStyleSpec | undefined,
+): ResolvedCaptionStyle => {
+  const style = captionStyle ?? {};
+  return {
+    fontFamily: style.fontFamily ?? DEFAULT_FONT_FAMILY,
+    fontSize: style.fontSize ?? 48,
+    emphasizeFontSize: style.emphasizeFontSize ?? (style.fontSize ?? 48) + 6,
+    fontWeight: style.fontWeight ?? 700,
+    fillColor: style.fillColor ?? "#FFFDF8",
+    strokeColor: style.strokeColor ?? "#000000",
+    strokeWidthPx: style.strokeWidthPx ?? 0,
+    backgroundColor: style.backgroundColor ?? "transparent",
+    opacity: style.opacity ?? 1,
+    position: style.position ?? "bottom",
+    entranceAnimation: style.entranceAnimation ?? "pop",
+    bottomOffsetPx: style.bottomOffsetPx ?? 120,
+  };
 };

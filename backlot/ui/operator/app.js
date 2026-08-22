@@ -1007,6 +1007,40 @@ function renderEdit(container, data) {
   }
 }
 
+function renderEvaluationCard(evaluation) {
+  if (!evaluation) return null;
+  const card = node("section", "delivery-evaluation-card");
+  card.append(node("h4", "section-title", "成片评价卡"),
+    node("span", "delivery-eval-meta", `judge: ${evaluation.judge_version || "—"} · 建议动作: ${evaluation.recommended_action || "—"}`));
+  const statusText = evaluation.status === "pass" ? "通过" : evaluation.status === "fail" ? "不通过（致命）" : "需修复（可修复项）";
+  const statusColor = evaluation.status === "pass" ? "#1f9d55" : evaluation.status === "fail" ? "#c53030" : "#b7791f";
+  const statusEl = node("p", "delivery-eval-status", statusText);
+  statusEl.style.color = statusColor;
+  card.append(statusEl);
+  if (evaluation.hard_gate_fails?.length) {
+    card.append(node("p", "delivery-eval-heading", "L1a 未通过项"));
+    for (const fail of evaluation.hard_gate_fails) {
+      card.append(node("p", "delivery-eval-note", `${fail.name}：${fail.message}（${fail.fixable ? "可修复" : "致命"}）`));
+    }
+  }
+  if (evaluation.advisory?.scored && evaluation.advisory.dimensions?.length) {
+    card.append(node("p", "delivery-eval-heading", "L3 创意质量（VLM advisory）"));
+    card.append(node("p", "delivery-eval-note", evaluation.advisory.summary || ""));
+    for (const dim of evaluation.advisory.dimensions) {
+      const row = node("div", "delivery-eval-dim");
+      const name = node("span", "delivery-eval-dim-name", dim.name);
+      const score = node("strong", "delivery-eval-dim-score", String(dim.score ?? "—"));
+      score.style.color = dim.score >= 8 ? "#1f9d55" : dim.score >= 6 ? "#b7791f" : "#c53030";
+      const note = node("span", "delivery-eval-dim-note", dim.note || "");
+      row.append(name, score, note);
+      card.append(row);
+    }
+  } else {
+    card.append(node("p", "delivery-eval-note", evaluation.advisory?.summary || "尚未运行 VLM 创意评审（advisory，不影响硬门）"));
+  }
+  return card;
+}
+
 function renderDelivery(container, data, { editable = false, onOperation = () => {}, pendingOperations = [] } = {}) {
   const pendingCandidateIds = {};
   const pendingCopyOverrides = new Map();
@@ -1052,6 +1086,9 @@ function renderDelivery(container, data, { editable = false, onOperation = () =>
     const link = node("a", "primary-link", "下载当前版本");
     link.href = data.download_url; link.setAttribute("download", ""); playerPanel.append(link);
   }
+
+  const evaluationCard = renderEvaluationCard(data.evaluation);
+  if (evaluationCard) playerPanel.append(evaluationCard);
 
   const candidates = node("aside", "delivery-candidates");
   candidates.append(node("h3", "section-title", "快速决策"));

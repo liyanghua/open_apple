@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/hook_plan",
+  "title": "Hook Plan",
+  "description": "Per-candidate hook plan written into the creative contract (Design_Review_2026-08-22.md P1-1). Records what happens in the first 1-1.5s, the first audible information, the promise, the real evidence that backs it, and how this candidate differs from sibling candidates. Everything is natural language for the review board.",
+  "type": "object",
+  "required": [
+    "version",
+    "project_id",
+    "created_at",
+    "hook_window_seconds",
+    "first_frame_visual",
+    "first_audio",
+    "promise",
+    "proof_evidence",
+    "hook_pattern",
+    "candidate_variants"
+  ],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "project_id": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "hook_window_seconds": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "type": "number", "minimum": 0 },
+      "description": "[start, end] of the hook window, e.g. [0, 1.5]"
+    },
+    "first_frame_visual": {
+      "type": "string",
+      "description": "前 1-1.5 秒画面发生什么（自然语言）"
+    },
+    "first_audio": {
+      "type": "string",
+      "description": "第一听觉信息：口播第一句 / 音效 / 音乐起势"
+    },
+    "promise": {
+      "type": "string",
+      "description": "钩子承诺解决什么问题"
+    },
+    "proof_evidence": {
+      "type": "string",
+      "description": "用哪条真实证据兑现承诺（引用研究矩阵行/自有素材）"
+    },
+    "hook_pattern": {
+      "type": "string",
+      "enum": ["problem_first", "result_first", "contrast", "contradiction", "scene_pain", "other"]
+    },
+    "candidate_variants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["candidate_id", "difference"],
+        "properties": {
+          "candidate_id": { "type": "string" },
+          "difference": { "type": "string", "description": "本候选钩子与其他候选的差异（自然语言）" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "revision_round": { "type": "integer", "minimum": 0 },
+    "semantic_sha256": { "type": "string" },
+    "artifact_sha256": { "type": "string" }
+  },
+  "additionalProperties": false
+}

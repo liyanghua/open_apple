@@ -57,6 +57,7 @@ def _source_media_review() -> dict:
                 "path": "inputs/source/product-a.mp4",
                 "media_type": "video",
                 "reviewed": True,
+                "media_id": "source-2",
                 "technical_probe": {"duration_seconds": 8, "resolution": "1080x1920", "fps": 30},
                 "content_summary": "Product wipe test",
                 "representative_frames": ["artifacts/source-frames/product-a.jpg"],
@@ -69,6 +70,7 @@ def _source_media_review() -> dict:
                 "path": "inputs/source/product-b.mp4",
                 "media_type": "video",
                 "reviewed": True,
+                "media_id": "source-1",
                 "technical_probe": {"duration_seconds": 10, "resolution": "1080x1920", "fps": 30},
                 "content_summary": "Product overview",
                 "representative_frames": ["artifacts/source-frames/product-b.jpg"],
@@ -145,6 +147,77 @@ def _artifact(name: str) -> dict:
             "feedback": {},
             "locked_at": "2026-08-17T00:00:00+00:00",
             "locked_by": "tester",
+        }
+    if name == "caption_style_fingerprint":
+        return {
+            "version": "1.0",
+            "project_id": PROJECT_ID,
+            "created_at": "2026-08-17T00:00:00+00:00",
+            "applicability": "not_applicable",
+            "source": {"research_breakdown_ref": None, "evidence_frames": [], "overlay_text_samples": []},
+            "style": {
+                "font_family": "Source Han Sans（近似）",
+                "size_hierarchy": [48],
+                "weight": "bold",
+                "fill_color": "#FFFFFF",
+                "stroke": {"color": "#000000", "width_px": 3},
+                "position": "中下 1/3",
+                "safe_zone_profile": "douyin_9_16",
+                "max_chars_per_line": 12,
+                "entrance_animation": "整句淡入",
+                "sync_mode": "follow_visual",
+            },
+            "binding": {"brand_required_rules": [], "reference_only_rules": []},
+            "notes": "参考片无字幕",
+        }
+    if name == "hook_plan":
+        return {
+            "version": "1.0",
+            "project_id": PROJECT_ID,
+            "created_at": "2026-08-17T00:00:00+00:00",
+            "hook_window_seconds": [0.0, 1.5],
+            "first_frame_visual": "动作先行",
+            "first_audio": "口播首句",
+            "promise": "透明保护不遮木纹",
+            "proof_evidence": "matrix-01",
+            "hook_pattern": "result_first",
+            "candidate_variants": [],
+            "revision_round": 0,
+        }
+    if name == "evaluation_report":
+        return {
+            "version": "1.0",
+            "project_id": PROJECT_ID,
+            "scope": "sample",
+            "created_at": "2026-08-17T00:00:00+00:00",
+            "judge_version": "technical_validator-0.1.0",
+            "rubric_version": "l1a-v1.0",
+            "subject_ref": {"name": "sample_report", "path": "artifacts/sample_report.json"},
+            "subject_version": "1.0",
+            "subject_hash": "a" * 64,
+            "execution_diff_ref": None,
+            "hard_gate": {"pass": True, "checks": [
+                {"id": "l1a_media_missing", "name": "音画完整", "status": "pass", "severity": "info",
+                 "message": "ok", "evidence": {}, "affected_shots": [], "fixable": False},
+            ]},
+            "creative_advisory": {"scored": False, "dimensions": [], "summary": "未运行 VLM 评审"},
+            "repair_targets": [],
+            "status": "pass",
+            "recommended_action": "proceed",
+        }
+    if name == "sample_execution_trace":
+        return {
+            "version": "1.0",
+            "project_id": PROJECT_ID,
+            "created_at": "2026-08-17T00:00:00+00:00",
+            "input_hashes": {},
+            "summary": {
+                "planned_shot_count": 0,
+                "included_shot_count": 0,
+                "status_counts": {"executed": 0, "partial": 0, "added": 0, "not_in_sample": 0},
+                "new_content_count": 0,
+            },
+            "shots": [],
         }
     if name == "script":
         return {
@@ -390,7 +463,7 @@ def test_research_artifacts_and_checkpoint_commit_in_one_generation(tmp_path: Pa
     names = [
         "research_brief", "video_analysis_brief", "source_media_review", "media_index",
         "reference_fingerprint", "research_breakdown", "reference_source_matrix",
-        "research_synthesis", "research_scorecard",
+        "research_synthesis", "research_scorecard", "caption_style_fingerprint",
     ]
     with store.transaction(action={"action_id": "research-complete"}) as sink:
         envelopes = {
@@ -419,13 +492,13 @@ def test_cinematic_fast_end_to_end_has_script_execution_sample_gates_and_no_refe
     _checkpoint(tmp_path, "research", "completed", _envelopes(project, [
         "research_brief", "video_analysis_brief", "source_media_review", "media_index",
         "reference_fingerprint", "research_breakdown", "reference_source_matrix",
-        "research_synthesis", "research_scorecard",
+        "research_synthesis", "research_scorecard", "caption_style_fingerprint",
     ]))
     _checkpoint(
         tmp_path,
         "proposal",
         "completed",
-        _envelopes(project, ["proposal_packet", "creative_control_plan", "decision_log"]),
+        _envelopes(project, ["proposal_packet", "creative_control_plan", "hook_plan", "decision_log"]),
     )
     script_artifacts = _envelopes(project, ["script"])
     _checkpoint(tmp_path, "script", "awaiting_human", script_artifacts, approval_group="script_lock")
@@ -472,7 +545,8 @@ def test_cinematic_fast_end_to_end_has_script_execution_sample_gates_and_no_refe
     remotion.render_sample()
     sample_artifacts = _envelopes(
         project,
-        ["asset_manifest", "final_props", "render_plan", "sample_report"],
+        ["asset_manifest", "final_props", "render_plan", "sample_report",
+         "sample_execution_trace", "evaluation_report"],
         {"caption_policy_revision": _caption_policy_revision()},
     )
     sample_artifacts["caption_policy_revision"] = write_artifact_atomic(
@@ -487,8 +561,8 @@ def test_cinematic_fast_end_to_end_has_script_execution_sample_gates_and_no_refe
 
     _checkpoint(tmp_path, "edit", "completed", _envelopes(project, ["edit_decisions", "change_impact"]))
     remotion.render_full_and_qa()
-    _checkpoint(tmp_path, "compose", "completed", _envelopes(project, ["render_report", "final_review"]))
-    _checkpoint(tmp_path, "publish", "completed", _envelopes(project, ["publish_log"]))
+    _checkpoint(tmp_path, "compose", "completed", _envelopes(project, ["render_report", "final_review", "evaluation_report"]))
+    _checkpoint(tmp_path, "publish", "completed", _envelopes(project, ["publish_log", "evaluation_report"]))
 
     assert awaiting_human_stages == ["script", "assets", "sample"]
     assert providers.calls == ["tts", "music"]

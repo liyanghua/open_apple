@@ -299,7 +299,7 @@ def test_cinematic_fast_requires_research_outputs_and_passes_them_downstream() -
     expected = {
         "research_brief", "video_analysis_brief", "source_media_review", "media_index",
         "reference_fingerprint", "research_breakdown", "reference_source_matrix",
-        "research_synthesis", "research_scorecard",
+        "research_synthesis", "research_scorecard", "caption_style_fingerprint",
     }
     assert set(stages["research"]["produces"]) == expected
     assert {"research_brief", "research_synthesis", "research_scorecard"} <= set(stages["proposal"]["required_artifacts_in"])

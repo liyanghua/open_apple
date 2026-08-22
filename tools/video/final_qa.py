@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from lib import qa_checks
 from lib.caption_layout import boxes_in_social_safe_zone, layout_captions
 from tools.base_tool import BaseTool, Determinism, ExecutionMode, ResourceProfile, ToolResult, ToolStability, ToolTier
 
@@ -28,38 +29,19 @@ class FinalQA(BaseTool):
 
     @staticmethod
     def _probe(path: Path) -> dict[str, Any]:
-        result = subprocess.run(["ffprobe", "-v", "error", "-print_format", "json", "-show_streams", "-show_format", str(path)], capture_output=True, text=True, timeout=30, check=False)
-        if result.returncode != 0:
-            raise RuntimeError(result.stderr.strip() or "ffprobe failed")
-        return json.loads(result.stdout)
+        return qa_checks.probe_media(path)
 
     @staticmethod
     def _decode(path: Path) -> bool:
-        return subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-f", "null", "-"], capture_output=True, text=True, timeout=300, check=False).returncode == 0
+        return qa_checks.decode_smoke(path)
 
     @staticmethod
     def _filter_log(path: Path, filter_graph: str) -> str:
-        result = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(path), "-vf", filter_graph, "-an", "-f", "null", "-"], capture_output=True, text=True, timeout=300, check=False)
-        return result.stderr or ""
+        return qa_checks.run_filter_log(path, filter_graph)
 
     @staticmethod
     def _parse_ranges(log: str, marker: str) -> list[dict[str, float]]:
-        ranges = []
-        for line in log.splitlines():
-            if marker not in line:
-                continue
-            values = {}
-            for token in line.split():
-                if "=" not in token:
-                    continue
-                key, value = token.split("=", 1)
-                try:
-                    values[key] = float(value)
-                except ValueError:
-                    pass
-            if values:
-                ranges.append(values)
-        return ranges
+        return qa_checks.parse_ffmpeg_ranges(log, marker)
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         path = Path(inputs["input_path"])
@@ -114,11 +96,16 @@ class FinalQA(BaseTool):
         safe_zone_profile = declaration.get("safe_zone_profile")
         declared = bool(render_mode and caption_source and safe_zone_profile)
         pixel_mode = render_mode in {"remotion_overlay", "ffmpeg_burn"}
+        # 评审 #9b：底部偏移单一数据源。声明带 bottom_offset_px 时，QA 的
+        # 盒计算与安全区校验都与渲染器使用同一数值；缺省回退平台安全区。
+        bottom_offset = declaration.get("bottom_offset_px")
+        bottom_margin_px = int(bottom_offset) if bottom_offset is not None else None
         boxes = caption_spec.get("computed_boxes") or (
             layout_captions(
                 caption_spec.get("captions", []),
                 width=profile.width,
                 height=profile.height,
+                bottom_margin=bottom_margin_px if bottom_margin_px is not None else 300,
             )
             if caption_spec else []
         )
@@ -129,11 +116,13 @@ class FinalQA(BaseTool):
             issues.append("caption render declaration incomplete")
         if pixel_mode:
             caption_ok = bool(caption_spec.get("props_hash")) and boxes_in_social_safe_zone(
-                boxes, width=profile.width, height=profile.height
+                boxes,
+                width=profile.width,
+                height=profile.height,
+                bottom_margin_px=bottom_margin_px,
             )
             if not caption_ok:
                 issues.append("caption pixel evidence missing or invalid")
-        status = "pass" if not issues else "revise"
         format_info = probe.get("format", {})
         fps_text = video.get("avg_frame_rate") or video.get("r_frame_rate") or "0/1"
         try:
@@ -162,6 +151,9 @@ class FinalQA(BaseTool):
                 or (pixel_mode and caption_ok)
             )
         )
+        if subtitles_expected and not subtitles_present:
+            issues.append("subtitles declared but not present in render")
+        status = "pass" if not issues else "revise"
         checks = {
             "technical_probe": technical_probe,
             "visual_spotcheck": {
@@ -198,6 +190,7 @@ class FinalQA(BaseTool):
                 "caption_render_mode": render_mode,
                 "caption_source": caption_source,
                 "safe_zone_profile": safe_zone_profile,
+                "bottom_offset_px": bottom_margin_px,
                 "pixels_rendered": bool(declared and pixel_mode and caption_ok),
                 "safe_zone_passed": caption_ok,
                 "computed_boxes": boxes,
@@ -208,4 +201,4 @@ class FinalQA(BaseTool):
         output = inputs.get("output_path")
         if output:
             Path(output).parent.mkdir(parents=True, exist_ok=True); Path(output).write_text(json.dumps(report, ensure_ascii=False, indent=2))
-        return ToolResult(success=status != "fail", data=report, artifacts=[str(output)] if output else [])
+        return ToolResult(success=status == "pass", data=report, artifacts=[str(output)] if output else [])

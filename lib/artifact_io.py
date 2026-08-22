@@ -66,6 +66,34 @@ def canonical_artifact_path(
     return _contained_path(Path(project_dir), relative)
 
 
+# Artifacts that exist once per scope (评审 #3).  Sample and final stages each
+# produce their own evaluation_report; both must survive on disk and in the
+# board projection instead of the later stage overwriting the earlier one.
+SCOPED_ARTIFACTS: dict[str, tuple[str, ...]] = {
+    "evaluation_report": ("sample", "final"),
+}
+
+
+def scoped_artifact_relative_path(name: str, scope: str) -> PurePosixPath:
+    """Return the canonical project-relative path for a scoped artifact."""
+    scopes = SCOPED_ARTIFACTS.get(name)
+    if not scopes or scope not in scopes:
+        raise ValueError(
+            f"artifact {name!r} does not support scope {scope!r}; "
+            f"valid scopes: {', '.join(scopes) if scopes else 'none'}"
+        )
+    return _artifact_relative_path(f"artifacts/{name}.{scope}.json")
+
+
+def scoped_artifact_path(
+    project_dir: str | os.PathLike[str], name: str, scope: str
+) -> Path:
+    """Return the contained canonical path for a scoped artifact."""
+    if not isinstance(name, str) or not name or "/" in name or "\\" in name:
+        raise ValueError("Artifact name must be a simple non-empty filename stem")
+    return _contained_path(Path(project_dir), scoped_artifact_relative_path(name, scope))
+
+
 def _is_v2_envelope(value: Any) -> bool:
     return isinstance(value, dict) and _ENVELOPE_FIELDS.issubset(value)
 

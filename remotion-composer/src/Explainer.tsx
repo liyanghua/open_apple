@@ -20,6 +20,7 @@ import { PieChart } from "./components/charts/PieChart";
 import { KPIGrid } from "./components/charts/KPIGrid";
 import { ProgressBar } from "./components/ProgressBar";
 import { CaptionOverlay, WordCaption } from "./components/CaptionOverlay";
+import type {CaptionStyleSpec} from "./components/SafeCaptionTrack";
 import { SectionTitle } from "./components/SectionTitle";
 import { StatReveal } from "./components/StatReveal";
 import { HeroTitle } from "./components/HeroTitle";
@@ -293,6 +294,8 @@ export interface ExplainerProps {
   cuts: Cut[];
   overlays?: Overlay[];
   captions?: WordCaption[];
+  captionStyle?: CaptionStyleSpec;
+  captionWordsPerPage?: number;
   audio?: AudioConfig;
 }
 
@@ -836,10 +839,11 @@ export const Explainer: React.FC<ExplainerProps> = (props) => {
       {captions && captions.length > 0 && (
         <CaptionOverlay
           words={captions}
-          wordsPerPage={6}
+          wordsPerPage={props.captionWordsPerPage ?? 6}
           fontSize={42}
           highlightColor={theme.captionHighlightColor}
           backgroundColor={theme.captionBackgroundColor}
+          captionStyle={props.captionStyle}
         />
       )}
 

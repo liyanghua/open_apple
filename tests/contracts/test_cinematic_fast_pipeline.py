@@ -34,10 +34,18 @@ def test_cinematic_fast_sample_and_compose_contracts():
     assert stages["assets"]["produces"] == ["shot_execution_plan", "asset_plan", "production_lock", "approval_bundle"]
     assert stages["sample"]["produces"] == [
         "asset_manifest", "final_props", "render_plan", "sample_report",
-        "sample_execution_trace", "caption_policy_revision",
+        "sample_execution_trace", "caption_policy_revision", "evaluation_report",
     ]
     assert "caption_policy_revision" in stages["edit"]["required_artifacts_in"]
     assert "caption_policy_revision" in stages["compose"]["required_artifacts_in"]
+    assert "evaluation_report" in stages["compose"]["produces"]
+    assert "evaluation_report" in stages["publish"]["required_artifacts_in"]
+    assert "technical_validator" in stages["sample"]["required_tools"]
+    assert "technical_validator" in stages["compose"]["required_tools"]
+    assert "caption_style_fingerprint" in stages["research"]["produces"]
+    assert "caption_style_fingerprint" in stages["sample"]["required_artifacts_in"]
+    assert "caption_style_fingerprint" in stages["compose"]["required_artifacts_in"]
+    assert "hook_plan" in stages["proposal"]["produces"]
     assert {"tts_selector", "audio_mixer", "subtitle_gen", "media_proxy", "video_compose", "final_qa"} <= set(stages["sample"]["tools_available"])
     assert {"video_compose", "final_qa"} <= set(stages["compose"]["tools_available"])
     assert "asset_manifest" not in stages["assets"]["produces"]

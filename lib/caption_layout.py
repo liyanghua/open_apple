@@ -71,8 +71,12 @@ def caption_box_for_cue(
     max_width: int = 864,
     strip_punctuation: bool = True,
     emphasis_rules: list[dict[str, Any]] | None = None,
+    bottom_margin_px: int | None = None,
 ) -> dict[str, Any]:
     profile = SAFE_ZONE_PROFILES[safe_zone_profile]
+    # 评审 #9b：bottom_margin_px 是渲染偏移的单一数据源（来自
+    # caption_style_fingerprint.style.bottom_offset_px）；缺省回退平台安全区。
+    bottom_margin = int(bottom_margin_px) if bottom_margin_px is not None else profile["bottom"]
     max_width = max(
         1,
         min(max_width, profile["max_width"], width - profile["left"] - profile["right"]),
@@ -97,7 +101,7 @@ def caption_box_for_cue(
     line_count = max(1, math.ceil(text_width / max_width))
     box_width = min(max_width, text_width) if line_count == 1 else max_width
     left = round((width - box_width) / 2)
-    bottom = height - profile["bottom"]
+    bottom = height - bottom_margin
     box_height = round(font_size * profile["line_height"] * line_count)
     top = bottom - box_height
 
@@ -142,13 +146,15 @@ def is_inside_safe_zone(
     width: int = 1080,
     height: int = 1920,
     safe_zone_profile: str = "douyin_9_16",
+    bottom_margin_px: int | None = None,
 ) -> bool:
     profile = SAFE_ZONE_PROFILES[safe_zone_profile]
+    bottom_margin = int(bottom_margin_px) if bottom_margin_px is not None else profile["bottom"]
     return (
         box.get("left", -1) >= profile["left"]
         and box.get("right", width + 1) <= width - profile["right"]
         and box.get("top", -1) >= profile["top"]
-        and box.get("bottom", height + 1) <= height - profile["bottom"]
+        and box.get("bottom", height + 1) <= height - bottom_margin
         and box.get("width", width + 1) <= profile["max_width"]
         and box.get("line_count", 1) <= profile["max_lines"]
     )
@@ -173,11 +179,26 @@ def layout_captions(
             font_min=font_size or 44,
             font_max=font_size or 52,
             max_width=max_width,
+            bottom_margin_px=bottom_margin,
         )
         box["cue_index"] = index
         boxes.append(box)
     return boxes
 
 
-def boxes_in_social_safe_zone(boxes: list[dict[str, Any]], *, width: int = 1080, height: int = 1920) -> bool:
-    return all(is_inside_safe_zone(box, width=width, height=height) for box in boxes)
+def boxes_in_social_safe_zone(
+    boxes: list[dict[str, Any]],
+    *,
+    width: int = 1080,
+    height: int = 1920,
+    bottom_margin_px: int | None = None,
+) -> bool:
+    return all(
+        is_inside_safe_zone(
+            box,
+            width=width,
+            height=height,
+            bottom_margin_px=bottom_margin_px,
+        )
+        for box in boxes
+    )

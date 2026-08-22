@@ -1,3 +1,4 @@
+import type {CSSProperties} from "react";
 import {
   AbsoluteFill,
   Sequence,
@@ -10,6 +11,10 @@ import {
   SAFE_ZONE_PROFILES,
   fitCjkFontSize,
   stripTrailingPunctuation as stripCuePunctuation,
+  resolveCaptionOverlayStyle,
+  type CaptionEntrance,
+  type CaptionPosition,
+  type CaptionStyleSpec,
   type EmphasisRule,
   type SafeZoneProfile,
 } from "./SafeCaptionTrack";
@@ -36,6 +41,8 @@ export type CaptionOverlayProps = {
   maxWidth?: number;
   stripTrailingPunctuation?: boolean;
   emphasisRules?: EmphasisRule[];
+  /** Style from caption_style_fingerprint (P1-1); wins over the defaults above. */
+  captionStyle?: CaptionStyleSpec;
 };
 
 interface CaptionPage {
@@ -44,7 +51,7 @@ interface CaptionPage {
   endMs: number;
 }
 
-function buildPages(words: WordCaption[], wordsPerPage: number): CaptionPage[] {
+export function buildPages(words: WordCaption[], wordsPerPage: number): CaptionPage[] {
   const pages: CaptionPage[] = [];
   for (let i = 0; i < words.length; i += wordsPerPage) {
     const pageWords = words.slice(i, i + wordsPerPage);
@@ -61,10 +68,18 @@ function buildPages(words: WordCaption[], wordsPerPage: number): CaptionPage[] {
 const PageRenderer: React.FC<{
   page: CaptionPage;
   fontSize: number;
+  emphasizeFontSize: number;
   color: string;
   highlightColor: string;
   backgroundColor: string;
   fontFamily: string;
+  fontWeight: number;
+  strokeColor: string;
+  strokeWidthPx: number;
+  opacity: number;
+  position: CaptionPosition;
+  entranceAnimation: CaptionEntrance;
+  bottomOffsetPx: number;
   safeZoneProfile: SafeZoneProfile;
   fontMin: number;
   fontMax: number;
@@ -74,10 +89,18 @@ const PageRenderer: React.FC<{
 }> = ({
   page,
   fontSize,
+  emphasizeFontSize,
   color,
   highlightColor,
   backgroundColor,
   fontFamily,
+  fontWeight,
+  strokeColor,
+  strokeWidthPx,
+  opacity,
+  position,
+  entranceAnimation,
+  bottomOffsetPx,
   safeZoneProfile,
   fontMin,
   fontMax,
@@ -90,12 +113,25 @@ const PageRenderer: React.FC<{
 
   const currentMs = page.startMs + (frame / fps) * 1000;
 
-  // Spring entrance
-  const entrance = spring({
+  // Entrance: pop = spring scale+rise (default), fade = opacity only,
+  // slide_up = rise only, none = instant.
+  const springEntrance = spring({
     frame,
     fps,
     config: { damping: 18, stiffness: 120 },
   });
+  const fadeEntrance = interpolate(frame, [0, 6], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  const entrance =
+    entranceAnimation === "fade" ? fadeEntrance
+    : entranceAnimation === "none" ? 1
+    : springEntrance;
+  const risePx =
+    entranceAnimation === "fade" || entranceAnimation === "none" ? 0
+    : interpolate(entrance, [0, 1], [20, 0]);
+
   const profile = SAFE_ZONE_PROFILES[safeZoneProfile];
   const pageText = page.words.map((word) => word.word).join(" ");
   const fittedFontSize = fitCjkFontSize(pageText, {
@@ -103,22 +139,22 @@ const PageRenderer: React.FC<{
     fontMax: Math.min(fontSize, fontMax),
     maxWidth: Math.min(maxWidth, profile.maxWidth),
   });
+  const containerStyle: CSSProperties =
+    position === "center"
+      ? { justifyContent: "center", alignItems: "center", paddingBottom: 0 }
+      : position === "top"
+        ? { justifyContent: "flex-start", alignItems: "center", paddingTop: profile.top, paddingBottom: 0 }
+        : { justifyContent: "flex-end", alignItems: "center", paddingBottom: bottomOffsetPx };
 
   return (
-    <AbsoluteFill
-      style={{
-        justifyContent: "flex-end",
-        alignItems: "center",
-        paddingBottom: profile.bottom,
-      }}
-    >
+    <AbsoluteFill style={containerStyle}>
       <div
         style={{
-          opacity: entrance,
-          transform: `translateY(${interpolate(entrance, [0, 1], [20, 0])}px)`,
+          opacity: entrance * opacity,
+          transform: `translateY(${risePx}px)`,
           backgroundColor,
           borderRadius: 12,
-          padding: "14px 28px",
+          padding: backgroundColor && backgroundColor !== "transparent" ? "14px 28px" : 0,
           maxWidth: Math.min(maxWidth, profile.maxWidth),
           textAlign: "center",
         }}
@@ -126,10 +162,12 @@ const PageRenderer: React.FC<{
         <span
           style={{
             fontSize: fittedFontSize,
-            fontWeight: 700,
+            fontWeight,
             fontFamily,
             lineHeight: 1.4,
             whiteSpace: "pre-wrap",
+            WebkitTextStroke: strokeWidthPx > 0 ? `${strokeWidthPx}px ${strokeColor}` : undefined,
+            color,
           }}
         >
           {page.words.map((w, i) => {
@@ -143,6 +181,7 @@ const PageRenderer: React.FC<{
               <span
                 key={`${w.startMs}-${i}`}
                 style={{
+                  fontSize: isActive ? emphasizeFontSize : undefined,
                   color: isActive ? highlightColor : isPast ? color : `${color}99`,
                   transition: "none", // CSS transitions forbidden in Remotion
                   borderBottom: emphasis?.effect === "underline"
@@ -155,7 +194,7 @@ const PageRenderer: React.FC<{
                     : "0 2px 4px rgba(0,0,0,0.5)",
                 }}
               >
-                <span style={emphasis?.effect === "color" ? {color: emphasis.color} : undefined}>
+                <span style={emphasis?.effect === "color" ? { color: emphasis.color } : undefined}>
                   {displayWord}
                 </span>{i < page.words.length - 1 ? " " : ""}
               </span>
@@ -181,9 +220,17 @@ export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
   maxWidth = 864,
   stripTrailingPunctuation = true,
   emphasisRules = [],
+  captionStyle,
 }) => {
   const { fps } = useVideoConfig();
   const pages = buildPages(words, wordsPerPage);
+  const style = resolveCaptionOverlayStyle(captionStyle);
+  const effectiveFontSize = captionStyle?.fontSize ?? fontSize;
+  const effectiveColor = captionStyle?.fillColor ?? color;
+  const effectiveHighlight = captionStyle?.fillColor ? style.fillColor : highlightColor;
+  // 有 captionStyle 时以样式制品为准：transparent 就是无背景，不落入主题背景条
+  const effectiveBackground = captionStyle ? style.backgroundColor : backgroundColor;
+  const effectiveFontFamily = captionStyle?.fontFamily ?? fontFamily;
 
   return (
     <AbsoluteFill>
@@ -199,11 +246,19 @@ export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
           <Sequence key={i} from={fromFrame} durationInFrames={duration}>
             <PageRenderer
               page={page}
-              fontSize={fontSize}
-              color={color}
-              highlightColor={highlightColor}
-              backgroundColor={backgroundColor}
-              fontFamily={fontFamily}
+              fontSize={effectiveFontSize}
+              emphasizeFontSize={style.emphasizeFontSize}
+              color={effectiveColor}
+              highlightColor={effectiveHighlight}
+              backgroundColor={effectiveBackground}
+              fontFamily={effectiveFontFamily}
+              fontWeight={style.fontWeight}
+              strokeColor={style.strokeColor}
+              strokeWidthPx={style.strokeWidthPx}
+              opacity={style.opacity}
+              position={style.position}
+              entranceAnimation={style.entranceAnimation}
+              bottomOffsetPx={style.bottomOffsetPx}
               safeZoneProfile={safeZoneProfile}
               fontMin={fontMin}
               fontMax={fontMax}

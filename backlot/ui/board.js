@@ -225,8 +225,28 @@ function renderDrawer(s) {
     shown = true;
     body.append(
       el("div", { class: "d-cat", style: "font-family:var(--mono);font-size:calc(9.5px * var(--fs-scale));color:var(--text-3);letter-spacing:.1em;text-transform:uppercase;margin:6px 0 4px" }, name),
-      el("pre", {}, JSON.stringify(artifact, null, 2)),
     );
+    if (name === "evaluation_report") {
+      body.append(renderEvaluationCard(artifact));
+      continue;
+    }
+    if (name === "sample_execution_trace") {
+      body.append(renderTraceCard(artifact));
+      continue;
+    }
+    if (name === "candidate_batch") {
+      body.append(renderBatchCard(artifact));
+      continue;
+    }
+    if (name === "repair") {
+      body.append(renderRepairCard(artifact));
+      continue;
+    }
+    if (name === "gold_sample") {
+      body.append(renderGoldSetCard(artifact));
+      continue;
+    }
+    body.append(el("pre", {}, JSON.stringify(artifact, null, 2)));
   }
   if (!shown) {
     body.append(el("div", { class: "hint" },
@@ -243,6 +263,158 @@ function renderDrawer(s) {
     ),
     body,
   );
+}
+
+// ---------------------------------------------------------------------------
+// evaluation card + execution trace card (Design_Review P0-2)
+// ---------------------------------------------------------------------------
+
+function statusChip(text, tone) {
+  const colors = { pass: "#1f9d55", revise: "#b7791f", fail: "#c53030", executed: "#1f9d55", partial: "#b7791f", missing: "#c53030", not_in_sample: "#718096", bound: "#1f9d55", not_checked: "#718096" };
+  return el("span", { class: "gate-chip", style: `background:${colors[tone] || "#718096"}22;color:${colors[tone] || "#718096"}` }, text);
+}
+
+function renderEvaluationCard(report) {
+  if (!report || typeof report !== "object") return el("pre", {}, "{}");
+  const gate = report.hard_gate || {};
+  const failed = (gate.checks || []).filter((c) => c.status === "fail");
+  const skipped = (gate.checks || []).filter((c) => c.status === "skip");
+  const adv = report.creative_advisory || {};
+  const nodes = [
+    el("div", { class: "approval-facts" },
+      el("div", { class: "approval-fact" }, el("span", {}, "硬门"), statusChip(report.status || "unknown", report.status)),
+      el("div", { class: "approval-fact" }, el("span", {}, "建议动作"), el("b", {}, String(report.recommended_action || "—"))),
+      el("div", { class: "approval-fact" }, el("span", {}, "judge / rubric"), el("b", {}, `${report.judge_version || "—"} / ${report.rubric_version || "—"}`)),
+    ),
+  ];
+  if (failed.length) {
+    nodes.push(el("div", { class: "d-cat", style: "color:#c53030;margin-top:8px" }, `未通过项（${failed.length}）`));
+    for (const c of failed) {
+      nodes.push(el("div", { class: "sp-slug", style: "color:var(--text-1)" },
+        `${c.name} — ${c.message}`,
+        el("span", { class: "tc" }, c.fixable ? "可修复" : "致命")));
+      if (c.affected_shots && c.affected_shots.length) {
+        nodes.push(el("div", { class: "sp-paren" }, `影响镜头：${c.affected_shots.join("、")}`));
+      }
+    }
+  }
+  if (skipped.length) {
+    nodes.push(el("div", { class: "sp-paren" }, `未比对项（${skipped.length}）：${skipped.map((c) => c.name).join("、")}`));
+  }
+  if ((report.repair_targets || []).length) {
+    nodes.push(el("div", { class: "d-cat", style: "margin-top:8px" }, `修复建议（${report.repair_targets.length}）`));
+    for (const t of report.repair_targets) {
+      nodes.push(el("div", { class: "sp-slug" }, `${t.action} ← ${t.check_id}${t.note ? ` · ${t.note}` : ""}`));
+    }
+  }
+  nodes.push(el("div", { class: "d-cat", style: "margin-top:8px" }, "创意评审（advisory）"));
+  if (adv.scored && Array.isArray(adv.dimensions) && adv.dimensions.length) {
+    nodes.push(el("div", { class: "sp-paren", style: "margin-bottom:4px" }, adv.summary || ""));
+    for (const dim of adv.dimensions) {
+      nodes.push(el("div", { class: "sp-slug", style: "color:var(--text-1)" },
+        `${dim.name} `,
+        el("b", { style: dim.score >= 8 ? "color:#1f9d55" : dim.score >= 6 ? "color:#b7791f" : "color:#c53030" },
+          String(dim.score)),
+        dim.note ? el("span", { class: "tc" }, ` — ${dim.note}`) : null));
+    }
+  } else {
+    nodes.push(el("div", { class: "sp-paren" }, adv.scored ? `已评分 · ${adv.summary || ""}` : `未评分 · ${adv.summary || "尚未运行 VLM 创意评审，不影响硬门"}`));
+  }
+  return el("div", { style: "padding:4px 0" }, nodes);
+}
+
+function renderTraceCard(trace) {
+  if (!trace || typeof trace !== "object") return el("pre", {}, "{}");
+  const nodes = [];
+  const s = trace.summary || {};
+  nodes.push(el("div", { class: "sp-meta" },
+    `${s.planned_shot_count} 计划镜头 · ${s.included_shot_count} 进入样片 · 新增 ${s.new_content_count || 0}`));
+  if (trace.audio_diff) {
+    const a = trace.audio_diff;
+    nodes.push(el("div", { class: "d-cat", style: "margin-top:8px" }, "音频轨对照"));
+    nodes.push(el("div", { class: "sp-slug" }, statusChip(a.status, a.status), " ", a.summary));
+    if (a.reason) nodes.push(el("div", { class: "sp-paren" }, a.reason));
+  }
+  if (trace.caption_diff) {
+    const c = trace.caption_diff;
+    nodes.push(el("div", { class: "d-cat", style: "margin-top:8px" }, "字幕对照"));
+    nodes.push(el("div", { class: "sp-slug" }, statusChip(c.status, c.status), " ", c.summary));
+  }
+  if (trace.creative_rule_diff && trace.creative_rule_diff.rules) {
+    const cr = trace.creative_rule_diff;
+    nodes.push(el("div", { class: "d-cat", style: "margin-top:8px" }, "导演规则执行"));
+    nodes.push(el("div", { class: "sp-paren" }, cr.summary));
+    for (const r of cr.rules.slice(0, 8)) {
+      nodes.push(el("div", { class: "sp-slug" }, statusChip(r.status === "bound" ? "bound" : r.status === "not_in_sample" ? "not_in_sample" : "not_checked", r.status), ` ${r.section} · ${shortText(r.rule, 60)}`));
+    }
+    if (cr.rules.length > 8) nodes.push(el("div", { class: "sp-fade" }, `… ${cr.rules.length - 8} more rules`));
+  }
+  const shots = trace.shots || [];
+  if (shots.length) {
+    nodes.push(el("div", { class: "d-cat", style: "margin-top:8px" }, "镜头执行"));
+    for (const shot of shots.slice(0, 10)) {
+      nodes.push(el("div", { class: "sp-slug" },
+        shot.shot_id, " ", statusChip(shot.status_label || shot.status, shot.status),
+        shot.deviation ? el("span", { class: "tc" }, ` · ${shot.deviation.reason || ""}`) : null));
+    }
+  }
+  return el("div", { style: "padding:4px 0" }, nodes);
+}
+
+function renderGoldSetCard(goldset) {
+  if (!goldset || typeof goldset !== "object") return el("pre", {}, "{}");
+  const samples = goldset.samples || [];
+  const counts = {gold: 0, silver: 0, bad: 0, hard_negative: 0};
+  for (const item of samples) counts[item.tier] = (counts[item.tier] || 0) + 1;
+  return el("div", { style: "padding:4px 0" },
+    el("div", { class: "sp-meta" },
+      `${samples.length} 样本 · gold ${counts.gold} / silver ${counts.silver} / bad ${counts.bad} / hard_negative ${counts.hard_negative}`),
+    el("div", { class: "sp-paren" }, `judge ${goldset.judge_version || "—"} · rubric ${goldset.rubric_version || "—"}`),
+  );
+}
+
+function renderRepairCard(repair) {
+  if (!repair || typeof repair !== "object") return el("pre", {}, "{}");
+  const targets = (repair.targets || []).map((t) => `${t.type}:${t.id}`).join("、");
+  return el("div", { style: "padding:4px 0" },
+    el("div", { class: "approval-facts" },
+      el("div", { class: "approval-fact" }, el("span", {}, "动作"), statusChip(repair.action || "—", repair.render_route === "full_render" ? "partial" : "executed")),
+      el("div", { class: "approval-fact" }, el("span", {}, "渲染路线"), el("b", {}, String(repair.render_route || "—"))),
+      el("div", { class: "approval-fact" }, el("span", {}, "第几轮"), el("b", {}, String(repair.rework_round ?? "—"))),
+    ),
+    el("div", { class: "sp-slug" }, `目标：${targets || "—"}`),
+    el("div", { class: "sp-paren" }, `问题标签：${(repair.issue_tags || []).join("、")}`),
+    el("div", { class: "sp-paren" }, `影响阶段：${(repair.affected_stages || []).join("、")}`),
+    repair.lock_compliant === false
+      ? el("div", { class: "sp-paren", style: "color:#c53030" }, "违反锁定规则，需重新审批")
+      : null,
+  );
+}
+
+function renderBatchCard(batch) {
+  if (!batch || typeof batch !== "object") return el("pre", {}, "{}");
+  const nodes = [];
+  const sel = batch.selection || {};
+  nodes.push(el("div", { class: "sp-meta" },
+    `${(batch.candidates || []).length} 候选 · 并发上限 ${(batch.concurrency || {}).max_parallel ?? "—"} · 共享研究 ${(batch.shared_research?.refs || []).length} 份`));
+  if ((sel.selected_candidate_ids || []).length) {
+    nodes.push(el("div", { class: "d-cat", style: "margin-top:8px;color:#1f9d55" }, `已选进入精剪：${sel.selected_candidate_ids.join("、")}`));
+    if (sel.reason) nodes.push(el("div", { class: "sp-paren" }, sel.reason));
+  }
+  for (const c of batch.candidates || []) {
+    const dir = c.direction || {};
+    const axes = ["hook", "pacing", "packaging", "audience", "duration"]
+      .filter((k) => dir[k]).map((k) => `${k}:${String(dir[k]).slice(0, 24)}`).join(" · ");
+    const evalRef = c.evaluation_report_ref;
+    nodes.push(el("div", { class: "sp-slug", style: "margin-top:6px" },
+      c.candidate_id, " ", statusChip(c.status, c.status),
+      el("span", { class: "tc" }, `  ¥${Number(c.cost_usd || 0).toFixed(2)}`)));
+    nodes.push(el("div", { class: "sp-paren" }, `${c.label}${axes ? ` — ${axes}` : ""}`));
+    if (c.failure) nodes.push(el("div", { class: "sp-paren", style: "color:#c53030" }, `失败：${c.failure}`));
+    if (evalRef) nodes.push(el("div", { class: "sp-paren" }, `评价卡：${evalRef.path || evalRef.name || "有"}`));
+    if (c.sample_ref) nodes.push(el("div", { class: "sp-paren" }, `样片：${c.sample_ref.path || "有"}`));
+  }
+  return el("div", { style: "padding:4px 0" }, nodes);
 }
 
 // ---------------------------------------------------------------------------
@@ -1173,11 +1345,20 @@ function renderRenders(s) {
     }, `${r.path.split("/").pop()}${r.at_root ? " · root" : ""}`)),
     el("span", { style: "margin-left:auto" }, `${(current.size / 1048576).toFixed(1)} MB`),
   );
+  // 成片评价卡：成片生成（compose）阶段，在成片视频下方展示 final 范围评价卡
+  const evalReport = s.artifacts.evaluation_report;
+  const evalCard = evalReport && evalReport.scope === "final"
+    ? el("div", { style: "margin-top:16px" },
+        el("div", { class: "section-title" }, "成片评价卡",
+          el("span", { class: "meta" }, `judge: ${evalReport.judge_version || "—"}`)),
+        el("div", { class: "review-body" }, renderEvaluationCard(evalReport)))
+    : null;
   return el("div", {},
     el("div", { class: "section-title" }, "Renders",
       el("span", { class: "meta" }, `${renders.length} version${renders.length === 1 ? "" : "s"}`)),
     el("div", { class: "render-hero" }, video),
-    versions);
+    versions,
+    evalCard);
 }
 
 function renderFoundMedia(s) {

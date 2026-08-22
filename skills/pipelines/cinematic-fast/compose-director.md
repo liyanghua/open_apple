@@ -6,6 +6,17 @@ using the approved `render_plan` (`full` or validated `mux_only`). Run full
 `final_qa`; black frames, freeze, loudness, safe-zone, resolution, frame-rate
 or encoding failures stop the pipeline as failed and cannot be published.
 
+## evaluation_report (final scope) — L1a gate
+
+After full `final_qa` passes, run `technical_validator` on the final render
+with `scope: "final"` and produce `evaluation_report`. Inputs: expected
+duration from `edit_decisions.metadata.durationInFrames` / `final_props`,
+`expected_facts` from the approved script facts, `text_sources` from final
+captions and narration, `execution_diff_ref` pointing at
+`sample_execution_trace`. Fatal L1a failures (SKU/price/params/sensitive
+words) stop the pipeline as failed and cannot be published; fixable failures
+become `repair_targets` recorded in the report.
+
 Read the approved `render_runtime` from `edit_decisions` and pass it, together
 with `proposal_packet`, to `video_compose`. Route Remotion, HyperFrames, or
 FFmpeg exactly as the cinematic compose director specifies. A runtime failure
@@ -94,3 +105,19 @@ into `events.jsonl` — do not re-implement progress reporting in chat.
 
 
 Caption policy 1.0.1: when `caption_source=source_burned`, do not render duplicate atelier text. QA must check normalized-exact duplicate overlays, rejected glyph visibility, localized treatment area, crop geometry, and the caption-policy revision hash before sample approval.
+
+## caption_style render-payload field (P1-1)
+
+When a captioned render goes through Remotion, the render payload may carry a
+top-level `caption_style` object derived deterministically from the approved
+`caption_style_fingerprint.style` via `lib.caption_style.to_overlay_spec()`.
+`caption_style_fingerprint` is a `required_artifacts_in` of both the sample and
+compose stages (see `pipeline_defs/cinematic-fast.yaml`) — the agent must read
+it from the research checkpoint, not improvise a style. The derived spec
+includes `bottomOffsetPx` (安全区底部偏移的单一数据源); when the fingerprint
+is `not_applicable`, omit `caption_style` and let the renderer use its defaults.
+It is a render-payload-only field (never written into canonical
+`edit_decisions`), mirroring the `captions` and `audio.music` derived fields.
+The composition applies it in `CaptionOverlay`/`SafeCaptionTrack`; no reference
+font file is ever copied — `fontFamily` must name an open-source font or style
+approximation.

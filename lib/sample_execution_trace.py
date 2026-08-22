@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Mapping
 
 
@@ -128,14 +130,37 @@ def _planned_basis(planned: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalized_stem(path: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(Path(path).stem).lower()).strip("-")
+
+
+def _same_source(planned_path: str, actual_path: str, shot_id: str) -> bool:
+    """Evidence-driven source identity for the plan-vs-actual trace.
+
+    评审 #8：旧逻辑只要实际路径"包含" shot_id 标记和 "proxy" 子串即判同源，
+    与计划素材无关的路径也会被判 executed。新规则要求代理替换满足其一：
+    1) 计划文件词干（≥3 字符）出现在实际文件名词干中（来源身份保留）；
+    2) 实际文件名词干精确等于规范的 shot 标记代理名（<marker> 或
+       <marker>-proxy），而非任意包含标记的子串。
+    """
+    planned_stem = _normalized_stem(planned_path)
+    actual_stem = _normalized_stem(actual_path)
+    marker = re.sub(r"[^a-z0-9]+", "-", str(shot_id).lower()).strip("-")
+    is_proxy = "proxy" in actual_path.lower()
+    if not is_proxy:
+        return False
+    if planned_stem and len(planned_stem) >= 3 and planned_stem in actual_stem:
+        return True
+    return bool(marker) and actual_stem in {marker, f"{marker}-proxy"}
+
+
 def _matches_plan(planned: Mapping[str, Any], actual: Mapping[str, Any]) -> bool:
     selection = _source_selection(planned)
     expected_path = str(selection.get("path") or "")
     actual_path = str(actual.get("source_path") or actual.get("path") or "")
     if expected_path and actual_path and expected_path != actual_path:
         shot_id = str(planned.get("id") or planned.get("shot_id") or "")
-        proxy_marker = shot_id.replace("_", "-") if shot_id else ""
-        if not proxy_marker or proxy_marker not in actual_path or "proxy" not in actual_path.lower():
+        if not _same_source(expected_path, actual_path, shot_id):
             return False
     for expected_key, actual_key in (("start_seconds", "source_in_seconds"), ("end_seconds", "source_out_seconds")):
         expected = _number(selection.get(expected_key))
@@ -145,6 +170,149 @@ def _matches_plan(planned: Mapping[str, Any], actual: Mapping[str, Any]) -> bool
     expected_copy = str(planned.get("screen_copy") or "")
     actual_copy = str(actual.get("screen_copy") or actual.get("caption") or "")
     return not expected_copy or not actual_copy or expected_copy == actual_copy
+
+
+def _audio_diff(script: Mapping[str, Any], final_props: Mapping[str, Any], research_breakdown: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Plan-vs-actual audio diff (narration / BGM / original sound)."""
+    audio = final_props.get("audio") if isinstance(final_props.get("audio"), Mapping) else {}
+    mix = audio.get("mix") if isinstance(audio.get("mix"), Mapping) else {}
+    narration_planned = bool(
+        isinstance(script.get("voice_performance"), Mapping)
+        or any(str((sec.get("narration") or sec.get("text") or "")).strip() for sec in script.get("sections") or [])
+    )
+    music_profile = ""
+    if isinstance(research_breakdown, Mapping):
+        for obs in [*research_breakdown.get("reference_shots", []), *research_breakdown.get("source_segments", [])]:
+            if isinstance(obs, Mapping) and isinstance(obs.get("values"), Mapping):
+                profile = obs["values"].get("music_profile")
+                if profile:
+                    music_profile = str(profile)
+                    break
+    music_planned = bool(music_profile) or bool(mix.get("music"))
+    narration_present = mix.get("narration") is not None
+    music_present = mix.get("music") is not None
+    source = str(mix.get("source") or "unknown")
+    reason = ""
+    if source == "none_selected":
+        reason = "制作锁定选择无口播/无音乐；若为无音频决策，须在 production_lock 记录理由"
+    if narration_planned and not narration_present:
+        status = "partial"
+    elif (narration_planned and narration_present) or (not narration_planned and not narration_present and not music_planned):
+        status = "executed"
+    elif not narration_planned and not narration_present and music_planned and not music_present:
+        status = "partial"
+    else:
+        status = "executed"
+    if (narration_planned or music_planned) and not narration_present and not music_present:
+        status = "partial"
+        if not reason:
+            reason = "计划了口播/BGM，但样片没有实际音轨"
+    if not narration_planned and not music_planned and not narration_present and not music_present:
+        status = "executed"
+        reason = reason or "本片未计划口播与 BGM，保留原声"
+    voice_performance = ""
+    if isinstance(script.get("voice_performance"), Mapping):
+        voice_performance = str(script["voice_performance"].get("performance_intent") or "")
+    return {
+        "status": status,
+        "summary": (
+            f"口播：{'计划有' if narration_planned else '未计划'} / 实际{'有' if narration_present else '无'}；"
+            f"BGM：{'计划有' if music_planned else '未计划'} / 实际{'有' if music_present else '无'}；"
+            f"来源：{source}"
+        ),
+        "plan": {
+            "narration_planned": narration_planned,
+            "music_planned": music_planned,
+            "voice_performance": voice_performance,
+            "music_profile": music_profile,
+        },
+        "actual": {
+            "narration_present": narration_present,
+            "music_present": music_present,
+            "original_sound": True,
+            "source": source,
+            "reason": reason,
+        },
+        "reason": reason,
+    }
+
+
+def _caption_diff(script: Mapping[str, Any], final_props: Mapping[str, Any], sample_report: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Plan-vs-actual caption diff (policy, copy count, timing drift)."""
+    captions = [c for c in final_props.get("captions") or [] if isinstance(c, Mapping)]
+    sections = [s for s in script.get("sections") or [] if isinstance(s, Mapping)]
+    expected_copy = [str(s.get("screen_copy") or "").strip() for s in sections if str(s.get("screen_copy") or "").strip()]
+    metadata = script.get("metadata") if isinstance(script.get("metadata"), Mapping) else {}
+    policy = str(metadata.get("caption_policy") or "")
+    duration_ms = (_number(sample_report.get("probe", {}).get("duration_seconds")) or 0.0) * 1000 if isinstance(sample_report.get("probe"), Mapping) else 0.0
+    drift = any((_number(c.get("endMs")) or 0.0) > duration_ms + 100 for c in captions) if duration_ms else False
+    if not captions and expected_copy:
+        status, reason = "missing", "计划了字幕但样片没有字幕轨"
+    elif captions and drift:
+        status, reason = "partial", "字幕时间点超出样片窗口，存在时间轴漂移"
+    elif captions and not expected_copy:
+        status, reason = "executed", "字幕已进入样片（剧本未单列字幕意图）"
+    elif captions:
+        status, reason = "executed", "字幕按剧本意图进入样片"
+    else:
+        status, reason = "executed", "未计划字幕"
+    return {
+        "status": status,
+        "summary": f"字幕：计划 {len(expected_copy)} 条意图 / 实际 {len(captions)} 条字幕；{reason}",
+        "plan": {"policy": policy, "expected_copy_count": len(expected_copy)},
+        "actual": {"caption_count": len(captions), "timing_drift_detected": drift},
+        "reason": reason,
+    }
+
+
+def _creative_rule_diff(
+    shot_execution_plan: Mapping[str, Any],
+    creative_control_plan: Mapping[str, Any],
+    included_shot_ids: set[str],
+) -> dict[str, Any] | None:
+    """Creative-rule conformance diff with natural-language rule text."""
+    sections = creative_control_plan.get("sections")
+    if not isinstance(sections, Mapping):
+        return None
+    ref_to_included: dict[str, bool] = {}
+    ref_seen: set[str] = set()
+    for shot in shot_execution_plan.get("shots") or []:
+        if not isinstance(shot, Mapping):
+            continue
+        included = str(shot.get("id") or shot.get("shot_id") or "") in included_shot_ids
+        for ref in shot.get("control_rule_refs") or []:
+            ref = str(ref)
+            ref_seen.add(ref)
+            ref_to_included[ref] = ref_to_included.get(ref, False) or included
+    rules: list[dict[str, Any]] = []
+    for section_key, section in sections.items():
+        if not isinstance(section, Mapping):
+            continue
+        title = str(section.get("title") or section_key)
+        section_rules = [r for r in section.get("rules") or [] if isinstance(r, str)]
+        for index, rule_text in enumerate(section_rules):
+            ref = f"{section_key}.rules[{index}]"
+            if ref not in ref_seen:
+                status, summary = "not_checked", "未绑定到任何镜头"
+            elif ref_to_included.get(ref):
+                status, summary = "bound", "已绑定镜头并进入样片"
+            else:
+                status, summary = "not_in_sample", "绑定镜头尚未进入样片窗口"
+            rules.append({"section": title, "rule": rule_text, "status": status, "summary": summary})
+    if not rules:
+        return None
+    if all(r["status"] == "bound" for r in rules):
+        overall = "executed"
+    elif any(r["status"] == "bound" for r in rules):
+        overall = "partial"
+    else:
+        overall = "not_checked"
+    bound = sum(1 for r in rules if r["status"] == "bound")
+    return {
+        "status": overall,
+        "summary": f"导演总控单 {len(rules)} 条规则：{bound} 条已绑定进入样片，其余未进样片或未绑定。视觉符合性由五项效果确认人工判定。",
+        "rules": rules,
+    }
 
 
 def build_sample_execution_trace(project_id: str, artifacts: Mapping[str, Any]) -> dict[str, Any]:
@@ -208,11 +376,20 @@ def build_sample_execution_trace(project_id: str, artifacts: Mapping[str, Any]) 
     counts = {status: sum(item["status"] == status for item in trace_shots) for status in STATUS_LABELS}
     inputs = {
         name: _stable_hash(artifacts.get(name))
-        for name in ("reference_fingerprint", "creative_control_plan", "script", "shot_execution_plan", "final_props", "render_plan", "sample_report")
+        for name in ("reference_fingerprint", "creative_control_plan", "script", "shot_execution_plan", "final_props", "render_plan", "sample_report", "research_breakdown")
         if artifacts.get(name) is not None
     }
     payload = {"project_id": project_id, "plan_version": plan.get("plan_version"), "window": [window_start, window_end], "shots": trace_shots}
-    return {
+    included_ids = {item["shot_id"] for item in trace_shots if item["sample_window"]["included"]}
+
+    script = artifacts.get("script") if isinstance(artifacts.get("script"), Mapping) else {}
+    creative_plan = artifacts.get("creative_control_plan") if isinstance(artifacts.get("creative_control_plan"), Mapping) else {}
+    research_breakdown = artifacts.get("research_breakdown") if isinstance(artifacts.get("research_breakdown"), Mapping) else None
+    audio_diff = _audio_diff(script, final_props, research_breakdown)
+    caption_diff = _caption_diff(script, final_props, sample_report)
+    creative_rule_diff = _creative_rule_diff(plan, creative_plan, included_ids)
+
+    result = {
         "version": "1.0",
         "project_id": project_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -226,6 +403,13 @@ def build_sample_execution_trace(project_id: str, artifacts: Mapping[str, Any]) 
         },
         "shots": trace_shots,
     }
+    if audio_diff:
+        result["audio_diff"] = audio_diff
+    if caption_diff:
+        result["caption_diff"] = caption_diff
+    if creative_rule_diff:
+        result["creative_rule_diff"] = creative_rule_diff
+    return result
 
 
 def write_sample_execution_trace(

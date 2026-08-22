@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/candidate_batch",
+  "title": "Candidate Batch",
+  "description": "Batch index for the 5-candidate parallel montage mode (Design_Review_2026-08-22.md P1-2). Candidates share one research pass (facts, evidence, media inventory, originality boundary) and fork only on hook / pacing / packaging / audience / duration. Each candidate keeps its own project with independent proposal, script, scene_plan, sample and evaluation_report. Users select 1-2 candidates for fine edit; the batch never auto-publishes all candidates.",
+  "type": "object",
+  "required": [
+    "version", "batch_id", "project_id", "created_at", "shared_research",
+    "concurrency", "differentiation_axes", "candidates", "selection"
+  ],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "batch_id": { "type": "string", "minLength": 1 },
+    "project_id": { "type": "string", "minLength": 1, "description": "Batch workspace project id, e.g. batch-table-mat-001" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "shared_research": {
+      "type": "object",
+      "required": ["refs"],
+      "properties": {
+        "refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "path"],
+            "properties": {
+              "name": { "type": "string" },
+              "path": { "type": "string" },
+              "artifact_sha256": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false,
+      "description": "Shared research artifacts: reference_fingerprint / research_breakdown / reference_source_matrix / source_media_review / research_scorecard / caption_style_fingerprint"
+    },
+    "concurrency": {
+      "type": "object",
+      "required": ["max_candidates", "max_parallel"],
+      "properties": {
+        "max_candidates": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "max_parallel": { "type": "integer", "minimum": 1, "maximum": 5 }
+      },
+      "additionalProperties": false
+    },
+    "budget": {
+      "type": ["object", "null"],
+      "required": ["max_cost_usd", "max_retries_per_candidate"],
+      "properties": {
+        "max_cost_usd": { "type": "number", "minimum": 0, "description": "P2: 整批成本上限" },
+        "max_latency_minutes": { "type": ["number", "null"], "minimum": 0, "description": "P2: 整批时延预算（可空）" },
+        "max_retries_per_candidate": { "type": "integer", "minimum": 0, "description": "P2: 每候选失败重试上限" }
+      },
+      "additionalProperties": false,
+      "description": "P2 预算契约：成本/时延/失败重试；record_candidate_result 超预算时拒绝"
+    },
+    "differentiation_axes": {
+      "type": "object",
+      "properties": {
+        "hook": { "type": "boolean" },
+        "pacing": { "type": "boolean" },
+        "packaging": { "type": "boolean" },
+        "audience": { "type": "boolean" },
+        "duration": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["candidate_id", "label", "direction", "project_id", "status"],
+        "properties": {
+          "candidate_id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string" },
+          "direction": {
+            "type": "object",
+            "properties": {
+              "hook": { "type": "string" },
+              "pacing": { "type": "string" },
+              "packaging": { "type": "string" },
+              "audience": { "type": "string" },
+              "duration": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
+          "project_id": { "type": "string", "minLength": 1, "description": "该候选的独立项目目录（projects/<project_id>）" },
+          "status": {
+            "type": "string",
+            "enum": ["planned", "in_progress", "sampled", "evaluated", "failed", "selected_for_edit"]
+          },
+          "sample_ref": { "type": ["object", "null"] },
+          "evaluation_report_ref": { "type": ["object", "null"] },
+          "cost_usd": { "type": "number", "minimum": 0 },
+          "attempts": { "type": "integer", "minimum": 0, "description": "P2: 该候选已消耗的生成尝试次数（重试预算）" },
+          "failure": { "type": ["string", "null"] },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "selection": {
+      "type": "object",
+      "required": ["selected_candidate_ids", "reason"],
+      "properties": {
+        "selected_candidate_ids": {
+          "type": "array",
+          "maxItems": 2,
+          "items": { "type": "string" }
+        },
+        "selected_at": { "type": ["string", "null"], "format": "date-time" },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "semantic_sha256": { "type": "string" },
+    "artifact_sha256": { "type": "string" }
+  },
+  "additionalProperties": false
+}

@@ -1289,6 +1289,10 @@ class VideoCompose(BaseTool):
                 error=f"Atelier render completed but output file missing: {output_path}",
             )
 
+        # 评审 P2 B2：atelier 路径没有 delivery profile 兜底，直接归一化像素
+        # 格式（yuvj420p → yuv420p/tv），避免 final_qa 像素格式 revise。
+        post_encode = self._normalize_to_yuv420p(output_path)
+
         if inputs.get("audio_path"):
             mux_result = self._mux_external_audio(output_path, inputs["audio_path"])
             if not mux_result.success:
@@ -1316,6 +1320,7 @@ class VideoCompose(BaseTool):
                     "composition_id": comp_id,
                     "output": str(output_path),
                     "final_review_skipped": True,
+                    "post_encode": post_encode,
                 },
                 artifacts=[str(output_path)],
             )
@@ -1347,6 +1352,7 @@ class VideoCompose(BaseTool):
             "output": str(output_path),
             "final_review": final_review,
             "final_review_status": final_review.get("status"),
+            "post_encode": post_encode,
         }
 
         if final_review.get("status") == "fail":
@@ -3788,6 +3794,48 @@ class VideoCompose(BaseTool):
             }
         )
         if not encoded.success or not temp.is_file():
+            temp.unlink(missing_ok=True)
+            return False
+        temp.replace(output_path)
+        return True
+
+    def _normalize_to_yuv420p(self, output_path: Path) -> bool:
+        """Re-encode non-yuv420p output to yuv420p/tv-range in place (评审 P2 B2).
+
+        Remotion emits full-range ``yuvj420p`` by default. `_normalize_render_
+        to_profile` covers renders that carry a delivery profile; this helper
+        covers profile-less paths (atelier, direct remotion_render). Returns
+        True when a re-encode happened; never raises — a failed normalization
+        must not turn a successful render into a tool failure.
+        """
+        try:
+            from lib.render_plan import probe_media
+
+            probe = probe_media(output_path)
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError, ImportError):
+            return False
+        video = next(
+            (s for s in probe.get("streams", []) if s.get("codec_type") == "video"),
+            {},
+        )
+        if video.get("pix_fmt") == "yuv420p":
+            return False
+        temp = output_path.with_name(f".{output_path.stem}.yuv420p{output_path.suffix}")
+        try:
+            completed = subprocess.run(
+                [
+                    "ffmpeg", "-y", "-i", str(output_path),
+                    "-map", "0", "-c", "copy", "-c:v", "libx264",
+                    "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos,format=yuv420p",
+                    "-pix_fmt", "yuv420p", "-color_range", "tv",
+                    str(temp),
+                ],
+                capture_output=True,
+            )
+        except (OSError, FileNotFoundError):
+            temp.unlink(missing_ok=True)
+            return False
+        if completed.returncode != 0 or not temp.is_file():
             temp.unlink(missing_ok=True)
             return False
         temp.replace(output_path)

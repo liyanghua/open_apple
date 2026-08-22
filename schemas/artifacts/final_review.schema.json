@@ -169,6 +169,12 @@
             "caption_render_mode": {"type": ["string", "null"], "enum": ["remotion_overlay", "ffmpeg_burn", "subtitle_stream", null]},
             "caption_source": {"type": ["string", "null"]},
             "safe_zone_profile": {"type": ["string", "null"], "enum": ["douyin_9_16", "wechat_9_16", "xiaohongshu_9_16", null]},
+            "bottom_offset_px": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "maximum": 600,
+              "description": "字幕底部渲染偏移（评审 #9b 单一数据源）；null = 平台默认安全区"
+            },
             "pixels_rendered": {"type": "boolean"},
             "safe_zone_passed": {"type": ["boolean", "null"]},
             "computed_boxes": {"type": "array", "items": {"type": "object"}},

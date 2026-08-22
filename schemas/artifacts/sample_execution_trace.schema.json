@@ -57,6 +57,86 @@
         },
         "additionalProperties": false
       }
+    },
+    "audio_diff": {
+      "type": "object",
+      "required": ["status", "summary", "plan", "actual"],
+      "properties": {
+        "status": {"enum": ["executed", "partial", "missing"]},
+        "summary": {"type": "string", "description": "Natural-language plan-vs-actual summary; never internal JSON paths"},
+        "plan": {
+          "type": "object",
+          "properties": {
+            "narration_planned": {"type": "boolean"},
+            "music_planned": {"type": "boolean"},
+            "voice_performance": {"type": "string"},
+            "music_profile": {"type": "string"}
+          },
+          "additionalProperties": true
+        },
+        "actual": {
+          "type": "object",
+          "properties": {
+            "narration_present": {"type": "boolean"},
+            "music_present": {"type": "boolean"},
+            "original_sound": {"type": "boolean"},
+            "source": {"type": "string"},
+            "reason": {"type": "string"}
+          },
+          "additionalProperties": true
+        },
+        "reason": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "caption_diff": {
+      "type": "object",
+      "required": ["status", "summary", "plan", "actual"],
+      "properties": {
+        "status": {"enum": ["executed", "partial", "missing"]},
+        "summary": {"type": "string"},
+        "plan": {
+          "type": "object",
+          "properties": {
+            "policy": {"type": "string"},
+            "expected_copy_count": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": true
+        },
+        "actual": {
+          "type": "object",
+          "properties": {
+            "caption_count": {"type": "integer", "minimum": 0},
+            "timing_drift_detected": {"type": "boolean"}
+          },
+          "additionalProperties": true
+        },
+        "reason": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "creative_rule_diff": {
+      "type": "object",
+      "required": ["status", "summary", "rules"],
+      "properties": {
+        "status": {"enum": ["executed", "partial", "not_checked"]},
+        "summary": {"type": "string"},
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["section", "rule", "status", "summary"],
+            "properties": {
+              "section": {"type": "string", "description": "Human-readable section title, e.g. 内容方向"},
+              "rule": {"type": "string", "description": "Natural-language rule text, never a JSON path"},
+              "status": {"enum": ["bound", "not_in_sample", "not_checked"]},
+              "summary": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

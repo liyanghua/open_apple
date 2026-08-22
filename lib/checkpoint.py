@@ -239,6 +239,16 @@ def _validate_artifacts_for_stage(
             raise CheckpointValidationError(
                 f"cinematic-fast research quality gate failed: {exc}"
             ) from exc
+        try:
+            from lib.research_validation import validate_research_derived_files
+
+            if project_dir is None:
+                raise ValueError("research derived-file validation requires project_dir")
+            validate_research_derived_files(project_dir, validated_artifacts)
+        except Exception as exc:
+            raise CheckpointValidationError(
+                f"cinematic-fast research derived-file gate failed: {exc}"
+            ) from exc
 
     if pipeline_type == "cinematic-fast" and stage == "proposal" and status in {"completed", "awaiting_human"}:
         try:
@@ -1028,6 +1038,163 @@ def write_checkpoint(
     os.replace(tmp_path, path)
 
     return path
+
+
+def sync_checkpoint_envelopes(
+    project_dir: Path, checkpoint: dict[str, Any]
+) -> list[str]:
+    """Rebuild stale v2 envelopes inside one checkpoint from their disk files.
+
+    Mutates ``checkpoint["artifacts"]`` in place and returns the artifact
+    names that were refreshed. Used by ``refresh_checkpoint_envelopes`` and
+    by legacy backfills that must re-sync (e.g. a drifted decision_log)
+    before adding a missing artifact.
+    """
+    from lib.artifact_io import _artifact_relative_path, _contained_path
+
+    artifacts = checkpoint.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return []
+    refreshed_names: list[str] = []
+    for name, value in list(artifacts.items()):
+        if not (
+            isinstance(value, dict)
+            and {"name", "path", "semantic_sha256", "artifact_sha256", "data"}
+            <= value.keys()
+        ):
+            continue
+        rel = str(value["path"])
+        try:
+            target = _contained_path(project_dir, _artifact_relative_path(rel))
+        except ValueError:
+            continue
+        try:
+            disk_value = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(disk_value, dict)
+            and "data" in disk_value
+            and "semantic_sha256" in disk_value
+        ):
+            disk_data = disk_value["data"]
+        else:
+            disk_data = disk_value
+        if not isinstance(disk_data, dict):
+            continue
+        if (
+            "semantic_sha256" not in disk_data
+            or "artifact_sha256" not in disk_data
+        ):
+            continue
+        if (
+            value["data"] == disk_data
+            and value["semantic_sha256"] == disk_data["semantic_sha256"]
+        ):
+            continue  # not stale
+        artifacts[name] = {
+            "name": name,
+            "path": rel,
+            "semantic_sha256": disk_data["semantic_sha256"],
+            "artifact_sha256": disk_data["artifact_sha256"],
+            "data": disk_data,
+        }
+        refreshed_names.append(name)
+    return refreshed_names
+
+
+def persist_checkpoint_atomic(
+    pipeline_dir: Path,
+    project_id: str,
+    stage: str,
+    checkpoint: dict[str, Any],
+    *,
+    sink=None,
+) -> Path:
+    """Validate and atomically persist one checkpoint — no decision-log merge.
+
+    Unlike ``write_checkpoint`` this neither merges the decision log nor
+    resyncs other checkpoints; it validates this checkpoint (and its prior
+    stages, which must already be persisted) then swaps the file atomically.
+    Used by ``refresh_checkpoint_envelopes`` and legacy contract backfills,
+    where the producer must fix one stage without re-validating every later
+    checkpoint mid-transition.
+    """
+    project_dir = pipeline_dir / project_id
+    validate_checkpoint(checkpoint, project_dir=project_dir, sink=sink)
+    path = _checkpoint_path(pipeline_dir, project_id, stage)
+    if sink is not None:
+        sink.stage_json(path.relative_to(project_dir).as_posix(), checkpoint, schema="checkpoint")
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(".json.tmp")
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            json.dump(checkpoint, handle, indent=2)
+            handle.flush()
+            import os
+
+            os.fsync(handle.fileno())
+    except BaseException:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+    _archive_superseded_checkpoint(path, stage)
+    import os
+
+    os.replace(tmp_path, path)
+    return path
+
+
+def refresh_checkpoint_envelopes(
+    pipeline_dir: Path,
+    project_id: str,
+    *,
+    pipeline_type: str | None = None,
+    dry_run: bool = False,
+    sink=None,
+) -> dict[str, list[str]]:
+    """Refresh stale v2 artifact envelopes across all checkpoints (评审 P2 B1).
+
+    When an artifact file is rewritten on disk (a backfill repairs a report,
+    a fingerprint is re-extracted, ...), every checkpoint that embedded the
+    old content goes stale and later stage writes fail prerequisite
+    validation with envelope drift. This rebuilds each envelope from its file
+    on disk, re-validates, and re-persists the checkpoints in stage order so
+    the whole run validates again. Returns {stage: [refreshed artifact names]}.
+    """
+    project_dir = pipeline_dir / project_id
+    if not project_dir.is_dir():
+        raise ValueError(f"project dir not found: {project_dir}")
+
+    checkpoints: dict[str, dict[str, Any]] = {}
+    for path in sorted(project_dir.glob("checkpoint_*.json")):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(raw, dict) and raw.get("stage"):
+            checkpoints[str(raw["stage"])] = raw
+
+    stages = get_pipeline_stages(pipeline_type)
+    ordered = [s for s in stages if s in checkpoints] + [
+        s for s in checkpoints if s not in stages
+    ]
+
+    report: dict[str, list[str]] = {}
+    for stage in ordered:
+        checkpoint = checkpoints[stage]
+        refreshed_names = sync_checkpoint_envelopes(project_dir, checkpoint)
+        if not refreshed_names:
+            continue
+        if dry_run:
+            report[stage] = refreshed_names
+            continue
+        persist_checkpoint_atomic(pipeline_dir, project_id, stage, checkpoint, sink=sink)
+        report[stage] = refreshed_names
+    return report
 
 
 def read_checkpoint(

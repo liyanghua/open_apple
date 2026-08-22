@@ -99,7 +99,7 @@ def test_remotion_caption_declaration_requires_and_accepts_safe_pixel_evidence(t
     validate_artifact("final_review", result.data)
 
 
-def test_subtitle_stream_is_declared_but_not_claimed_as_pixel_rendered(tmp_path: Path, monkeypatch):
+def test_subtitle_stream_declared_but_missing_from_render_revises(tmp_path: Path, monkeypatch):
     video = tmp_path / "final.mp4"; video.write_bytes(b"video")
     _patch_valid_media(monkeypatch)
     result = FinalQA().execute({
@@ -114,8 +114,49 @@ def test_subtitle_stream_is_declared_but_not_claimed_as_pixel_rendered(tmp_path:
     })
 
     caption_render = result.data["checks"]["caption_render"]
-    assert result.data["status"] == "pass"
+    assert result.data["status"] == "revise"
+    assert not result.success
+    assert "subtitles declared but not present in render" in result.data["issues_found"]
     assert caption_render["declared"] is True
     assert caption_render["pixels_rendered"] is False
     assert caption_render["safe_zone_passed"] is None
     assert result.data["checks"]["subtitle_check"]["subtitles_present"] is False
+
+
+def _bottom_offset_case(tmp_path: Path) -> dict:
+    return {
+        "mode": "quick",
+        "input_path": str(tmp_path / "final.mp4"),
+        "expected_profile": "social_vertical_1080p30",
+        "caption_declaration": {
+            "caption_render_mode": "remotion_overlay",
+            "caption_source": "artifacts/final_props.json#captions",
+            "safe_zone_profile": "douyin_9_16",
+            "bottom_offset_px": 120,
+        },
+        "caption_spec": {
+            "props_hash": "a" * 64,
+            "computed_boxes": [{
+                "text": "透明桌垫", "left": 100, "right": 964, "top": 1740,
+                "bottom": 1800, "width": 864, "height": 60, "line_count": 1,
+            }],
+        },
+    }
+
+
+def test_caption_bottom_offset_declaration_is_the_single_source(tmp_path: Path, monkeypatch):
+    """评审 #9b：声明的底部偏移让 QA 与渲染器使用同一安全区数值。"""
+    video = tmp_path / "final.mp4"; video.write_bytes(b"video")
+    _patch_valid_media(monkeypatch)
+    result = FinalQA().execute(_bottom_offset_case(tmp_path))
+    caption_render = result.data["checks"]["caption_render"]
+    assert result.data["status"] == "pass"
+    assert caption_render["safe_zone_passed"] is True
+    assert caption_render["bottom_offset_px"] == 120
+
+    # 同一盒子、缺省声明偏移 → 平台默认安全区（300）判定越界 → revise
+    without_offset = _bottom_offset_case(tmp_path)
+    without_offset["caption_declaration"].pop("bottom_offset_px")
+    result2 = FinalQA().execute(without_offset)
+    assert result2.data["status"] == "revise"
+    assert result2.data["checks"]["caption_render"]["safe_zone_passed"] is False

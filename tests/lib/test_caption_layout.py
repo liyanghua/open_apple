@@ -62,3 +62,27 @@ def test_requested_width_is_clamped_to_the_social_v1_profile():
 
     assert box["width"] <= 864
     assert is_inside_safe_zone(box)
+
+
+def test_caption_box_respects_declared_bottom_offset():
+    """评审 #9b：bottom_margin_px 覆盖平台安全区，盒底边 = height - offset。"""
+    box = caption_box_for_cue({"text": "透明桌垫"}, bottom_margin_px=120)
+    assert box["bottom"] == 1920 - 120
+    default_box = caption_box_for_cue({"text": "透明桌垫"})
+    assert default_box["bottom"] == 1920 - 300
+
+
+def test_safe_zone_check_uses_declared_bottom_offset():
+    """评审 #9b：同一盒子在平台默认区（300）越界、在声明偏移（120）下通过。"""
+    box = {
+        "text": "透明桌垫",
+        "left": 100, "right": 964, "top": 1740, "bottom": 1800,
+        "width": 864, "height": 60, "line_count": 1,
+    }
+    assert not boxes_in_social_safe_zone([box])
+    assert boxes_in_social_safe_zone([box], bottom_margin_px=120)
+
+
+def test_layout_captions_threads_bottom_margin():
+    boxes = layout_captions([{"text": "透明桌垫"}], bottom_margin=120)
+    assert boxes[0]["bottom"] == 1920 - 120

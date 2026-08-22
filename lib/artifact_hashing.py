@@ -46,10 +46,47 @@ def _without_paths(
     return value
 
 
+def _non_plain_location(value: Any, path: str = "$") -> tuple[str, type] | None:
+    """Return (path, type) of the first non-JSON value, else None.
+
+    Object scripts (callables, custom class instances, tuples) must never
+    reach a canonical hash: rfc8785 rejects them anyway, but with an opaque
+    error and no location.  Walking first makes the contract explicit and
+    gives producers a path-qualified failure.
+    """
+    if isinstance(value, dict):
+        for key, child in value.items():
+            location = _non_plain_location(child, f"{path}.{key}")
+            if location is not None:
+                return location
+        return None
+    if isinstance(value, list):
+        for index, child in enumerate(value):
+            location = _non_plain_location(child, f"{path}[{index}]")
+            if location is not None:
+                return location
+        return None
+    if isinstance(value, bool) or value is None or isinstance(value, (str, int, float)):
+        return None
+    return path, type(value)
+
+
 def canonical_bytes(
     value: Any, omitted: frozenset[tuple[Any, ...]] = frozenset()
 ) -> bytes:
-    """Serialize JSON-compatible data using RFC 8785 (JCS)."""
+    """Serialize JSON-compatible data using RFC 8785 (JCS).
+
+    Non-plain-JSON values (callables, custom objects, tuples, ...) are
+    rejected with a path-qualified TypeError so an object script can never
+    smuggle a non-deterministic value into an artifact hash.
+    """
+    location = _non_plain_location(value)
+    if location is not None:
+        path, kind = location
+        raise TypeError(
+            f"value at {path!r} is not plain JSON data ({kind.__name__}); "
+            "artifact content may only contain dict/list/str/int/float/bool/null"
+        )
     return rfc8785.dumps(_without_paths(value, omitted))
 
 

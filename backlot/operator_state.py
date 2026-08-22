@@ -1491,6 +1491,30 @@ def _delivery_editor(
     for override in delivery_review.get("copy_overrides") or []:
         if isinstance(override, Mapping):
             pending_changes.append({"kind": "copy", "label": "文案", "summary": "文案已修改，等待生成新版"})
+    evaluation = None
+    # 评审 #3：成片评价卡优先读 final 范围报告；无 scoped 文件时回退默认键。
+    eval_report = _artifact(board, "evaluation_report.final") or _artifact(board, "evaluation_report")
+    if isinstance(eval_report, Mapping) and eval_report.get("scope") == "final":
+        advisory = eval_report.get("creative_advisory") if isinstance(eval_report.get("creative_advisory"), Mapping) else {}
+        evaluation = {
+            "status": eval_report.get("status"),
+            "recommended_action": eval_report.get("recommended_action"),
+            "judge_version": eval_report.get("judge_version"),
+            "hard_gate_fails": [
+                {"name": c.get("name"), "message": c.get("message"), "fixable": c.get("fixable")}
+                for c in (eval_report.get("hard_gate") or {}).get("checks", [])
+                if isinstance(c, Mapping) and c.get("status") == "fail"
+            ],
+            "advisory": {
+                "scored": bool(advisory.get("scored")),
+                "summary": _safe_text(advisory.get("summary"), "尚未运行 VLM 创意评审"),
+                "dimensions": [
+                    {"name": d.get("name"), "score": d.get("score"), "note": d.get("note")}
+                    for d in (advisory.get("dimensions") or [])
+                    if isinstance(d, Mapping)
+                ],
+            },
+        }
     data: dict[str, Any] = {
         "duration_seconds": duration,
         "qa_status": "检查通过" if qa_passed else "等待成片检查",
@@ -1505,6 +1529,7 @@ def _delivery_editor(
         "candidate_groups": candidate_groups,
         "versions": versions,
         "pending_changes": pending_changes,
+        "evaluation": evaluation,
     }
     # The publish stage shares this review workbench but additionally surfaces
     # the delivery package: publish_log entries, copy metadata and delivery

@@ -269,6 +269,21 @@ def _collect_artifacts(project_dir: Path, checkpoints: dict[str, dict]) -> dict[
         data = _read_json(art_dir / filename)
         if data is not None:
             artifacts[name] = data
+    # 评审 #3：scoped 制品（evaluation_report.sample.json / .final.json）各自
+    # 独立投影，默认键取 final（最新范围），避免样片报告与成片报告互相覆盖。
+    from lib.artifact_io import SCOPED_ARTIFACTS
+
+    for name, scopes in SCOPED_ARTIFACTS.items():
+        scoped_data: dict[str, dict] = {}
+        for scope in scopes:
+            data = _read_json(art_dir / f"{name}.{scope}.json")
+            if data is not None:
+                scoped_data[scope] = data
+                artifacts[f"{name}.{scope}"] = data
+        if "final" in scoped_data:
+            artifacts[name] = scoped_data["final"]
+        elif name not in artifacts and "sample" in scoped_data:
+            artifacts[name] = scoped_data["sample"]
     # decision_log historically also lives at project root
     if "decision_log" not in artifacts:
         data = _read_json(project_dir / "decision_log.json")

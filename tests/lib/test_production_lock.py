@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.artifact_hashing import attach_hashes
 from lib.production_lock import (
     append_decision_revision,
     build_production_lock,
@@ -86,7 +87,7 @@ def test_build_lock_uses_project_id_from_asset_plan_when_earlier_artifacts_are_u
         proposal={"production_plan": {"render_runtime": "remotion", "composition_mode": "templated"}},
         script={"text": "一条可执行的剧本"},
         scene_plan={"scenes": []},
-        asset_plan={"project_id": "table-mat-mix-v7"},
+        asset_plan={"project_id": "table-mat-mix-v7", "mix": {"reason": "无口播：测试项目仅验证 project_id 归属"}},
         decisions={"project_id": "table-mat-mix-v7", "decisions": []},
     )
 
@@ -113,6 +114,79 @@ def test_build_lock_rejects_missing_project_id():
             asset_plan={},
             decisions={"decisions": []},
         )
+
+
+def _raw_inputs() -> dict:
+    return {
+        "proposal": {
+            "project_id": "demo",
+            "production_plan": {
+                "platform": "tiktok",
+                "cta": "立即下单",
+                "render_runtime": "remotion",
+                "composition_mode": "atelier",
+                "output": {"resolution": "1080x1920", "fps": 30, "duration": 30},
+            },
+        },
+        "script": {"project_id": "demo", "text": "透明也能扛住日常刮擦"},
+        "scene_plan": {"captions": {"profile": "safe", "emphasis": ["刮擦"]}},
+        "asset_plan": {
+            "tts": {"provider": "doubao", "model": "seed-tts", "voice": "warm"},
+            "bgm": {"id": "track-1"},
+            "mix": {"gain": 0, "lufs": -14},
+        },
+        "decisions": {"decisions": []},
+    }
+
+
+def test_build_lock_accepts_content_matching_envelopes():
+    inputs = _raw_inputs()
+    attached = copy.deepcopy(inputs["proposal"])
+    attached = attach_hashes(attached)
+    envelope = {
+        "name": "proposal_packet",
+        "path": "artifacts/proposal_packet.json",
+        "semantic_sha256": attached["semantic_sha256"],
+        "artifact_sha256": attached["artifact_sha256"],
+        "data": attached,
+    }
+    raw_lock = build_production_lock(**inputs)
+    env_lock = build_production_lock(**{**inputs, "proposal": envelope})
+    assert env_lock["locked_values"] == raw_lock["locked_values"]
+
+
+def test_build_lock_rejects_envelope_with_forged_content():
+    inputs = _raw_inputs()
+    attached = attach_hashes(copy.deepcopy(inputs["proposal"]))
+    forged_data = copy.deepcopy(attached)
+    forged_data["production_plan"] = dict(forged_data["production_plan"])
+    forged_data["production_plan"]["render_runtime"] = "ffmpeg"  # 与声明的哈希不符
+    forged = {
+        "name": "proposal_packet",
+        "path": "artifacts/proposal_packet.json",
+        "semantic_sha256": attached["semantic_sha256"],
+        "artifact_sha256": attached["artifact_sha256"],
+        "data": forged_data,
+    }
+    with pytest.raises(ValueError, match="object-script"):
+        build_production_lock(**{**inputs, "proposal": forged})
+
+
+def test_build_lock_rejects_partial_envelope():
+    inputs = _raw_inputs()
+    partial = {
+        "data": copy.deepcopy(inputs["proposal"]),
+        "semantic_sha256": "a" * 64,
+    }
+    with pytest.raises(ValueError, match="partial envelope"):
+        build_production_lock(**{**inputs, "proposal": partial})
+
+
+def test_build_lock_rejects_callable_in_input():
+    inputs = _raw_inputs()
+    inputs["script"] = {"project_id": "demo", "text": lambda: "绕过锁的对象脚本"}
+    with pytest.raises(TypeError, match="not plain JSON data"):
+        build_production_lock(**inputs)
 
 
 def test_append_revision_is_append_only_and_uses_same_pair(tmp_path: Path):

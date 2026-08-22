@@ -4,20 +4,55 @@
   "title": "Decision Log",
   "description": "Audit trail of every meaningful choice made during production. Prevents hidden system behavior, enables reviewer inspection, and guards against context drift.",
   "type": "object",
-  "required": ["version", "project_id", "decisions"],
+  "required": [
+    "version",
+    "project_id",
+    "decisions"
+  ],
   "properties": {
-    "version": { "type": "string", "const": "1.0" },
-    "project_id": { "type": "string" },
-    "created_at": { "type": "string", "format": "date-time" },
-    "producer": { "type": "string", "minLength": 1 },
-    "input_hashes": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
-    "semantic_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-    "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
+    "semantic_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "artifact_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
     "decisions": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["decision_id", "stage", "category", "subject", "options_considered", "selected", "reason"],
+        "required": [
+          "decision_id",
+          "stage",
+          "category",
+          "subject",
+          "options_considered",
+          "selected",
+          "reason"
+        ],
         "properties": {
           "decision_id": {
             "type": "string",
@@ -59,18 +94,34 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["option_id", "label", "score", "reason"],
+              "required": [
+                "option_id",
+                "label",
+                "score",
+                "reason"
+              ],
               "properties": {
-                "option_id": { "type": "string" },
-                "label": { "type": "string", "description": "Human-readable name" },
+                "option_id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Human-readable name"
+                },
                 "score": {
                   "type": "number",
                   "minimum": 0,
                   "maximum": 1,
                   "description": "Normalized score 0-1 (1 is best)"
                 },
-                "reason": { "type": "string", "description": "Why this option scored this way" },
-                "rejected_because": { "type": "string", "description": "If rejected, why" }
+                "reason": {
+                  "type": "string",
+                  "description": "Why this option scored this way"
+                },
+                "rejected_because": {
+                  "type": "string",
+                  "description": "If rejected, why"
+                }
               },
               "additionalProperties": false
             },
@@ -108,15 +159,38 @@
             "items": {
               "type": "string",
               "enum": [
-                "unclear_promise", "unsupported_claim", "information_gap",
-                "weak_hook", "slow_start", "cover_mismatch",
-                "repetition", "density_spike", "dead_air", "weak_payoff",
-                "identity_drift", "artifact", "hierarchy_failure", "generic_visual",
-                "pronunciation", "timing", "music_masking", "loudness",
-                "unsafe_text", "wrong_duration", "mobile_illegibility",
-                "weak_offer", "late_cta", "ambiguous_cta", "brand_mismatch",
-                "blank_frame", "crop_mismatch", "claim_rejected", "caption_overlap",
-                "render_failure", "infra_sidequest"
+                "unclear_promise",
+                "unsupported_claim",
+                "information_gap",
+                "weak_hook",
+                "slow_start",
+                "cover_mismatch",
+                "repetition",
+                "density_spike",
+                "dead_air",
+                "weak_payoff",
+                "identity_drift",
+                "artifact",
+                "hierarchy_failure",
+                "generic_visual",
+                "pronunciation",
+                "timing",
+                "music_masking",
+                "music_tone_mismatch",
+                "loudness",
+                "unsafe_text",
+                "wrong_duration",
+                "mobile_illegibility",
+                "weak_offer",
+                "late_cta",
+                "ambiguous_cta",
+                "brand_mismatch",
+                "blank_frame",
+                "crop_mismatch",
+                "claim_rejected",
+                "caption_overlap",
+                "render_failure",
+                "infra_sidequest"
               ]
             },
             "description": "Structured quality issue tags for rework/rejection decisions. Mandatory when category is rework_cause or review_rejection. Feeds the cohort-level quality feedback loop."
@@ -130,10 +204,24 @@
         "allOf": [
           {
             "if": {
-              "properties": { "category": { "enum": ["rework_cause", "review_rejection"] } },
-              "required": ["category"]
+              "properties": {
+                "category": {
+                  "enum": [
+                    "rework_cause",
+                    "review_rejection"
+                  ]
+                }
+              },
+              "required": [
+                "category"
+              ]
             },
-            "then": { "required": ["issue_tags", "rework_round"] }
+            "then": {
+              "required": [
+                "issue_tags",
+                "rework_round"
+              ]
+            }
           }
         ],
         "additionalProperties": false

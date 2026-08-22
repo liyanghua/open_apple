@@ -41,7 +41,10 @@ class SunoMusic(BaseTool):
     install_instructions = (
         "Set the SUNO_API_KEY environment variable:\n"
         "  export SUNO_API_KEY=your_key_here\n"
-        "Get a key at https://sunoapi.org/api-key"
+        "Get a key at https://sunoapi.org/api-key\n"
+        "Optional: SUNO_CALLBACK_URL overrides the polling-mode placeholder "
+        "callback (sunoapi.org requires a non-empty callBackUrl even when "
+        "the tool polls for results)."
     )
 
     agent_skills = ["music"]
@@ -160,16 +163,21 @@ class SunoMusic(BaseTool):
             # Step 2: Poll for completion
             result_data = self._poll(task_id, api_key)
 
-            # Step 3: Download audio
+            # Step 3: Download audio — track list location varies by API shape
             track_index = inputs.get("track_index", 0)
-            tracks = result_data.get("data", [])
+            tracks = self._extract_tracks(result_data)
             if not tracks:
-                return ToolResult(success=False, error="Suno returned no tracks.")
+                return ToolResult(success=False, error=f"Suno returned no tracks: {result_data}")
 
             track = tracks[min(track_index, len(tracks) - 1)]
-            audio_url = track.get("audio_url")
+            audio_url = (
+                track.get("audio_url")
+                or track.get("stream_audio_url")
+                or track.get("audioUrl")
+                or track.get("url")
+            )
             if not audio_url:
-                return ToolResult(success=False, error="No audio_url in Suno response.")
+                return ToolResult(success=False, error=f"No audio_url in Suno track: {track}")
 
             output_path = self._download(audio_url, inputs, api_key)
 
@@ -211,7 +219,13 @@ class SunoMusic(BaseTool):
             "model": model,
             "customMode": custom_mode,
             "instrumental": instrumental,
-            "callBackUrl": "",  # no webhook; we poll
+            # 评审 #10：sunoapi.org 要求非空 callBackUrl（轮询模式下不会真正
+            # 调用）。不再硬编码占位符：SUNO_CALLBACK_URL 环境变量可覆盖，
+            # 否则使用明确标记的占位域名。
+            "callBackUrl": os.environ.get(
+                "SUNO_CALLBACK_URL",
+                "https://suno-callback.invalid/placeholder",
+            ),
         }
 
         if custom_mode:
@@ -231,13 +245,45 @@ class SunoMusic(BaseTool):
             timeout=30,
         )
         response.raise_for_status()
-        data = response.json()
+        data = response.json() or {}
 
-        task_id = data.get("data", {}).get("taskId") or data.get("taskId")
+        payload_data = data.get("data")
+        task_id = (
+            payload_data.get("taskId")
+            if isinstance(payload_data, dict)
+            else None
+        ) or data.get("taskId")
         if not task_id:
             raise RuntimeError(f"No taskId in Suno response: {data}")
 
         return task_id
+
+    def _extract_tracks(self, result_data: Any) -> list[dict]:
+        """Defensively locate the track list across sunoapi.org response shapes."""
+        if isinstance(result_data, list):
+            return [t for t in result_data if isinstance(t, dict)]
+        if not isinstance(result_data, dict):
+            return []
+        nested = result_data.get("data")
+        if isinstance(nested, list):
+            return [t for t in nested if isinstance(t, dict)]
+        if isinstance(nested, dict):
+            inner = nested.get("data")
+            if isinstance(inner, list):
+                return [t for t in inner if isinstance(t, dict)]
+            response = nested.get("response")
+            if isinstance(response, dict):
+                for key in ("sunoData", "tracks", "data"):
+                    value = response.get(key)
+                    if isinstance(value, list):
+                        return [t for t in value if isinstance(t, dict)]
+        response = result_data.get("response")
+        if isinstance(response, dict):
+            for key in ("sunoData", "tracks", "data"):
+                value = response.get(key)
+                if isinstance(value, list):
+                    return [t for t in value if isinstance(t, dict)]
+        return []
 
     def _poll(self, task_id: str, api_key: str) -> dict:
         """Poll for task completion and return the result data."""
@@ -255,18 +301,22 @@ class SunoMusic(BaseTool):
                 timeout=30,
             )
             response.raise_for_status()
-            result = response.json()
-
-            status = result.get("data", {}).get("status") or result.get("status", "")
+            result = response.json() or {}
+            result_data = result.get("data")
+            status = (
+                result_data.get("status")
+                if isinstance(result_data, dict)
+                else None
+            ) or result.get("status", "")
 
             if status == "SUCCESS":
-                return result.get("data", result)
+                return result
             elif status in (
                 "CREATE_TASK_FAILED",
                 "GENERATE_AUDIO_FAILED",
                 "SENSITIVE_WORD_ERROR",
             ):
-                raise RuntimeError(f"Suno generation failed with status: {status}")
+                raise RuntimeError(f"Suno generation failed with status: {status}; response={result}")
 
             # PENDING, GENERATING, TEXT_SUCCESS, FIRST_SUCCESS — keep polling
 
