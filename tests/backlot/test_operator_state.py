@@ -284,7 +284,18 @@ def test_publish_stage_surfaces_delivery_package_while_compose_does_not() -> Non
     assert entry["description"] == "15 秒实录证明。"
     assert entry["hashtags"] == ["透明桌垫", "居家好物"]
     assert entry["export_path"] == "renders/final.mp4"
-    assert publish_data["delivery"]["qa_evidence"] == ["artifacts/final_review"]
+    assert publish_data["delivery"]["package_path"] == "renders/final.mp4"
+    assert publish_data["delivery"]["package_files"] == [{
+        "relative_path": "renders/final.mp4",
+        "label": "final.mp4",
+        "kind": "video",
+        "download_url": None,
+    }]
+    assert publish_data["delivery"]["qa_evidence"] == [{
+        "relative_path": "artifacts/final_review.json",
+        "label": "final_review.json",
+        "download_url": "/media/table-mat/artifacts/final_review.json",
+    }]
 
 
 def test_publish_stage_without_publish_log_has_empty_delivery_entries() -> None:
@@ -296,6 +307,38 @@ def test_publish_stage_without_publish_log_has_empty_delivery_entries() -> None:
     publish_data = stages["publish"]["editor"]["data"]
     assert publish_data["delivery"]["entries"] == []
     assert "delivery" not in stages["compose"]["editor"]["data"]
+
+
+def test_publish_stage_lists_files_from_project_delivery_package(tmp_path: Path) -> None:
+    from backlot.operator_state import project_operator_state, validate_operator_state
+
+    package = tmp_path / "exports" / "table-mat"
+    package.mkdir(parents=True)
+    (package / "video").mkdir()
+    (package / "video" / "output.mp4").write_bytes(b"video")
+    (package / "metadata").mkdir()
+    (package / "metadata" / "metadata.json").write_text("{}", encoding="utf-8")
+    board = _board_state()
+    board["_project_dir"] = tmp_path
+    board["artifacts"]["publish_log"] = {
+        "version": "1.0",
+        "entries": [{
+            "platform": "local",
+            "status": "exported",
+            "export_path": "exports/table-mat",
+            "timestamp": "2026-08-22T10:00:00Z",
+        }],
+        "metadata": {"distribution_notes": "本地交付"},
+    }
+    state = project_operator_state(board)
+    validate_operator_state(state)
+    delivery = next(stage for stage in state["stages"] if stage["id"] == "publish")["editor"]["data"]["delivery"]
+    assert delivery["package_path"] == "exports/table-mat"
+    assert [item["relative_path"] for item in delivery["package_files"]] == [
+        "exports/table-mat/metadata/metadata.json",
+        "exports/table-mat/video/output.mp4",
+    ]
+    assert delivery["package_files"][0]["download_url"] == "/media/table-mat/exports/table-mat/metadata/metadata.json"
 
 
 def test_sample_editor_exposes_execution_trace_summary_and_shots() -> None:

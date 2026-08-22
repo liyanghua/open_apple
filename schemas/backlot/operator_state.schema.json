@@ -681,9 +681,39 @@
             "additionalProperties": false
           }
         },
+        "package_path": {"type": "string"},
+        "package_files": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/delivery_package_file"}
+        },
         "notes": {"type": "string"},
         "hero_output": {"type": "string"},
-        "qa_evidence": {"type": "array", "items": {"type": "string"}}
+        "qa_evidence": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/delivery_evidence"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "delivery_package_file": {
+      "type": "object",
+      "required": ["relative_path", "label", "kind", "download_url"],
+      "properties": {
+        "relative_path": {"type": "string"},
+        "label": {"type": "string"},
+        "kind": {"enum": ["video", "subtitle", "thumbnail", "metadata", "other"]},
+        "download_url": {"$ref": "#/$defs/delivery_media_url"},
+        "size_bytes": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "delivery_evidence": {
+      "type": "object",
+      "required": ["relative_path", "label", "download_url"],
+      "properties": {
+        "relative_path": {"type": "string"},
+        "label": {"type": "string"},
+        "download_url": {"$ref": "#/$defs/delivery_media_url"}
       },
       "additionalProperties": false
     },

@@ -1158,9 +1158,37 @@ function renderDeliveryInfo(container, delivery) {
     notes.append(node("p", "row-copy", delivery.notes));
     panel.append(notes);
   }
+  if (delivery.package_path) {
+    panel.append(detailRow("交付包位置", delivery.package_path));
+  }
+  if (delivery.package_files && delivery.package_files.length) {
+    const files = node("div", "delivery-package-files");
+    files.append(node("h4", "delivery-publish-subheading", `交付包文件（${delivery.package_files.length}）`));
+    delivery.package_files.forEach((file) => {
+      const row = node("div", "delivery-package-file");
+      const label = node("span", "delivery-package-file-label", file.label || file.relative_path);
+      row.append(label);
+      if (file.download_url) {
+        const link = node("a", "quiet-button delivery-package-download", "下载");
+        link.href = file.download_url; link.download = file.label || "download";
+        link.target = "_blank"; link.rel = "noreferrer"; row.append(link);
+      } else {
+        row.append(node("span", "row-meta", "文件尚未生成"));
+      }
+      files.append(row);
+    });
+    panel.append(files);
+  }
   if (delivery.hero_output) panel.append(detailRow("主交付文件", delivery.hero_output));
   if (delivery.qa_evidence && delivery.qa_evidence.length) {
-    panel.append(detailRow("QA 证据", delivery.qa_evidence.join(" · ")));
+    const evidence = node("div", "delivery-publish-notes");
+    evidence.append(node("h4", "delivery-publish-subheading", "QA 证据"));
+    delivery.qa_evidence.forEach((item) => {
+      const link = node("a", "delivery-evidence-link", item.label || item.relative_path);
+      if (item.download_url) { link.href = item.download_url; link.target = "_blank"; link.rel = "noreferrer"; }
+      evidence.append(link);
+    });
+    panel.append(evidence);
   }
   container.append(panel);
 }

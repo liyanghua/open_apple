@@ -400,6 +400,11 @@ h3 { font-size: 15px; }
 .delivery-publish-entry .status-chip.status-failed { color: #b3261e; border-color: #e7bdb9; }
 .delivery-publish-notes { display: grid; gap: 6px; padding: 12px 14px; border-left: 3px solid var(--accent-soft); background: #f8faf9; }
 .delivery-publish-subheading { margin: 0; font-size: 12px; color: var(--muted); }
+.delivery-package-files { display: grid; gap: 7px; padding: 12px 14px; border: 1px solid var(--line); background: #fbfdfc; }
+.delivery-package-file { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.delivery-package-file-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.delivery-package-download { flex: 0 0 auto; padding: 4px 8px; font-size: 11px; text-decoration: none; }
+.delivery-evidence-link { display: block; color: var(--accent); font-size: 12px; overflow-wrap: anywhere; }
 .delivery-track { display: grid; grid-template-columns: 88px minmax(0, 1fr); min-height: 54px; border-bottom: 1px solid var(--line); }
 .delivery-track-label { display: flex; align-items: center; padding: 8px 10px 8px 0; color: var(--muted); font-size: 12px; }
 .delivery-track-lane { position: relative; min-width: 0; height: 54px; background: #f8faf9; overflow: hidden; }

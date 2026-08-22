@@ -126,6 +126,72 @@ def _media_url(project_id: str, relative_path: Any) -> str | None:
     return f"/media/{quote(project_id, safe='')}/{encoded_path}"
 
 
+def _project_relative_path(project_id: str, value: Any) -> str:
+    """Normalize a project-local artifact path without exposing host paths."""
+    if not isinstance(value, str):
+        return ""
+    text = value.strip().replace("\\", "/")
+    if not text or _ABSOLUTE_PATH.match(text):
+        return ""
+    prefix = f"projects/{project_id}/"
+    if text.startswith(prefix):
+        text = text[len(prefix):]
+    parts = [part for part in text.split("/") if part not in {"", "."}]
+    if not parts or ".." in parts:
+        return ""
+    return "/".join(parts)
+
+
+def _delivery_file_kind(path: str) -> str:
+    suffix = Path(path).suffix.casefold()
+    if suffix in {".mp4", ".mov", ".webm"}:
+        return "video"
+    if suffix in {".srt", ".vtt", ".ass"}:
+        return "subtitle"
+    if suffix in {".jpg", ".jpeg", ".png", ".webp"}:
+        return "thumbnail"
+    if suffix in {".txt", ".json", ".csv"}:
+        return "metadata"
+    return "other"
+
+
+def _delivery_package_files(
+    board: Mapping[str, Any], project_id: str, package_path: str,
+) -> list[dict[str, Any]]:
+    """List files in a publish package, constrained to the project directory."""
+    project_dir = board.get("_project_dir")
+    if not isinstance(project_dir, Path) or not package_path:
+        return [{
+            "relative_path": package_path,
+            "label": Path(package_path).name,
+            "kind": _delivery_file_kind(package_path),
+            "download_url": None,
+        }]
+    root = project_dir.resolve()
+    target = (root / package_path).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        return []
+    if target.is_file():
+        candidates = [target]
+    elif target.is_dir():
+        candidates = sorted(path for path in target.rglob("*") if path.is_file())
+    else:
+        candidates = []
+    files = []
+    for path in candidates[:200]:
+        relative = path.relative_to(root).as_posix()
+        files.append({
+            "relative_path": relative,
+            "label": path.name,
+            "kind": _delivery_file_kind(relative),
+            "download_url": _media_url(project_id, relative),
+            "size_bytes": path.stat().st_size,
+        })
+    return files
+
+
 def _thumb_url(
     project_id: str, relative_path: Any, *, width: int = 640, time_seconds: float | int | None = None,
 ) -> str | None:
@@ -1458,7 +1524,9 @@ def _delivery_editor(
                     str(tag) for tag in (used.get("hashtags") or [])
                     if isinstance(tag, str)
                 ][:12],
-                "export_path": _safe_text(entry.get("export_path")),
+                "export_path": _project_relative_path(
+                    str(board.get("project_id") or "project"), entry.get("export_path")
+                ),
                 "timestamp": _safe_text(entry.get("timestamp")),
             })
         log_meta = (
@@ -1466,17 +1534,32 @@ def _delivery_editor(
             if isinstance(publish_log.get("metadata"), Mapping)
             else {}
         )
+        project_id = str(board.get("project_id") or "project")
+        package_path = _project_relative_path(
+            project_id,
+            next((item.get("export_path") for item in publish_log.get("entries") or []
+                  if isinstance(item, Mapping) and item.get("export_path")),
+                 log_meta.get("hero_output")),
+        )
+        evidence = []
+        for item in (log_meta.get("qa_evidence") or []):
+            path = _project_relative_path(project_id, item)
+            if path:
+                evidence.append({
+                    "relative_path": path,
+                    "label": Path(path).name,
+                    "download_url": _media_url(project_id, path),
+                })
         data["delivery"] = {
             "entries": entries,
+            "package_path": package_path,
+            "package_files": _delivery_package_files(board, project_id, package_path),
             "notes": _safe_text(
                 log_meta.get("distribution_notes"),
                 "该版本尚未填写交付说明",
             ),
-            "hero_output": _safe_text(log_meta.get("hero_output")),
-            "qa_evidence": [
-                _safe_text(item) for item in (log_meta.get("qa_evidence") or [])
-                if isinstance(item, str)
-            ],
+            "hero_output": _project_relative_path(project_id, log_meta.get("hero_output")),
+            "qa_evidence": evidence,
         }
     return {
         "type": "delivery_review",
@@ -1689,6 +1772,7 @@ def load_operator_state(
 ) -> dict[str, Any]:
     project_dir = Path(project_dir)
     board = load_board_state(project_dir)
+    board["_project_dir"] = project_dir
     try:
         from backlot.delivery_versions import DeliveryVersionService
 
