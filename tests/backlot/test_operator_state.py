@@ -306,6 +306,8 @@ def test_publish_stage_without_publish_log_has_empty_delivery_entries() -> None:
     stages = {stage["id"]: stage for stage in state["stages"]}
     publish_data = stages["publish"]["editor"]["data"]
     assert publish_data["delivery"]["entries"] == []
+    assert publish_data["delivery"]["package_path"] == ""
+    assert publish_data["delivery"]["package_files"] == []
     assert "delivery" not in stages["compose"]["editor"]["data"]
 
 

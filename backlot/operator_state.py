@@ -166,8 +166,10 @@ def _delivery_package_files(
     board: Mapping[str, Any], project_id: str, package_path: str,
 ) -> list[dict[str, Any]]:
     """List files in a publish package, constrained to the project directory."""
+    if not package_path:
+        return []
     project_dir = board.get("_project_dir")
-    if not isinstance(project_dir, Path) or not package_path:
+    if not isinstance(project_dir, Path):
         return [{
             "relative_path": package_path,
             "label": Path(package_path).name,
