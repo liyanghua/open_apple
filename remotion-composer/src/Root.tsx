@@ -123,6 +123,18 @@ export function resolveTheme(props: Record<string, unknown>): ThemeConfig {
 const calculateMetadata: CalculateMetadataFunction<ExplainerProps> = async ({
   props,
 }) => {
+  // A caller-supplied frame count (final_props.durationInFrames carried by the
+  // compose tool) is the authoritative timeline length. The stock "+1s fade
+  // padding" below is only a fallback for compositions built without an
+  // explicit duration — padding a fastline render past its approved timeline
+  // previously produced a 16s deliverable for a 15s plan.
+  const explicit =
+    props.durationInFrames ??
+    (props.metadata as { durationInFrames?: unknown } | undefined)
+      ?.durationInFrames;
+  if (typeof explicit === "number" && explicit > 0) {
+    return { durationInFrames: Math.round(explicit) };
+  }
   const cuts = props.cuts || [];
   if (cuts.length === 0) {
     return { durationInFrames: 30 * 60 };

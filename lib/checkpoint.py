@@ -6,6 +6,7 @@ checkpoints to resume pipelines and to present state at human checkpoints.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from functools import lru_cache
 from datetime import datetime, timezone
@@ -551,12 +552,19 @@ def _enforce_stage_prerequisites(
     pipeline_type: str | None,
     stage: str,
     status: str,
+    *,
+    sink=None,
 ) -> None:
     """Require completed, approved predecessors before advancing a stage.
 
     ``in_progress`` and failure heartbeats remain writable so an operator can
     inspect or resume a broken run. Only lifecycle advancement
     (``awaiting_human``/``completed``) is gated.
+
+    ``sink`` makes predecessor validation read the transaction's staged view,
+    so a same-transaction checkpoint re-sync (e.g. decision_log envelope
+    refresh) is visible to the stage being advanced — without it, re-sync and
+    advance must be split into two transactions.
     """
 
     if status not in {"awaiting_human", "completed"}:
@@ -579,7 +587,7 @@ def _enforce_stage_prerequisites(
             with open(path, encoding="utf-8") as handle:
                 checkpoint = json.load(handle)
             validate_checkpoint(
-                checkpoint, project_dir=pipeline_dir / project_id
+                checkpoint, project_dir=pipeline_dir / project_id, sink=sink
             )
         except (OSError, json.JSONDecodeError, CheckpointValidationError):
             incomplete.append(predecessor)
@@ -662,14 +670,81 @@ def _legacy_decision_log_path(pipeline_dir: Path, project_id: str) -> Path:
     return pipeline_dir / project_id / "decision_log.json"
 
 
+def _resync_checkpoint_artifacts(
+    pipeline_dir: Path,
+    project_id: str,
+    artifact_name: str,
+    envelope: dict[str, Any],
+    *,
+    sink=None,
+    skip_stage: str | None = None,
+) -> list[str]:
+    """Re-embed a refreshed artifact envelope into checkpoints that carry it.
+
+    Canonical artifacts are occasionally legitimately revised mid-run (the
+    decision log grows on every append; render_plan flips sample→full at
+    compose). Checkpoints embed v2 envelopes whose `data` must keep matching
+    the disk artifact, so every affected checkpoint has to be re-synced in the
+    same transaction — otherwise a later stage write fails prerequisite
+    validation with "Artifact disk data does not match embedded checkpoint
+    data".
+    """
+    project_dir = pipeline_dir / project_id
+    resynced: list[str] = []
+    for path in sorted(project_dir.glob("checkpoint_*.json")):
+        try:
+            checkpoint = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(checkpoint, dict):
+            continue
+        if checkpoint.get("stage") == skip_stage:
+            continue
+        artifacts = checkpoint.get("artifacts")
+        if not isinstance(artifacts, dict):
+            continue
+        if not isinstance(artifacts.get(artifact_name), dict):
+            continue
+        artifacts[artifact_name] = envelope
+        # Validate before writing: a stale envelope here is exactly the
+        # contract violation this helper exists to prevent.
+        validate_checkpoint(checkpoint, project_dir=project_dir, sink=sink)
+        relative = path.relative_to(project_dir).as_posix()
+        if sink is not None:
+            sink.stage_json(relative, checkpoint, schema="checkpoint")
+        else:
+            import os
+            import tempfile
+
+            fd, tmp_name = tempfile.mkstemp(
+                prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(checkpoint, f, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_name, path)
+            except BaseException:
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(tmp_name)
+                raise
+        resynced.append(path.name)
+    return resynced
+
+
 def _merge_decision_log(
     pipeline_dir: Path, project_id: str, new_log: dict[str, Any], *, sink=None
-) -> None:
+) -> dict[str, Any]:
     """Append new decisions to the canonical artifact decision log.
 
     The legacy project-root file is only read as a migration source.  The
     final write goes through ``write_artifact_atomic`` so a failed checkpoint
     validation cannot leave a partially updated decision log behind.
+
+    Returns the merged v2 envelope so callers can embed it (and so checkpoints
+    that already embed a decision_log envelope can be re-synced in the same
+    transaction).
     """
     path = _decision_log_path(pipeline_dir, project_id)
     legacy_path = _legacy_decision_log_path(pipeline_dir, project_id)
@@ -706,13 +781,14 @@ def _merge_decision_log(
         existing.pop(field, None)
     from lib.artifact_io import write_artifact_atomic
 
-    write_artifact_atomic(
+    envelope = write_artifact_atomic(
         "artifacts/decision_log.json",
         "decision_log",
         existing,
         project_dir=pipeline_dir / project_id,
         sink=sink,
     )
+    return envelope
 
 
 def write_checkpoint(
@@ -804,6 +880,7 @@ def write_checkpoint(
         pipeline_type,
         stage,
         status,
+        sink=write_sink,
     )
 
     _enforce_approved_creative_control_plan(
@@ -874,9 +951,11 @@ def write_checkpoint(
     if approval_bundle_version is not None:
         checkpoint["approval_bundle_version"] = approval_bundle_version
 
-    # Prepare the reference in memory.  Persisting the log is deliberately
-    # deferred until after checkpoint validation below, so invalid checkpoint
-    # writes cannot mutate the audit trail.
+    # Prepare the reference in memory. Persisting the log stays deferred until
+    # AFTER checkpoint validation, so an invalid checkpoint write cannot mutate
+    # the audit trail (contract test: test_invalid_checkpoint_does_not_persist_
+    # decision_log). After a successful validation, the merge result is
+    # re-embedded so the stored envelope always matches the appended log.
     pending_decision_log = artifacts.get("decision_log")
     if isinstance(pending_decision_log, dict):
         log_ref = str(_decision_log_path(pipeline_dir, project_id))
@@ -899,11 +978,27 @@ def write_checkpoint(
     validate_checkpoint(checkpoint, project_dir=project_dir, sink=write_sink)
 
     path = _checkpoint_path(pipeline_dir, project_id, stage)
+    merged_log_envelope = None
+    if isinstance(pending_decision_log, dict):
+        merged_log_envelope = _merge_decision_log(
+            pipeline_dir, project_id, pending_decision_log, sink=write_sink
+        )
+        # Re-embed the merge result: the caller's envelope may have described
+        # only the pre-merge log, and the persisted checkpoint must reference
+        # the post-merge artifact or every later stage write goes stale.
+        artifacts["decision_log"] = merged_log_envelope
+        # Earlier checkpoints that embed the log (proposal, prior compose runs)
+        # must be re-synced in the same transaction, or their envelopes go
+        # stale against the appended log.
+        _resync_checkpoint_artifacts(
+            pipeline_dir,
+            project_id,
+            "decision_log",
+            merged_log_envelope,
+            sink=write_sink,
+            skip_stage=stage,
+        )
     if write_sink is not None:
-        if isinstance(pending_decision_log, dict):
-            _merge_decision_log(
-                pipeline_dir, project_id, pending_decision_log, sink=write_sink
-            )
         write_sink.stage_json(
             path.relative_to(project_dir).as_posix(), checkpoint, schema="checkpoint"
         )
@@ -920,10 +1015,6 @@ def write_checkpoint(
             f.flush()
             import os
             os.fsync(f.fileno())
-        # The decision artifact is validated by validate_checkpoint above and
-        # is persisted only after the complete checkpoint has been serialized.
-        if isinstance(pending_decision_log, dict):
-            _merge_decision_log(pipeline_dir, project_id, pending_decision_log)
     except BaseException:
         try:
             tmp_path.unlink()

@@ -214,6 +214,24 @@ class VideoCompose(BaseTool):
             "codec": {"type": "string", "default": "libx264"},
             "crf": {"type": "integer", "default": 23},
             "preset": {"type": "string", "default": "medium"},
+            "pixel_format": {
+                "type": "string",
+                "description": (
+                    "Explicit pixel format for Remotion renders (--pixel-format). "
+                    "Defaults to the delivery profile's pixel_format so the "
+                    "render lands on the profile QA checks directly (e.g. "
+                    "yuv420p instead of Remotion's yuvj420p default)."
+                ),
+            },
+            "sample_frames": {
+                "type": "string",
+                "description": (
+                    "Frame window for Remotion renders (--frames), e.g. '0-449' "
+                    "for a half-open [0,450) timeline. Forwarded through the "
+                    "high-level render path so a full render can be capped to "
+                    "the approved timeline."
+                ),
+            },
             "remotion_timeout_ms": {
                 "type": "integer",
                 "description": (
@@ -1065,12 +1083,18 @@ class VideoCompose(BaseTool):
         return scenes
 
     @staticmethod
-    def _stage_remotion_media(value: Any, public_dir: Path) -> int:
+    def _stage_remotion_media(
+        value: Any, public_dir: Path, project_dir: Optional[Path] = None
+    ) -> int:
         """Copy local media references into a Remotion public dir in-place.
 
         OffthreadVideo's compositor rejects ``file://`` sources. Rewriting
         staged files to relative ``staticFile()`` paths works for video and
         image components on every platform.
+
+        ``project_dir`` resolves asset-manifest paths that are project-relative
+        (e.g. ``assets/video/shot-01.mp4``): they must not resolve against the
+        agent's CWD, otherwise the render 404s on the staged media.
         """
 
         staged_by_source: dict[Path, str] = {}
@@ -1106,6 +1130,12 @@ class VideoCompose(BaseTool):
             else:
                 raw_path = node
             source = Path(raw_path).resolve()
+            if not source.is_file() and not Path(raw_path).is_absolute() and project_dir is not None:
+                # Project-relative media reference: resolve against the project
+                # workspace, not the agent CWD.
+                candidate = (project_dir / raw_path).resolve()
+                if candidate.is_file():
+                    source = candidate
             if not source.is_file():
                 return node
             if source not in staged_by_source:
@@ -1672,6 +1702,10 @@ class VideoCompose(BaseTool):
 
         # --- 2. Slideshow risk check ---
         renderer_family = edit_decisions.get("renderer_family")
+        # Accept either the canonical scene_plan artifact dict ({"scenes": [...]})
+        # or a bare scenes list — agents pass both shapes today.
+        if isinstance(scene_plan, dict) and isinstance(scene_plan.get("scenes"), list):
+            scene_plan = scene_plan["scenes"]
         scenes = scene_plan or []
 
         # If no scene_plan passed, try to extract scene info from cuts
@@ -1909,6 +1943,14 @@ class VideoCompose(BaseTool):
                 remotion_inputs["remotion_timeout_ms"] = inputs["remotion_timeout_ms"]
             if inputs.get("public_dir") is not None:
                 remotion_inputs["public_dir"] = inputs["public_dir"]
+            # Same for the frame cap and pixel format: without forwarding, a
+            # full render ignores an approved 450-frame timeline (stock
+            # compositions pad +1s) and emits yuvj420p instead of the profile
+            # pixel format.
+            if inputs.get("sample_frames"):
+                remotion_inputs["sample_frames"] = inputs["sample_frames"]
+            if inputs.get("pixel_format"):
+                remotion_inputs["pixel_format"] = inputs["pixel_format"]
             render_result = self._remotion_render(remotion_inputs)
 
             # Governance: NEVER silently fall back to FFmpeg when Remotion fails.
@@ -1928,6 +1970,15 @@ class VideoCompose(BaseTool):
                         f"Per governance: renderer downgrade requires user approval."
                     ),
                 )
+            if profile and output_path.is_file():
+                # Remotion's H.264 encoder emits full-range yuvj420p even with
+                # --pixel-format=yuv420p; normalize the finished render to the
+                # delivery profile (tv range, exact pix_fmt) inside the tool so
+                # agents never hand-run an extra encode pass.
+                if self._normalize_render_to_profile(output_path, profile):
+                    if render_result.data is None:
+                        render_result.data = {}
+                    render_result.data["post_encode"] = True
             if inputs.get("audio_path"):
                 mux_result = self._mux_external_audio(output_path, inputs["audio_path"])
                 if not mux_result.success:
@@ -1958,9 +2009,19 @@ class VideoCompose(BaseTool):
 
         # --- Post-render: mandatory final self-review ---
         if render_result.success and output_path.exists():
+            # Review the payload that was ACTUALLY rendered: resolved cut
+            # sources (asset IDs → real file paths), not the caller's raw
+            # edit_decisions. Asset-ID sources carry no file extension, which
+            # made the delivery-promise motion check report "0% motion" on a
+            # video-led montage.
+            review_decisions = (
+                dict(edit_decisions, cuts=resolved_cuts)
+                if resolved_cuts
+                else edit_decisions
+            )
             final_review = self._run_final_review(
                 output_path,
-                edit_decisions,
+                review_decisions,
                 inputs.get("proposal_packet"),
                 narration_transcript_path=inputs.get("narration_transcript_path"),
                 script_text=inputs.get("script_text") or self._read_text_file(
@@ -2782,6 +2843,13 @@ class VideoCompose(BaseTool):
             if theme_config:
                 props["themeConfig"] = theme_config
 
+        # Carry the approved timeline length into the composition so stock
+        # components cannot pad past it (Root.tsx honours this over its
+        # "+1s final fade" fallback).
+        total_frames = self._infer_total_frames(inputs)
+        if total_frames and "durationInFrames" not in props:
+            props["durationInFrames"] = int(total_frames)
+
         # remotion-composer lives at project root
         composer_dir = Path(__file__).resolve().parent.parent.parent / "remotion-composer"
         if not composer_dir.exists():
@@ -2819,7 +2887,9 @@ class VideoCompose(BaseTool):
             public_dir = output_path.parent / f".remotion-public-{output_path.stem}"
             cleanup_public_dir = True
 
-        staged_count = self._stage_remotion_media(props, public_dir)
+        staged_count = self._stage_remotion_media(
+            props, public_dir, project_dir=self._infer_project_dir(inputs)
+        )
         if not staged_count and cleanup_public_dir:
             public_dir = None
 
@@ -2843,15 +2913,22 @@ class VideoCompose(BaseTool):
         if public_dir is not None:
             cmd.append(f"--public-dir={public_dir}")
 
-        # Apply media profile dimensions
+        # Apply media profile dimensions + pixel format so the render lands
+        # directly on the delivery profile (Remotion otherwise emits full-range
+        # yuvj420p, which social profile QA rejects).
         profile_name = inputs.get("profile")
         if profile_name:
             try:
                 from lib.media_profiles import get_profile
                 p = get_profile(profile_name)
                 cmd.extend(["--width", str(p.width), "--height", str(p.height)])
+                pixel_format = inputs.get("pixel_format") or p.pixel_format
+                if pixel_format:
+                    cmd.append(f"--pixel-format={pixel_format}")
             except (ImportError, ValueError):
                 pass
+        elif inputs.get("pixel_format"):
+            cmd.append(f"--pixel-format={inputs['pixel_format']}")
         if inputs.get("remotion_width") is not None:
             cmd.extend(["--width", str(int(inputs["remotion_width"]))])
         if inputs.get("remotion_height") is not None:
@@ -3426,6 +3503,18 @@ class VideoCompose(BaseTool):
                             # Burned-in subtitles are not detectable as streams
                             subtitle_check["subtitles_present"] = True
                             subtitle_check["coverage_ratio"] = 1.0
+                        elif (
+                            edit_decisions.get("caption_render_mode")
+                            in {"remotion_overlay", "ffmpeg_burn"}
+                            and edit_decisions.get("caption_source")
+                        ):
+                            # Pixel-burned captions declared via the caption
+                            # contract (e.g. "artifacts/final_props.json#captions")
+                            # cannot be detected as a stream or a sidecar file —
+                            # the renderer burned them into pixels. The full QA
+                            # (final_qa) verifies them through caption_spec.
+                            subtitle_check["subtitles_present"] = True
+                            subtitle_check["detection"] = "declared_burned_in"
                         else:
                             subtitle_check["issues"].append(
                                 "Subtitles expected but not found in output and "
@@ -3663,6 +3752,46 @@ class VideoCompose(BaseTool):
             },
             artifacts=[str(output_path)],
         )
+
+    def _normalize_render_to_profile(
+        self, output_path: Path, profile_name: str
+    ) -> bool:
+        """Re-encode a finished render when its pixel format drifts off profile.
+
+        Remotion's H.264 output probes as full-range ``yuvj420p`` regardless of
+        the requested pixel format; delivery profiles require ``yuv420p``/tv
+        range and full QA rejects the mismatch. Normalize in-place (atomic
+        temp-and-replace) and return True when a re-encode happened.
+        """
+        try:
+            from lib.media_profiles import get_profile
+            from lib.render_plan import probe_media
+
+            profile = get_profile(profile_name)
+            probe = probe_media(output_path)
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError, ImportError):
+            return False
+        video = next(
+            (s for s in probe.get("streams", []) if s.get("codec_type") == "video"),
+            {},
+        )
+        if video.get("pix_fmt") == profile.pixel_format:
+            return False
+        temp = output_path.with_name(
+            f".{output_path.stem}.profile-normalize{output_path.suffix}"
+        )
+        encoded = self._encode(
+            {
+                "input_path": str(output_path),
+                "output_path": str(temp),
+                "profile": profile_name,
+            }
+        )
+        if not encoded.success or not temp.is_file():
+            temp.unlink(missing_ok=True)
+            return False
+        temp.replace(output_path)
+        return True
 
     @staticmethod
     def _resolve_subtitle_style(

@@ -12,6 +12,63 @@ FFmpeg exactly as the cinematic compose director specifies. A runtime failure
 is a blocker: do not silently swap away from the approved engine, and do not
 use `mux_only` when the runtime or visual timeline changed.
 
+## Remotion Render Payload Contract (templated / Explainer)
+
+The canonical `edit_decisions` artifact is schema-strict and must NOT be
+silently mutated. The render payload passed to `video_compose` is the
+canonical artifact plus three render-contract fields, ALL derived
+deterministically from the approved `final_props`:
+
+1. **`cuts[].source`** may stay an asset-manifest ID — `video_compose`
+   resolves it to the project-relative path and stages the media against the
+   project dir (never the agent CWD).
+2. **`captions`** (top level, render payload only):
+   `[{word: c.text, startMs: c.startMs, endMs: c.endMs} for c in final_props.captions]`.
+   The canonical artifact declares them via
+   `caption_render_mode="remotion_overlay"` +
+   `caption_source="artifacts/final_props.json#captions"`.
+3. **`audio.music`** (Explainer shape, when music is approved):
+   `{src: <absolute path>, volume, fadeInSeconds, fadeOutSeconds}`.
+   Schema-shape (`asset_id`, `fade_in_seconds`) is for the artifact record
+   only.
+
+The tool now enforces the approved timeline: it injects
+`props.durationInFrames` (from `edit_decisions.metadata.durationInFrames` /
+`final_props`) and the stock Explainer composition honours it instead of its
+"+1s final fade" padding. When the timeline must be capped explicitly, pass
+`sample_frames: "0-<N-1>"` (forwarded through `operation="render"`). The tool
+also normalizes the finished render to the delivery profile's pixel format
+automatically (Remotion emits full-range yuvj420p; the tool re-encodes to
+yuv420p/tv in place, flagged as `post_encode: true`) — never hand-run an
+encode pass.
+
+## Music Change (audio-only, post sample approval)
+
+When full QA reports the deliverable effectively silent and the user approves
+adding music (decision re-logged as `music_source`, same category+subject
+pair):
+
+- Prefer layering the track through the Explainer music layer with a full
+  re-render (single pass, fades land exactly on the delivery boundary). A
+  validated `mux_only` on the approved visual master is the alternative when
+  the visuals must not be touched.
+- Music-only changes do NOT reopen `creative_lock` or `sample` (fastline:
+  music is not a creative-lock member). Record the route in the compose
+  checkpoint `metadata.change_impact`.
+- BGM sourcing order: `music_library/` → free search (pixabay_music, no key)
+  → generation APIs (key required). Record track, license, volume and fades
+  in the decision entry.
+
+## QA Truth Table
+
+| Signal | Meaning | Action |
+|---|---|---|
+| final_review "effectively silent" | sources silent, no music approved | escalate to user: silent / BGM / bring-your-own |
+| final_review subtitle "expected but not found" + `caption_render_mode` declared | false positive (pixel-burned captions) | fixed in tool; verify via final_qa caption_spec |
+| frame count > approved timeline | stock composition padding | fixed in tool (durationInFrames injection); pass `sample_frames` if a legacy composition ignores it |
+| `pix_fmt` mismatch in final_qa | legacy Remotion yuvj420p | fixed in tool (automatic profile normalization, `post_encode`) |
+| "Motion ratio 0%" on a video-led montage | review ran on unresolved asset IDs | fixed in tool (review uses resolved cut paths) |
+
 **Render gradient (cheapest first).** Before any user-facing render, work the
 local-change ladder from `lib/render_plan.RENDER_GRADIENT`:
 
