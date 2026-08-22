@@ -238,8 +238,57 @@ def test_fastline_project_projects_business_state() -> None:
     assert state["workspace"]["editor"]["type"] == "sample_review"
     assert state["pending_review"]["kind"] == "sample"
     assert state["permissions"] == ["view"]
+
+
+def test_sample_editor_exposes_execution_trace_summary_and_shots() -> None:
+    from backlot.operator_state import project_operator_state, validate_operator_state
+
+    board = _board_state()
+    board["artifacts"]["sample_execution_trace"] = {
+        "summary": {
+            "planned_shot_count": 2,
+            "included_shot_count": 1,
+            "status_counts": {"executed": 1, "partial": 0, "added": 0, "not_in_sample": 1},
+            "new_content_count": 0,
+        },
+        "shots": [{
+            "shot_id": "shot-1",
+            "status": "executed",
+            "status_label": "已按方案执行",
+            "planned_basis": {"purpose": "展示擦净结果", "reference_rules": ["动作与结果成对"]},
+            "actual_execution": {"source_path": "inputs/source/oil.mp4", "timeline_start_seconds": 0, "timeline_end_seconds": 2},
+            "deviation": None,
+            "sample_window": {"included": True, "start_seconds": 0, "end_seconds": 2},
+        }],
+    }
+
+    state = project_operator_state(board)
+    sample = next(stage for stage in state["stages"] if stage["id"] == "sample")
+
+    assert sample["editor"]["data"]["execution_trace"]["summary"]["included_shot_count"] == 1
+    assert sample["editor"]["data"]["execution_trace"]["shots"][0]["status_label"] == "已按方案执行"
     assert state["active_job"] is None
     validate_operator_state(state)
+
+
+def test_sample_editor_builds_trace_for_legacy_sample_without_saved_trace() -> None:
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    board["artifacts"]["shot_execution_plan"] = {
+        "shots": [{"id": "shot-1", "purpose": "展示擦净结果", "duration_seconds": 2,
+                   "source_selection": {"path": "inputs/source/oil.mp4", "start_seconds": 1, "end_seconds": 3}}],
+    }
+    board["artifacts"]["final_props"] = {
+        "fps": 30,
+        "shots": [{"id": "shot-1", "start_seconds": 0, "end_seconds": 2,
+                   "source_path": "inputs/source/oil.mp4", "source_in_seconds": 1, "source_out_seconds": 3}],
+    }
+
+    state = project_operator_state(board)
+    sample = next(stage for stage in state["stages"] if stage["id"] == "sample")
+
+    assert sample["editor"]["data"]["execution_trace"]["summary"]["included_shot_count"] == 1
 
 
 def test_projection_includes_safe_material_concept_and_shot_details() -> None:

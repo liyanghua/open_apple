@@ -60,6 +60,7 @@ SUPPLEMENTARY_ARTIFACTS = {
     "render_plan",
     "final_props",
     "sample_report",
+    "sample_execution_trace",
 }
 
 FASTLINE_ARTIFACTS = frozenset({
@@ -67,7 +68,7 @@ FASTLINE_ARTIFACTS = frozenset({
     "reference_source_matrix", "research_synthesis", "research_scorecard",
     "research_annotations", "production_lock",
     "approval_bundle", "asset_plan", "change_impact", "render_plan",
-    "final_props", "sample_report",
+    "final_props", "sample_report", "sample_execution_trace",
 })
 
 # The fastline's director control plan is created during proposal and becomes

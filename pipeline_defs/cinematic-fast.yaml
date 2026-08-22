@@ -127,7 +127,7 @@ stages:
     skill: pipelines/cinematic-fast/sample-director
     required_artifacts_in: [shot_execution_plan, asset_plan, production_lock, approval_bundle]
     optional_artifacts_in: [script, scene_plan]
-    produces: [asset_manifest, final_props, render_plan, sample_report, caption_policy_revision]
+    produces: [asset_manifest, final_props, render_plan, sample_report, sample_execution_trace, caption_policy_revision]
     required_tools: [tts_selector, audio_mixer, subtitle_gen, media_proxy, video_compose, final_qa]
     tools_available: [tts_selector, audio_mixer, subtitle_gen, media_proxy, video_compose, final_qa]
     checkpoint_required: true

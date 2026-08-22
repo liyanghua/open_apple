@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/sample_execution_trace",
+  "title": "Sample Execution Trace",
+  "type": "object",
+  "required": ["version", "project_id", "created_at", "input_hashes", "semantic_sha256", "summary", "shots"],
+  "properties": {
+    "version": {"type": "string"},
+    "project_id": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "input_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+    "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "summary": {
+      "type": "object",
+      "required": ["planned_shot_count", "included_shot_count", "status_counts", "new_content_count"],
+      "properties": {
+        "planned_shot_count": {"type": "integer", "minimum": 0},
+        "included_shot_count": {"type": "integer", "minimum": 0},
+        "new_content_count": {"type": "integer", "minimum": 0},
+        "status_counts": {
+          "type": "object",
+          "required": ["executed", "partial", "added", "not_in_sample"],
+          "properties": {
+            "executed": {"type": "integer", "minimum": 0},
+            "partial": {"type": "integer", "minimum": 0},
+            "added": {"type": "integer", "minimum": 0},
+            "not_in_sample": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "shots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["shot_id", "status", "status_label", "sample_window"],
+        "properties": {
+          "shot_id": {"type": "string", "minLength": 1},
+          "status": {"enum": ["executed", "partial", "added", "not_in_sample"]},
+          "status_label": {"type": "string", "minLength": 1},
+          "planned_basis": {"oneOf": [{"type": "null"}, {"type": "object"}]},
+          "actual_execution": {"oneOf": [{"type": "null"}, {"type": "object"}]},
+          "deviation": {"oneOf": [{"type": "null"}, {"type": "object"}]},
+          "sample_window": {
+            "type": "object",
+            "required": ["included", "start_seconds", "end_seconds"],
+            "properties": {
+              "included": {"type": "boolean"},
+              "start_seconds": {"type": "number", "minimum": 0},
+              "end_seconds": {"type": "number", "minimum": 0}
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

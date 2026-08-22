@@ -34,7 +34,7 @@ def test_cinematic_fast_sample_and_compose_contracts():
     assert stages["assets"]["produces"] == ["shot_execution_plan", "asset_plan", "production_lock", "approval_bundle"]
     assert stages["sample"]["produces"] == [
         "asset_manifest", "final_props", "render_plan", "sample_report",
-        "caption_policy_revision",
+        "sample_execution_trace", "caption_policy_revision",
     ]
     assert "caption_policy_revision" in stages["edit"]["required_artifacts_in"]
     assert "caption_policy_revision" in stages["compose"]["required_artifacts_in"]

@@ -547,7 +547,21 @@
             "duration_seconds": {"$ref": "#/$defs/nullable_number"},
             "preview_url": {"$ref": "#/$defs/nullable_string"},
             "qa_status": {"type": "string"},
-            "review_summary": {"type": "string"}
+            "review_summary": {"type": "string"},
+            "execution_trace": {
+              "oneOf": [
+                {"type": "null"},
+                {
+                  "type": "object",
+                  "required": ["summary", "shots"],
+                  "properties": {
+                    "summary": {"type": "object", "additionalProperties": true},
+                    "shots": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            }
           },
           "additionalProperties": false
         }

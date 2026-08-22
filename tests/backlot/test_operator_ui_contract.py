@@ -164,6 +164,15 @@ def test_production_script_and_execution_plan_use_business_confirmation_language
     assert "剩余预算" in app
 
 
+def test_sample_review_shows_plan_to_sample_execution_trace() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+    for term in ("执行对照", "本次样片覆盖", "按方案执行", "新增内容", "尚未进入样片"):
+        assert term in app
+    for term in (".sample-review-workbench", ".sample-execution-trace", ".sample-trace-card"):
+        assert term in css
+
+
 def test_research_decisions_stay_in_place_and_confirm_as_one_flow() -> None:
     app = _read(OPERATOR_ROOT / "app.js")
     css = _read(OPERATOR_ROOT / "styles.css")
