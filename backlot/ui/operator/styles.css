@@ -176,6 +176,13 @@ h3 { font-size: 15px; }
 .sample-trace-copy, .sample-trace-deviation, .sample-trace-muted { margin: 7px 0 0; font-size: 12px; line-height: 1.5; }
 .sample-trace-copy, .sample-trace-muted { color: var(--muted); }
 .sample-trace-deviation { color: var(--attention); }
+.sample-effect-confirmation { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
+.sample-effect-list { display: grid; gap: 10px; }
+.sample-effect-card { padding: 11px 12px; border: 1px solid var(--line); border-radius: 6px; }
+.sample-effect-title { display: block; }
+.sample-effect-prompt { margin: 5px 0 9px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.sample-effect-choices { display: flex; flex-wrap: wrap; gap: 7px; }
+.sample-effect-choices .quiet-button.is-selected { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 @media (max-width: 900px) {
   .sample-review-workbench { grid-template-columns: 1fr; }
   .sample-execution-trace { padding-left: 0; border-top: 1px solid var(--line); border-left: 0; padding-top: 18px; }

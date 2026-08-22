@@ -10,4 +10,8 @@ quick `final_qa`. Also build `sample_execution_trace` from the approved
 `shot_execution_plan` and realized `final_props`, showing which locked shots
 are included, partial, new, or outside the sample window. Pause for sample
 approval; approval covers both the sample video and this execution trace. Do
-not advance to edit or final compose before that approval.
+not advance to edit or final compose before that approval. The operator must
+also complete the five effect checks: creative direction, hook, proof clarity,
+pacing/cuts, and caption/visual readability. Only five ``pass`` decisions may
+advance the pipeline; ``adjust`` routes to edit and ``redirect`` reopens the
+creative direction gate.

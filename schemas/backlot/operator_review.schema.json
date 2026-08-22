@@ -18,6 +18,17 @@
     "decided_by": {"type": ["string", "null"]},
     "reason": {"type": ["string", "null"]},
     "created_at": {"type": "string", "format": "date-time"},
-    "decided_at": {"type": ["string", "null"], "format": "date-time"}
+    "decided_at": {"type": ["string", "null"], "format": "date-time"},
+    "effect_confirmation": {
+      "type": "object",
+      "properties": {
+        "creative_direction": {"enum": ["pass", "adjust", "redirect"]},
+        "hook": {"enum": ["pass", "adjust", "redirect"]},
+        "proof": {"enum": ["pass", "adjust", "redirect"]},
+        "pacing": {"enum": ["pass", "adjust", "redirect"]},
+        "readability": {"enum": ["pass", "adjust", "redirect"]}
+      },
+      "additionalProperties": false
+    }
   }
 }

@@ -186,6 +186,10 @@ def test_review_decision_requires_the_version_seen_by_the_client(
         url,
         json={
             "reason": "批准", "subject_version": 3, "subject_hash": "a" * 64,
+            "effect_confirmations": {
+                "creative_direction": "pass", "hook": "pass", "proof": "pass",
+                "pacing": "pass", "readability": "pass",
+            },
         },
         headers=headers,
     )

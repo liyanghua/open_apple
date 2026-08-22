@@ -96,9 +96,15 @@ export async function restoreVersion(projectId, stage, revisionId, previewToken 
   });
 }
 
-export async function decideReview(projectId, reviewId, decision, reason) {
+export async function decideReview(projectId, reviewId, decision, reason, effectConfirmations = null, subjectVersion = null, subjectHash = null, issueTags = null) {
   return call(`/api/v2/projects/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(reviewId)}/${decision}`, {
-    method: "POST", body: { reason }, mutation: true,
+    method: "POST", body: {
+      reason,
+      ...(subjectVersion == null ? {} : { subject_version: subjectVersion }),
+      ...(subjectHash == null ? {} : { subject_hash: subjectHash }),
+      ...(effectConfirmations ? { effect_confirmations: effectConfirmations } : {}),
+      ...(issueTags ? { issue_tags: issueTags } : {}),
+    }, mutation: true,
   });
 }
 

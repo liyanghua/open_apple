@@ -479,6 +479,11 @@ def create_operator_router(
                 if isinstance(payload.get("issue_tags"), list)
                 else None
             ),
+            effect_confirmations=(
+                {str(key): str(value) for key, value in payload["effect_confirmations"].items()}
+                if isinstance(payload.get("effect_confirmations"), dict)
+                else None
+            ),
         )
 
     @router.post("/projects/{project_id}/review-notes")

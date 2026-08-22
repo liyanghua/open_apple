@@ -1656,7 +1656,10 @@ def load_operator_state(
     if (project_dir / "operator" / "operator-managed").exists():
         from backlot.operator_reviews import ReviewService
 
-        review = ReviewService(project_dir).pending()
+        review_service = ReviewService(project_dir)
+        if state["workspace"]["stage_id"] == "sample":
+            review_service.ensure_sample_review_for_checkpoint()
+        review = review_service.pending()
         if review is None:
             state["pending_review"] = None
         else:
@@ -1671,6 +1674,7 @@ def load_operator_state(
                 "summary": "内容已准备完成，等待人工确认",
                 "subject_version": review["subject_version"],
                 "review_id": review["review_id"],
+                "subject_hash": review.get("subject_hash"),
                 "actions": ["批准", "拒绝"] if "review" in permissions else [],
             }
     state["permissions"] = [

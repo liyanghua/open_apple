@@ -173,6 +173,18 @@ def test_sample_review_shows_plan_to_sample_execution_trace() -> None:
         assert term in css
 
 
+def test_sample_review_requires_effect_confirmation_before_advance() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    api = _read(OPERATOR_ROOT / "api.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+    for term in ("样片效果确认", "创意方向", "开头钩子", "核心证明", "节奏与画面切换", "字幕与画面可读性", "确认样片并进入下一步"):
+        assert term in app
+    assert "effect_confirmations" in api
+    assert "issue_tags" in api
+    assert "提交调整意见" in app
+    assert ".sample-effect-confirmation" in css
+
+
 def test_research_decisions_stay_in_place_and_confirm_as_one_flow() -> None:
     app = _read(OPERATOR_ROOT / "app.js")
     css = _read(OPERATOR_ROOT / "styles.css")

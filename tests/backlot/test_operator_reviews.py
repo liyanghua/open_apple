@@ -82,6 +82,45 @@ def test_sample_rejection_keeps_media_and_removes_current_checkpoint(tmp_path) -
     assert not (project / "checkpoint_sample.json").exists()
 
 
+def test_sample_approval_requires_all_effect_confirmations(tmp_path) -> None:
+    from backlot.operator_reviews import ReviewService
+    from backlot.project_commit import ProjectCommitStore
+
+    project = tmp_path / "demo"; project.mkdir()
+    (project / "project.json").write_text('{"project_id":"demo"}')
+    (project / "checkpoint_sample.json").write_text(json.dumps({
+        "stage": "sample", "status": "awaiting_human", "human_approved": False, "artifacts": {},
+    }))
+    store = ProjectCommitStore(project); store.initialize()
+    service = ReviewService(project, store=store)
+    review = service.create(kind="sample", subject_id="sample-1", subject_version=1, subject_hash="a" * 64, submitted_by="operator")
+
+    with pytest.raises(Exception) as missing:
+        service.decide(review_id=review["review_id"], decision="approved", actor_id="reviewer", reason="确认", expected_version=1, expected_hash="a" * 64)
+    assert getattr(missing.value, "code", None) == "validation_failed"
+
+    with pytest.raises(Exception) as not_all_pass:
+        service.decide(
+            review_id=review["review_id"], decision="approved", actor_id="reviewer", reason="仍有调整项",
+            expected_version=1, expected_hash="a" * 64, effect_confirmations={
+                "creative_direction": "pass", "hook": "adjust", "proof": "pass",
+                "pacing": "pass", "readability": "pass",
+            },
+        )
+    assert getattr(not_all_pass.value, "code", None) == "validation_failed"
+
+    confirmations = {
+        "creative_direction": "pass", "hook": "pass", "proof": "pass",
+        "pacing": "pass", "readability": "pass",
+    }
+    approved = service.decide(
+        review_id=review["review_id"], decision="approved", actor_id="reviewer", reason="效果确认通过",
+        expected_version=1, expected_hash="a" * 64, effect_confirmations=confirmations,
+    )
+    assert approved["status"] == "approved"
+    assert approved["effect_confirmation"] == confirmations
+
+
 def test_stale_and_reviewer_required_policy_are_enforced(tmp_path) -> None:
     from backlot.operator_reviews import ReviewService
     from backlot.project_commit import ProjectCommitStore
@@ -91,10 +130,14 @@ def test_stale_and_reviewer_required_policy_are_enforced(tmp_path) -> None:
     service = ReviewService(project, store=store, reviewer_required=True)
     review = service.create(kind="sample", subject_id="sample-1", subject_version=2, subject_hash="b" * 64, submitted_by="same-user")
     with pytest.raises(Exception) as self_review:
-        service.decide(review_id=review["review_id"], decision="approved", actor_id="same-user", reason="自审", expected_version=2, expected_hash="b" * 64)
+        service.decide(review_id=review["review_id"], decision="approved", actor_id="same-user", reason="自审", expected_version=2, expected_hash="b" * 64, effect_confirmations={
+            "creative_direction": "pass", "hook": "pass", "proof": "pass", "pacing": "pass", "readability": "pass",
+        })
     assert getattr(self_review.value, "code", None) == "forbidden"
     with pytest.raises(Exception) as stale:
-        service.decide(review_id=review["review_id"], decision="approved", actor_id="other", reason="旧页面", expected_version=1, expected_hash="b" * 64)
+        service.decide(review_id=review["review_id"], decision="approved", actor_id="other", reason="旧页面", expected_version=1, expected_hash="b" * 64, effect_confirmations={
+            "creative_direction": "pass", "hook": "pass", "proof": "pass", "pacing": "pass", "readability": "pass",
+        })
     assert getattr(stale.value, "code", None) == "review_stale"
 
 
@@ -114,5 +157,38 @@ def test_operator_projection_uses_active_review_and_permission_actions(tmp_path)
     )
     state = load_operator_state(project, permissions=("view", "review"))
     assert state["pending_review"]["review_id"] == review["review_id"]
+    assert state["pending_review"]["subject_hash"] == "c" * 64
     assert state["pending_review"]["actions"] == ["批准", "拒绝"]
     assert state["permissions"] == ["view", "review"]
+
+
+def test_operator_projection_backfills_sample_review_for_legacy_checkpoint(tmp_path) -> None:
+    from backlot.operator_state import load_operator_state
+    from backlot.operator_reviews import ReviewService
+    from backlot.project_commit import ProjectCommitStore
+
+    project = tmp_path / "legacy"; (project / "artifacts").mkdir(parents=True)
+    (project / "project.json").write_text(json.dumps({
+        "project_id": "legacy", "title": "旧项目", "pipeline_type": "cinematic-fast",
+    }))
+    (project / "checkpoint_sample.json").write_text(json.dumps({
+        "version": "1.0", "project_id": "legacy", "pipeline_type": "cinematic-fast",
+        "stage": "sample", "status": "awaiting_human", "human_approved": False,
+        "artifacts": {"sample_report": "artifacts/sample_report.json"},
+    }))
+    (project / "artifacts" / "sample_report.json").write_text(json.dumps({
+        "name": "sample_report", "semantic_sha256": "b" * 64,
+        "data": {"output_path": "renders/sample-v1.mp4"},
+    }))
+    store = ProjectCommitStore(project); store.initialize()
+
+    state = load_operator_state(project, permissions=("view", "review"))
+
+    review = ReviewService(project).pending()
+    assert review is not None
+    assert review["kind"] == "sample"
+    assert review["subject_id"] == "sample-v1"
+    assert review["subject_version"] == 1
+    assert review["subject_hash"] == "b" * 64
+    assert state["pending_review"]["review_id"] == review["review_id"]
+    assert state["pending_review"]["subject_hash"] == "b" * 64

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from jsonschema import Draft202012Validator
 
@@ -35,6 +36,11 @@ REVIEW_ISSUE_TAGS = frozenset({
     "blank_frame", "crop_mismatch", "claim_rejected", "caption_overlap",
     "render_failure", "infra_sidequest",
 })
+
+EFFECT_CONFIRMATION_KEYS = (
+    "creative_direction", "hook", "proof", "pacing", "readability",
+)
+EFFECT_CONFIRMATION_VALUES = frozenset({"pass", "adjust", "redirect"})
 
 
 class ReviewService:
@@ -135,6 +141,65 @@ class ReviewService:
             )
         return review
 
+    def ensure_sample_review_for_checkpoint(self) -> dict[str, Any] | None:
+        """Backfill the formal review for a legacy awaiting sample checkpoint.
+
+        Older projects wrote the sample checkpoint and report before the
+        operator review contract existed.  Keep the checkpoint authoritative,
+        but create the missing review from its bound report so the UI can use
+        the normal version/hash guarded approval transaction.
+        """
+        existing = self.pending()
+        if existing is not None:
+            return existing
+        checkpoint_path = self.project_dir / "checkpoint_sample.json"
+        try:
+            checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(checkpoint, Mapping) or checkpoint.get("status") != "awaiting_human":
+            return None
+
+        record = (checkpoint.get("artifacts") or {}).get("sample_report")
+        report: Mapping[str, Any] | None = None
+        record_hash = record.get("semantic_sha256") if isinstance(record, Mapping) else None
+        if isinstance(record, Mapping):
+            data = record.get("data")
+            report = data if isinstance(data, Mapping) else record
+            report_path = record.get("path")
+        elif isinstance(record, str):
+            report_path = record
+        else:
+            report_path = None
+        if report is None and isinstance(report_path, str):
+            try:
+                candidate = Path(report_path)
+                if not candidate.is_absolute():
+                    candidate = self.project_dir / candidate
+                candidate.resolve().relative_to(self.project_dir.resolve())
+                loaded = json.loads(candidate.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError, ValueError):
+                loaded = None
+            if isinstance(loaded, Mapping):
+                report = loaded.get("data") if isinstance(loaded.get("data"), Mapping) else loaded
+                record_hash = record_hash or loaded.get("semantic_sha256")
+        if not isinstance(report, Mapping):
+            return None
+        subject_hash = record_hash or report.get("semantic_sha256")
+        if not isinstance(subject_hash, str) or not re.fullmatch(r"[a-fA-F0-9]{64}", subject_hash):
+            return None
+        output_path = report.get("output_path")
+        match = re.search(r"sample-v(\d+)", str(output_path or ""))
+        version = int(match.group(1)) if match else 1
+        subject_id = f"sample-v{version}"
+        return self.create(
+            kind="sample",
+            subject_id=subject_id,
+            subject_version=version,
+            subject_hash=subject_hash,
+            submitted_by="legacy-compat",
+        )
+
     def decide(
         self,
         *,
@@ -145,7 +210,9 @@ class ReviewService:
         expected_version: int,
         expected_hash: str,
         issue_tags: list[str] | None = None,
+        effect_confirmations: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        initial = self._find(review_id)
         if decision not in {"approved", "rejected"}:
             raise OperatorError.validation_failed("确认结果无效")
         if decision == "rejected":
@@ -154,7 +221,15 @@ class ReviewService:
                 raise OperatorError.validation_failed(
                     "拒绝必须至少选择一个结构化原因标签(issue_tags)"
                 )
-        initial = self._find(review_id)
+        if decision == "approved" and initial.get("kind") == "sample":
+            confirmations = effect_confirmations if isinstance(effect_confirmations, dict) else {}
+            if set(confirmations) != set(EFFECT_CONFIRMATION_KEYS) or any(
+                confirmations.get(key) not in EFFECT_CONFIRMATION_VALUES
+                for key in EFFECT_CONFIRMATION_KEYS
+            ):
+                raise OperatorError.validation_failed("请先完成创意方向、钩子、核心证明、节奏和画面可读性的效果确认")
+            if any(confirmations[key] != "pass" for key in EFFECT_CONFIRMATION_KEYS):
+                raise OperatorError.validation_failed("仍有需要调整或方向不对的项目，不能直接进入下一步")
         if initial.get("status") == decision:
             return initial
         if initial.get("status") != "awaiting_human":
@@ -240,6 +315,8 @@ class ReviewService:
                     reason=reason,
                     decided_at=self.clock().isoformat(),
                 )
+                if review["kind"] == "sample" and effect_confirmations:
+                    decided["effect_confirmation"] = dict(effect_confirmations or {})
                 self._validate(decided)
                 sink.stage_json(
                     f"operator/reviews/{review_id}.json",

@@ -1,4 +1,4 @@
-import { fetchProjectState, fetchDraft, watchProject, saveDraft, previewDraft, commitDraft, fetchVersions, restoreVersion, quoteShotGeneration, createShotGeneration, adoptShotGeneration } from "./api.js";
+import { fetchProjectState, fetchDraft, watchProject, saveDraft, previewDraft, commitDraft, fetchVersions, restoreVersion, quoteShotGeneration, createShotGeneration, adoptShotGeneration, decideReview } from "./api.js";
 import { createOperatorStore } from "./store.js";
 import { STATUS_MARKS, VIEW_STATES, formatDuration, formatTimeRange } from "./language.js";
 import { renderTypedEditor } from "./editors.js";
@@ -855,7 +855,7 @@ function renderAssets(container, data, { editable = false, onOperation = () => {
 
 }
 
-function renderSample(container, data) {
+function renderSample(container, data, { project } = {}) {
   const workbench = node("div", "sample-review-workbench");
   const playerPanel = node("section", "sample-player-panel");
   playerPanel.append(detailRow("检查结果", data.qa_status));
@@ -905,6 +905,64 @@ function renderSample(container, data) {
     tracePanel.append(list);
   }
   workbench.append(tracePanel);
+  const effectPanel = node("section", "sample-effect-confirmation");
+  effectPanel.append(node("h3", "section-title", "样片效果确认"));
+  effectPanel.append(node("p", "editor-help", "先确认这五件事，确认后才会进入下一步。"));
+  const checks = [
+    ["creative_direction", "创意方向", "还是在讲已经确定的核心卖点吗？"],
+    ["hook", "开头钩子", "前 1–3 秒能让人知道发生了什么并愿意继续看吗？"],
+    ["proof", "核心证明", "产品、动作和结果是否看得清楚、说得明白？"],
+    ["pacing", "节奏与画面切换", "镜头是否顺畅，没有拖沓、跳跃或重复？"],
+    ["readability", "字幕与画面可读性", "字幕、产品和重点信息是否清楚且不互相遮挡？"],
+  ];
+  const selections = {};
+  const cards = node("div", "sample-effect-list");
+  const submit = node("button", "primary-button", "确认样片并进入下一步");
+  submit.type = "button"; submit.disabled = true;
+  const message = node("p", "editor-message");
+  const updateSubmit = () => {
+    const complete = checks.every(([key]) => selections[key]);
+    const allPass = checks.every(([key]) => selections[key] === "pass");
+    submit.disabled = !complete;
+    submit.textContent = allPass ? "确认样片并进入下一步" : "提交调整意见";
+    message.textContent = complete && !allPass ? "有项目需要调整，暂不能直接进入下一步。" : complete ? "五项效果已确认，可以进入下一步。" : "请完成五项效果确认。";
+  };
+  checks.forEach(([key, title, prompt]) => {
+    const card = node("div", "sample-effect-card");
+    card.append(node("strong", "sample-effect-title", title), node("p", "sample-effect-prompt", prompt));
+    const choices = node("div", "sample-effect-choices");
+    [["pass", "通过"], ["adjust", "需要调整"], ["redirect", "方向不对"]].forEach(([value, label]) => {
+      const button = node("button", "quiet-button", label); button.type = "button";
+      button.addEventListener("click", () => {
+        selections[key] = value;
+        choices.querySelectorAll("button").forEach((item) => item.classList.remove("is-selected"));
+        button.classList.add("is-selected"); updateSubmit();
+      });
+      choices.append(button);
+    });
+    card.append(choices); cards.append(card);
+  });
+  submit.addEventListener("click", async () => {
+    const review = project?.pending_review;
+    if (!review?.review_id || review.subject_hash == null) { message.textContent = "确认信息尚未准备好，请刷新后重试。"; return; }
+    submit.disabled = true;
+    try {
+      const allPass = checks.every(([key]) => selections[key] === "pass");
+      const labels = Object.fromEntries(checks.map(([key, title]) => [key, title]));
+      const issues = Object.entries(selections).filter(([, value]) => value !== "pass").map(([key, value]) => `${labels[key]}：${value === "redirect" ? "方向不对" : "需要调整"}`);
+      const issueTagByKey = { creative_direction: "unclear_promise", hook: "weak_hook", proof: "information_gap", pacing: "timing", readability: "mobile_illegibility" };
+      const issueTags = [...new Set(Object.entries(selections).filter(([, value]) => value !== "pass").map(([key]) => issueTagByKey[key]))];
+      await decideReview(
+        project.project_id, review.review_id, allPass ? "approved" : "rejected",
+        allPass ? "样片效果确认通过" : issues.join("；"), selections,
+        review.subject_version, review.subject_hash, allPass ? null : issueTags,
+      );
+      message.textContent = allPass ? "样片已确认，正在进入下一步。" : "调整意见已提交，样片将进入返工。";
+      await refresh();
+    } catch (error) { message.textContent = error.message; updateSubmit(); }
+  });
+  effectPanel.append(cards, message, submit);
+  workbench.append(effectPanel);
   container.append(workbench);
 }
 
@@ -1136,7 +1194,7 @@ function renderEditor(container, stage, editor, project, snapshot) {
       onOperation,
       onNavigate: () => store.selectStage(project.stages.find((item) => item.label === "分镜")?.id),
     }),
-    sample_review: renderSample,
+    sample_review: (target, value) => renderSample(target, value, { project }),
     edit_review: renderEdit,
     delivery_review: (target, value) => renderDelivery(target, value, { editable: canEdit, onOperation, pendingOperations: changes }),
     unavailable: (target, value) => target.append(node("p", "empty-copy", value.message)),
