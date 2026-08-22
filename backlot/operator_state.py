@@ -1003,6 +1003,17 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
 
 def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     report = _artifact(board, "sample_report")
+    raw_trace = _artifact(board, "sample_execution_trace")
+    if not raw_trace and report and _artifact(board, "final_props") and _artifact(board, "shot_execution_plan"):
+        from lib.sample_execution_trace import build_sample_execution_trace
+
+        raw_trace = build_sample_execution_trace(
+            str(board.get("project_id") or "project"),
+            {name: _artifact(board, name) for name in (
+                "reference_fingerprint", "creative_control_plan", "script",
+                "shot_execution_plan", "final_props", "render_plan", "sample_report",
+            )},
+        )
     render = next(
         (
             item for item in (board.get("media") or {}).get("renders", [])
@@ -1012,6 +1023,41 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     )
     project_id = str(board.get("project_id") or "project")
     status = report.get("status")
+    execution_trace = None
+    if raw_trace:
+        summary = raw_trace.get("summary") if isinstance(raw_trace.get("summary"), Mapping) else {}
+        trace_shots = []
+        for shot in raw_trace.get("shots") or []:
+            if not isinstance(shot, Mapping):
+                continue
+            planned = shot.get("planned_basis") if isinstance(shot.get("planned_basis"), Mapping) else {}
+            actual = shot.get("actual_execution") if isinstance(shot.get("actual_execution"), Mapping) else None
+            actual_view = None
+            if actual is not None:
+                source_path = str(actual.get("source_path") or "")
+                actual_view = {
+                    "source_label": Path(source_path).stem if source_path else "",
+                    "source_in_seconds": actual.get("source_in_seconds"),
+                    "source_out_seconds": actual.get("source_out_seconds"),
+                    "timeline_start_seconds": actual.get("timeline_start_seconds"),
+                    "timeline_end_seconds": actual.get("timeline_end_seconds"),
+                    "screen_copy": _safe_text(actual.get("screen_copy")),
+                }
+            trace_shots.append({
+                "shot_id": _safe_text(shot.get("shot_id")),
+                "status": _safe_text(shot.get("status")),
+                "status_label": _safe_text(shot.get("status_label")),
+                "planned": {
+                    "purpose": _safe_text(planned.get("purpose")),
+                    "subject_action": _safe_text(planned.get("subject_action")),
+                    "screen_copy": _safe_text(planned.get("screen_copy")),
+                    "reference_rules": [_safe_text(item) for item in planned.get("reference_rules") or []],
+                },
+                "actual": actual_view,
+                "deviation": shot.get("deviation"),
+                "sample_window": shot.get("sample_window") if isinstance(shot.get("sample_window"), Mapping) else None,
+            })
+        execution_trace = {"summary": summary, "shots": trace_shots}
     return {
         "type": "sample_review",
         "data": {
@@ -1019,6 +1065,7 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "preview_url": _media_url(project_id, render.get("path")) if render else None,
             "qa_status": "检查通过" if status == "pass" else "等待检查" if not status else "需要调整",
             "review_summary": "等待确认样片效果" if status == "pass" else "样片尚未准备完成",
+            "execution_trace": execution_trace,
         },
     }
 

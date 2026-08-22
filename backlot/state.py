@@ -257,6 +257,7 @@ ARTIFACT_FILES = {
     "render_plan": "render_plan.json",
     "production_lock": "production_lock.json",
     "creative_control_plan": "creative_control_plan.json",
+    "sample_execution_trace": "sample_execution_trace.json",
 }
 
 

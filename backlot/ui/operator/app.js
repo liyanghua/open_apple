@@ -856,9 +856,11 @@ function renderAssets(container, data, { editable = false, onOperation = () => {
 }
 
 function renderSample(container, data) {
-  container.append(detailRow("检查结果", data.qa_status));
-  container.append(detailRow("样片时长", formatDuration(data.duration_seconds)));
-  container.append(node("p", "lead-copy", data.review_summary));
+  const workbench = node("div", "sample-review-workbench");
+  const playerPanel = node("section", "sample-player-panel");
+  playerPanel.append(detailRow("检查结果", data.qa_status));
+  playerPanel.append(detailRow("样片时长", formatDuration(data.duration_seconds)));
+  playerPanel.append(node("p", "lead-copy", data.review_summary));
   if (data.preview_url) {
     const video = document.createElement("video");
     video.className = "preview-video";
@@ -866,8 +868,44 @@ function renderSample(container, data) {
     video.playsInline = true;
     video.src = data.preview_url;
     video.setAttribute("aria-label", "样片预览");
-    container.append(video);
+    playerPanel.append(video);
   }
+  workbench.append(playerPanel);
+
+  const trace = data.execution_trace;
+  const tracePanel = node("section", "sample-execution-trace");
+  tracePanel.append(node("h3", "section-title", "执行对照"));
+  if (!trace) {
+    tracePanel.append(node("p", "editor-help", "暂无执行对照，当前只能查看样片结果。"));
+  } else {
+    const summary = trace.summary || {};
+    const counts = summary.status_counts || {};
+    const summaryText = `本次样片覆盖 ${summary.included_shot_count || 0}/${summary.planned_shot_count || 0} 个镜头 · 按方案执行 ${counts.executed || 0} 个 · 部分执行 ${counts.partial || 0} 个 · 新增内容 ${counts.added || 0} 个 · 尚未进入样片 ${counts.not_in_sample || 0} 个`;
+    tracePanel.append(node("p", "trace-summary", summaryText));
+    const list = node("div", "sample-trace-list");
+    (trace.shots || []).forEach((shot) => {
+      const card = node("article", `sample-trace-card status-${shot.status || "unknown"}`);
+      const heading = node("div", "sample-trace-heading");
+      heading.append(node("strong", "sample-trace-shot", shot.shot_id || "镜头"));
+      heading.append(node("span", "status-chip", shot.status_label || "待核对"));
+      card.append(heading);
+      const planned = shot.planned || {};
+      const planText = [planned.purpose, planned.subject_action, planned.screen_copy].filter(Boolean).join(" · ");
+      if (planText) card.append(node("p", "sample-trace-copy", `计划：${planText}`));
+      if (planned.reference_rules?.length) card.append(node("p", "sample-trace-copy", `参考规则：${planned.reference_rules.join("、")}`));
+      const actual = shot.actual;
+      if (actual) {
+        const actualText = [actual.source_label && `素材：${actual.source_label}`, actual.screen_copy && `画面文字：${actual.screen_copy}`].filter(Boolean).join(" · ");
+        if (actualText) card.append(node("p", "sample-trace-copy", `实际：${actualText}`));
+      }
+      if (shot.deviation?.reason) card.append(node("p", "sample-trace-deviation", shot.deviation.reason));
+      if (shot.sample_window && !shot.sample_window.included) card.append(node("p", "sample-trace-muted", "这个镜头尚未进入本次样片窗口"));
+      list.append(card);
+    });
+    tracePanel.append(list);
+  }
+  workbench.append(tracePanel);
+  container.append(workbench);
 }
 
 function renderEdit(container, data) {
