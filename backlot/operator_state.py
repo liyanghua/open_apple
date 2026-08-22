@@ -12,7 +12,13 @@ from urllib.parse import quote
 
 import jsonschema
 
-from backlot.operator_language import LEGACY_STAGE_LABELS, STAGE_LABELS, STATUS_LABELS
+from backlot.operator_language import (
+    LEGACY_STAGE_LABELS,
+    PLATFORM_LABELS,
+    PUBLISH_STATUS_LABELS,
+    STAGE_LABELS,
+    STATUS_LABELS,
+)
 from backlot.state import load_board_state
 
 
@@ -1156,7 +1162,9 @@ def _edit_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _delivery_editor(board: Mapping[str, Any]) -> dict[str, Any]:
+def _delivery_editor(
+    board: Mapping[str, Any], stage_name: str = "compose"
+) -> dict[str, Any]:
     report = _artifact(board, "render_report")
     final_review = _artifact(board, "final_review")
     decisions = _artifact(board, "edit_decisions")
@@ -1408,23 +1416,71 @@ def _delivery_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     for override in delivery_review.get("copy_overrides") or []:
         if isinstance(override, Mapping):
             pending_changes.append({"kind": "copy", "label": "文案", "summary": "文案已修改，等待生成新版"})
+    data: dict[str, Any] = {
+        "duration_seconds": duration,
+        "qa_status": "检查通过" if qa_passed else "等待成片检查",
+        "download_url": video_url,
+        "format_label": _safe_text(output.get("resolution"), "竖屏视频") if output else "竖屏视频",
+        "player": {
+            "video_url": video_url,
+            "poster_url": poster_url,
+            "duration_seconds": duration,
+        },
+        "timeline": {"duration_seconds": duration, "tracks": tracks},
+        "candidate_groups": candidate_groups,
+        "versions": versions,
+        "pending_changes": pending_changes,
+    }
+    # The publish stage shares this review workbench but additionally surfaces
+    # the delivery package: publish_log entries, copy metadata and delivery
+    # notes. Compose keeps the review-only surface.
+    if stage_name == "publish":
+        publish_log = _artifact(board, "publish_log")
+        entries = []
+        for entry in publish_log.get("entries") or []:
+            if not isinstance(entry, Mapping):
+                continue
+            used = (
+                entry.get("metadata_used")
+                if isinstance(entry.get("metadata_used"), Mapping)
+                else {}
+            )
+            platform = str(entry.get("platform") or "local")
+            status = str(entry.get("status") or "exported")
+            entries.append({
+                "platform": platform,
+                "platform_label": PLATFORM_LABELS.get(platform, platform),
+                "status": status,
+                "status_label": PUBLISH_STATUS_LABELS.get(status, status),
+                "title": _safe_text(used.get("title"), "未设置标题"),
+                "description": _safe_text(used.get("description")),
+                "hashtags": [
+                    str(tag) for tag in (used.get("hashtags") or [])
+                    if isinstance(tag, str)
+                ][:12],
+                "export_path": _safe_text(entry.get("export_path")),
+                "timestamp": _safe_text(entry.get("timestamp")),
+            })
+        log_meta = (
+            publish_log.get("metadata")
+            if isinstance(publish_log.get("metadata"), Mapping)
+            else {}
+        )
+        data["delivery"] = {
+            "entries": entries,
+            "notes": _safe_text(
+                log_meta.get("distribution_notes"),
+                "该版本尚未填写交付说明",
+            ),
+            "hero_output": _safe_text(log_meta.get("hero_output")),
+            "qa_evidence": [
+                _safe_text(item) for item in (log_meta.get("qa_evidence") or [])
+                if isinstance(item, str)
+            ],
+        }
     return {
         "type": "delivery_review",
-        "data": {
-            "duration_seconds": duration,
-            "qa_status": "检查通过" if qa_passed else "等待成片检查",
-            "download_url": video_url,
-            "format_label": _safe_text(output.get("resolution"), "竖屏视频") if output else "竖屏视频",
-            "player": {
-                "video_url": video_url,
-                "poster_url": poster_url,
-                "duration_seconds": duration,
-            },
-            "timeline": {"duration_seconds": duration, "tracks": tracks},
-            "candidate_groups": candidate_groups,
-            "versions": versions,
-            "pending_changes": pending_changes,
-        },
+        "data": data,
     }
 
 
@@ -1445,7 +1501,7 @@ def _editor_for(stage_name: str, board: Mapping[str, Any]) -> dict[str, Any]:
     if editor_type == "edit_review":
         return _edit_editor(board)
     if editor_type == "delivery_review":
-        return _delivery_editor(board)
+        return _delivery_editor(board, stage_name)
     return {"type": "unavailable", "data": {"message": "该步骤暂无可展示的结构化内容"}}
 
 

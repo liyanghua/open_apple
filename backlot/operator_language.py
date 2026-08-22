@@ -27,3 +27,18 @@ STATUS_LABELS = MappingProxyType({
 LEGACY_STAGE_LABELS = MappingProxyType({
     "idea": "创意方案",
 })
+
+PUBLISH_STATUS_LABELS = MappingProxyType({
+    "exported": "已导出",
+    "published": "已发布",
+    "failed": "发布失败",
+    "draft": "草稿",
+    "pending_review": "待审核",
+})
+
+PLATFORM_LABELS = MappingProxyType({
+    "local": "本地交付",
+    "douyin": "抖音",
+    "wechat_channels": "视频号",
+    "xiaohongshu": "小红书",
+})

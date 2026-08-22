@@ -650,10 +650,40 @@
             "pending_changes": {
               "type": "array",
               "items": {"$ref": "#/$defs/delivery_pending_change"}
-            }
+            },
+            "delivery": {"$ref": "#/$defs/delivery_publish_info"}
           },
           "additionalProperties": false
         }
+      },
+      "additionalProperties": false
+    },
+    "delivery_publish_info": {
+      "type": "object",
+      "required": ["entries", "notes"],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["platform", "platform_label", "status", "status_label", "title", "description", "hashtags"],
+            "properties": {
+              "platform": {"type": "string"},
+              "platform_label": {"type": "string"},
+              "status": {"type": "string"},
+              "status_label": {"type": "string"},
+              "title": {"type": "string"},
+              "description": {"type": "string"},
+              "hashtags": {"type": "array", "items": {"type": "string"}},
+              "export_path": {"type": "string"},
+              "timestamp": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "notes": {"type": "string"},
+        "hero_output": {"type": "string"},
+        "qa_evidence": {"type": "array", "items": {"type": "string"}}
       },
       "additionalProperties": false
     },

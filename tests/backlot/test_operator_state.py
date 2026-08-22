@@ -240,6 +240,64 @@ def test_fastline_project_projects_business_state() -> None:
     assert state["permissions"] == ["view"]
 
 
+def test_publish_stage_surfaces_delivery_package_while_compose_does_not() -> None:
+    from backlot.operator_state import project_operator_state, validate_operator_state
+
+    board = _board_state()
+    board["artifacts"]["publish_log"] = {
+        "version": "1.0",
+        "entries": [
+            {
+                "platform": "local",
+                "status": "exported",
+                "export_path": "renders/final.mp4",
+                "timestamp": "2026-08-22T10:00:00Z",
+                "metadata_used": {
+                    "title": "透明桌垫：一条讲清楚日常保护",
+                    "description": "15 秒实录证明。",
+                    "hashtags": ["透明桌垫", "居家好物"],
+                },
+            }
+        ],
+        "metadata": {
+            "hero_output": "renders/final.mp4",
+            "distribution_notes": "仅本地打包，未上传任何平台。",
+            "qa_evidence": ["artifacts/final_review.json"],
+        },
+    }
+    state = project_operator_state(board)
+    validate_operator_state(state)
+
+    stages = {stage["id"]: stage for stage in state["stages"]}
+    compose_data = stages["compose"]["editor"]["data"]
+    publish_data = stages["publish"]["editor"]["data"]
+
+    # Shared review workbench, but the delivery package only belongs to publish.
+    assert compose_data["player"] == publish_data["player"]
+    assert "delivery" not in compose_data
+    assert publish_data["delivery"]["notes"] == "仅本地打包，未上传任何平台。"
+    assert publish_data["delivery"]["hero_output"] == "renders/final.mp4"
+    entry = publish_data["delivery"]["entries"][0]
+    assert entry["platform_label"] == "本地交付"
+    assert entry["status_label"] == "已导出"
+    assert entry["title"] == "透明桌垫：一条讲清楚日常保护"
+    assert entry["description"] == "15 秒实录证明。"
+    assert entry["hashtags"] == ["透明桌垫", "居家好物"]
+    assert entry["export_path"] == "renders/final.mp4"
+    assert publish_data["delivery"]["qa_evidence"] == ["artifacts/final_review"]
+
+
+def test_publish_stage_without_publish_log_has_empty_delivery_entries() -> None:
+    from backlot.operator_state import project_operator_state, validate_operator_state
+
+    state = project_operator_state(_board_state())
+    validate_operator_state(state)
+    stages = {stage["id"]: stage for stage in state["stages"]}
+    publish_data = stages["publish"]["editor"]["data"]
+    assert publish_data["delivery"]["entries"] == []
+    assert "delivery" not in stages["compose"]["editor"]["data"]
+
+
 def test_sample_editor_exposes_execution_trace_summary_and_shots() -> None:
     from backlot.operator_state import project_operator_state, validate_operator_state
 

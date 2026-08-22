@@ -1123,7 +1123,46 @@ function renderDelivery(container, data, { editable = false, onOperation = () =>
   });
   timeline.append(lanes);
   workbench.append(versions, main, timeline);
+  if (data.delivery) renderDeliveryInfo(workbench, data.delivery);
   container.append(workbench);
+}
+
+function renderDeliveryInfo(container, delivery) {
+  // Publish-stage panel: the delivery package differs from the compose review
+  // surface (title/description/hashtags, export status and delivery notes).
+  const panel = node("section", "delivery-publish-info");
+  panel.append(node("h3", "section-title", "交付信息"));
+  (delivery.entries || []).forEach((entry) => {
+    const card = node("div", "delivery-publish-entry");
+    const heading = node("div", "delivery-publish-heading");
+    heading.append(
+      node("strong", "delivery-publish-title", entry.title || "未命名交付"),
+      node("span", `status-chip status-${entry.status || "draft"}`, entry.status_label || entry.status || "未发布"),
+    );
+    card.append(heading);
+    card.append(detailRow("交付平台", entry.platform_label || entry.platform || "本地"));
+    if (entry.description) card.append(node("p", "row-copy", entry.description));
+    if (entry.hashtags && entry.hashtags.length) {
+      const tags = node("div", "tag-list");
+      entry.hashtags.forEach((tag) => tags.append(node("span", "tag", tag)));
+      card.append(tags);
+    }
+    if (entry.export_path) card.append(detailRow("交付文件", entry.export_path));
+    if (entry.timestamp) card.append(detailRow("导出时间", entry.timestamp));
+    panel.append(card);
+  });
+  if (!(delivery.entries || []).length) panel.append(node("p", "empty-copy", "还没有生成交付包"));
+  if (delivery.notes) {
+    const notes = node("div", "delivery-publish-notes");
+    notes.append(node("h4", "delivery-publish-subheading", "交付说明"));
+    notes.append(node("p", "row-copy", delivery.notes));
+    panel.append(notes);
+  }
+  if (delivery.hero_output) panel.append(detailRow("主交付文件", delivery.hero_output));
+  if (delivery.qa_evidence && delivery.qa_evidence.length) {
+    panel.append(detailRow("QA 证据", delivery.qa_evidence.join(" · ")));
+  }
+  container.append(panel);
 }
 
 function renderEmpty(container) {
