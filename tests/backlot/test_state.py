@@ -89,6 +89,21 @@ class TestBoardState:
         assert artifacts["evaluation_report.sample"] == sample
         assert artifacts["evaluation_report.final"] == final
 
+    def test_unscoped_sample_report_is_aliased_to_sample_key(self, projects_root):
+        """评审缺口 #4：旧式无后缀文件按内嵌 scope 别名到 scoped 键（v8 场景）。"""
+        p = _make_project(projects_root, "legacy-scoped")
+        _write(p / "project.json", {
+            "project_id": "legacy-scoped", "title": "Legacy Scoped", "pipeline_type": "cinematic-fast",
+        })
+        _write(p / "artifacts" / "evaluation_report.json", {"scope": "sample", "status": "revise"})
+        _write(p / "artifacts" / "evaluation_report.final.json", {"scope": "final", "status": "pass"})
+
+        artifacts = load_board_state(p)["artifacts"]
+
+        assert artifacts["evaluation_report"] == {"scope": "final", "status": "pass"}
+        assert artifacts["evaluation_report.sample"] == {"scope": "sample", "status": "revise"}
+        assert artifacts["evaluation_report.final"] == {"scope": "final", "status": "pass"}
+
     def test_collects_approved_shot_execution_plan_after_assets_checkpoint_is_removed(self, projects_root):
         p = _make_project(projects_root, "execution-handoff")
         _write(p / "project.json", {

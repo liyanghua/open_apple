@@ -36,6 +36,58 @@ DEFAULT_ROUTES = {
     "shorten_shot": "full_render",
 }
 
+# Autoresearch §5：失败维度 → 四类局部修复映射（自动回评闭环的入口）。
+# None = 超出四类局部修复范围，必须走 rework（重新人工审批）。
+FAILURE_DIMENSION_REPAIR = {
+    "hook_clarity": ("rewrite_hook", "前 1-2 个镜头、开场顺序、首句文案"),
+    "caption_readability": ("edit_caption", "字幕长度、字号、位置、安全区"),
+    "product_evidence": ("replace_asset", "产品证明镜头、证据片段区间、产品特写"),
+    "visual_coherence": ("replace_asset", "crop、transition、色彩和画面连续性"),
+    "rhythm_pacing": ("shorten_shot", "shot duration、切点、镜头密度"),
+    "reference_mechanism_fidelity": ("shorten_shot", "机制对应镜头、动作顺序"),
+    "audio_quality": (None, "旁白/BGM 音量、ducking、淡入淡出——需重新混音（rework）"),
+    "commercial_originality": (None, "CTA 结构、表达方式——需创意 rework"),
+}
+
+
+def repair_action_for_dimension(dimension: str) -> dict[str, Any]:
+    """失败维度 → 允许的单一修复动作（Autoresearch §5；一轮一个聚焦修改）。"""
+    action, note = FAILURE_DIMENSION_REPAIR.get(
+        str(dimension), (None, "未知维度")
+    )
+    return {"dimension": str(dimension), "action": action, "note": note}
+
+
+def keep_or_rollback(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+    *,
+    target_dimensions: list[str],
+) -> dict[str, Any]:
+    """修复回评（评审缺口 #7）：新版本总分提升且目标维度不倒退才保留。"""
+    after_total = after.get("weighted_total")
+    if after_total is None:
+        return {"decision": "rollback", "reason": "新版本无法计算总分"}
+    before_total = before.get("weighted_total")
+    if before_total is not None and float(after_total) <= float(before_total):
+        return {
+            "decision": "rollback",
+            "reason": f"总分未提升（{before_total} -> {after_total}）",
+        }
+    after_scores = after.get("dimension_scores") if isinstance(after.get("dimension_scores"), Mapping) else {}
+    before_scores = before.get("dimension_scores") if isinstance(before.get("dimension_scores"), Mapping) else {}
+    for dim in target_dimensions:
+        after_score = after_scores.get(dim)
+        before_score = before_scores.get(dim)
+        if after_score is None:
+            return {"decision": "rollback", "reason": f"目标维度 {dim} 未评分"}
+        if before_score is not None and float(after_score) <= float(before_score):
+            return {
+                "decision": "rollback",
+                "reason": f"目标维度 {dim} 未提升（{before_score} -> {after_score}）",
+            }
+    return {"decision": "keep", "reason": "总分提升且目标维度全部改善"}
+
 
 def plan_repair(
     project_id: str,

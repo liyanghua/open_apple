@@ -1579,6 +1579,24 @@
             "review_summary": {
               "type": "string"
             },
+            "evaluation": {
+              "$ref": "#/$defs/delivery_evaluation"
+            },
+            "audio_tracks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["kind", "label", "planned", "present", "state"],
+                "properties": {
+                  "kind": { "type": "string", "enum": ["narration", "bgm", "original"] },
+                  "label": { "type": "string" },
+                  "planned": { "type": "boolean" },
+                  "present": { "type": "boolean" },
+                  "state": { "type": "string", "enum": ["present", "missing", "not_planned"] }
+                },
+                "additionalProperties": false
+              }
+            },
             "execution_trace": {
               "oneOf": [
                 {

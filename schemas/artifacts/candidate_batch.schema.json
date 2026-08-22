@@ -35,6 +35,11 @@
       "additionalProperties": false,
       "description": "Shared research artifacts: reference_fingerprint / research_breakdown / reference_source_matrix / source_media_review / research_scorecard / caption_style_fingerprint"
     },
+    "source_media_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Autoresearch §3.3：批级自有素材池引用（inputs/source/...），所有候选必须能追溯到这些源视频"
+    },
     "concurrency": {
       "type": "object",
       "required": ["max_candidates", "max_parallel"],
@@ -96,7 +101,22 @@
           "cost_usd": { "type": "number", "minimum": 0 },
           "attempts": { "type": "integer", "minimum": 0, "description": "P2: 该候选已消耗的生成尝试次数（重试预算）" },
           "failure": { "type": ["string", "null"] },
-          "notes": { "type": "string" }
+          "notes": { "type": "string" },
+          "iteration": { "type": ["integer", "null"], "minimum": 1, "description": "Autoresearch §3.3：候选所属优化迭代轮次" },
+          "parent_candidate_id": { "type": ["string", "null"], "description": "Autoresearch §3.3：父候选 lineage" },
+          "mutation": { "type": ["object", "null"], "description": "Autoresearch §3.3：该候选相对父候选的单一 mutation 描述" },
+          "mutation_fingerprint": { "type": ["string", "null"], "description": "Autoresearch §3.3：mutation 指纹，用于去重" },
+          "changed_dimensions": { "type": "array", "items": { "type": "string" } },
+          "failure_dimensions": { "type": "array", "items": { "type": "string" } },
+          "dimension_scores": {
+            "type": ["object", "null"],
+            "additionalProperties": { "type": "number", "minimum": 0, "maximum": 10 }
+          },
+          "weighted_total": { "type": ["number", "null"], "minimum": 0, "maximum": 10 },
+          "provider": { "type": ["string", "null"], "description": "Autoresearch §3.3：一次 run 内固定的生成 provider" },
+          "model": { "type": ["string", "null"], "description": "Autoresearch §3.3：一次 run 内固定的生成 model" },
+          "render_runtime": { "type": ["string", "null"], "enum": ["remotion", "hyperframes", "ffmpeg", null] },
+          "output_ref": { "type": ["object", "null"], "description": "Autoresearch §3.3：该候选成片/样片的引用" }
         },
         "additionalProperties": false
       }

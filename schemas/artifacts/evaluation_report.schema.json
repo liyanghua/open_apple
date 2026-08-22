@@ -152,6 +152,35 @@
       "type": "string",
       "enum": ["proceed", "repair", "reject"]
     },
+    "optimization": {
+      "type": ["object", "null"],
+      "description": "Autoresearch 优化门禁区块（Autoresearch_Video_Remix_Integration_Design_2026-08-23.md §3.4）：status 表达 L1a 状态，optimization.passed 表达创意优化门禁，二者不可互相替代。enabled=false 时该区块可为 null",
+      "required": ["dimension_scores", "weighted_total", "thresholds", "passed", "failure_dimensions"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "candidate_id": { "type": "string" },
+        "iteration": { "type": "integer", "minimum": 0 },
+        "parent_candidate_id": { "type": ["string", "null"] },
+        "dimension_scores": {
+          "type": "object",
+          "additionalProperties": { "type": "number", "minimum": 0, "maximum": 10 }
+        },
+        "weighted_total": { "type": ["number", "null"], "minimum": 0, "maximum": 10 },
+        "thresholds": {
+          "type": "object",
+          "required": ["per_dimension_min", "weighted_total_min"],
+          "properties": {
+            "per_dimension_min": { "type": "number" },
+            "weighted_total_min": { "type": "number" }
+          },
+          "additionalProperties": false
+        },
+        "passed": { "type": "boolean" },
+        "failure_dimensions": { "type": "array", "items": { "type": "string" } },
+        "confirmation_index": { "type": ["integer", "null"] }
+      },
+      "additionalProperties": false
+    },
     "semantic_sha256": { "type": "string" },
     "artifact_sha256": { "type": "string" }
   },

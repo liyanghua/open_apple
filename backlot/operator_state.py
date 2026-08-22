@@ -1082,6 +1082,32 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _evaluation_summary(eval_report: Mapping[str, Any]) -> dict[str, Any] | None:
+    """把 evaluation_report 投影为审核台评价卡 payload（delivery_evaluation 形状）。"""
+    if not (isinstance(eval_report, Mapping) and eval_report.get("scope") in {"sample", "final"}):
+        return None
+    advisory = eval_report.get("creative_advisory") if isinstance(eval_report.get("creative_advisory"), Mapping) else {}
+    return {
+        "status": eval_report.get("status"),
+        "recommended_action": eval_report.get("recommended_action"),
+        "judge_version": eval_report.get("judge_version"),
+        "hard_gate_fails": [
+            {"name": c.get("name"), "message": c.get("message"), "fixable": c.get("fixable")}
+            for c in (eval_report.get("hard_gate") or {}).get("checks", [])
+            if isinstance(c, Mapping) and c.get("status") == "fail"
+        ],
+        "advisory": {
+            "scored": bool(advisory.get("scored")),
+            "summary": _safe_text(advisory.get("summary"), "尚未运行 VLM 创意评审"),
+            "dimensions": [
+                {"name": d.get("name"), "score": d.get("score"), "note": d.get("note")}
+                for d in (advisory.get("dimensions") or [])
+                if isinstance(d, Mapping)
+            ],
+        },
+    }
+
+
 def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     report = _artifact(board, "sample_report")
     raw_trace = _artifact(board, "sample_execution_trace")
@@ -1139,6 +1165,12 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
                 "sample_window": shot.get("sample_window") if isinstance(shot.get("sample_window"), Mapping) else None,
             })
         execution_trace = {"summary": summary, "shots": trace_shots}
+    # 评审缺口 #4：样片页补齐评价卡 + 三轨音频（口播/BGM/原声）。
+    evaluation = None
+    eval_report = _artifact(board, "evaluation_report.sample") or _artifact(board, "evaluation_report")
+    if isinstance(eval_report, Mapping) and eval_report.get("scope") == "sample":
+        evaluation = _evaluation_summary(eval_report)
+    audio_tracks = _audio_tracks(raw_trace)
     return {
         "type": "sample_review",
         "data": {
@@ -1147,8 +1179,34 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "qa_status": "检查通过" if status == "pass" else "等待检查" if not status else "需要调整",
             "review_summary": "等待确认样片效果" if status == "pass" else "样片尚未准备完成",
             "execution_trace": execution_trace,
+            "evaluation": evaluation,
+            "audio_tracks": audio_tracks,
         },
     }
+
+
+def _audio_tracks(raw_trace: Any) -> list[dict[str, Any]]:
+    """口播/BGM/原声三轨状态（来自 sample_execution_trace.audio_diff）。"""
+    diff = raw_trace.get("audio_diff") if isinstance(raw_trace, Mapping) else None
+    diff = diff if isinstance(diff, Mapping) else {}
+    plan = diff.get("plan") if isinstance(diff.get("plan"), Mapping) else {}
+    actual = diff.get("actual") if isinstance(diff.get("actual"), Mapping) else {}
+
+    def track(kind: str, label: str, planned: bool, present: bool) -> dict[str, Any]:
+        state = "present" if planned and present else ("missing" if planned else "not_planned")
+        return {
+            "kind": kind,
+            "label": label,
+            "planned": bool(planned),
+            "present": bool(present),
+            "state": state,
+        }
+
+    return [
+        track("narration", "口播", plan.get("narration_planned"), actual.get("narration_present")),
+        track("bgm", "BGM", plan.get("music_planned"), actual.get("music_present")),
+        track("original", "原声", False, bool(actual.get("original_sound", True))),
+    ]
 
 
 def _edit_editor(board: Mapping[str, Any]) -> dict[str, Any]:
@@ -1495,26 +1553,7 @@ def _delivery_editor(
     # 评审 #3：成片评价卡优先读 final 范围报告；无 scoped 文件时回退默认键。
     eval_report = _artifact(board, "evaluation_report.final") or _artifact(board, "evaluation_report")
     if isinstance(eval_report, Mapping) and eval_report.get("scope") == "final":
-        advisory = eval_report.get("creative_advisory") if isinstance(eval_report.get("creative_advisory"), Mapping) else {}
-        evaluation = {
-            "status": eval_report.get("status"),
-            "recommended_action": eval_report.get("recommended_action"),
-            "judge_version": eval_report.get("judge_version"),
-            "hard_gate_fails": [
-                {"name": c.get("name"), "message": c.get("message"), "fixable": c.get("fixable")}
-                for c in (eval_report.get("hard_gate") or {}).get("checks", [])
-                if isinstance(c, Mapping) and c.get("status") == "fail"
-            ],
-            "advisory": {
-                "scored": bool(advisory.get("scored")),
-                "summary": _safe_text(advisory.get("summary"), "尚未运行 VLM 创意评审"),
-                "dimensions": [
-                    {"name": d.get("name"), "score": d.get("score"), "note": d.get("note")}
-                    for d in (advisory.get("dimensions") or [])
-                    if isinstance(d, Mapping)
-                ],
-            },
-        }
+        evaluation = _evaluation_summary(eval_report)
     data: dict[str, Any] = {
         "duration_seconds": duration,
         "qa_status": "检查通过" if qa_passed else "等待成片检查",

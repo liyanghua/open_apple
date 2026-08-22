@@ -128,8 +128,8 @@ stages:
     required_artifacts_in: [shot_execution_plan, asset_plan, production_lock, approval_bundle, caption_style_fingerprint]
     optional_artifacts_in: [script, scene_plan]
     produces: [asset_manifest, final_props, render_plan, sample_report, sample_execution_trace, caption_policy_revision, evaluation_report]
-    required_tools: [tts_selector, audio_mixer, subtitle_gen, media_proxy, video_compose, final_qa, technical_validator]
-    tools_available: [tts_selector, audio_mixer, subtitle_gen, media_proxy, video_compose, final_qa, technical_validator]
+    required_tools: [tts_selector, audio_mixer, subtitle_gen, media_proxy, video_compose, final_qa, technical_validator, video_judge]
+    tools_available: [tts_selector, audio_mixer, subtitle_gen, media_proxy, video_compose, final_qa, technical_validator, video_judge]
     checkpoint_required: true
     human_approval_default: true
     review_focus: [10-15 second sample uses approved lock, quick QA passes, no timing drift, evaluation_report produced for sample scope]
@@ -149,8 +149,8 @@ stages:
     skill: pipelines/cinematic-fast/compose-director
     required_artifacts_in: [creative_control_plan, edit_decisions, asset_manifest, final_props, render_plan, caption_policy_revision, caption_style_fingerprint]
     produces: [render_report, final_review, evaluation_report]
-    required_tools: [video_compose, final_qa, technical_validator]
-    tools_available: [video_compose, final_qa, technical_validator]
+    required_tools: [video_compose, final_qa, technical_validator, video_judge]
+    tools_available: [video_compose, final_qa, technical_validator, video_judge]
     checkpoint_required: true
     human_approval_default: false
     review_focus: [Render route matches plan, full QA checks black frames, freeze, loudness, safe zones and encoding, evaluation_report produced for final scope with no fatal L1a failures]
@@ -159,6 +159,7 @@ stages:
   - name: publish
     skill: pipelines/cinematic-fast/publish-director
     required_artifacts_in: [render_report, final_review, evaluation_report]
+    optional_artifacts_in: [optimization_policy, optimization_run]
     produces: [publish_log]
     tools_available: []
     checkpoint_required: true

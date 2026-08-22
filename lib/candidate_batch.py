@@ -41,6 +41,7 @@ def create_candidate_batch(
     max_candidates: int = 5,
     max_parallel: int = 3,
     budget: Mapping[str, Any] | None = None,
+    source_media_refs: list[str] | None = None,
 ) -> dict[str, Any]:
     if not shared_research_refs:
         raise ValueError("candidate_batch requires at least one shared research ref")
@@ -54,7 +55,7 @@ def create_candidate_batch(
         status = item.get("status", "planned")
         if status not in STATUS_FLOW:
             raise ValueError(f"invalid candidate status {status!r}")
-        normalized.append({
+        candidate: dict[str, Any] = {
             "candidate_id": str(item["candidate_id"]),
             "label": str(item.get("label") or item["candidate_id"]),
             "direction": dict(item.get("direction") or {}),
@@ -66,7 +67,21 @@ def create_candidate_batch(
             "attempts": int(item.get("attempts") or 0),
             "failure": item.get("failure"),
             "notes": str(item.get("notes") or ""),
-        })
+            # Autoresearch §3.3 候选级扩展字段（可选，向后兼容）。
+            "iteration": item.get("iteration"),
+            "parent_candidate_id": item.get("parent_candidate_id"),
+            "mutation": item.get("mutation"),
+            "mutation_fingerprint": item.get("mutation_fingerprint"),
+            "changed_dimensions": list(item.get("changed_dimensions") or []),
+            "failure_dimensions": list(item.get("failure_dimensions") or []),
+            "dimension_scores": item.get("dimension_scores"),
+            "weighted_total": item.get("weighted_total"),
+            "provider": item.get("provider"),
+            "model": item.get("model"),
+            "render_runtime": item.get("render_runtime"),
+            "output_ref": item.get("output_ref"),
+        }
+        normalized.append(candidate)
 
     batch = {
         "version": "1.0",
@@ -80,6 +95,7 @@ def create_candidate_batch(
                 for ref in shared_research_refs
             ]
         },
+        "source_media_refs": [str(ref) for ref in (source_media_refs or [])],
         "concurrency": {"max_candidates": max_candidates, "max_parallel": max_parallel},
         "budget": (
             {
@@ -106,6 +122,19 @@ def record_candidate_result(
     cost_usd: float = 0.0,
     failure: str | None = None,
     is_retry: bool = False,
+    # Autoresearch §3.3：评分与 lineage 更新（optimize-director 调用）。
+    iteration: int | None = None,
+    parent_candidate_id: str | None = None,
+    mutation: Mapping[str, Any] | None = None,
+    mutation_fingerprint: str | None = None,
+    changed_dimensions: list[str] | None = None,
+    failure_dimensions: list[str] | None = None,
+    dimension_scores: Mapping[str, Any] | None = None,
+    weighted_total: float | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    render_runtime: str | None = None,
+    output_ref: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if status is not None and status not in STATUS_FLOW:
         raise ValueError(f"invalid candidate status {status!r}")
@@ -164,6 +193,31 @@ def record_candidate_result(
         item["cost_usd"] = new_cost
         if failure is not None:
             item["failure"] = failure
+        # Autoresearch 扩展字段（显式提供才写入）。
+        if iteration is not None:
+            item["iteration"] = int(iteration)
+        if parent_candidate_id is not None:
+            item["parent_candidate_id"] = parent_candidate_id
+        if mutation is not None:
+            item["mutation"] = dict(mutation)
+        if mutation_fingerprint is not None:
+            item["mutation_fingerprint"] = mutation_fingerprint
+        if changed_dimensions is not None:
+            item["changed_dimensions"] = [str(dim) for dim in changed_dimensions]
+        if failure_dimensions is not None:
+            item["failure_dimensions"] = [str(dim) for dim in failure_dimensions]
+        if dimension_scores is not None:
+            item["dimension_scores"] = {str(k): float(v) for k, v in dimension_scores.items()}
+        if weighted_total is not None:
+            item["weighted_total"] = float(weighted_total)
+        if provider is not None:
+            item["provider"] = provider
+        if model is not None:
+            item["model"] = model
+        if render_runtime is not None:
+            item["render_runtime"] = render_runtime
+        if output_ref is not None:
+            item["output_ref"] = dict(output_ref)
         candidates.append(item)
     if not any(item["candidate_id"] == candidate_id for item in candidates):
         raise ValueError(f"unknown candidate_id {candidate_id!r}")

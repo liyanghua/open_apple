@@ -250,6 +250,30 @@ def _validate_artifacts_for_stage(
                 f"cinematic-fast research derived-file gate failed: {exc}"
             ) from exc
 
+    if pipeline_type == "cinematic-fast" and stage == "publish" and status in {"completed", "awaiting_human"}:
+        # 评审缺口 #3：publish 三态语义的代码级执行。
+        # 1) fatal L1a 一律阻止；2) revise 由用户确认（skill 层记录
+        #    downgrade_approval 决策）；3) optimization 启用时必须双门通过。
+        evaluation = validated_artifacts.get("evaluation_report")
+        if isinstance(evaluation, dict) and evaluation.get("status") == "fail":
+            raise CheckpointValidationError(
+                "publish gate: evaluation_report.status=fail（fatal L1a）必须阻止 publish"
+            )
+        policy = validated_artifacts.get("optimization_policy")
+        if isinstance(policy, dict) and policy.get("enabled") is True:
+            run = validated_artifacts.get("optimization_run")
+            opt = (
+                evaluation.get("optimization")
+                if isinstance(evaluation, dict) else None
+            )
+            run_passed = isinstance(run, dict) and run.get("status") == "passed"
+            opt_passed = isinstance(opt, dict) and opt.get("passed") is True
+            if not (run_passed and opt_passed):
+                raise CheckpointValidationError(
+                    "publish gate: optimization_policy.enabled=true 但优化门禁未通过"
+                    "（需要 optimization_run.status=passed 且 evaluation_report.optimization.passed=true）"
+                )
+
     if pipeline_type == "cinematic-fast" and stage == "proposal" and status in {"completed", "awaiting_human"}:
         try:
             from lib.artifact_io import unwrap_checkpoint_artifact

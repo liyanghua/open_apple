@@ -872,6 +872,30 @@ function renderSample(container, data, { project } = {}) {
   }
   workbench.append(playerPanel);
 
+  // 评审缺口 #4：样片评价卡 + 三轨音频（口播/BGM/原声）
+  if (data.evaluation) {
+    const evalPanel = node("section", "sample-evaluation");
+    evalPanel.append(node("h3", "section-title", "样片评价卡"));
+    evalPanel.append(renderEvaluationCard(data.evaluation));
+    workbench.append(evalPanel);
+  }
+  const tracks = data.audio_tracks;
+  if (tracks && tracks.length) {
+    const audioPanel = node("section", "sample-audio-tracks");
+    audioPanel.append(node("h3", "section-title", "音频轨"));
+    const stateLabels = { present: "已就位", missing: "缺失", not_planned: "未计划" };
+    const trackList = node("div", "sample-audio-track-list");
+    tracks.forEach((track) => {
+      const chip = node("span", `sample-audio-track state-${track.state || "not_planned"}`);
+      chip.append(node("strong", "", track.label || track.kind));
+      chip.append(node("span", "track-state", stateLabels[track.state] || track.state || "未知"));
+      if (track.planned && track.state === "missing") chip.append(node("span", "track-warn", "计划了但样片没有实际音轨"));
+      trackList.append(chip);
+    });
+    audioPanel.append(trackList);
+    workbench.append(audioPanel);
+  }
+
   const trace = data.execution_trace;
   const tracePanel = node("section", "sample-execution-trace");
   tracePanel.append(node("h3", "section-title", "执行对照"));

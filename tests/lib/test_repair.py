@@ -68,3 +68,65 @@ def test_repair_decision_entry_is_schema_shape():
     assert entry["issue_tags"] == ["weak_hook"]
     assert entry["rework_round"] == 2
     assert entry["decision_id"] == "repair-r-1"
+
+
+def test_failure_dimension_maps_to_single_repair_action():
+    from lib.repair import repair_action_for_dimension
+
+    assert repair_action_for_dimension("hook_clarity")["action"] == "rewrite_hook"
+    assert repair_action_for_dimension("caption_readability")["action"] == "edit_caption"
+    assert repair_action_for_dimension("product_evidence")["action"] == "replace_asset"
+    assert repair_action_for_dimension("rhythm_pacing")["action"] == "shorten_shot"
+    # 四类局部修复之外 → 必须走 rework
+    assert repair_action_for_dimension("audio_quality")["action"] is None
+    assert repair_action_for_dimension("commercial_originality")["action"] is None
+
+
+def _block(total, scores):
+    return {"weighted_total": total, "dimension_scores": scores}
+
+
+def test_keep_when_total_and_target_dimension_improve():
+    from lib.repair import keep_or_rollback
+
+    decision = keep_or_rollback(
+        _block(7.8, {"product_evidence": 7.0}),
+        _block(8.6, {"product_evidence": 8.4}),
+        target_dimensions=["product_evidence"],
+    )
+    assert decision["decision"] == "keep"
+
+
+def test_rollback_when_total_drops():
+    from lib.repair import keep_or_rollback
+
+    decision = keep_or_rollback(
+        _block(8.6, {"product_evidence": 8.4}),
+        _block(8.4, {"product_evidence": 9.0}),
+        target_dimensions=["product_evidence"],
+    )
+    assert decision["decision"] == "rollback"
+    assert "总分未提升" in decision["reason"]
+
+
+def test_rollback_when_target_dimension_does_not_improve():
+    from lib.repair import keep_or_rollback
+
+    decision = keep_or_rollback(
+        _block(7.8, {"product_evidence": 7.0}),
+        _block(8.6, {"product_evidence": 6.9}),
+        target_dimensions=["product_evidence"],
+    )
+    assert decision["decision"] == "rollback"
+    assert "product_evidence 未提升" in decision["reason"]
+
+
+def test_rollback_when_new_version_unscored():
+    from lib.repair import keep_or_rollback
+
+    decision = keep_or_rollback(
+        _block(7.8, {"product_evidence": 7.0}),
+        _block(None, {}),
+        target_dimensions=["product_evidence"],
+    )
+    assert decision["decision"] == "rollback"

@@ -263,6 +263,16 @@ Skill 负责指导 Agent 的判断和表达；不得把创意决策硬编码进 
 
 ## 修订记录
 
+- **v2.17（2026-08-23）批量混剪闭环补齐（Autoresearch 落地方向 + 评审缺口 #1-#8）**：
+  - **① 优化数据层**：新增 `optimization_policy`（权重和=1.0、阈值、beam/并发/迭代/预算/plateau，enabled=false 默认=人工 review 优先）与 `optimization_run`（planned/running/awaiting_confirmation/passed/exhausted/blocked/failed 状态机 + policy 冻结快照 + history/mutation 指纹 + confirmation）schema + 规范校验；`lib/optimization_scoring`（统一分数聚合：非法分拒绝、缺维失败、7.99/8.49 边界、rubric 一致、judge 未校准 → shadow mode）；`evaluation_report.optimization` 区块 + `candidate_batch` §3.3 扩展（source_media_refs/iteration/lineage/mutation/维度分/加权总分/provider/model/runtime/output_ref）；`lib/optimization_run` 状态机（max_iterations→exhausted、失败候选不成 best、plateau/预算停止、两次确认全过→passed）；
+  - **② judge fail-closed + L1a 补齐**：`video_judge` v0.2——非法分数/缺维直接拒绝（不再钳 0.0/静默跳过），rubric 感知（l3-v1.0 / ecommerce-remix-v1.0 各固定维度集），seed 可传；接入 sample/compose `required_tools` + director 契约；L1a 新增 `l1a_resolution`/`l1a_fps`（12 项，覆盖率阈值 7→9）；
+  - **③ publish 三态语义**：fatal 一律阻止（checkpoint 硬门）、revise 需用户确认 + `downgrade_approval` 决策、optimization 启用时需 run passed + optimization.passed 双门（publish optional_artifacts_in: optimization_policy/optimization_run）；publish-director 重写；
+  - **④ 批量编排机制**：`lib/batch_fork`（一次研究分叉 N 候选项目：共享制品 + analysis/ 派生证据 + completed research 检查点 + 候选元数据）；`lib/render_payload`（确定性 render payload assembler，captionStyle/audio.mix/captionWordsPerPage 派生字段）；`lib/music_profile`（music_profile→检索词映射，含 v8 Indie Acoustic 用例）；`optimize-director` skill（人工 review 优先 runbook + 自动迭代纪律 + 停止条件 + 并发/预算）；
+  - **⑤ 样片审核页**：`_sample_editor` payload 增加 sample 范围评价卡（复用 `_evaluation_summary`）与口播/BGM/原声三轨（audio_diff 驱动）；operator_state schema + app.js 渲染 + CSS；board 投影对旧式无后缀报告按内嵌 scope 别名（v8 实况验证）；
+  - **⑥ Gold Set release gate + 修复回评**：`gold_set.py` 新增 `per_dimension_stats`/`calibration_report`/`is_judge_releasable`/`assert_judge_releasable`（每维 n≥100 + 双人标注 + kappa≥0.6 才允许生产门禁，否则 shadow mode）；`repair.py` 新增 §5 维度→修复动作映射（音频/原创维度明确需 rework）与 `keep_or_rollback`（总分提升且目标维度不倒退才保留）；
+  - **小件**：`python -m backlot validate <project> [--refresh]`（信封/schema/派生文件全链校验，v8 实测 9 检查点 VALID）；`skills/meta/voice-timeline-fit.md`（v8 TTS 实测时长适配流程固化）并挂入 sample-director；
+  - 验证：全量回归 **1798 passed / 11 skipped / 0 failed**（较 v2.16 净增 70 例）；v8 样片页实况投影出评价卡 + 三轨音频。Autoresearch 文档标注为"设计稿，待实现"的核心数据层（policy/run/scoring）已落地；真实 5 候选批量生产与 Gold Set 标注仍为用户发起项。
+
 - **v2.16（2026-08-22）代码评审 P2 六项 + v7/v8 存量契约修复**：
   - **#10 SUNO callBackUrl 配置化**：`suno_music` 不再硬编码占位回调——`SUNO_CALLBACK_URL` 环境变量可覆盖，缺省为明确标记的 `suno-callback.invalid` 占位域名（轮询模式不会被真正调用），install_instructions 同步说明（+2 测试）；
   - **#11 回填幂等/原子/事务**：`backfill_evaluation_report.py` 全部写入走 `write_artifact_atomic`（优先 ProjectCommitStore 事务 sink，失败回退直接原子写）；scoped 文件已存在即跳过、decision_log 回填条目按 decision_id 幂等去重（+5 测试）；

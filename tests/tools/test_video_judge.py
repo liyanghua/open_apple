@@ -1,42 +1,132 @@
-"""Unit tests for the L3 video_judge advisory tool."""
+"""Unit tests for the L3 video_judge tool (fail-closed, rubric-aware)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from tools.analysis.video_judge import VideoJudge
+from tools.analysis.video_judge import L3_DIMENSIONS, REMIX_DIMENSIONS, VideoJudge
 
 
 def _patch(monkeypatch, parsed):
     monkeypatch.setattr(VideoJudge, "_sample_frames", lambda self, path, count, workdir: [Path("/tmp/f.jpg")])
-    monkeypatch.setattr(VideoJudge, "_call_vlm", lambda self, frames, audio_facts, model: parsed)
+    monkeypatch.setattr(
+        VideoJudge,
+        "_call_vlm",
+        lambda self, frames, audio_facts, model, rubric_version, seed: parsed,
+    )
 
 
-def test_video_judge_parses_and_clamps_scores(tmp_path: Path, monkeypatch):
-    _patch(monkeypatch, {
-        "dimensions": [
-            {"id": "hook_clarity", "score": 8.5, "note": "前三秒动作直接"},
-            {"id": "rhythm", "score": 12, "note": "偏快"},
-            {"id": "audio_quality", "score": -1, "note": "x"},
-            {"id": "not_a_dim", "score": 7, "note": "忽略"},
-        ],
+def _full_scores(rubric):
+    return {dim_id: 8.5 for dim_id, _, _ in rubric}
+
+
+def test_video_judge_parses_full_rubric_and_ignores_extras(tmp_path: Path, monkeypatch):
+    dimensions = [{"id": dim_id, "score": 8.5, "note": "ok"} for dim_id, _, _ in L3_DIMENSIONS]
+    parsed = {
+        "dimensions": dimensions + [{"id": "not_a_dim", "score": 7, "note": "忽略"}],
         "summary": "整体紧凑",
-    })
+    }
+    _patch(monkeypatch, parsed)
     video = tmp_path / "f.mp4"
     video.write_bytes(b"v")
     result = VideoJudge().execute({"input_path": str(video)})
     assert result.success
     ids = [d["id"] for d in result.data["dimensions"]]
-    assert ids == ["hook_clarity", "rhythm", "audio_quality"]
-    scores = {d["id"]: d["score"] for d in result.data["dimensions"]}
-    assert scores["hook_clarity"] == 8.5
-    assert scores["rhythm"] == 10.0
-    assert scores["audio_quality"] == 0.0
+    assert ids == [dim_id for dim_id, _, _ in L3_DIMENSIONS]
     assert result.data["scored"] is True
+    assert result.data["rubric_version"] == "l3-v1.0"
+    assert result.data["judge_version"] == "video_judge-0.2.0"
+
+
+def test_out_of_range_score_is_rejected_not_clamped(tmp_path: Path, monkeypatch):
+    scores = _full_scores(L3_DIMENSIONS)
+    scores["rhythm"] = 12
+    _patch(monkeypatch, {
+        "dimensions": [{"id": dim_id, "score": score, "note": ""} for dim_id, score in scores.items()],
+        "summary": "x",
+    })
+    (tmp_path / "f.mp4").write_bytes(b"v")
+    result = VideoJudge().execute({"input_path": str(tmp_path / "f.mp4")})
+    assert result.success is False
+    assert "超出 [0, 10]" in result.error
+    assert "fail-closed" in result.error
+
+
+def test_non_numeric_score_is_rejected(tmp_path: Path, monkeypatch):
+    scores = _full_scores(L3_DIMENSIONS)
+    scores["hook_clarity"] = "8.5"
+    _patch(monkeypatch, {
+        "dimensions": [{"id": dim_id, "score": score, "note": ""} for dim_id, score in scores.items()],
+        "summary": "x",
+    })
+    (tmp_path / "f.mp4").write_bytes(b"v")
+    result = VideoJudge().execute({"input_path": str(tmp_path / "f.mp4")})
+    assert result.success is False
+    assert "分数非法" in result.error
+
+
+def test_missing_required_dimension_fails_closed(tmp_path: Path, monkeypatch):
+    scores = _full_scores(L3_DIMENSIONS)
+    del scores["audio_quality"]
+    _patch(monkeypatch, {
+        "dimensions": [{"id": dim_id, "score": score, "note": ""} for dim_id, score in scores.items()],
+        "summary": "x",
+    })
+    (tmp_path / "f.mp4").write_bytes(b"v")
+    result = VideoJudge().execute({"input_path": str(tmp_path / "f.mp4")})
+    assert result.success is False
+    assert "缺少必评维度" in result.error
+    assert "audio_quality" in result.error
+
+
+def test_remix_rubric_has_own_dimension_set(tmp_path: Path, monkeypatch):
+    remix = {dim_id: 8.5 for dim_id, _, _ in REMIX_DIMENSIONS}
+    _patch(monkeypatch, {
+        "dimensions": [{"id": dim_id, "score": score, "note": ""} for dim_id, score in remix.items()],
+        "summary": "x",
+    })
+    (tmp_path / "f.mp4").write_bytes(b"v")
+    result = VideoJudge().execute({
+        "input_path": str(tmp_path / "f.mp4"),
+        "rubric_version": "ecommerce-remix-v1.0",
+    })
+    assert result.success
+    assert result.data["rubric_version"] == "ecommerce-remix-v1.0"
+    ids = {d["id"] for d in result.data["dimensions"]}
+    assert ids == {dim_id for dim_id, _, _ in REMIX_DIMENSIONS}
+
+
+def test_l3_scores_do_not_satisfy_remix_rubric(tmp_path: Path, monkeypatch):
+    l3 = {dim_id: 8.5 for dim_id, _, _ in L3_DIMENSIONS}
+    _patch(monkeypatch, {
+        "dimensions": [{"id": dim_id, "score": score, "note": ""} for dim_id, score in l3.items()],
+        "summary": "x",
+    })
+    (tmp_path / "f.mp4").write_bytes(b"v")
+    result = VideoJudge().execute({
+        "input_path": str(tmp_path / "f.mp4"),
+        "rubric_version": "ecommerce-remix-v1.0",
+    })
+    assert result.success is False
+    assert "product_evidence" in result.error  # remix 必评维度缺失
+
+
+def test_unknown_rubric_rejected(tmp_path: Path, monkeypatch):
+    (tmp_path / "f.mp4").write_bytes(b"v")
+    result = VideoJudge().execute({
+        "input_path": str(tmp_path / "f.mp4"),
+        "rubric_version": "made-up-v9",
+    })
+    assert result.success is False
+    assert "未知 rubric_version" in result.error
 
 
 def test_video_judge_writes_output(tmp_path: Path, monkeypatch):
-    _patch(monkeypatch, {"dimensions": [{"id": "shot_quality", "score": 7.2, "note": "构图稳"}], "summary": "ok"})
+    scores = _full_scores(L3_DIMENSIONS)
+    _patch(monkeypatch, {
+        "dimensions": [{"id": dim_id, "score": score, "note": ""} for dim_id, score in scores.items()],
+        "summary": "ok",
+    })
     (tmp_path / "f.mp4").write_bytes(b"v")
     out = tmp_path / "advisory.json"
     result = VideoJudge().execute({"input_path": str(tmp_path / "f.mp4"), "output_path": str(out)})
@@ -45,8 +135,10 @@ def test_video_judge_writes_output(tmp_path: Path, monkeypatch):
 
 def test_video_judge_reports_non_json_error(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(VideoJudge, "_sample_frames", lambda self, path, count, workdir: [])
-    def boom(frames, audio_facts, model):
+
+    def boom(frames, audio_facts, model, rubric_version, seed):
         raise RuntimeError("VLM 未返回 JSON: 不是JSON")
+
     monkeypatch.setattr(VideoJudge, "_call_vlm", boom)
     (tmp_path / "f.mp4").write_bytes(b"v")
     result = VideoJudge().execute({"input_path": str(tmp_path / "f.mp4")})

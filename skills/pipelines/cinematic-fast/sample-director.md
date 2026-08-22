@@ -28,6 +28,21 @@ fields when present, `text_sources` from captions and narration, and
 in the sample must be surfaced to the user before sample approval; fixable
 failures become `repair_targets` and do not block the five effect checks.
 
+## L3 评分契约（video_judge，required_tools）
+
+`video_judge` 是 sample/compose 的 `required_tools`（`pipeline_defs/
+cinematic-fast.yaml`）。样片通过 `final_qa` + `technical_validator` 后运行
+`video_judge`（advisory 用 `rubric_version: "l3-v1.0"`），把其
+`dimensions` 写入 `evaluation_report.creative_advisory`。规则：
+
+- judge 是 fail-closed：缺维/非法分数直接失败并重试，绝不钳制分数；
+- judge 不可用（无 `DASHSCOPE_API_KEY`）→ `creative_advisory.scored=false`，
+  不得宣称自动达标；optimization 自动循环只能跑 shadow mode；
+- Autoresearch 优化门禁用 `rubric_version: "ecommerce-remix-v1.0"`，其分数
+  经 `lib.optimization_scoring.aggregate_optimization_scores` 聚合后写入
+  `evaluation_report.optimization` 区块（`optimization_policy.enabled=false`
+  时该区块为 null，保持人工 review 优先）。
+
 ## Execution diff + audio contract (P0-2 / P0-3)
 
 - Build `sample_execution_trace` with the full input set (script,
@@ -42,6 +57,8 @@ failures become `repair_targets` and do not block the five effect checks.
   selected-but-missing audio must not be marked complete.
 - TTS real duration drives the caption/audio timeline (measured duration,
   not estimated), and BGM records profile, mood, volume and ducking.
+  混音前逐段执行 [`skills/meta/voice-timeline-fit.md`](../../meta/voice-timeline-fit.md)
+  的实测适配流程（实测 > 语速调优 > 改写 > 结构升级），禁止静默压缩。
 - **口播 provider 默认豆包 TTS**（用户已确认；seed-tts-2.0 /
   `DOUBAO_SPEECH_VOICE_TYPE` 声线，返回词级时间戳用于字幕对齐）。换 provider
   必须经过用户确认并追加 `decision_log`。BGM 待用户选择（建议 SUNO 生成或

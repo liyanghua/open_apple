@@ -274,12 +274,17 @@ def _collect_artifacts(project_dir: Path, checkpoints: dict[str, dict]) -> dict[
     from lib.artifact_io import SCOPED_ARTIFACTS
 
     for name, scopes in SCOPED_ARTIFACTS.items():
+        unscoped = _read_json(art_dir / f"{name}.json")
         scoped_data: dict[str, dict] = {}
         for scope in scopes:
             data = _read_json(art_dir / f"{name}.{scope}.json")
             if data is not None:
                 scoped_data[scope] = data
                 artifacts[f"{name}.{scope}"] = data
+            elif isinstance(unscoped, dict) and unscoped.get("scope") == scope:
+                # 旧式无 scope 后缀文件（v8 的 evaluation_report.json 为
+                # sample 范围）→ 按内嵌 scope 别名到对应 scoped 键。
+                artifacts[f"{name}.{scope}"] = unscoped
         if "final" in scoped_data:
             artifacts[name] = scoped_data["final"]
         elif name not in artifacts and "sample" in scoped_data:

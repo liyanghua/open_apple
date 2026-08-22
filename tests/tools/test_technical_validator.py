@@ -168,6 +168,42 @@ def test_writes_valid_report_file(tmp_path: Path, monkeypatch):
     validate_artifact("evaluation_report", data)
 
 
+def test_resolution_mismatch_is_fixable_revise(tmp_path: Path, monkeypatch):
+    """评审缺口 #5：分辨率进入 hard_gate。"""
+    _patch_media(monkeypatch)
+
+    def fake_probe(path):
+        return {"streams": [
+            {"codec_type": "video", "codec_name": "h264", "pix_fmt": "yuv420p",
+             "width": 720, "height": 1280, "avg_frame_rate": "30/1"},
+            {"codec_type": "audio", "codec_name": "aac", "sample_rate": "48000", "channels": 2},
+        ], "format": {"duration": "15.0"}}
+
+    monkeypatch.setattr(qa_checks, "probe_media", fake_probe)
+    report = TechnicalValidator().execute(_base_inputs(tmp_path)).data
+    check = next(c for c in report["hard_gate"]["checks"] if c["id"] == "l1a_resolution")
+    assert check["status"] == "fail" and check["fixable"] is True
+    assert "720x1280" in check["message"]
+    assert report["status"] == "revise"
+
+
+def test_fps_mismatch_is_fixable_revise(tmp_path: Path, monkeypatch):
+    _patch_media(monkeypatch)
+
+    def fake_probe(path):
+        return {"streams": [
+            {"codec_type": "video", "codec_name": "h264", "pix_fmt": "yuv420p",
+             "width": 1080, "height": 1920, "avg_frame_rate": "24/1"},
+            {"codec_type": "audio", "codec_name": "aac", "sample_rate": "48000", "channels": 2},
+        ], "format": {"duration": "15.0"}}
+
+    monkeypatch.setattr(qa_checks, "probe_media", fake_probe)
+    report = TechnicalValidator().execute(_base_inputs(tmp_path)).data
+    check = next(c for c in report["hard_gate"]["checks"] if c["id"] == "l1a_fps")
+    assert check["status"] == "fail" and check["fixable"] is True
+    assert report["status"] == "revise"
+
+
 def test_subtitle_bounds_respect_declared_bottom_offset(tmp_path: Path, monkeypatch):
     """评审 #9b：L1a 字幕越界检查与渲染器共用声明的底部偏移。"""
     _patch_media(monkeypatch)

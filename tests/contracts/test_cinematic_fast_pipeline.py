@@ -42,6 +42,8 @@ def test_cinematic_fast_sample_and_compose_contracts():
     assert "evaluation_report" in stages["publish"]["required_artifacts_in"]
     assert "technical_validator" in stages["sample"]["required_tools"]
     assert "technical_validator" in stages["compose"]["required_tools"]
+    assert "video_judge" in stages["sample"]["required_tools"]
+    assert "video_judge" in stages["compose"]["required_tools"]
     assert "caption_style_fingerprint" in stages["research"]["produces"]
     assert "caption_style_fingerprint" in stages["sample"]["required_artifacts_in"]
     assert "caption_style_fingerprint" in stages["compose"]["required_artifacts_in"]

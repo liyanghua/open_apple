@@ -101,3 +101,76 @@ def test_candidate_batch_budget_enforced():
     batch = record_candidate_result(batch, "C1", status="in_progress", is_retry=True)
     with pytest.raises(ValueError, match="retry budget"):
         record_candidate_result(batch, "C1", status="in_progress", is_retry=True)
+
+
+def _goldset_with_scores(n_per_dim: int, *, annotator_b: bool = False) -> dict:
+    from lib.gold_set import add_sample, create_gold_set
+
+    goldset = create_gold_set("gs-cal", judge_version="video_judge-0.2.0",
+                              rubric_version="ecommerce-remix-v1.0")
+    for index in range(n_per_dim):
+        goldset = add_sample(
+            goldset, sample_id=f"s{index}", video_ref={"path": f"renders/s{index}.mp4"},
+            tier="gold", group_key=f"group-{index % 7}",
+            labels={"pointwise": {"hook_clarity": 8.5, "product_evidence": 9.0},
+                    "expert_reason": "ok"},
+            annotator_id="human",
+        )
+        if annotator_b:
+            goldset["samples"][-1]["annotators"].append(
+                {"annotator_id": "expert-b", "role": "secondary", "annotated_at": "2026-08-23T00:00:00+00:00"}
+            )
+    return goldset
+
+
+def test_calibration_report_counts_per_dimension():
+    from lib.gold_set import calibration_report
+
+    report = calibration_report(
+        _goldset_with_scores(3), min_samples_per_dimension=5, min_kappa=0.6
+    )
+    assert report["dimensions"]["hook_clarity"]["total"] == 3
+    assert report["dimensions"]["product_evidence"]["total"] == 3
+    assert report["sufficient"] is False
+    assert report["releasable"] is False
+
+
+def test_calibration_sufficient_and_double_annotated_at_threshold():
+    from lib.gold_set import calibration_report
+
+    report = calibration_report(
+        _goldset_with_scores(100, annotator_b=True),
+        annotator_b="expert-b",
+        min_samples_per_dimension=100, min_kappa=0.6,
+    )
+    assert report["sufficient"] is True
+    assert report["double_annotated"] is True
+    assert report["kappa"] == 1.0  # 双标注一致
+    assert report["releasable"] is True
+
+
+def test_calibration_without_double_annotation_not_releasable():
+    from lib.gold_set import calibration_report
+
+    report = calibration_report(
+        _goldset_with_scores(100), min_samples_per_dimension=100, min_kappa=0.6
+    )
+    assert report["sufficient"] is True
+    assert report["releasable"] is False  # 缺双人标注，不允许进入生产门禁
+
+
+def test_assert_judge_releasable_blocks_insufficient_calibration():
+    from lib.gold_set import assert_judge_releasable
+
+    with pytest.raises(ValueError, match="校准不足"):
+        assert_judge_releasable(_goldset_with_scores(3), min_samples_per_dimension=100)
+
+
+def test_assert_judge_releasable_passes_sufficient_calibration():
+    from lib.gold_set import assert_judge_releasable
+
+    assert_judge_releasable(
+        _goldset_with_scores(100, annotator_b=True),
+        annotator_b="expert-b",
+        min_samples_per_dimension=100,
+    )

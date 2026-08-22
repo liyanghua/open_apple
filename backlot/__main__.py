@@ -122,6 +122,72 @@ def cmd_create_admin(username: str) -> int:
     return 0
 
 
+def cmd_validate(project_id: str, *, refresh: bool = False) -> int:
+    """校验一个项目全链：检查点信封一致性 + artifact schema + 派生文件。
+
+    --refresh 时先把漂移的信封从磁盘制品重建（history 归档）再校验。
+    """
+    from lib.checkpoint import (
+        CheckpointValidationError,
+        get_completed_stages,
+        read_checkpoint,
+        refresh_checkpoint_envelopes,
+    )
+    from lib.paths import PROJECTS_DIR
+
+    pipeline_dir = Path(PROJECTS_DIR)
+    project_dir = pipeline_dir / project_id
+    if not (project_dir / "project.json").is_file():
+        print(f"backlot validate: project not found: {project_dir}")
+        return 2
+
+    if refresh:
+        report = refresh_checkpoint_envelopes(
+            pipeline_dir, project_id, pipeline_type="cinematic-fast"
+        )
+        if report:
+            print("backlot validate: 信封已刷新（history 已归档）:")
+            for stage, names in report.items():
+                print(f"  {stage}: {', '.join(names)}")
+        else:
+            print("backlot validate: 无漂移信封，无需刷新")
+
+    failures: list[str] = []
+    stages = get_completed_stages(pipeline_dir, project_id, "cinematic-fast")
+    for stage in stages:
+        try:
+            read_checkpoint(pipeline_dir, project_id, stage)
+            print(f"backlot validate: {stage:>12} VALID")
+        except CheckpointValidationError as exc:
+            failures.append(f"{stage}: {exc}")
+            print(f"backlot validate: {stage:>12} INVALID — {exc}")
+
+    # B3：research 派生证据文件完整性（独立于检查点状态的额外体检）。
+    try:
+        from lib.research_validation import validate_research_derived_files
+
+        artifacts = {}
+        for name in (
+            "research_breakdown", "reference_source_matrix", "caption_style_fingerprint",
+        ):
+            path = project_dir / "artifacts" / f"{name}.json"
+            if path.is_file():
+                import json as _json
+
+                artifacts[name] = _json.loads(path.read_text(encoding="utf-8"))
+        validate_research_derived_files(project_dir, artifacts)
+        print("backlot validate: research 派生证据文件 OK")
+    except Exception as exc:
+        failures.append(f"derived-files: {exc}")
+        print(f"backlot validate: research 派生证据文件缺失 — {exc}")
+
+    if failures:
+        print(f"backlot validate: {len(failures)} 项校验失败")
+        return 1
+    print(f"backlot validate: {project_id} 全链 VALID（{len(stages)} 检查点）")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="backlot", description=__doc__)
     sub = parser.add_subparsers(dest="command")
@@ -138,6 +204,16 @@ def main(argv: list[str] | None = None) -> int:
     p_admin = users_sub.add_parser("create-admin", help="create an administrator")
     p_admin.add_argument("--username", required=True)
 
+    p_validate = sub.add_parser(
+        "validate",
+        help="校验项目全链（检查点信封 / artifact schema / research 派生文件）",
+    )
+    p_validate.add_argument("project_id")
+    p_validate.add_argument(
+        "--refresh", action="store_true",
+        help="先重建漂移信封（history 归档）再校验",
+    )
+
     args = parser.parse_args(argv)
     if args.command == "open":
         return cmd_open(args.project_id)
@@ -145,6 +221,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_serve(args.port, args.host)
     if args.command == "users" and args.users_command == "create-admin":
         return cmd_create_admin(args.username)
+    if args.command == "validate":
+        return cmd_validate(args.project_id, refresh=args.refresh)
     parser.print_help()
     return 2
 

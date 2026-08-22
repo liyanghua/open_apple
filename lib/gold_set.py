@@ -203,6 +203,157 @@ def replay_score(
     }
 
 
+def per_dimension_stats(goldset: Mapping[str, Any]) -> dict[str, dict[str, int]]:
+    """每维度相关性统计（评审缺口 #6）：{dimension_id: tier 分布与总数}。
+
+    只统计 pointwise 中有数值分数的维度；n>=100 的维度才计入发布门槛。
+    """
+    stats: dict[str, dict[str, int]] = {}
+    for sample in goldset.get("samples", []):
+        if not isinstance(sample, Mapping):
+            continue
+        labels = sample.get("labels") if isinstance(sample.get("labels"), Mapping) else {}
+        pointwise = labels.get("pointwise") if isinstance(labels.get("pointwise"), Mapping) else {}
+        tier = str(sample.get("tier") or "unknown")
+        for dim, value in pointwise.items():
+            if not isinstance(value, (int, float)):
+                continue
+            entry = stats.setdefault(
+                str(dim),
+                {"total": 0, "gold": 0, "silver": 0, "bad": 0, "hard_negative": 0},
+            )
+            entry["total"] += 1
+            if tier in entry:
+                entry[tier] += 1
+    return stats
+
+
+def _annotator_labels(
+    goldset: Mapping[str, Any], annotator_id: str
+) -> dict[str, str]:
+    """该标注者的 pointwise 分数离散化：>=8 pass / <8 fail（用于 kappa）。"""
+    labels: dict[str, str] = {}
+    for sample in goldset.get("samples", []):
+        if not isinstance(sample, Mapping):
+            continue
+        annotators = sample.get("annotators") or []
+        if not any(
+            isinstance(item, Mapping) and item.get("annotator_id") == annotator_id
+            for item in annotators
+        ):
+            continue
+        pointwise = (
+            sample.get("labels", {}).get("pointwise")
+            if isinstance(sample.get("labels"), Mapping) else None
+        )
+        if not isinstance(pointwise, Mapping):
+            continue
+        for dim, value in pointwise.items():
+            if isinstance(value, (int, float)):
+                labels[f"{sample['sample_id']}:{dim}"] = "pass" if float(value) >= 8.0 else "fail"
+    return labels
+
+
+def calibration_report(
+    goldset: Mapping[str, Any],
+    *,
+    annotator_a: str = "human",
+    annotator_b: str | None = None,
+    min_samples_per_dimension: int = 100,
+    min_kappa: float = 0.6,
+) -> dict[str, Any]:
+    """校准报告：每维样本统计 + 双人 kappa + 发布门槛判定。
+
+    releasable = 每个维度 n >= min_samples_per_dimension 且（无双人标注或
+    kappa >= min_kappa）。校准不足时 optimization 只能跑 shadow mode。
+    """
+    stats = per_dimension_stats(goldset)
+    dimensions: dict[str, dict[str, Any]] = {}
+    for dim in sorted(stats):
+        counts = stats[dim]
+        dimensions[dim] = {
+            "total": counts["total"],
+            "gold": counts["gold"],
+            "silver": counts["silver"],
+            "bad": counts["bad"],
+            "hard_negative": counts["hard_negative"],
+            "sufficient": counts["total"] >= min_samples_per_dimension,
+        }
+    kappa: float | None = None
+    kappa_note = "未配置双人标注"
+    if annotator_b:
+        a_labels = _annotator_labels(goldset, annotator_a)
+        b_labels = _annotator_labels(goldset, annotator_b)
+        if a_labels and b_labels:
+            kappa = cohens_kappa(a_labels, b_labels)
+            kappa_note = f"cohens kappa（{annotator_a} vs {annotator_b}）"
+        else:
+            kappa_note = "双人标注数据不足，无法计算 kappa"
+    sufficient = bool(dimensions) and all(
+        item["sufficient"] for item in dimensions.values()
+    )
+    kappa_ok = kappa is not None and float(kappa) >= min_kappa
+    double_annotated = kappa is not None
+    return {
+        "judge_version": goldset.get("judge_version"),
+        "rubric_version": goldset.get("rubric_version"),
+        "min_samples_per_dimension": min_samples_per_dimension,
+        "min_kappa": min_kappa,
+        "sample_count": len(goldset.get("samples") or []),
+        "dimensions": dimensions,
+        "kappa": kappa,
+        "kappa_note": kappa_note,
+        "sufficient": sufficient,
+        "kappa_ok": kappa_ok,
+        "double_annotated": double_annotated,
+        # 发布门槛：每维 n 达标 + 双人标注 + kappa 达标（judge-calibration skill）
+        "releasable": sufficient and double_annotated and kappa_ok,
+    }
+
+
+def is_judge_releasable(
+    goldset: Mapping[str, Any],
+    *,
+    annotator_a: str = "human",
+    annotator_b: str | None = None,
+    min_samples_per_dimension: int = 100,
+    min_kappa: float = 0.6,
+) -> tuple[bool, dict[str, Any]]:
+    """judge 是否允许进入生产自动门禁。返回 (releasable, calibration_report)。"""
+    report = calibration_report(
+        goldset,
+        annotator_a=annotator_a,
+        annotator_b=annotator_b,
+        min_samples_per_dimension=min_samples_per_dimension,
+        min_kappa=min_kappa,
+    )
+    return report["releasable"], report
+
+
+def assert_judge_releasable(
+    goldset: Mapping[str, Any],
+    *,
+    annotator_a: str = "human",
+    annotator_b: str | None = None,
+    min_samples_per_dimension: int = 100,
+    min_kappa: float = 0.6,
+) -> None:
+    """发布前阻断（评审缺口 #6）：校准不足时禁止启用生产自动门禁。"""
+    releasable, report = is_judge_releasable(
+        goldset,
+        annotator_a=annotator_a,
+        annotator_b=annotator_b,
+        min_samples_per_dimension=min_samples_per_dimension,
+        min_kappa=min_kappa,
+    )
+    if not releasable:
+        raise ValueError(
+            "judge 校准不足，禁止进入生产自动门禁（只能 shadow mode）："
+            f"sufficient={report['sufficient']}, kappa_ok={report['kappa_ok']}, "
+            f"sample_count={report['sample_count']}"
+        )
+
+
 def _seal(goldset: dict[str, Any]) -> dict[str, Any]:
     sealed = attach_hashes(goldset)
     validate_artifact("gold_sample", sealed)

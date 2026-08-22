@@ -317,3 +317,13 @@ def test_impact_panel_does_not_chain_from_dom_append_return_value() -> None:
 
     assert ".append(document.createElement" not in impact
     assert "change.label || change.field" in impact
+
+
+def test_sample_review_shows_evaluation_card_and_audio_tracks() -> None:
+    """评审缺口 #4：样片页评价卡 + 三轨音频。"""
+    app = _read(OPERATOR_ROOT / "app.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+    for term in ("样片评价卡", "renderEvaluationCard", "音频轨", "口播", "BGM", "原声", "已就位", "未计划"):
+        assert term in app
+    for term in (".sample-evaluation", ".sample-audio-tracks", ".sample-audio-track", "state-missing"):
+        assert term in css

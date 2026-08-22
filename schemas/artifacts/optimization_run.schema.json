@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/optimization_run",
+  "title": "Optimization Run",
+  "description": "Autoresearch 优化运行（Autoresearch_Video_Remix_Integration_Design_2026-08-23.md §3.2）：迭代状态机、历史记忆（mutation fingerprint）、best 候选与最终确认。失败候选的媒体、报告与项目目录必须保留。",
+  "type": "object",
+  "required": [
+    "version", "run_id", "project_id", "created_at", "status", "phase",
+    "iteration", "policy_ref", "policy_snapshot", "history", "confirmation"
+  ],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "project_id": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "status": {
+      "type": "string",
+      "enum": ["planned", "running", "awaiting_confirmation", "passed", "exhausted", "blocked", "failed"]
+    },
+    "phase": { "type": "string", "enum": ["sample", "final"] },
+    "baseline_candidate_id": { "type": ["string", "null"] },
+    "best_candidate_id": {
+      "type": ["string", "null"],
+      "description": "仅接受达标的候选；exhausted 时可为当前最高分候选（但不得标记为自动通过）"
+    },
+    "iteration": { "type": "integer", "minimum": 0 },
+    "policy_ref": {
+      "type": "object",
+      "required": ["name", "path"],
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "artifact_sha256": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "policy_snapshot": {
+      "type": "object",
+      "required": ["rubric_version", "per_dimension_min", "weighted_total_min", "required_dimensions", "weights", "max_iterations", "max_retries_per_candidate", "max_total_cost_usd", "plateau_delta", "confirmation_runs"],
+      "properties": {
+        "rubric_version": { "type": "string" },
+        "per_dimension_min": { "type": "number" },
+        "weighted_total_min": { "type": "number" },
+        "required_dimensions": { "type": "array", "items": { "type": "string" } },
+        "weights": { "type": "object", "additionalProperties": { "type": "number" } },
+        "max_iterations": { "type": "integer" },
+        "max_retries_per_candidate": { "type": "integer" },
+        "max_total_cost_usd": { "type": "number" },
+        "plateau_delta": { "type": "number" },
+        "confirmation_runs": { "type": "integer" }
+      },
+      "additionalProperties": false,
+      "description": "运行创建时冻结的 policy 快照：运行中不可修改"
+    },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["iteration", "candidate_ids", "winner", "outcome", "weighted_total", "failure_dimensions", "mutation_fingerprint"],
+        "properties": {
+          "iteration": { "type": "integer", "minimum": 1 },
+          "candidate_ids": { "type": "array", "items": { "type": "string" } },
+          "winner": { "type": ["string", "null"] },
+          "outcome": { "type": "string", "enum": ["accepted", "rejected", "technical_failure"] },
+          "weighted_total": { "type": ["number", "null"] },
+          "failure_dimensions": { "type": "array", "items": { "type": "string" } },
+          "mutation_fingerprint": { "type": ["string", "null"] },
+          "technical_failures": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "provider/render 执行失败候选 id（与质量失败分开记录）"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "confirmation": {
+      "type": "object",
+      "required": ["required_runs", "completed_runs", "passed", "runs"],
+      "properties": {
+        "required_runs": { "type": "integer", "minimum": 1 },
+        "completed_runs": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "boolean" },
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["index", "passed", "weighted_total", "failure_dimensions"],
+            "properties": {
+              "index": { "type": "integer", "minimum": 1 },
+              "passed": { "type": "boolean" },
+              "weighted_total": { "type": ["number", "null"] },
+              "failure_dimensions": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "stop_reason": {
+      "type": ["string", "null"],
+      "enum": [null, "confirmations_passed", "max_iterations", "budget_exceeded", "plateau", "mutation_fingerprint_duplicate", "all_mutations_exhausted", "no_dimension_improvement", "user_blocked", "execution_failed"]
+    },
+    "semantic_sha256": { "type": "string" },
+    "artifact_sha256": { "type": "string" }
+  },
+  "additionalProperties": false
+}

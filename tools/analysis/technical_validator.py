@@ -45,6 +45,8 @@ _FATAL_FIXABLE = {
     "l1a_media_missing": (False, None),
     "l1a_duration": (False, "shorten_shot"),
     "l1a_loudness": (False, None),
+    "l1a_resolution": (False, None),
+    "l1a_fps": (False, None),
 }
 
 CHECK_NAMES = {
@@ -58,11 +60,13 @@ CHECK_NAMES = {
     "l1a_media_missing": "音画完整",
     "l1a_duration": "时长符合预期",
     "l1a_loudness": "音量正常",
+    "l1a_resolution": "分辨率符合预期",
+    "l1a_fps": "帧率符合预期",
 }
 
-# 评审 #5：防止大量 skip 仍判 pass。十项 L1a 检查中至少执行（非 skip）
+# 评审 #5：防止大量 skip 仍判 pass。十二项 L1a 检查中至少执行（非 skip）
 # MIN_EXECUTED_CHECKS 项，否则证据不足，报告只能 revise，不得 pass。
-MIN_EXECUTED_CHECKS = 7
+MIN_EXECUTED_CHECKS = 9
 
 
 def _scan_texts(text_sources: list[dict[str, Any]], pattern: re.Pattern) -> list[dict[str, Any]]:
@@ -183,6 +187,39 @@ class TechnicalValidator(BaseTool):
         duration = float(format_info.get("duration", 0) or 0)
         checks: list[dict[str, Any]] = []
 
+        # --- 评审缺口 #5：分辨率与帧率结构化进入 hard_gate（此前只在 final_qa 探针） ---
+        profile = get_profile(inputs.get("expected_profile", "social_vertical_1080p30"))
+        measured_width = int(video.get("width", 0) or 0) if video else 0
+        measured_height = int(video.get("height", 0) or 0) if video else 0
+        expected_resolution = f"{profile.width}x{profile.height}"
+        measured_resolution = f"{measured_width}x{measured_height}"
+        if profile.width and profile.height and (measured_width, measured_height) != (profile.width, profile.height):
+            checks.append(self._check("l1a_resolution", "fail",
+                f"分辨率 {measured_resolution} 不符合预期 {expected_resolution}",
+                {"expected": expected_resolution, "measured": measured_resolution},
+                None, "按交付 profile 重渲染"))
+        else:
+            checks.append(self._check("l1a_resolution", "pass",
+                f"分辨率符合预期（{measured_resolution}）",
+                {"expected": expected_resolution, "measured": measured_resolution}))
+
+        fps_text = (video or {}).get("avg_frame_rate") or (video or {}).get("r_frame_rate") or "0/1"
+        try:
+            fps_num, fps_den = fps_text.split("/", 1)
+            measured_fps = round(float(fps_num) / max(float(fps_den), 1.0), 2)
+        except (AttributeError, TypeError, ValueError):
+            measured_fps = 0.0
+        expected_fps = float(getattr(profile, "fps", 30.0))
+        if abs(measured_fps - expected_fps) > 1.0:
+            checks.append(self._check("l1a_fps", "fail",
+                f"帧率 {measured_fps} 不符合预期 {expected_fps}（容差 ±1）",
+                {"expected_fps": expected_fps, "measured_fps": measured_fps},
+                None, "按交付 profile 重渲染"))
+        else:
+            checks.append(self._check("l1a_fps", "pass",
+                f"帧率符合预期（{measured_fps:.2f}）",
+                {"expected_fps": expected_fps, "measured_fps": measured_fps}))
+
         # --- text-level fact checks (fatal) ---
         text_sources = inputs.get("text_sources") or []
         expected_facts = inputs.get("expected_facts") or {}
@@ -260,7 +297,6 @@ class TechnicalValidator(BaseTool):
         safe_zone_profile = declaration.get("safe_zone_profile")
         declared = bool(render_mode and caption_source and safe_zone_profile)
         pixel_mode = render_mode in {"remotion_overlay", "ffmpeg_burn"}
-        profile = get_profile(inputs.get("expected_profile", "social_vertical_1080p30"))
         # 评审 #9b：底部偏移单一数据源（与 final_qa 同一约定）。
         bottom_offset = declaration.get("bottom_offset_px")
         bottom_margin_px = int(bottom_offset) if bottom_offset is not None else None

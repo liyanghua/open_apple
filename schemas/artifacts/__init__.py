@@ -59,6 +59,8 @@ ARTIFACT_NAMES = [
     "candidate_batch",
     "repair",
     "gold_sample",
+    "optimization_policy",
+    "optimization_run",
 ]
 
 
@@ -326,6 +328,46 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
                 raise jsonschema.ValidationError(
                     f"gold_sample hard_negative {item['sample_id']!r} must carry failure_tags"
                 )
+    elif name == "optimization_policy":
+        weights = data.get("weights") or {}
+        if abs(sum(float(value) for value in weights.values()) - 1.0) > 1e-6:
+            raise jsonschema.ValidationError(
+                "optimization_policy weights must sum to 1.0"
+            )
+        required = set(data.get("required_dimensions") or [])
+        missing_weights = required - set(weights)
+        if missing_weights:
+            raise jsonschema.ValidationError(
+                f"optimization_policy required_dimensions missing weights: {sorted(missing_weights)}"
+            )
+        if data["per_dimension_min"] > data["weighted_total_min"]:
+            raise jsonschema.ValidationError(
+                "optimization_policy per_dimension_min must not exceed weighted_total_min"
+            )
+    elif name == "optimization_run":
+        status = data["status"]
+        confirmation = data["confirmation"]
+        terminal = {"passed", "exhausted", "blocked", "failed"}
+        if status in terminal and not data.get("stop_reason"):
+            raise jsonschema.ValidationError(
+                "optimization_run terminal status requires stop_reason"
+            )
+        if status not in terminal and data.get("stop_reason"):
+            raise jsonschema.ValidationError(
+                "optimization_run stop_reason is only allowed for terminal statuses"
+            )
+        if confirmation["completed_runs"] != len(confirmation["runs"]):
+            raise jsonschema.ValidationError(
+                "optimization_run confirmation.completed_runs must equal len(runs)"
+            )
+        if confirmation["passed"] and confirmation["completed_runs"] < confirmation["required_runs"]:
+            raise jsonschema.ValidationError(
+                "optimization_run confirmation cannot pass before required runs complete"
+            )
+        if status == "passed" and not confirmation["passed"]:
+            raise jsonschema.ValidationError(
+                "optimization_run status passed requires confirmation.passed"
+            )
 
 
 def list_schemas() -> list[str]:
