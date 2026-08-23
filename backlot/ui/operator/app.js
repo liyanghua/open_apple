@@ -1618,4 +1618,30 @@ async function refresh({ showLoading = false } = {}) {
 store.subscribe(render);
 refresh({ showLoading: true });
 const stopWatching = watchProject(projectId, () => refresh());
-window.addEventListener("pagehide", stopWatching, { once: true });
+// 批级驾驶舱（契约 A §5）：SSE 只覆盖批根变化，轮询兜底让候选子项目变化
+// 也能唤醒批页；事件丢失/缺口时通过 operator-state 重新拉取收敛。
+let batchRevision = null;
+let batchWatchStopped = false;
+const batchWatchTick = async () => {
+  if (batchWatchStopped) return;
+  try {
+    const snapshot = await fetchProjectState(projectId);
+    const editor = snapshot?.workspace?.editor;
+    if (editor?.type === "batch_review") {
+      const nextRevision = editor.data?.aggregate_revision;
+      if (batchRevision === null) {
+        batchRevision = nextRevision;
+      } else if (nextRevision && nextRevision !== batchRevision) {
+        batchRevision = nextRevision;
+        refresh();
+        return;
+      }
+    }
+  } catch { /* 保留当前已确认状态 */ }
+  setTimeout(batchWatchTick, 8000);
+};
+setTimeout(batchWatchTick, 8000);
+window.addEventListener("pagehide", () => {
+  batchWatchStopped = true;
+  stopWatching();
+}, { once: true });
