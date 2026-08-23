@@ -263,6 +263,14 @@ Skill 负责指导 Agent 的判断和表达；不得把创意决策硬编码进 
 
 ## 修订记录
 
+- **v2.27（2026-08-23）首轮 5 候选样片生产完成 → 样片效果确认门（含用户反馈杂音修复）**：
+  - 用户反馈「样片开头大量杂音、多个声音混在一起」——根因二：① 混音器契约字段是 `start_seconds`，程序误传 `start_ms` → 6 段口播全部从 0 叠加（3.65s 混音即 6 声齐响）；② 未执行 voice-timeline-fit：s01/s02/s05/s06 实测时长超出剧本槽位（最长 +0.95s 重叠）。修复：fit 阶梯（+10/+20/+50% 语速重生成直至落槽）+ 混音按槽位起点排列；混音轨 3.65s → 14.9s，样片 10.05s 口播清晰无重叠；
+  - 修复 video_compose 两个渲染 bug：`_render_framed_window` 重复注入 `--width/--height`（profile 尺寸 + remotion 尺寸）被 yargs 折叠成数组 → Remotion 报 "must be a number...type object"（改为半分辨率 profile `social_vertical_sample_540p30`，删除重复标志，测试更新）；相对输出路径按 CWD 解析导致样片落到仓库根（改为相对 project_dir 解析，工作区契约）；
+  - SUNO 充值后 BGM 生成成功（5 条 instrumental，profile 轻快短促电商节奏）；样片技术校验链全通：final_qa pass → video_judge l3-v1.0 实跑（scored=true，5 维评分 6.0–9.0）→ technical_validator（evaluation_report scope=sample；l1a_coverage 7/11 < 阈值 9 → 状态 revise、repair_targets 空、非致命，不阻塞五项效果确认——与 v8 样片同类证据缺口）；
+  - 批级批准追加 decision_log 后 proposal 信封漂移 → 全候选 `refresh_checkpoint_envelopes` 重同步（幂等事务）；
+  - 5 候选 `checkpoint_sample.json` awaiting_human、样片 10.05s@540×960、口播/BGM 三轨 present、驾驶舱样片效果确认门（5 候选）+ 候选卡「查看样片」链接就绪；
+  - **生产停在第三个批级门，等待用户观看样片后点击「样片效果确认 → 一键全部通过」（五项效果确认）**；通过后进入评分与人工选择。
+
 - **v2.26（2026-08-23）BGM 供应商修订 pixabay→SUNO（用户确认）+ 样片程序补全技术校验链**：
   - pixabay 音乐检索被供应商端 403 反爬阻断（浏览器 UA 同样 403），按升级协议向用户提交选项，用户选择 SUNO 生成（SUNO_API_KEY 已配置）；`revise_bgm_suno.py` 逐候选执行：decision_log 追加 `music_source`（同类别同主题修订：pixabay rejected_because 403 阻断 → suno 入选）+ 生产锁 v2（bgm.provider=suno，profile/ducking 不变）+ creative_lock 审批包 v2 重建 + checkpoint_assets 回到 awaiting_human；批根同步记录；
   - 驾驶舱 gate_material 的 BGM provider 改为锁值优先（此前读 script 元数据，修订后显示滞后）；

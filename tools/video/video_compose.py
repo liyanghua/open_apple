@@ -2080,10 +2080,15 @@ class VideoCompose(BaseTool):
             "window": [start, end], "scale": 0.5, "mode": mode,
         })
         project_dir = Path(inputs.get("project_dir", "projects"))
-        output_path = Path(
-            render_plan.get("output_path")
-            or project_dir / "assets" / mode / f"{mode}-{key}.mp4"
-        )
+        raw_output = render_plan.get("output_path")
+        if raw_output:
+            # 相对输出路径必须落在项目工作区内（AGENT_GUIDE 工作区契约），
+            # 不得按进程 CWD 解析到仓库根目录。
+            output_path = Path(raw_output)
+            if not output_path.is_absolute():
+                output_path = project_dir / output_path
+        else:
+            output_path = project_dir / "assets" / mode / f"{mode}-{key}.mp4"
         provenance_path = output_path.with_name(
             f"{output_path.stem}.{mode}_provenance.json"
         )
@@ -2101,9 +2106,13 @@ class VideoCompose(BaseTool):
         if provenance_ok:
             return ToolResult(success=True, data={"render_mode": mode, "cache_status": "hit", "cache_hit": True, "cache_key": key, "output": str(output_path), "window": {"startFrame": start, "endFrameExclusive": end}, "remotion_invoked": False}, artifacts=[str(output_path)], cost_usd=0.0)
         window_inputs = dict(inputs)
+        # 样片/窗口层用半分辨率 profile（540x960）。禁止再叠加 remotion_width/
+        # height：重复的 --width/--height 标志会被 yargs 折叠成数组，Remotion
+        # 校验报 "must be a number, but you passed a value of type object"。
         window_inputs.update({
-            "output_path": str(output_path), "profile": inputs.get("profile", "social_vertical_1080p30"),
-            "sample_frames": f"{start}-{end - 1}", "remotion_width": 540, "remotion_height": 960,
+            "output_path": str(output_path),
+            "profile": inputs.get("profile", "social_vertical_sample_540p30"),
+            "sample_frames": f"{start}-{end - 1}",
         })
         edit_decisions = window_inputs.get("edit_decisions") or {}
         atelier_window = (

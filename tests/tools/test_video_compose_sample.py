@@ -27,7 +27,10 @@ def test_sample_adapter_preserves_source_timeline_frames(tmp_path: Path, monkeyp
     result = VideoCompose()._render_framed_window({"project_dir": str(tmp_path), "edit_decisions": {}, "render_runtime": "remotion"}, {"mode": "sample", "final_props_hash": "a" * 64, "sample": {"startFrame": 180, "endFrameExclusive": 540}}, mode="sample")
     assert result.success
     assert seen["sample_frames"] == "180-539"
-    assert seen["remotion_width"] == 540 and seen["remotion_height"] == 960
+    # 半分辨率通过 sample profile（540x960）实现；不得再叠加 remotion_width/
+    # height（重复 --width/--height 会被 yargs 折叠成数组导致渲染失败）。
+    assert seen["profile"] == "social_vertical_sample_540p30"
+    assert "remotion_width" not in seen and "remotion_height" not in seen
 
 
 def test_sample_adapter_preserves_atelier_runtime_and_forces_half_scale(
