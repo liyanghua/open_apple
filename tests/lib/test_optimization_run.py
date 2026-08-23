@@ -16,7 +16,7 @@ from lib.optimization_run import (
     start_confirmation,
     stop_run,
 )
-from lib.optimization_scoring import build_default_optimization_policy
+from lib.optimization_scoring import DIMENSION_IDS, build_default_optimization_policy
 from schemas.artifacts import validate_artifact
 
 
@@ -36,6 +36,11 @@ def _run(**overrides):
 
 def _candidates(n=5):
     return [f"candidate-{i:02d}" for i in range(1, n + 1)]
+
+
+def _scores(value=8.5):
+    """全部 required 维度达标的分数集（8.5 ≥ 单维阈值 8.0）。"""
+    return {dim: value for dim in DIMENSION_IDS}
 
 
 def test_create_and_begin_iteration():
@@ -71,9 +76,41 @@ def test_accepted_candidate_becomes_best_and_enters_final():
     run = _run()
     run = begin_iteration(run, _candidates())
     run = record_iteration(run, candidate_ids=_candidates(), winner="candidate-03",
-                           outcome="accepted", weighted_total=8.63)
+                           outcome="accepted", weighted_total=8.63,
+                           dimension_scores=_scores())
     assert run["best_candidate_id"] == "candidate-03"
     assert run["phase"] == "final"
+
+
+def test_accepted_without_meeting_thresholds_is_rejected():
+    """评审 P1：accepted 必须按冻结阈值重算，不能只信调用方。"""
+    run = _run()
+    run = begin_iteration(run, _candidates())
+    # 总分不达标
+    with pytest.raises(ValueError, match="达标校验失败"):
+        record_iteration(run, candidate_ids=_candidates(), winner="candidate-03",
+                         outcome="accepted", weighted_total=7.9, dimension_scores=_scores())
+    # 带失败维度
+    with pytest.raises(ValueError, match="达标校验失败"):
+        record_iteration(run, candidate_ids=_candidates(), winner="candidate-03",
+                         outcome="accepted", weighted_total=8.63,
+                         dimension_scores=_scores(), failure_dimensions=["hook_clarity"])
+    # 缺 dimension_scores
+    with pytest.raises(ValueError, match="缺少 dimension_scores"):
+        record_iteration(run, candidate_ids=_candidates(), winner="candidate-03",
+                         outcome="accepted", weighted_total=8.63)
+    # 缺必评维度
+    partial = _scores()
+    del partial["product_evidence"]
+    with pytest.raises(ValueError, match="缺少必评维度"):
+        record_iteration(run, candidate_ids=_candidates(), winner="candidate-03",
+                         outcome="accepted", weighted_total=8.63, dimension_scores=partial)
+    # 单维低于阈值
+    low = _scores()
+    low["hook_clarity"] = 7.99
+    with pytest.raises(ValueError, match="单维阈值"):
+        record_iteration(run, candidate_ids=_candidates(), winner="candidate-03",
+                         outcome="accepted", weighted_total=8.63, dimension_scores=low)
 
 
 def test_winner_must_be_among_candidate_ids():
@@ -81,7 +118,7 @@ def test_winner_must_be_among_candidate_ids():
     run = begin_iteration(run, _candidates())
     with pytest.raises(ValueError, match="not among candidate_ids"):
         record_iteration(run, candidate_ids=_candidates(), winner="candidate-99",
-                         outcome="accepted", weighted_total=8.6)
+                         outcome="accepted", weighted_total=8.6, dimension_scores=_scores())
 
 
 def test_mutation_fingerprint_dedup():
@@ -128,28 +165,63 @@ def test_two_passing_confirmations_pass_the_run():
     run = _run()
     run = begin_iteration(run, _candidates())
     run = record_iteration(run, candidate_ids=_candidates(), winner="candidate-03",
-                           outcome="accepted", weighted_total=8.63)
+                           outcome="accepted", weighted_total=8.63,
+                           dimension_scores=_scores())
     run = start_confirmation(run, "candidate-03")
     assert run["status"] == "awaiting_confirmation"
-    run = record_confirmation(run, passed=True, weighted_total=8.7)
+    run = record_confirmation(run, passed=True, weighted_total=8.7, dimension_scores=_scores())
     assert run["status"] == "awaiting_confirmation"  # 还需第二次
-    run = record_confirmation(run, passed=True, weighted_total=8.8)
+    run = record_confirmation(run, passed=True, weighted_total=8.8, dimension_scores=_scores())
     assert run["status"] == "passed"
     assert run["stop_reason"] == "confirmations_passed"
     assert run["confirmation"]["passed"] is True
+
+
+def test_confirmation_passed_also_reverified():
+    """评审 P1：confirmation passed=True 同样按冻结阈值重算。"""
+    run = _run()
+    run = begin_iteration(run, _candidates())
+    run = record_iteration(run, candidate_ids=_candidates(), winner="candidate-03",
+                           outcome="accepted", weighted_total=8.63,
+                           dimension_scores=_scores())
+    run = start_confirmation(run, "candidate-03")
+    with pytest.raises(ValueError, match="达标校验失败"):
+        record_confirmation(run, passed=True, weighted_total=7.9, dimension_scores=_scores())
+    with pytest.raises(ValueError, match="达标校验失败"):
+        record_confirmation(run, passed=True, weighted_total=8.7, dimension_scores=_scores(),
+                            failure_dimensions=["audio_quality"])
 
 
 def test_failed_confirmation_returns_to_running_for_repair():
     run = _run()
     run = begin_iteration(run, _candidates())
     run = record_iteration(run, candidate_ids=_candidates(), winner="candidate-03",
-                           outcome="accepted", weighted_total=8.63)
+                           outcome="accepted", weighted_total=8.63,
+                           dimension_scores=_scores())
     run = start_confirmation(run, "candidate-03")
-    run = record_confirmation(run, passed=True, weighted_total=8.7)
+    run = record_confirmation(run, passed=True, weighted_total=8.7, dimension_scores=_scores())
     run = record_confirmation(run, passed=False, weighted_total=8.2,
                               failure_dimensions=["product_evidence"])
     assert run["status"] == "running"  # 任一次失败 → 回 running 走 repair
     assert run["confirmation"]["passed"] is False
+    assert run["confirmation"]["runs"][-1]["failure_dimensions"] == ["product_evidence"]
+
+
+def test_first_confirmation_failure_stops_immediately():
+    """评审 P1：第一次确认失败即切回 running，不再执行下一次确认。"""
+    run = _run()
+    run = begin_iteration(run, _candidates())
+    run = record_iteration(run, candidate_ids=_candidates(), winner="candidate-03",
+                           outcome="accepted", weighted_total=8.63,
+                           dimension_scores=_scores())
+    run = start_confirmation(run, "candidate-03")
+    run = record_confirmation(run, passed=False, weighted_total=8.2,
+                              failure_dimensions=["product_evidence"])
+    assert run["status"] == "running"
+    assert run["confirmation"]["completed_runs"] == 1
+    # 已切回 running：下一次确认必须重新 start_confirmation
+    with pytest.raises(ValueError, match="awaiting_confirmation"):
+        record_confirmation(run, passed=True, weighted_total=8.8, dimension_scores=_scores())
 
 
 def test_stop_reasons_and_exhausted_best():

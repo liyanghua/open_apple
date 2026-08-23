@@ -51,6 +51,10 @@ policy 置为 enabled=true 进入自动迭代。
 
 ## 2. 自动迭代（仅 policy.enabled=true，且已人工批准）
 
+0. **校准门**：启用前必须 `lib.gold_set.assert_judge_releasable(goldset,
+   annotator_b=…, required_dimensions=policy["required_dimensions"])`——
+   required 维度未全部覆盖（每维 n≥100）或双人 kappa 不达标一律拒绝，只能
+   shadow mode。
 1. `lib.optimization_run.create_optimization_run(...)`（冻结 policy 快照）→
    `begin_iteration(run, candidate_ids)`。
 2. 本轮全部候选：technical_validator → video_judge（rubric
@@ -58,16 +62,23 @@ policy 置为 enabled=true 进入自动迭代。
    aggregate_optimization_scores(policy, dims, hard_gate_pass=…,
    coverage_sufficient=…, rubric_version=…)` → 写入
    `evaluation_report.optimization` 区块 + candidate 分数。
-3. `record_iteration(...)`：winner 必须达标才成 best（失败候选不会成为
-   best）；`technical_failures` 与 `failure_dimensions` 分开记录。
+3. `record_iteration(...)`：必须携带 `aggregate_optimization_scores` 产出的
+   完整 block（`dimension_scores` + `weighted_total` + `failure_dimensions`）。
+   状态机按冻结 `policy_snapshot` 重算达标性——总分/失败维度/required 维度
+   任一不达标，`outcome="accepted"` 会被拒绝（不能只信调用方）。winner 必须
+   达标才成 best（失败候选不会成为 best）；`technical_failures` 与
+   `failure_dimensions` 分开记录。
 4. 停止条件（`lib.optimization_run`）：`check_budget` / `plateau_reached` /
    `mutation_seen` / max_iterations（begin_iteration 自动 exhausted）。
    停止时 best_candidate 可展示，**不得标记为自动通过**。
 5. 未达标 → 只按最低失败维度生成单一 mutation（Autoresearch §5 映射表）：
    一轮一个聚焦修改；改 provider/model/runtime/事实/主方向必须重新人工
    审批。mutation 指纹重复 → `stop_run("mutation_fingerprint_duplicate")`。
-6. 达标 → `start_confirmation` + 两次 `record_confirmation`（§2.3 VLM 随机
-   性）；任一次失败回到 running，只对失败维度生成 repair。两次全过 →
+6. 达标 → `start_confirmation` + `record_confirmation`（§2.3 VLM 随机
+   性）。`record_confirmation(passed=True)` 同样需携带完整
+   `dimension_scores`，状态机会重算验证；**任一次失败立即切回 running**，
+   只对失败维度生成 repair——不再执行下一次确认；修复后
+   `start_confirmation(reset=True)` 重新开始确认。两次全过 →
    status=passed，方可 publish（publish 门会硬校验）。
 
 ## 3. 预算与治理

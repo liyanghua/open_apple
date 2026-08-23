@@ -103,17 +103,23 @@ def test_candidate_batch_budget_enforced():
         record_candidate_result(batch, "C1", status="in_progress", is_retry=True)
 
 
-def _goldset_with_scores(n_per_dim: int, *, annotator_b: bool = False) -> dict:
+def _goldset_with_scores(
+    n_per_dim: int, *, annotator_b: bool = False, partial_dims: bool = False
+) -> dict:
     from lib.gold_set import add_sample, create_gold_set
+    from lib.optimization_scoring import DIMENSION_IDS
 
     goldset = create_gold_set("gs-cal", judge_version="video_judge-0.2.0",
                               rubric_version="ecommerce-remix-v1.0")
     for index in range(n_per_dim):
+        if partial_dims:
+            pointwise = {"hook_clarity": 8.5, "product_evidence": 9.0}
+        else:
+            pointwise = {dim: 8.5 for dim in DIMENSION_IDS}
         goldset = add_sample(
             goldset, sample_id=f"s{index}", video_ref={"path": f"renders/s{index}.mp4"},
             tier="gold", group_key=f"group-{index % 7}",
-            labels={"pointwise": {"hook_clarity": 8.5, "product_evidence": 9.0},
-                    "expert_reason": "ok"},
+            labels={"pointwise": pointwise, "expert_reason": "ok"},
             annotator_id="human",
         )
         if annotator_b:
@@ -137,11 +143,13 @@ def test_calibration_report_counts_per_dimension():
 
 def test_calibration_sufficient_and_double_annotated_at_threshold():
     from lib.gold_set import calibration_report
+    from lib.optimization_scoring import DIMENSION_IDS
 
     report = calibration_report(
         _goldset_with_scores(100, annotator_b=True),
         annotator_b="expert-b",
         min_samples_per_dimension=100, min_kappa=0.6,
+        required_dimensions=list(DIMENSION_IDS),
     )
     assert report["sufficient"] is True
     assert report["double_annotated"] is True
@@ -151,26 +159,66 @@ def test_calibration_sufficient_and_double_annotated_at_threshold():
 
 def test_calibration_without_double_annotation_not_releasable():
     from lib.gold_set import calibration_report
+    from lib.optimization_scoring import DIMENSION_IDS
 
     report = calibration_report(
-        _goldset_with_scores(100), min_samples_per_dimension=100, min_kappa=0.6
+        _goldset_with_scores(100), min_samples_per_dimension=100, min_kappa=0.6,
+        required_dimensions=list(DIMENSION_IDS),
     )
     assert report["sufficient"] is True
     assert report["releasable"] is False  # 缺双人标注，不允许进入生产门禁
 
 
+def test_missing_required_dimensions_block_release_gate():
+    """评审 P1：只覆盖部分维度时不得 releasable——缺失维度显式 total=0。"""
+    from lib.gold_set import calibration_report
+    from lib.optimization_scoring import DIMENSION_IDS
+
+    report = calibration_report(
+        _goldset_with_scores(100, annotator_b=True, partial_dims=True),
+        annotator_b="expert-b",
+        min_samples_per_dimension=100, min_kappa=0.6,
+        required_dimensions=list(DIMENSION_IDS),
+    )
+    missing = [
+        dim for dim in DIMENSION_IDS
+        if dim not in {"hook_clarity", "product_evidence"}
+    ]
+    assert missing
+    for dim in missing:
+        assert report["dimensions"][dim]["total"] == 0
+        assert report["dimensions"][dim]["sufficient"] is False
+    assert report["sufficient"] is False
+    assert report["releasable"] is False
+
+
 def test_assert_judge_releasable_blocks_insufficient_calibration():
     from lib.gold_set import assert_judge_releasable
+    from lib.optimization_scoring import DIMENSION_IDS
 
     with pytest.raises(ValueError, match="校准不足"):
-        assert_judge_releasable(_goldset_with_scores(3), min_samples_per_dimension=100)
+        assert_judge_releasable(
+            _goldset_with_scores(3),
+            min_samples_per_dimension=100,
+            required_dimensions=list(DIMENSION_IDS),
+        )
+    # 只覆盖两维同样被阻断
+    with pytest.raises(ValueError, match="校准不足"):
+        assert_judge_releasable(
+            _goldset_with_scores(100, annotator_b=True, partial_dims=True),
+            annotator_b="expert-b",
+            min_samples_per_dimension=100,
+            required_dimensions=list(DIMENSION_IDS),
+        )
 
 
 def test_assert_judge_releasable_passes_sufficient_calibration():
     from lib.gold_set import assert_judge_releasable
+    from lib.optimization_scoring import DIMENSION_IDS
 
     assert_judge_releasable(
         _goldset_with_scores(100, annotator_b=True),
         annotator_b="expert-b",
         min_samples_per_dimension=100,
+        required_dimensions=list(DIMENSION_IDS),
     )

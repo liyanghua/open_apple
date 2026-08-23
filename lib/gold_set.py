@@ -261,11 +261,15 @@ def calibration_report(
     annotator_b: str | None = None,
     min_samples_per_dimension: int = 100,
     min_kappa: float = 0.6,
+    required_dimensions: list[str] | None = None,
 ) -> dict[str, Any]:
     """校准报告：每维样本统计 + 双人 kappa + 发布门槛判定。
 
-    releasable = 每个维度 n >= min_samples_per_dimension 且（无双人标注或
-    kappa >= min_kappa）。校准不足时 optimization 只能跑 shadow mode。
+    评审 P1 修复：`required_dimensions`（policy/rubric 的完整必评维度集）
+    提供时，未在 Gold Set 中出现的维度显式标记 total=0 / sufficient=false，
+    未覆盖全部 required 维度不得 releasable。
+    releasable = 全部 required 维度 n 达标 + 双人标注 + kappa 达标。校准不足
+    时 optimization 只能跑 shadow mode。
     """
     stats = per_dimension_stats(goldset)
     dimensions: dict[str, dict[str, Any]] = {}
@@ -279,6 +283,16 @@ def calibration_report(
             "hard_negative": counts["hard_negative"],
             "sufficient": counts["total"] >= min_samples_per_dimension,
         }
+    for dim in [str(item) for item in (required_dimensions or [])]:
+        if dim not in dimensions:
+            dimensions[dim] = {
+                "total": 0,
+                "gold": 0,
+                "silver": 0,
+                "bad": 0,
+                "hard_negative": 0,
+                "sufficient": False,
+            }
     kappa: float | None = None
     kappa_note = "未配置双人标注"
     if annotator_b:
@@ -318,6 +332,7 @@ def is_judge_releasable(
     annotator_b: str | None = None,
     min_samples_per_dimension: int = 100,
     min_kappa: float = 0.6,
+    required_dimensions: list[str] | None = None,
 ) -> tuple[bool, dict[str, Any]]:
     """judge 是否允许进入生产自动门禁。返回 (releasable, calibration_report)。"""
     report = calibration_report(
@@ -326,6 +341,7 @@ def is_judge_releasable(
         annotator_b=annotator_b,
         min_samples_per_dimension=min_samples_per_dimension,
         min_kappa=min_kappa,
+        required_dimensions=required_dimensions,
     )
     return report["releasable"], report
 
@@ -337,6 +353,7 @@ def assert_judge_releasable(
     annotator_b: str | None = None,
     min_samples_per_dimension: int = 100,
     min_kappa: float = 0.6,
+    required_dimensions: list[str] | None = None,
 ) -> None:
     """发布前阻断（评审缺口 #6）：校准不足时禁止启用生产自动门禁。"""
     releasable, report = is_judge_releasable(
@@ -345,6 +362,7 @@ def assert_judge_releasable(
         annotator_b=annotator_b,
         min_samples_per_dimension=min_samples_per_dimension,
         min_kappa=min_kappa,
+        required_dimensions=required_dimensions,
     )
     if not releasable:
         raise ValueError(

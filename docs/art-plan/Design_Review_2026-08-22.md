@@ -263,6 +263,13 @@ Skill 负责指导 Agent 的判断和表达；不得把创意决策硬编码进 
 
 ## 修订记录
 
+- **v2.18（2026-08-23）代码评审 3 个 P1 门禁漏洞修复**：
+  - **P1-① accepted/passed 重算验证**：`lib/optimization_run` 新增 `_verify_pass`——`record_iteration(outcome="accepted")` 与 `record_confirmation(passed=True)` 按冻结 `policy_snapshot` 重算（weighted_total≥阈值、无 failure_dimensions、`dimension_scores` 必填且 required 维度齐全、每维≥单维阈值），不达标抛 `ValueError` 拒绝（此前只信调用方，weighted_total=0 也能 accepted）；
+  - **P1-② 确认失败立即 repair**：`record_confirmation` 任一次 `passed=False` 立即切回 `running`（失败维度保存在 `confirmation.runs[-1]`），不再执行下一次确认；修复后需 `start_confirmation(reset=True)` 重新确认；
+  - **P1-③ 校准门覆盖全部维度**：`calibration_report`/`is_judge_releasable`/`assert_judge_releasable` 新增 `required_dimensions`（policy/rubric 完整必评维度集）——未覆盖维度显式 `total=0/sufficient=false`，未覆盖全部维度不得 releasable（此前只校验 Gold Set 中实际出现的维度，两维达标即可放行）；
+  - 技能文档同步：optimize-director 校准门（assert + required_dimensions）与 record_iteration/record_confirmation 新契约；
+  - 测试：状态机 +6（accepted 不达标拒绝×5、确认重验、首次失败立即 running）、校准 +2（缺维阻断、断言升级）；全量回归 **1802 passed / 11 skipped / 0 failed**。
+
 - **v2.17（2026-08-23）批量混剪闭环补齐（Autoresearch 落地方向 + 评审缺口 #1-#8）**：
   - **① 优化数据层**：新增 `optimization_policy`（权重和=1.0、阈值、beam/并发/迭代/预算/plateau，enabled=false 默认=人工 review 优先）与 `optimization_run`（planned/running/awaiting_confirmation/passed/exhausted/blocked/failed 状态机 + policy 冻结快照 + history/mutation 指纹 + confirmation）schema + 规范校验；`lib/optimization_scoring`（统一分数聚合：非法分拒绝、缺维失败、7.99/8.49 边界、rubric 一致、judge 未校准 → shadow mode）；`evaluation_report.optimization` 区块 + `candidate_batch` §3.3 扩展（source_media_refs/iteration/lineage/mutation/维度分/加权总分/provider/model/runtime/output_ref）；`lib/optimization_run` 状态机（max_iterations→exhausted、失败候选不成 best、plateau/预算停止、两次确认全过→passed）；
   - **② judge fail-closed + L1a 补齐**：`video_judge` v0.2——非法分数/缺维直接拒绝（不再钳 0.0/静默跳过），rubric 感知（l3-v1.0 / ecommerce-remix-v1.0 各固定维度集），seed 可传；接入 sample/compose `required_tools` + director 契约；L1a 新增 `l1a_resolution`/`l1a_fps`（12 项，覆盖率阈值 7→9）；

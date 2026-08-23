@@ -120,6 +120,48 @@ def begin_iteration(
     return _seal(updated)
 
 
+def _verify_pass(
+    snapshot: Mapping[str, Any],
+    *,
+    weighted_total: float | None,
+    failure_dimensions: list[str] | None,
+    dimension_scores: Mapping[str, Any] | None,
+) -> None:
+    """按冻结 policy_snapshot 重算达标性（评审 P1 修复）。
+
+    accepted / confirmation passed 不能只信调用方：必须总分 >= 阈值、无失败
+    维度、required 维度齐全且每维 >= 单维阈值，否则拒绝。
+    """
+    reasons: list[str] = []
+    if weighted_total is None or float(weighted_total) < float(snapshot["weighted_total_min"]):
+        reasons.append(
+            f"weighted_total {weighted_total} 低于阈值 {snapshot['weighted_total_min']}"
+        )
+    if failure_dimensions:
+        reasons.append(f"存在失败维度 {list(failure_dimensions)}")
+    if dimension_scores is None:
+        reasons.append("缺少 dimension_scores，无法验证单维达标")
+    else:
+        required = [str(item) for item in snapshot["required_dimensions"]]
+        missing = [dim for dim in required if dim not in dimension_scores]
+        if missing:
+            reasons.append(f"缺少必评维度 {missing}")
+        low = [
+            dim for dim in required
+            if dim in dimension_scores
+            and float(dimension_scores[dim]) < float(snapshot["per_dimension_min"])
+        ]
+        if low:
+            reasons.append(
+                f"维度低于单维阈值 {snapshot['per_dimension_min']}: {low}"
+            )
+    if reasons:
+        raise ValueError(
+            "optimization 达标校验失败（accepted/confirmation passed 必须以冻结阈值重算）: "
+            + "; ".join(reasons)
+        )
+
+
 def record_iteration(
     run: Mapping[str, Any],
     *,
@@ -128,10 +170,11 @@ def record_iteration(
     outcome: str,
     weighted_total: float | None,
     failure_dimensions: list[str] | None = None,
+    dimension_scores: Mapping[str, Any] | None = None,
     mutation_fingerprint: str | None = None,
     technical_failures: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Append one iteration to history; only accepted winners become best."""
+    """Append one iteration to history; only verified-passing winners become best."""
     _require_active(run)
     if outcome not in {"accepted", "rejected", "technical_failure"}:
         raise ValueError(f"invalid iteration outcome {outcome!r}")
@@ -150,8 +193,17 @@ def record_iteration(
     if technical_failures:
         entry["technical_failures"] = [str(item) for item in technical_failures]
     updated["history"].append(entry)
-    # 失败候选不会成为 best（设计 §10.2）。
-    if outcome == "accepted" and winner:
+    # 失败候选不会成为 best（设计 §10.2）；accepted 必须通过冻结阈值重算
+    # （评审 P1 修复：不能只信调用方的 outcome="accepted"）。
+    if outcome == "accepted":
+        if winner is None:
+            raise ValueError("accepted outcome requires a winner")
+        _verify_pass(
+            updated["policy_snapshot"],
+            weighted_total=weighted_total,
+            failure_dimensions=failure_dimensions,
+            dimension_scores=dimension_scores,
+        )
         updated["best_candidate_id"] = winner
         updated["phase"] = "final"
     return _seal(updated)
@@ -220,13 +272,25 @@ def record_confirmation(
     passed: bool,
     weighted_total: float | None,
     failure_dimensions: list[str] | None = None,
+    dimension_scores: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Record one confirmation run; two passes flip the run to passed."""
+    """Record one confirmation run; two passes flip the run to passed.
+
+    评审 P1 修复：passed=True 必须通过冻结阈值重算（总分/失败维度/required
+    维度齐全）；任一次失败立即切回 running 进入 repair，不再执行下一次确认。
+    """
     if run["status"] != "awaiting_confirmation":
         raise ValueError(
             f"record_confirmation requires status awaiting_confirmation, got {run['status']!r}"
         )
     updated = {**run}
+    if passed:
+        _verify_pass(
+            updated["policy_snapshot"],
+            weighted_total=weighted_total,
+            failure_dimensions=failure_dimensions,
+            dimension_scores=dimension_scores,
+        )
     confirmation = {
         **updated["confirmation"],
         "runs": [dict(item) for item in updated["confirmation"]["runs"]],
@@ -240,15 +304,16 @@ def record_confirmation(
     })
     confirmation["completed_runs"] = len(confirmation["runs"])
     updated["confirmation"] = confirmation
+    if not passed:
+        # 任一次确认失败：立即回到 running，仅针对失败维度生成 repair（§6.2），
+        # 不再执行下一次确认。
+        confirmation["passed"] = False
+        updated["status"] = "running"
+        return _seal(updated)
     if confirmation["completed_runs"] >= confirmation["required_runs"]:
-        all_passed = all(item["passed"] for item in confirmation["runs"])
-        confirmation["passed"] = all_passed
-        if all_passed:
-            updated["status"] = "passed"
-            updated["stop_reason"] = "confirmations_passed"
-        else:
-            # 任一次确认失败：回到 running，仅针对失败维度生成 repair（§6.2）。
-            updated["status"] = "running"
+        confirmation["passed"] = all(item["passed"] for item in confirmation["runs"])
+        updated["status"] = "passed"
+        updated["stop_reason"] = "confirmations_passed"
     return _seal(updated)
 
 
