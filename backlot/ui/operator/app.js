@@ -1,4 +1,4 @@
-import { fetchProjectState, fetchDraft, watchProject, saveDraft, previewDraft, commitDraft, fetchVersions, restoreVersion, quoteShotGeneration, createShotGeneration, adoptShotGeneration, decideReview } from "./api.js";
+import { fetchProjectState, fetchDraft, watchProject, saveDraft, previewDraft, commitDraft, fetchVersions, restoreVersion, quoteShotGeneration, createShotGeneration, adoptShotGeneration, decideReview, batchSelectForEdit, batchApproveGate, batchRecover } from "./api.js";
 import { createOperatorStore } from "./store.js";
 import { STATUS_MARKS, VIEW_STATES, formatDuration, formatTimeRange } from "./language.js";
 import { renderTypedEditor } from "./editors.js";
@@ -1118,14 +1118,14 @@ function renderBatch(container, data, { project } = {}) {
           };
         });
         try {
-          await api.batchApproveGate(project.project_id, data.aggregate_revision, gate.gate, participants, "批级一键通过");
+          await batchApproveGate(project.project_id, data.aggregate_revision, gate.gate, participants, "批级一键通过");
           window.location.reload();
         } catch (error) {
           approve.disabled = false;
           if (error.code === "needs_recovery") {
             approve.textContent = "需要恢复 — 点击续跑";
             approve.addEventListener("click", async () => {
-              await api.batchRecover(project.project_id, error.details?.batch_action_id);
+              await batchRecover(project.project_id, error.details?.batch_action_id);
               window.location.reload();
             }, { once: true });
           } else if (error.code === "stale") {
@@ -1211,7 +1211,7 @@ function renderBatch(container, data, { project } = {}) {
       if (!ids.length || ids.length > 2) { submit.textContent = "请选择 1–2 个候选"; return; }
       submit.disabled = true;
       try {
-        await api.batchSelectForEdit(project.project_id, data.aggregate_revision, ids, reason.value || "驾驶舱人工选择");
+        await batchSelectForEdit(project.project_id, data.aggregate_revision, ids, reason.value || "驾驶舱人工选择");
         window.location.reload();
       } catch (error) {
         submit.disabled = false;

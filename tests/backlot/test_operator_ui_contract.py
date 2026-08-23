@@ -341,3 +341,13 @@ def test_batch_cockpit_ui_contract() -> None:
         assert term in css
     for term in ("batch/select", "batch/approve-gate", "batch/actions", "aggregate_revision", "participants"):
         assert term in api
+
+
+def test_batch_cockpit_uses_imported_api_bindings() -> None:
+    """回归守卫：驾驶舱按钮必须用具名导入的 api 函数，不得引用不存在的 api.* 绑定。"""
+    app = _read(OPERATOR_ROOT / "app.js")
+    assert "batchApproveGate(" in app
+    assert "batchSelectForEdit(" in app
+    assert "batchRecover(" in app
+    assert "api.batchApproveGate" not in app
+    assert "api.batchSelectForEdit" not in app
