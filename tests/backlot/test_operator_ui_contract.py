@@ -327,3 +327,17 @@ def test_sample_review_shows_evaluation_card_and_audio_tracks() -> None:
         assert term in app
     for term in (".sample-evaluation", ".sample-audio-tracks", ".sample-audio-track", "state-missing"):
         assert term in css
+
+
+def test_batch_cockpit_ui_contract() -> None:
+    """批级驾驶舱 UI 契约（两份契约的交互层）。"""
+    app = _read(OPERATOR_ROOT / "app.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+    api = _read(OPERATOR_ROOT / "api.js")
+    for term in ("候选矩阵", "一键全部通过", "人工选择：选 1–2 条进入精剪", "进入精剪",
+                 "批量状态", "警告与降级候选", "打开候选工作台", "需要恢复"):
+        assert term in app
+    for term in (".batch-cockpit", ".batch-warnings", ".batch-matrix-table", ".batch-candidate-card", ".batch-select-list"):
+        assert term in css
+    for term in ("batch/select", "batch/approve-gate", "batch/actions", "aggregate_revision", "participants"):
+        assert term in api

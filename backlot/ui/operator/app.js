@@ -1156,6 +1156,11 @@ function renderBatch(container, data, { project } = {}) {
     if (direction) cell.append(node("p", "batch-candidate-direction", direction));
     const stageLine = (candidate.stage_states || []).map((state) => `${state.stage_id}:${state.status}`).join(" · ");
     if (stageLine) cell.append(node("p", "batch-candidate-stages", stageLine));
+    if (candidate.links?.project_page) {
+      const pageLink = node("a", "batch-candidate-link", "打开候选工作台");
+      pageLink.href = candidate.links.project_page;
+      cell.append(pageLink);
+    }
     cell.append(node("p", "batch-candidate-cost", `成本 $${(candidate.cost?.cost_usd ?? 0).toFixed(2)} · 尝试 ${candidate.cost?.attempts ?? 0}${candidate.failure?.failure ? ` · 失败：${candidate.failure.failure}` : ""}`));
     if (candidate.media?.sample_url) {
       const link = node("a", "batch-candidate-link", "查看样片");

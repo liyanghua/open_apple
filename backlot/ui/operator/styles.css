@@ -511,3 +511,8 @@ h3 { font-size: 15px; }
 .batch-select-item { font-size: 14px; display: flex; align-items: center; gap: 6px; }
 .batch-select-reason { display: block; width: 100%; max-width: 420px; padding: 8px 10px; border: 1px solid #cbd5e0; border-radius: 6px; margin: 8px 0; }
 .batch-select-done { font-size: 14px; color: #1f9d55; }
+
+/* 批级驾驶舱：警告与降级（契约 A） */
+.batch-warnings { margin-top: 12px; }
+.batch-warning { font-size: 13px; color: #b7791f; margin: 2px 0; }
+.batch-phase-reason { font-size: 13px; color: #4a5568; margin: 2px 0; }
