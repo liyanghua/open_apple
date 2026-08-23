@@ -1984,6 +1984,9 @@ def load_operator_state(
         elif state["workspace"]["stage_id"] == "script":
             # 契约 B：script 门必须引用 script_lock review。
             review_service.ensure_script_review_for_checkpoint()
+        elif state["workspace"]["stage_id"] == "assets":
+            # 契约 B：assets 门必须引用 creative_lock review（绑定 approval_bundle）。
+            review_service.ensure_assets_review_for_checkpoint()
         review = review_service.pending()
         if review is None:
             state["pending_review"] = None

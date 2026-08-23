@@ -236,6 +236,45 @@ class ReviewService:
             submitted_by="legacy-compat",
         )
 
+    def ensure_assets_review_for_checkpoint(self) -> dict[str, Any] | None:
+        """为 awaiting_human 的 assets 检查点补 formal creative_lock review。
+
+        契约 B：`assets` 门必须引用 `creative_lock` review。review 由其绑定的
+        approval_bundle 派生（subject_id=bundle_id、version=bundle_version），
+        decide(approved) 走 approve_bundle 通道，与单任务审批一致。
+        """
+        existing = self.pending()
+        if existing is not None:
+            return existing
+        checkpoint_path = self.project_dir / "checkpoint_assets.json"
+        try:
+            checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(checkpoint, Mapping) or checkpoint.get("status") != "awaiting_human":
+            return None
+        record = (checkpoint.get("artifacts") or {}).get("approval_bundle")
+        if isinstance(record, Mapping):
+            bundle = record.get("data") if isinstance(record.get("data"), Mapping) else record
+            subject_hash = record.get("semantic_sha256")
+        else:
+            bundle, subject_hash = None, None
+        if not isinstance(bundle, Mapping) or not isinstance(subject_hash, str):
+            return None
+        if not re.fullmatch(r"[a-fA-F0-9]{64}", subject_hash):
+            return None
+        bundle_id = str(bundle.get("bundle_id") or "")
+        if not bundle_id:
+            return None
+        version = max(1, int(bundle.get("bundle_version") or 1))
+        return self.create(
+            kind="creative_lock",
+            subject_id=bundle_id,
+            subject_version=version,
+            subject_hash=subject_hash,
+            submitted_by="legacy-compat",
+        )
+
     def decide(
         self,
         *,

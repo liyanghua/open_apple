@@ -599,8 +599,10 @@ def create_operator_router(
             raise OperatorError.validation_failed("缺少重复提交保护标识")
         from backlot.auth import authorize_project
 
-        def authorizer(child_id: str, actor: Any) -> bool:
-            return authorize_project(auth_store(), actor, child_id, "review")
+        # 契约 B §6：批根 review 权限（路由已校验）+ 每个候选的 review 权限。
+        # authorize_project 需要 UserRecord；以本次请求的 session.actor 为准。
+        def authorizer(child_id: str, _actor_id: str) -> bool:
+            return authorize_project(auth_store(), session.actor, child_id, "review")
 
         candidate_ids = [str(item) for item in (payload.get("candidate_ids") or [])]
         return BatchActionService(project(project_id), authorizer=authorizer).select_for_edit(
@@ -621,8 +623,10 @@ def create_operator_router(
             raise OperatorError.validation_failed("缺少重复提交保护标识")
         from backlot.auth import authorize_project
 
-        def authorizer(child_id: str, actor: Any) -> bool:
-            return authorize_project(auth_store(), actor, child_id, "review")
+        # 契约 B §6：批根 review 权限（路由已校验）+ 每个候选的 review 权限。
+        # authorize_project 需要 UserRecord；以本次请求的 session.actor 为准。
+        def authorizer(child_id: str, _actor_id: str) -> bool:
+            return authorize_project(auth_store(), session.actor, child_id, "review")
 
         gate = str(payload.get("gate") or "")
         participants = [

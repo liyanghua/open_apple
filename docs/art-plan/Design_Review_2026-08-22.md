@@ -263,6 +263,13 @@ Skill 负责指导 Agent 的判断和表达；不得把创意决策硬编码进 
 
 ## 修订记录
 
+- **v2.22（2026-08-23）批量生产续跑：脚本门已批，5 候选齐至素材创意锁**：
+  - 修复 `operator_routes` 批路由授权器（此前把 actor_id 字符串传给 `authorize_project` 导致 HTTP 一键通过 500；现改传 `session.actor`）；修复 `ReviewService.ensure_assets_review_for_checkpoint` + `load_operator_state` assets 阶段补 review + `batch_actions` script/assets 门空快照服务端回填；
+  - 批级一键通过脚本门：5 候选 `checkpoint_script.json` completed + human_approved（脚本批级审批按契约 B 落每候选 decision_log batch_approval + review_snapshot）；
+  - 续跑程序 `projects/table-mat-batch-001/continue_scene_assets.py`（4 事务/候选：script 状态锁盘 → 信封重同步 → 分镜/执行单/素材计划/生产锁 + 检查点 → creative_lock 审批包）：scene_plan（创意控制引用、按方向更新逐镜描述/字幕/叙述）、shot_execution_plan（引用重绑定、逐镜 narration/screen_copy/purpose 取候选脚本）、asset_plan（v8 素材计划复用于候选：7 代理镜 + 6 段豆包 TTS + pixabay BGM，input_hashes 重绑定）、production_lock（tts/bgm/mix 在锁构建时从 script.metadata.audio_plan 扩展 asset_plan 输入——与 v8 参考片生产锁同构，P0-3 通过）；
+  - 5 候选全部 `checkpoint_assets.json` awaiting_human（approval_group=creative_lock + approval_bundle 信封），驾驶舱 phase=sampling、素材创意门 5 候选、consistency=stable；
+  - **生产停在第二个批级门，等待用户「一键全部通过」素材创意确认**（批准后：豆包 seed-tts-2.0 口播 + pixabay BGM + media_proxy + Remotion 样片渲染，并发 ≤3）。
+
 - **v2.21（2026-08-23）第一轮真实批量生产启动（阶段二，纯人工 review）**：
   - 批工作区 `projects/table-mat-batch-001`：`optimization_policy` 冻结（enabled=false）+ 启动决策（默认参数：v8 透明桌垫素材池 / 5 方向 / 抖音 9:16 15s / 预算 30 USD）+ `candidate_batch`（5 候选、source_media_refs、批次预算）+ 经 `lib.batch_fork` 分叉 5 个候选项目（共享 v8 研究制品 + analysis/ 派生证据，B3 门通过）；
   - 5 个候选方向（c1 结果先行 / c2 痛点先行 / c3 证据链先行 / c4 高密度快剪 / c5 产品质感版）各完成差异化 proposal（selected_concept/钩子/首句/字幕）+ completed 检查点，script 差异化（钩子/首句/字幕/开场目标）停在 **awaiting_human（script_lock 门）**；

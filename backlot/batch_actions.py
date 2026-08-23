@@ -405,6 +405,9 @@ class BatchActionService:
             if pending is None and gate == "script":
                 # 检查点式 script 门：确保 formal script_lock review 存在
                 pending = service.ensure_script_review_for_checkpoint()
+            if pending is None and gate == "assets":
+                # 检查点式 assets 门：确保 formal creative_lock review 存在
+                pending = service.ensure_assets_review_for_checkpoint()
             if pending is None:
                 self._reject(
                     batch_action_id, record, f"候选 {candidate_id} 没有待确认内容",
@@ -417,8 +420,8 @@ class BatchActionService:
                     "stale", 409,
                     current={candidate_id: pending.get("kind")},
                 )
-            # script 门：客户端可传空快照（review 由检查点服务端派生）——以服务端为准回填
-            if gate == "script" and not participant["review_id"]:
+            # script/assets 门：客户端可传空快照（review 由检查点服务端派生）——以服务端为准回填
+            if gate in {"script", "assets"} and not participant["review_id"]:
                 participant["review_id"] = str(pending["review_id"])
                 participant["subject_version"] = int(pending["subject_version"])
                 participant["subject_hash"] = str(pending["subject_hash"])

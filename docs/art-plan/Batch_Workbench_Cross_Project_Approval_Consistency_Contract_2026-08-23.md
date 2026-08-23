@@ -1,9 +1,9 @@
 # 批量工作台跨项目审批一致性契约
 
-> 日期：2026-08-23  
-> 版本：v1.0  
-> 状态：实施前契约  
-> 适用动作：`batch_approve_gate`、`batch_select_for_edit`  
+> 日期：2026-08-23
+> 版本：v1.0
+> 状态：实施前契约
+> 适用动作：`batch_approve_gate`、`batch_select_for_edit`、`candidate_rerun`、`batch_rerun`
 > 上游设计：[`Batch_Workbench_Interaction_Design_2026-08-23.md`](./Batch_Workbench_Interaction_Design_2026-08-23.md)
 
 本契约定义批根项目与候选项目同时参与时的权限、幂等、乐观并发、提交和故障恢复。它不把多个单项目 `ProjectCommitStore` 调用伪装成一个事务。
@@ -47,6 +47,8 @@
 `script` 必须引用 `script_lock` review，`assets` 必须引用 `creative_lock` review，`sample` 必须引用 `sample` review 并提交五项确认。服务端仍需从候选项目重新读取并校验这些值，不能信任批页传回的展示数据。
 
 `batch_select_for_edit` 只允许选择 1–2 个已 `evaluated` 候选；它必须携带 `aggregate_revision`、候选 evaluation revision/hash 和 reason。该动作只提交批根项目时，不需要 child commit，但必须重新确认候选仍可选。
+
+局部修改先产生只读的 `rerun_plan`，再提交 `candidate_rerun` 或 `batch_rerun`。请求必须携带候选读取时的 `child_revision`、用户可读的 `intent_anchor`（时间段/镜头/质量维度/失败阶段）、自然语言 `instruction`、修改意图、系统计算的 `from_stage`、排序后的 `affected_stages`、`kept_stages`、预计成本和幂等键。服务端必须重新校验锚点仍属于该 revision，并重新计算依赖闭包与客户端计划比对；不一致返回 `validation_failed`，revision 变化返回 `stale`。重跑提交生成新 revision，旧版审批不继承，历史与 decision log 保留。
 
 ## 3. 协调记录
 
