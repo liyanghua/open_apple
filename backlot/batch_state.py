@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -70,6 +71,110 @@ def _child_revision_inputs(project_dir: Path, child_dir: Path) -> dict[str, Any]
     return {"stages": stages, "artifact_hashes": artifact_hashes}
 
 
+def _planned_audio_tracks(child_dir: Path) -> list[dict[str, Any]]:
+    """素材创意锁阶段的口播/BGM 计划轨（样片未生成时的三轨占位）。"""
+    try:
+        asset_plan = json.loads((child_dir / "artifacts" / "asset_plan.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    planned = {item.get("type"): True for item in asset_plan.get("planned_assets", [])}
+
+    def track(kind: str, label: str, is_planned: bool) -> dict[str, Any]:
+        return {
+            "kind": kind,
+            "label": label,
+            "planned": is_planned,
+            "present": False,
+            "state": "planned" if is_planned else "not_planned",
+        }
+
+    return [
+        track("narration", "口播", bool(planned.get("narration") or planned.get("narration_tts"))),
+        track("bgm", "BGM", bool(planned.get("music"))),
+        track("original", "原声", False),
+    ]
+
+
+def _gate_material(child_dir: Path, awaiting_stage: str) -> dict[str, Any] | None:
+    """门复核材料：批页候选展开卡的内容来源（只读派生，无写入）。"""
+    def artifact(name: str) -> dict[str, Any]:
+        try:
+            data = json.loads((child_dir / "artifacts" / f"{name}.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    if awaiting_stage == "script":
+        script = artifact("script")
+        return {
+            "kind": "script",
+            "title": script.get("title") or "",
+            "duration_seconds": script.get("total_duration_seconds"),
+            "sections": [
+                {"id": s.get("id"), "label": s.get("label"), "screen_copy": s.get("screen_copy")}
+                for s in script.get("sections", [])
+            ],
+        }
+    if awaiting_stage == "assets":
+        script = artifact("script")
+        scene_plan = artifact("scene_plan")
+        asset_plan = artifact("asset_plan")
+        lock = artifact("production_lock")
+        locked = lock.get("locked_values") if isinstance(lock.get("locked_values"), dict) else {}
+        tts = locked.get("tts") if isinstance(locked.get("tts"), dict) else {}
+        bgm = locked.get("bgm") if isinstance(locked.get("bgm"), dict) else {}
+        audio_plan = (script.get("metadata") or {}).get("audio_plan", {}) if isinstance(script.get("metadata"), Mapping) else {}
+        narration = audio_plan.get("narration", {}) if isinstance(audio_plan, Mapping) else {}
+        music = audio_plan.get("music", {}) if isinstance(audio_plan, Mapping) else {}
+        planned = asset_plan.get("planned_assets", [])
+        aspect = ""
+        for scene in scene_plan.get("scenes", []):
+            match = re.search(r"\d+:\d+", str(scene.get("framing", "")))
+            if match:
+                aspect = match.group(0)
+                break
+        return {
+            "kind": "assets",
+            "title": script.get("title") or "",
+            "shots": [
+                {"id": s.get("id"), "screen_copy": (s.get("overlay_layers") or [{}])[0].get("text") if s.get("overlay_layers") else ""}
+                for s in scene_plan.get("scenes", [])
+            ],
+            "narration": {
+                "provider": narration.get("provider") or tts.get("provider") or "doubao",
+                "model": narration.get("resource_id") or tts.get("resource_id") or tts.get("model") or "seed-tts-2.0",
+                "voice": narration.get("voice") or tts.get("voice") or "",
+            },
+            "bgm": {
+                "provider": music.get("provider") or bgm.get("provider") or "",
+                "profile": music.get("profile") or bgm.get("profile") or "",
+            },
+            "plan_summary": {
+                "proxy_shots": sum(1 for item in planned if str(item.get("type", "")) in {"video_proxy", "video"}),
+                "narration_segments": sum(1 for item in planned if str(item.get("type", "")) in {"narration", "narration_tts"}),
+                "music_tracks": sum(1 for item in planned if str(item.get("type", "")) == "music"),
+                "paid_estimate_usd": round(sum(float(item.get("cost_estimate_usd", 0)) for item in planned), 4),
+            },
+            "lock": {
+                "platform": locked.get("platform") or "",
+                "engine": locked.get("render_runtime") or "",
+                "output": locked.get("output") or {},
+                "aspect": aspect,
+                "duration_seconds": script.get("total_duration_seconds"),
+            },
+        }
+    if awaiting_stage == "sample":
+        report = artifact("sample_report")
+        probe = report.get("probe") if isinstance(report.get("probe"), Mapping) else {}
+        return {
+            "kind": "sample",
+            "output_path": report.get("output_path") or "",
+            "probe": probe,
+            "qa": report.get("qa") or {},
+        }
+    return None
+
+
 def child_snapshot(project_dir: Path, child_dir: Path) -> dict[str, Any]:
     """读取一个候选子项目的快照（stages/reviews/评价/音轨/样片链接/revision）。"""
     snapshot: dict[str, Any] = {
@@ -81,6 +186,7 @@ def child_snapshot(project_dir: Path, child_dir: Path) -> dict[str, Any]:
         "preview_url": None,
         "evaluation": None,
         "audio_tracks": [],
+        "gate_material": None,
     }
     inputs = None
     try:
@@ -121,7 +227,28 @@ def child_snapshot(project_dir: Path, child_dir: Path) -> dict[str, Any]:
         snapshot["evaluation"] = _evaluation_summary(eval_report)
     from backlot.operator_state import _audio_tracks
 
-    snapshot["audio_tracks"] = _audio_tracks(artifacts.get("sample_execution_trace"))
+    trace = artifacts.get("sample_execution_trace")
+    snapshot["audio_tracks"] = _audio_tracks(trace) if isinstance(trace, Mapping) else _planned_audio_tracks(child_dir)
+    awaiting_stage = next(
+        (item["stage_id"] for item in snapshot["stage_states"] if item["status"] == "awaiting_human"),
+        None,
+    )
+    if awaiting_stage in {"script", "assets", "sample"}:
+        # 契约 B：门必须引用 formal review。批页投影按需补建（幂等），
+        # 使候选展开卡与批级一键通过共享同一 review 快照。
+        try:
+            from backlot.operator_reviews import ReviewService
+
+            service = ReviewService(child_dir)
+            ensure = {
+                "script": service.ensure_script_review_for_checkpoint,
+                "assets": service.ensure_assets_review_for_checkpoint,
+                "sample": service.ensure_sample_review_for_checkpoint,
+            }[awaiting_stage]
+            ensure()
+        except Exception:
+            pass
+        snapshot["gate_material"] = _gate_material(child_dir, awaiting_stage)
     reviews_dir = child_dir / "operator" / "reviews"
     if reviews_dir.is_dir():
         for path in sorted(reviews_dir.glob("*.json")):
@@ -250,6 +377,7 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
             "child_revision": snapshot.get("child_revision"),
             "stage_states": snapshot.get("stage_states") or [],
             "pending_reviews": snapshot.get("pending_reviews") or [],
+            "gate_material": snapshot.get("gate_material"),
             "score": {
                 "dimension_scores": candidate.get("dimension_scores"),
                 "weighted_total": candidate.get("weighted_total"),
@@ -321,6 +449,15 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
     selected_ids = [str(item) for item in (selection.get("selected_candidate_ids") or [])]
     blocked_reasons = [w["code"] for w in warnings if w["code"] == "over_budget"]
     phase, phase_reason = compute_phase(views, selected_ids, blocked_reasons)
+    awaiting_assets = any(
+        item.get("stage_id") == "assets" and item.get("status") == "awaiting_human"
+        for view in views for item in view["stage_states"]
+    )
+    if phase == "sampling" and awaiting_assets:
+        phase_reason = (
+            "素材创意锁待批准：请展开下方候选复核口播/BGM/素材计划，"
+            "然后点击「一键全部通过」。批准前不会生成样片，样片区域为空属正常。"
+        )
 
     budget_summary = {"spent_usd": spent, "over_budget": over_budget, "source": source}
     generation_id = "none"

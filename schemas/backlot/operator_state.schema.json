@@ -319,16 +319,27 @@
         },
         "gate": {
           "type": "string",
-          "enum": ["script", "assets", "sample"]
+          "enum": [
+            "script",
+            "assets",
+            "sample"
+          ]
         },
         "candidates": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["candidate_id", "project_id"],
+            "required": [
+              "candidate_id",
+              "project_id"
+            ],
             "properties": {
-              "candidate_id": { "type": "string" },
-              "project_id": { "type": "string" }
+              "candidate_id": {
+                "type": "string"
+              },
+              "project_id": {
+                "type": "string"
+              }
             },
             "additionalProperties": false
           }
@@ -434,40 +445,103 @@
     },
     "batch_editor": {
       "type": "object",
-      "required": ["type", "data"],
+      "required": [
+        "type",
+        "data"
+      ],
       "properties": {
-        "type": { "const": "batch_review" },
-        "data": { "$ref": "#/$defs/batch_review_data" }
+        "type": {
+          "const": "batch_review"
+        },
+        "data": {
+          "$ref": "#/$defs/batch_review_data"
+        }
       },
       "additionalProperties": false
     },
     "batch_review_data": {
       "type": "object",
       "required": [
-        "schema_version", "kind", "batch_id", "aggregate_revision", "snapshot_at",
-        "consistency", "phase", "phase_reason", "rail", "candidates",
-        "budget", "concurrency", "selection", "pending_gates", "warnings"
+        "schema_version",
+        "kind",
+        "batch_id",
+        "aggregate_revision",
+        "snapshot_at",
+        "consistency",
+        "phase",
+        "phase_reason",
+        "rail",
+        "candidates",
+        "budget",
+        "concurrency",
+        "selection",
+        "pending_gates",
+        "warnings"
       ],
       "properties": {
-        "schema_version": { "const": "1.0" },
-        "kind": { "const": "batch_review" },
-        "batch_id": { "type": "string", "minLength": 1 },
-        "aggregate_revision": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-        "snapshot_at": { "type": "string", "format": "date-time" },
-        "consistency": { "enum": ["stable", "unstable", "degraded"] },
-        "phase": {
-          "enum": ["building", "sampling", "scoring", "selection", "editing", "publishing", "completed", "blocked"]
+        "schema_version": {
+          "const": "1.0"
         },
-        "phase_reason": { "type": "string" },
+        "kind": {
+          "const": "batch_review"
+        },
+        "batch_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "aggregate_revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "snapshot_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "consistency": {
+          "enum": [
+            "stable",
+            "unstable",
+            "degraded"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "building",
+            "sampling",
+            "scoring",
+            "selection",
+            "editing",
+            "publishing",
+            "completed",
+            "blocked"
+          ]
+        },
+        "phase_reason": {
+          "type": "string"
+        },
         "rail": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["phase", "label", "status"],
+            "required": [
+              "phase",
+              "label",
+              "status"
+            ],
             "properties": {
-              "phase": { "type": "string" },
-              "label": { "type": "string" },
-              "status": { "enum": ["completed", "current", "pending"] }
+              "phase": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "completed",
+                  "current",
+                  "pending"
+                ]
+              }
             },
             "additionalProperties": false
           }
@@ -477,31 +551,86 @@
           "items": {
             "type": "object",
             "required": [
-              "candidate_id", "project_id", "label", "status", "candidate_phase",
-              "stage_states", "pending_reviews", "score", "media", "cost", "links", "failure"
+              "candidate_id",
+              "project_id",
+              "label",
+              "status",
+              "candidate_phase",
+              "stage_states",
+              "pending_reviews",
+              "score",
+              "media",
+              "cost",
+              "links",
+              "failure"
             ],
             "properties": {
-              "candidate_id": { "type": "string", "minLength": 1 },
-              "project_id": { "type": "string", "minLength": 1 },
-              "label": { "type": "string" },
-              "direction": { "type": "object", "additionalProperties": true },
-              "status": { "type": "string" },
-              "candidate_phase": {
-                "enum": ["planned", "forking", "sampling", "sampled", "evaluating",
-                         "evaluated", "selected", "editing", "composed", "published",
-                         "failed", "missing", "corrupt"]
+              "candidate_id": {
+                "type": "string",
+                "minLength": 1
               },
-              "child_revision": { "type": ["string", "null"], "pattern": "^(|[a-f0-9]{64})$" },
+              "project_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "label": {
+                "type": "string"
+              },
+              "direction": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "status": {
+                "type": "string"
+              },
+              "candidate_phase": {
+                "enum": [
+                  "planned",
+                  "forking",
+                  "sampling",
+                  "sampled",
+                  "evaluating",
+                  "evaluated",
+                  "selected",
+                  "editing",
+                  "composed",
+                  "published",
+                  "failed",
+                  "missing",
+                  "corrupt"
+                ]
+              },
+              "child_revision": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^(|[a-f0-9]{64})$"
+              },
               "stage_states": {
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": ["stage_id", "status", "version", "updated_at"],
+                  "required": [
+                    "stage_id",
+                    "status",
+                    "version",
+                    "updated_at"
+                  ],
                   "properties": {
-                    "stage_id": { "type": "string" },
-                    "status": { "type": "string" },
-                    "version": { "type": "integer", "minimum": 0 },
-                    "updated_at": { "$ref": "#/$defs/nullable_string" }
+                    "stage_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "updated_at": {
+                      "$ref": "#/$defs/nullable_string"
+                    }
                   },
                   "additionalProperties": false
                 }
@@ -510,60 +639,130 @@
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": ["review_id", "kind", "subject_version", "subject_hash", "actions"],
+                  "required": [
+                    "review_id",
+                    "kind",
+                    "subject_version",
+                    "subject_hash",
+                    "actions"
+                  ],
                   "properties": {
-                    "review_id": { "type": "string" },
-                    "kind": { "type": "string" },
-                    "subject_version": { "type": "integer" },
-                    "subject_hash": { "$ref": "#/$defs/nullable_string" },
-                    "actions": { "type": "array", "items": { "type": "string" } }
+                    "review_id": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "subject_version": {
+                      "type": "integer"
+                    },
+                    "subject_hash": {
+                      "$ref": "#/$defs/nullable_string"
+                    },
+                    "actions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
                   },
                   "additionalProperties": false
                 }
               },
               "score": {
                 "type": "object",
-                "required": ["dimension_scores", "weighted_total", "evaluation"],
+                "required": [
+                  "dimension_scores",
+                  "weighted_total",
+                  "evaluation"
+                ],
                 "properties": {
                   "dimension_scores": {
-                    "type": ["object", "null"],
-                    "additionalProperties": { "type": "number" }
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "type": "number"
+                    }
                   },
-                  "weighted_total": { "type": ["number", "null"] },
-                  "evaluation": { "$ref": "#/$defs/delivery_evaluation" }
+                  "weighted_total": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "evaluation": {
+                    "$ref": "#/$defs/delivery_evaluation"
+                  }
                 },
                 "additionalProperties": false
               },
               "media": {
                 "type": "object",
                 "properties": {
-                  "sample_url": { "$ref": "#/$defs/nullable_string" },
-                  "audio_tracks": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+                  "sample_url": {
+                    "$ref": "#/$defs/nullable_string"
+                  },
+                  "audio_tracks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  }
                 },
                 "additionalProperties": true
               },
               "cost": {
                 "type": "object",
-                "required": ["cost_usd", "attempts"],
+                "required": [
+                  "cost_usd",
+                  "attempts"
+                ],
                 "properties": {
-                  "cost_usd": { "type": "number", "minimum": 0 },
-                  "attempts": { "type": "integer", "minimum": 0 }
+                  "cost_usd": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "attempts": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
                 },
                 "additionalProperties": false
               },
               "links": {
                 "type": "object",
-                "properties": { "project_page": { "type": "string" } },
+                "properties": {
+                  "project_page": {
+                    "type": "string"
+                  }
+                },
                 "additionalProperties": true
               },
               "failure": {
                 "type": "object",
-                "required": ["failure", "technical"],
+                "required": [
+                  "failure",
+                  "technical"
+                ],
                 "properties": {
-                  "failure": { "$ref": "#/$defs/nullable_string" },
-                  "technical": { "type": "boolean" }
+                  "failure": {
+                    "$ref": "#/$defs/nullable_string"
+                  },
+                  "technical": {
+                    "type": "boolean"
+                  }
                 },
                 "additionalProperties": false
+              },
+              "gate_material": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": true
               }
             },
             "additionalProperties": false
@@ -571,35 +770,94 @@
         },
         "budget": {
           "type": "object",
-          "required": ["max_cost_usd", "spent_usd", "reserved_usd", "remaining_usd", "over_budget", "source"],
+          "required": [
+            "max_cost_usd",
+            "spent_usd",
+            "reserved_usd",
+            "remaining_usd",
+            "over_budget",
+            "source"
+          ],
           "properties": {
-            "max_cost_usd": { "$ref": "#/$defs/nullable_number" },
-            "spent_usd": { "type": "number", "minimum": 0 },
-            "reserved_usd": { "type": "number", "minimum": 0 },
-            "remaining_usd": { "$ref": "#/$defs/nullable_number" },
-            "over_budget": { "type": "boolean" },
-            "source": { "type": "string", "enum": ["cost_tracker", "candidate_batch"] }
+            "max_cost_usd": {
+              "$ref": "#/$defs/nullable_number"
+            },
+            "spent_usd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "reserved_usd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "remaining_usd": {
+              "$ref": "#/$defs/nullable_number"
+            },
+            "over_budget": {
+              "type": "boolean"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "cost_tracker",
+                "candidate_batch"
+              ]
+            }
           },
           "additionalProperties": false
         },
         "concurrency": {
           "type": "object",
-          "required": ["max_parallel", "active_count", "active_candidate_ids"],
+          "required": [
+            "max_parallel",
+            "active_count",
+            "active_candidate_ids"
+          ],
           "properties": {
-            "max_parallel": { "type": "integer", "minimum": 1 },
-            "active_count": { "type": "integer", "minimum": 0 },
-            "active_candidate_ids": { "type": "array", "items": { "type": "string" } }
+            "max_parallel": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "active_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "active_candidate_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           },
           "additionalProperties": false
         },
         "selection": {
           "type": "object",
-          "required": ["selected_candidate_ids", "selected_at", "reason", "eligible_candidate_ids"],
+          "required": [
+            "selected_candidate_ids",
+            "selected_at",
+            "reason",
+            "eligible_candidate_ids"
+          ],
           "properties": {
-            "selected_candidate_ids": { "type": "array", "items": { "type": "string" } },
-            "selected_at": { "$ref": "#/$defs/nullable_string" },
-            "reason": { "type": "string" },
-            "eligible_candidate_ids": { "type": "array", "items": { "type": "string" } }
+            "selected_candidate_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "selected_at": {
+              "$ref": "#/$defs/nullable_string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "eligible_candidate_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           },
           "additionalProperties": false
         },
@@ -607,19 +865,42 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["gate", "label", "stage", "candidates"],
+            "required": [
+              "gate",
+              "label",
+              "stage",
+              "candidates"
+            ],
             "properties": {
-              "gate": { "type": "string", "enum": ["script", "assets", "sample"] },
-              "label": { "type": "string" },
-              "stage": { "type": "string" },
+              "gate": {
+                "type": "string",
+                "enum": [
+                  "script",
+                  "assets",
+                  "sample"
+                ]
+              },
+              "label": {
+                "type": "string"
+              },
+              "stage": {
+                "type": "string"
+              },
               "candidates": {
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": ["candidate_id", "project_id"],
+                  "required": [
+                    "candidate_id",
+                    "project_id"
+                  ],
                   "properties": {
-                    "candidate_id": { "type": "string" },
-                    "project_id": { "type": "string" }
+                    "candidate_id": {
+                      "type": "string"
+                    },
+                    "project_id": {
+                      "type": "string"
+                    }
                   },
                   "additionalProperties": false
                 }
@@ -632,12 +913,28 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["code", "candidate_id", "description", "suggested_action"],
+            "required": [
+              "code",
+              "candidate_id",
+              "description",
+              "suggested_action"
+            ],
             "properties": {
-              "code": { "type": "string" },
-              "candidate_id": { "type": ["string", "null"] },
-              "description": { "type": "string" },
-              "suggested_action": { "type": "string" }
+              "code": {
+                "type": "string"
+              },
+              "candidate_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": "string"
+              },
+              "suggested_action": {
+                "type": "string"
+              }
             },
             "additionalProperties": false
           }
@@ -1819,13 +2116,39 @@
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["kind", "label", "planned", "present", "state"],
+                "required": [
+                  "kind",
+                  "label",
+                  "planned",
+                  "present",
+                  "state"
+                ],
                 "properties": {
-                  "kind": { "type": "string", "enum": ["narration", "bgm", "original"] },
-                  "label": { "type": "string" },
-                  "planned": { "type": "boolean" },
-                  "present": { "type": "boolean" },
-                  "state": { "type": "string", "enum": ["present", "missing", "not_planned"] }
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "narration",
+                      "bgm",
+                      "original"
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "planned": {
+                    "type": "boolean"
+                  },
+                  "present": {
+                    "type": "boolean"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "present",
+                      "missing",
+                      "not_planned"
+                    ]
+                  }
                 },
                 "additionalProperties": false
               }

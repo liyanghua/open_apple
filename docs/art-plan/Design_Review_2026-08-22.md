@@ -263,6 +263,12 @@ Skill 负责指导 Agent 的判断和表达；不得把创意决策硬编码进 
 
 ## 修订记录
 
+- **v2.24（2026-08-23）驾驶舱门复核材料：素材创意锁逐候选可展开（用户反馈「样片阶段都是空的」）**：
+  - 根因：状态正确（5 候选在素材创意锁，样片尚未生成），但批页门面板只有一行候选 ID + 按钮，无任何可复核材料，且候选卡音频轨错误显示「未计划」——用户无法感知「该做什么、要批准什么」；
+  - `batch_state.child_snapshot` 新增：批页投影按需补建 formal review（script/assets/sample 门幂等 ensure，与 load_operator_state 同通道）；`gate_material` 门复核材料（assets 门：7 镜字幕清单 + 口播 provider/model/voice + BGM provider/profile + 素材计划汇总（代理镜/口播段/BGM/付费预估）+ 生产锁（9:16/15s/remotion））；无样片时音频轨由 asset_plan 派生（planned=true, state=planned）；
+  - `operator_state.schema.json` candidate += `gate_material`；批页门面板改为「逐候选展开复核 + 勾选参与批准」：展开看材料与候选工作台链接，取消勾选即该候选不参与本次一键通过（单独暂缓），按钮实时显示通过进度；phase=sampling 且 assets 门待批时 phase_reason 明确说明「批准前不会生成样片，样片区域为空属正常」；
+  - 回归：batch 相关 69 passed；服务器已重启验证 payload（creative_lock review 就位、gate_material 完整）。
+
 - **v2.23（2026-08-23）样片阶段预研 + 版本路由健壮性修复（仍在素材创意锁等待中）**：
   - 修复 `operator_revisions._revision_dir`：未知阶段（批级 rail 相位 sampling/building/selection 等被旧缓存 UI 当作阶段名查询版本）此前抛裸 KeyError → 500 刷屏；现统一 404 `not_found`（新增错误码）+ 回归测试 2 例；服务器已重启验证 `/versions/sampling` → 404 无堆栈；
   - 样片阶段（assets 批准后的下一步）预研完成：cinematic-fast sample 阶段 7 制品契约（asset_manifest/final_props/render_plan/sample_report/sample_execution_trace/caption_policy_revision/evaluation_report）、required_tools 8 项全部 available（tts_selector/doubao_tts/media_proxy/video_compose Remotion/final_qa/technical_validator/video_judge/audio_mixer，DASHSCOPE + DOUBAO_SPEECH key 就绪，PIXABAY 在 .env 已配）、v8 参考片样片制品模板（7 代理镜 + 6 段豆包 TTS 词级时间戳 + pixabay BGM + ducking 0.18 + 10s@0.5x 样片窗口）与 voice-timeline-fit 实测适配契约已对齐；

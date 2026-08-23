@@ -1089,21 +1089,93 @@ function renderBatch(container, data, { project } = {}) {
     workbench.append(warnPanel);
   }
 
-  // 批级门审批（一键通过）
+  // 批级门审批（逐候选复核 + 一键通过）
   const gates = (data.pending_gates || []).filter((gate) => gate.candidates?.length);
   if (gates.length) {
     const gatePanel = node("section", "batch-gates");
     gatePanel.append(node("h3", "section-title", "等待批级确认"));
+    gatePanel.append(node("p", "row-copy", "展开候选复核素材/样片；取消勾选即可暂不通过该候选（其余一键通过）。"));
     const reviewKinds = { script: "script_lock", assets: "creative_lock", sample: "sample" };
     for (const gate of gates) {
       const row = node("div", "batch-gate-row");
       const info = node("p", "batch-gate-info",
-        `${gate.label}：${gate.candidates.map((candidate) => candidate.candidate_id).join("、")}（${gate.candidates.length} 个候选）`);
+        `${gate.label}（${gate.candidates.length} 个候选）`);
       const approve = node("button", "primary-button", "一键全部通过");
       approve.type = "button";
+      const included = new Set(gate.candidates.map((entry) => entry.candidate_id));
+      const list = node("div", "batch-gate-candidates");
+      for (const entry of gate.candidates) {
+        const view = (data.candidates || []).find((candidate) => candidate.candidate_id === entry.candidate_id) || {};
+        const material = view.gate_material || {};
+        const item = node("details", "batch-gate-candidate");
+        const summary = node("summary", "batch-gate-candidate-summary");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = true;
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) included.add(entry.candidate_id);
+          else included.delete(entry.candidate_id);
+          approve.textContent = included.size === gate.candidates.length
+            ? "一键全部通过" : `通过已勾选（${included.size}/${gate.candidates.length}）`;
+        });
+        summary.append(checkbox, document.createTextNode(` ${view.label || entry.candidate_id}`));
+        const stageLine = (view.stage_states || []).map((state) => `${state.stage_id}:${state.status}`).join(" · ");
+        summary.append(node("span", "row-meta", ` ${stageLine}`));
+        item.append(summary);
+        const body = node("div", "batch-gate-candidate-body");
+        if (gate.gate === "script" && material.sections?.length) {
+          body.append(node("p", "row-copy", `剧本《${material.title || "—"}》${material.duration_seconds ?? ""}秒`));
+          const sectionList = node("ul", "plain-list");
+          material.sections.forEach((section) => sectionList.append(
+            node("li", "", `${section.id} ${section.label} · 字幕「${section.screen_copy}」`)));
+          body.append(sectionList);
+        }
+        if (gate.gate === "assets") {
+          if (material.narration) {
+            body.append(node("p", "row-copy",
+              `口播：${material.narration.provider || "—"} / ${material.narration.model || "—"} / ${material.narration.voice || "—"}`));
+          }
+          if (material.bgm) {
+            body.append(node("p", "row-copy",
+              `BGM：${material.bgm.provider || "—"} · ${material.bgm.profile || "—"}`));
+          }
+          if (material.plan_summary) {
+            body.append(node("p", "row-copy",
+              `素材计划：${material.plan_summary.proxy_shots ?? 0} 代理镜 + ${material.plan_summary.narration_segments ?? 0} 段口播 + ${material.plan_summary.music_tracks ?? 0} BGM · 付费预估 $${(material.plan_summary.paid_estimate_usd ?? 0).toFixed(2)}`));
+          }
+          if (material.lock) {
+            const out = material.lock.output || {};
+            const aspect = material.lock.aspect || out.resolution || "";
+            const duration = material.lock.duration_seconds
+              ? `${material.lock.duration_seconds}s`
+              : (out.duration ? `${out.duration}s` : "—");
+            body.append(node("p", "row-copy",
+              `生产锁：${aspect || "—"} · ${duration} · ${material.lock.engine || "—"}`));
+          }
+          if (material.shots?.length) {
+            const shots = node("ul", "plain-list");
+            material.shots.forEach((shot) => shots.append(node("li", "", `${shot.id} 字幕「${shot.screen_copy || ""}」`)));
+            body.append(shots);
+          }
+        }
+        if (gate.gate === "sample" && material.output_path) {
+          body.append(node("p", "row-copy", `样片：${material.output_path}（${(material.probe || {}).duration_seconds ?? "—"}s）`));
+          body.append(node("p", "row-copy", `QA：${((material.qa || {}).status || "—")}`));
+        }
+        if (view.links?.project_page) {
+          const pageLink = node("a", "batch-candidate-link", "打开候选工作台复核");
+          pageLink.href = view.links.project_page;
+          pageLink.target = "_blank";
+          body.append(pageLink);
+        }
+        item.append(body);
+        list.append(item);
+      }
       approve.addEventListener("click", async () => {
         approve.disabled = true;
-        const participants = gate.candidates.map((entry) => {
+        const chosen = gate.candidates.filter((entry) => included.has(entry.candidate_id));
+        if (!chosen.length) { approve.disabled = false; approve.textContent = "请至少勾选一个候选"; return; }
+        const participants = chosen.map((entry) => {
           const view = (data.candidates || []).find((candidate) => candidate.candidate_id === entry.candidate_id) || {};
           const review = (view.pending_reviews || []).find((item) => item.kind === reviewKinds[gate.gate]);
           return {
@@ -1136,7 +1208,7 @@ function renderBatch(container, data, { project } = {}) {
           }
         }
       });
-      row.append(info, approve);
+      row.append(info, list, approve);
       gatePanel.append(row);
     }
     workbench.append(gatePanel);
