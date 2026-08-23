@@ -333,3 +333,35 @@ def test_research_commit_reports_malformed_legacy_annotations_as_operator_error(
 
     assert failure.value.code == "validation_failed"
     assert failure.value.status_code == 422
+
+
+def test_unknown_stage_raises_not_found_instead_of_key_error(tmp_path) -> None:
+    """批级 rail 相位（如 sampling）不是可编辑阶段：404 not_found，绝不 500 KeyError。"""
+    from backlot.operator_errors import OperatorError
+    from backlot.operator_revisions import RevisionService
+    from backlot.project_commit import ProjectCommitStore
+
+    project = tmp_path / "demo"
+    (project / "artifacts").mkdir(parents=True)
+    (project / "project.json").write_text('{"project_id":"demo"}', encoding="utf-8")
+    ProjectCommitStore(project).initialize()
+    service = RevisionService(project)
+
+    for stage in ("sampling", "building", "selection", "unknown-stage"):
+        with pytest.raises(OperatorError) as failure:
+            service.list(stage)
+        assert failure.value.code == "not_found"
+        assert failure.value.status_code == 404
+
+
+def test_known_stages_still_resolve_revision_dirs(tmp_path) -> None:
+    from backlot.operator_revisions import RevisionService
+    from backlot.project_commit import ProjectCommitStore
+
+    project = tmp_path / "demo"
+    (project / "artifacts").mkdir(parents=True)
+    (project / "project.json").write_text('{"project_id":"demo"}', encoding="utf-8")
+    ProjectCommitStore(project).initialize()
+    service = RevisionService(project)
+    for stage in ("proposal", "script", "assets", "sample"):
+        assert service._revision_dir(stage) == project / "operator" / "revisions" / stage

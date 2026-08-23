@@ -120,7 +120,12 @@ class RevisionService:
         self.validator = Draft202012Validator(json.loads(schema_path.read_text(encoding="utf-8")))
 
     def _revision_dir(self, stage: str) -> Path:
-        get_adapter(stage)
+        try:
+            get_adapter(stage)
+        except KeyError:
+            # 批级驾驶舱的 rail 相位（building/sampling/selection/completed）
+            # 不是可编辑流水线阶段；未知阶段一律 404，不得泄漏 KeyError。
+            raise OperatorError("not_found", f"该阶段没有版本历史：{stage}", 404) from None
         return self.project_dir / "operator" / "revisions" / stage
 
     def list(self, stage: str) -> list[dict[str, Any]]:

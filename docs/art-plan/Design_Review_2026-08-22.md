@@ -263,6 +263,11 @@ Skill 负责指导 Agent 的判断和表达；不得把创意决策硬编码进 
 
 ## 修订记录
 
+- **v2.23（2026-08-23）样片阶段预研 + 版本路由健壮性修复（仍在素材创意锁等待中）**：
+  - 修复 `operator_revisions._revision_dir`：未知阶段（批级 rail 相位 sampling/building/selection 等被旧缓存 UI 当作阶段名查询版本）此前抛裸 KeyError → 500 刷屏；现统一 404 `not_found`（新增错误码）+ 回归测试 2 例；服务器已重启验证 `/versions/sampling` → 404 无堆栈；
+  - 样片阶段（assets 批准后的下一步）预研完成：cinematic-fast sample 阶段 7 制品契约（asset_manifest/final_props/render_plan/sample_report/sample_execution_trace/caption_policy_revision/evaluation_report）、required_tools 8 项全部 available（tts_selector/doubao_tts/media_proxy/video_compose Remotion/final_qa/technical_validator/video_judge/audio_mixer，DASHSCOPE + DOUBAO_SPEECH key 就绪，PIXABAY 在 .env 已配）、v8 参考片样片制品模板（7 代理镜 + 6 段豆包 TTS 词级时间戳 + pixabay BGM + ducking 0.18 + 10s@0.5x 样片窗口）与 voice-timeline-fit 实测适配契约已对齐；
+  - **生产仍停在第二个批级门（素材创意确认），等待用户「一键全部通过」**；批准后即按预研模板并发 ≤3 续跑样片。
+
 - **v2.22（2026-08-23）批量生产续跑：脚本门已批，5 候选齐至素材创意锁**：
   - 修复 `operator_routes` 批路由授权器（此前把 actor_id 字符串传给 `authorize_project` 导致 HTTP 一键通过 500；现改传 `session.actor`）；修复 `ReviewService.ensure_assets_review_for_checkpoint` + `load_operator_state` assets 阶段补 review + `batch_actions` script/assets 门空快照服务端回填；
   - 批级一键通过脚本门：5 候选 `checkpoint_script.json` completed + human_approved（脚本批级审批按契约 B 落每候选 decision_log batch_approval + review_snapshot）；

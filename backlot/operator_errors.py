@@ -20,6 +20,8 @@ ERROR_CODES = frozenset({
     "invalid_write_context",
     "recovery_required",
     "idempotency_conflict",
+    # 未知阶段/版本（例如批级 rail 相位被当作可编辑阶段查询）
+    "not_found",
     # 批级跨项目动作（契约 B）：批聚合 revision 或候选快照过期 / 协调记录待恢复
     "stale",
     "needs_recovery",
