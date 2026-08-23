@@ -17,6 +17,27 @@ import pytest
 from tools.video.video_compose import VideoCompose
 
 
+def test_cinematic_adapter_separates_timeline_and_source_coordinates() -> None:
+    scenes = VideoCompose._cuts_to_cinematic_scenes([
+        {
+            "id": "shot-01", "in_seconds": 0.0, "out_seconds": 2.3,
+            "source_in_seconds": 12.5, "source_out_seconds": 14.8,
+            "source": "opening.mp4",
+        },
+        {
+            "id": "shot-02", "in_seconds": 2.3, "out_seconds": 4.7,
+            "source_in_seconds": 4.0, "source_out_seconds": 6.4,
+            "source": "proof.mp4",
+        },
+    ])
+    assert scenes[0]["startSeconds"] == 0.0
+    assert scenes[0]["durationSeconds"] == 2.3
+    assert scenes[0]["trimBeforeSeconds"] == 12.5
+    assert scenes[0]["trimAfterSeconds"] == 14.8
+    assert scenes[1]["startSeconds"] == 2.3
+    assert scenes[1]["trimBeforeSeconds"] == 4.0
+
+
 def _tiny_video(path: Path) -> None:
     subprocess.run(
         [

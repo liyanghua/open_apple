@@ -64,6 +64,17 @@ def _child_with_review(tmp_path: Path, candidate_id: str, kind: str = "sample") 
         "project_id": candidate_id, "title": candidate_id, "pipeline_type": "cinematic-fast",
     })
     _write(child / "operator" / "reviews" / f"{candidate_id}-{kind}-v1-abc.json", _review(candidate_id, kind))
+    # P1 质量门要求：final_props 字幕 + 开场镜头屏显文案。
+    _write(child / "artifacts" / "final_props.json", {
+        "version": "1.0", "project_id": candidate_id, "fps": 30, "durationInFrames": 450,
+        "scenes": [{"id": "shot-01", "fromFrame": 0, "toFrameExclusive": 69, "assetId": "proxy-01",
+                    "sourceInSeconds": 0, "sourceOutSeconds": 2.3}],
+        "captions": [{"text": "一铺即护", "startMs": 0, "endMs": 2300}],
+    })
+    _write(child / "artifacts" / "shot_execution_plan.json", {
+        "version": "1.0", "project_id": candidate_id,
+        "shots": [{"id": "shot-01", "screen_copy": "一铺即护", "duration_seconds": 2.3}],
+    })
     return child
 
 
@@ -326,3 +337,20 @@ def test_replay_after_commit(tmp_path: Path):
     )
     assert replay["status"] == "replayed"
     assert replay["batch_action_id"] == first["batch_action_id"]
+
+
+def test_select_rejects_candidate_missing_captions_or_opening(tmp_path: Path):
+    """P1 质量门：候选缺字幕或开场就是不可选（未通过 quality gate）。"""
+    batch_dir = _batch_project(tmp_path)
+    child = tmp_path / "cand-01"
+    _write(child / "project.json", {"project_id": "cand-01", "title": "cand-01", "pipeline_type": "cinematic-fast"})
+    _write(child / "operator" / "reviews" / "cand-01-sample-v1-abc.json", _review("cand-01", "sample"))
+    # 故意不写 final_props / shot_execution_plan —— 字幕与开场缺失。
+    service = _service(tmp_path, batch_dir)
+    revision, _ = service._current_revision()
+    with pytest.raises(OperatorError) as excinfo:
+        service.select_for_edit(
+            actor_id="owner", idempotency_key="kneg", aggregate_revision=revision,
+            candidate_ids=["cand-01"], reason="同质候选",
+        )
+    assert "质量门" in str(excinfo.value)

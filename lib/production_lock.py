@@ -163,7 +163,9 @@ def _extract_locked_values(
         _decision_pick(decision_index, "narration", "voiceover"),
         default="",
     )
+    formal_audio = _mapping(asset_map.get("audio_plan"))
     tts = _first(
+        formal_audio.get("tts"),
         asset_map.get("tts"),
         asset_map.get("voice"),
         _plan_value(proposal_map, "tts", "voice"),
@@ -171,6 +173,7 @@ def _extract_locked_values(
         default={},
     )
     bgm = _first(
+        formal_audio.get("bgm"),
         asset_map.get("bgm"),
         asset_map.get("music"),
         _plan_value(proposal_map, "bgm", "music"),
@@ -178,6 +181,7 @@ def _extract_locked_values(
         default={},
     )
     mix = _first(
+        formal_audio.get("mix"),
         asset_map.get("mix"),
         _plan_value(proposal_map, "mix", "audio_mix", "mix_profile"),
         _decision_pick(decision_index, "mix", "lufs", "gain"),

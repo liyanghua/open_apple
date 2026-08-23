@@ -5,8 +5,9 @@ from lib.sample_preflight import validate_sample_inputs
 
 def test_sample_preflight_accepts_valid_window_and_timeline() -> None:
     result = validate_sample_inputs({
-        "shot_execution_plan": {"shots": [{"id": "shot-01"}]},
-        "final_props": {"fps": 30, "scenes": [{"id": "shot-01"}]},
+        "shot_execution_plan": {"shots": [{"id": "shot-01", "screen_copy": "一铺即护"}]},
+        "final_props": {"fps": 30, "scenes": [{"id": "shot-01"}],
+                        "captions": [{"text": "一铺即护", "startMs": 0, "endMs": 2300}]},
         "sample_report": {"window": {"startFrame": 0, "endFrameExclusive": 300}},
     })
 

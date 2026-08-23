@@ -67,10 +67,12 @@ def canonical_artifact_path(
 
 
 # Artifacts that exist once per scope (评审 #3).  Sample and final stages each
-# produce their own evaluation_report; both must survive on disk and in the
-# board projection instead of the later stage overwriting the earlier one.
+# produce their own evaluation_report AND render_plan; both must survive on disk
+# and in the board projection instead of the later stage overwriting the earlier
+# one (sample/compose were overwriting each other's render_plan.json).
 SCOPED_ARTIFACTS: dict[str, tuple[str, ...]] = {
     "evaluation_report": ("sample", "final"),
+    "render_plan": ("sample", "final"),
 }
 
 

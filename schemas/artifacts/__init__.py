@@ -61,6 +61,8 @@ ARTIFACT_NAMES = [
     "gold_sample",
     "optimization_policy",
     "optimization_run",
+    "rerun_plan",
+    "rerun_run",
 ]
 
 

@@ -650,4 +650,58 @@ def create_operator_router(
 
         return recover_batch_action(project(project_id), batch_action_id)
 
+    # ------------------------------------------------------------ rerun (R3)
+    def _build_rerun_plan(payload: dict, candidate_id: str, child_revision: str) -> dict:
+        """从请求体构建 rerun_plan（字段对齐审批契约 §2）。"""
+        from lib.rerun_plan import create_rerun_plan
+
+        return create_rerun_plan(
+            candidate_id=candidate_id, child_revision=child_revision,
+            intent=str(payload.get("intent") or "pacing"),
+            anchor=dict(payload.get("anchor") or {}),
+            instruction=str(payload.get("instruction") or ""),
+            vlm_finding_ids=[dict(x) for x in (payload.get("vlm_finding_ids") or [])],
+            render_runtime=str(payload.get("render_runtime") or "remotion"),
+            confirmed_scope=dict(payload.get("confirmed_scope") or {}),
+        )
+
+    @router.post("/projects/{project_id}/candidate-rerun")
+    async def candidate_rerun(project_id: str, request: Request) -> dict:
+        """R3 单候选重跑：提交 rerun_plan + rerun_run（draft_plan）。"""
+        authenticate(request, project_id, "review", csrf=True)
+        payload = await body(request)
+        candidate_id = str(payload.get("candidate_id") or "")
+        child_revision = str(payload.get("child_revision") or "")
+        if not candidate_id or not child_revision:
+            raise OperatorError.validation_failed("candidate_rerun 需要 candidate_id 与 child_revision")
+        from lib.rerun_plan import create_rerun_plan, create_rerun_run
+
+        try:
+            plan = _build_rerun_plan(payload, candidate_id, child_revision)
+        except ValueError as exc:
+            raise OperatorError.validation_failed(str(exc)) from exc
+        return {"plan": plan, "run": create_rerun_run(plan)}
+
+    @router.post("/projects/{project_id}/batch/rerun")
+    async def batch_rerun(project_id: str, request: Request) -> dict:
+        """R3 批级重跑：为每个候选建立独立 rerun_run，协调记录 only-提交运行意图。"""
+        authenticate(request, project_id, "review", csrf=True)
+        payload = await body(request)
+        runs = []
+        for item in (payload.get("candidates") or []):
+            if not isinstance(item, dict):
+                continue
+            candidate_id = str(item.get("candidate_id") or "")
+            child_revision = str(item.get("child_revision") or "")
+            if not candidate_id or not child_revision:
+                continue
+            from lib.rerun_plan import create_rerun_plan, create_rerun_run
+
+            try:
+                plan = _build_rerun_plan(item, candidate_id, child_revision)
+            except ValueError as exc:
+                raise OperatorError.validation_failed(str(exc)) from exc
+            runs.append({"candidate_id": candidate_id, "plan_id": plan["plan_id"], "run": create_rerun_run(plan)})
+        return {"runs": runs}
+
     return router

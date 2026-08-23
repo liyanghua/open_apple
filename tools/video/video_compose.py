@@ -127,6 +127,14 @@ class VideoCompose(BaseTool):
                     "Used to resolve asset IDs in cuts[].source to file paths."
                 ),
             },
+            "sample_payload": {
+                "type": "object",
+                "description": (
+                    "Validated runtime-only sample input. Contains final_props and "
+                    "asset_manifest; video_compose derives sequential Remotion cuts "
+                    "without changing canonical artifacts."
+                ),
+            },
             "proposal_packet": {
                 "type": "object",
                 "description": (
@@ -772,8 +780,10 @@ class VideoCompose(BaseTool):
                     return ToolResult(success=False, error=f"Cut source not found: {source}")
 
                 seg_path = temp_dir / f"seg_{i:04d}.mp4"
-                in_s = cut["in_seconds"]
-                out_s = cut["out_seconds"]
+                # P1-6: in/out_seconds 是时间轴累计位置；源裁剪坐标应取 source_in/out_seconds
+                # （缺省回退 in/out，兼容旧 payload）。同一 payload 跨引擎应产出等价结果。
+                in_s = cut.get("source_in_seconds", cut["in_seconds"])
+                out_s = cut.get("source_out_seconds", cut["out_seconds"])
                 duration = out_s - in_s
                 speed = cut.get("speed", 1.0)
 
@@ -1030,21 +1040,29 @@ class VideoCompose(BaseTool):
 
         for index, cut in enumerate(cuts):
             try:
-                source_in = float(cut.get("in_seconds", 0))
-                source_out = float(cut.get("out_seconds", source_in))
+                timeline_in = float(cut.get("in_seconds", 0))
+                timeline_out = float(cut.get("out_seconds", timeline_in))
+                source_in = float(cut.get("source_in_seconds", timeline_in))
+                source_out = float(cut.get("source_out_seconds", timeline_out))
                 speed = max(float(cut.get("speed", 1.0)), 0.1)
             except (TypeError, ValueError):
                 continue
-            duration = max(0.0, (source_out - source_in) / speed)
+            duration = max(0.0, (timeline_out - timeline_in) / speed)
             if duration <= 0:
                 continue
 
             scene_id = str(cut.get("id") or f"cut-{index + 1}")
             source = str(cut.get("source") or "")
             cut_type = str(cut.get("type") or "").lower()
+            # Legacy cuts used in/out solely as source coordinates and were
+            # intentionally packed sequentially. New payloads carry explicit
+            # source_* fields, making in/out the approved output timeline.
+            timeline_start = timeline_in if (
+                "source_in_seconds" in cut or "source_out_seconds" in cut
+            ) else timeline_cursor
             common = {
                 "id": scene_id,
-                "startSeconds": timeline_cursor,
+                "startSeconds": timeline_start,
                 "durationSeconds": duration,
             }
 
@@ -1078,7 +1096,7 @@ class VideoCompose(BaseTool):
                     scene["fadeOutFrames"] = 0
 
             scenes.append(scene)
-            timeline_cursor += duration
+            timeline_cursor = timeline_start + duration
 
         return scenes
 
@@ -1791,6 +1809,17 @@ class VideoCompose(BaseTool):
         The agent should pass edit_decisions, asset_manifest, and optionally
         profile, subtitle_path, audio_path, and options.
         """
+        sample_payload = inputs.get("sample_payload")
+        if sample_payload is not None:
+            if not isinstance(sample_payload, dict):
+                return ToolResult(success=False, error="sample_payload must be an object")
+            try:
+                from lib.sample_payload import build_sample_render_payload
+
+                runtime_payload = build_sample_render_payload(sample_payload)
+            except ValueError as exc:
+                return ToolResult(success=False, error=str(exc))
+            inputs = dict(inputs, edit_decisions=runtime_payload)
         edit_decisions = inputs.get("edit_decisions")
         asset_manifest = inputs.get("asset_manifest")
         if not edit_decisions:
@@ -2077,6 +2106,10 @@ class VideoCompose(BaseTool):
             "tool": self.name, "tool_version": self.version, "render_plan": render_plan,
             "final_props_hash": render_plan.get("final_props_hash"),
             "audio_hash": (render_plan.get("audio") or {}).get("sha256"),
+            # Content hash: cuts/captions/audio live in edit_decisions (or the
+            # derived sample_payload). Without it a caption or cut change would
+            # silently reuse a stale sample render.
+            "edit_decisions_hash": canonical_digest(inputs.get("edit_decisions") or {}),
             "window": [start, end], "scale": 0.5, "mode": mode,
         })
         project_dir = Path(inputs.get("project_dir", "projects"))

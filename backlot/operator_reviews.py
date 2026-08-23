@@ -286,6 +286,7 @@ class ReviewService:
         expected_hash: str,
         issue_tags: list[str] | None = None,
         effect_confirmations: dict[str, str] | None = None,
+        batch_decision: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         initial = self._find(review_id)
         if decision not in {"approved", "rejected"}:
@@ -402,13 +403,66 @@ class ReviewService:
                     decided,
                     schema="operator_review",
                 )
+                # P0-2: a batch approval decision is part of THIS generation —
+                # stage it into the same transaction so the review and its audit
+                # trace commit atomically, never leaving a half-committed review
+                # whose decision_log is missing.
+                if batch_decision is not None:
+                    self._stage_batch_approval_decision(sink, batch_decision)
         except _Replay as replay:
             return replay.review
         return decided
 
+    def _stage_batch_approval_decision(
+        self, sink: Any, entry: Mapping[str, Any]
+    ) -> None:
+        """Stage a batch-approval decision into the canonical decision_log
+        inside the same transaction as the review decision (P0-2 atomicity).
+        """
+        from lib.artifact_hashing import attach_hashes
+
+        log_path = self.project_dir / "artifacts" / "decision_log.json"
+        log = {"version": "1.0", "project_id": self.project_dir.name, "decisions": []}
+        if log_path.exists():
+            try:
+                loaded = json.loads(log_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    log = loaded
+            except (OSError, json.JSONDecodeError):
+                pass
+        log = dict(log)
+        decisions = list(log.get("decisions") or [])
+        decision_id = str(entry.get("decision_id") or "")
+        if not any(d.get("decision_id") == decision_id for d in decisions):
+            decisions.append(dict(entry))
+        log["decisions"] = decisions
+        log.pop("semantic_sha256", None)
+        log.pop("artifact_sha256", None)
+        from lib.artifact_io import write_artifact_atomic
+
+        write_artifact_atomic(
+            "artifacts/decision_log.json", "decision_log", attach_hashes(log),
+            project_dir=self.project_dir, sink=sink,
+        )
+
     def pending(self) -> dict[str, Any] | None:
         active = [item for item in self.list() if item.get("status") == "awaiting_human"]
         return active[-1] if active else None
+
+    def review_state(self, review_id: str) -> dict[str, Any] | None:
+        """Read a review's persisted final state (or None if missing).
+
+        Recovery uses this to distinguish an already-decided (idempotent) review
+        from a genuinely changed one, instead of treating ``pending()``==None as
+        a hard ``stale``.
+        """
+        review_path = self.project_dir / "operator" / "reviews" / f"{review_id}.json"
+        if not review_path.exists():
+            return None
+        try:
+            return json.loads(review_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
 
     def _pipeline_type(self) -> str | None:
         """Resolve the pipeline type from the project marker or any checkpoint."""

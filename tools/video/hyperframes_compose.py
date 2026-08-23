@@ -1084,8 +1084,12 @@ class HyperFramesCompose(BaseTool):
     ) -> tuple[str, Optional[str]]:
         """Render one cut + its entrance tween. Returns (html, tween or None)."""
         cut_id = f"cut-{index}"
+        # HyperFrames uses data-start/data-duration for output timeline position
+        # and data-media-start for source seek. Keep these coordinates separate
+        # so the same canonical cut payload renders equivalently across engines.
         in_s = float(cut.get("in_seconds", 0) or 0)
-        out_s = float(cut.get("out_seconds", 0) or 0)
+        out_s = float(cut.get("out_seconds", in_s) or in_s)
+        source_in = float(cut.get("source_in_seconds", in_s) or 0)
         duration = max(0.1, out_s - in_s)
 
         source = cut.get("source") or ""
@@ -1133,6 +1137,7 @@ class HyperFramesCompose(BaseTool):
                 f'<video id="{cut_id}" class="clip video-clip" '
                 f'src="{self._escape_attr(rel)}" '
                 f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
+                f'data-media-start="{self._f(source_in)}" '
                 f'data-track-index="1" muted playsinline></video>'
             )
             return html, None

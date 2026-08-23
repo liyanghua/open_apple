@@ -94,6 +94,20 @@ def test_build_lock_uses_project_id_from_asset_plan_when_earlier_artifacts_are_u
     assert lock["project_id"] == "table-mat-mix-v7"
 
 
+def test_build_lock_prefers_formal_asset_plan_audio_plan():
+    inputs = _raw_inputs()
+    inputs["asset_plan"]["audio_plan"] = {
+        "tts": {"provider": "doubao", "model": "seed-tts-2.0", "voice": "approved-voice"},
+        "bgm": {"provider": "suno", "model": "V4", "profile": "short-form"},
+        "mix": {"strategy": "duck_narration", "target_lufs": -14},
+    }
+    inputs["asset_plan"]["tts"] = {"provider": "legacy", "voice": "stale"}
+    lock = build_production_lock(**inputs)
+    assert lock["locked_values"]["tts"]["voice"] == "approved-voice"
+    assert lock["locked_values"]["bgm"]["provider"] == "suno"
+    assert lock["locked_values"]["mix"]["strategy"] == "duck_narration"
+
+
 def test_build_lock_rejects_conflicting_project_ids():
     with pytest.raises(ValueError, match="conflicting project IDs"):
         build_production_lock(

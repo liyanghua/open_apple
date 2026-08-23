@@ -1127,7 +1127,7 @@ function renderBatch(container, data, { project } = {}) {
           body.append(node("p", "row-copy", `剧本《${material.title || "—"}》${material.duration_seconds ?? ""}秒`));
           const sectionList = node("ul", "plain-list");
           material.sections.forEach((section) => sectionList.append(
-            node("li", "", `${section.id} ${section.label} · 字幕「${section.screen_copy}」`)));
+            node("li", "", `${section.id} ${section.label} · 字幕「${section.screen_copy || ""}」`)));
           body.append(sectionList);
         }
         if (gate.gate === "assets") {

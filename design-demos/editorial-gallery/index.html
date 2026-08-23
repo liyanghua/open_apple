@@ -85,6 +85,8 @@
     .status { display: inline-flex; align-items: center; min-height: 25px; padding: 4px 8px; color: var(--ink); background: rgba(252, 251, 248, .92); border: 1px solid rgba(255, 254, 250, .65); border-radius: 999px; font-size: 11px; font-weight: 800; }
     .status.recommended { color: #75541f; background: var(--ochre-soft); border-color: #e1c796; }
     .status.failed { color: var(--coral); background: var(--coral-soft); border-color: #e6b7ab; }
+    .status.rerunning { color: var(--blue); background: #e6eef2; border-color: #bfd1db; }
+    .status.rerun-review { color: #75541f; background: var(--ochre-soft); border-color: #dfc48f; }
     .play-button { width: 31px; height: 31px; display: grid; place-items: center; color: #fff; background: rgba(32, 35, 34, .72); border: 1px solid rgba(255,255,255,.4); border-radius: 50%; cursor: pointer; }
     .play-button:hover { background: var(--ink); }
     .media-bottom { position: absolute; z-index: 1; right: 12px; bottom: 10px; left: 12px; display: flex; justify-content: space-between; align-items: end; color: #fff; }
@@ -146,8 +148,27 @@
     .close { width: 34px; height: 34px; display: grid; place-items: center; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 50%; cursor: pointer; font-size: 21px; line-height: 1; }
     .drawer-scroll { overflow-y: auto; padding: 20px 24px 30px; }
     .drawer-video { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #292d2b; border-radius: 8px; }
-    .drawer-video img { width: 100%; height: 100%; display: block; object-fit: cover; }
+    .drawer-video img, .drawer-video video { width: 100%; height: 100%; display: block; object-fit: cover; }
+    .drawer-video video { background: #151918; }
     .video-caption { position: absolute; right: 12px; bottom: 10px; left: 12px; display: flex; justify-content: space-between; color: #fff; font-size: 11px; text-shadow: 0 1px 5px rgba(0,0,0,.4); }
+    .stage-progress { padding: 16px 0 17px; border-bottom: 1px solid var(--line); }
+    .stage-progress-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 10px; }
+    .stage-progress-head strong { font-size: 13px; }
+    .stage-progress-head span { color: var(--muted); font-size: 11px; }
+    .stage-track { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 3px; }
+    .stage-segment { height: 6px; background: var(--line); border-radius: 999px; }
+    .stage-segment.done { background: var(--sage); }
+    .stage-segment.current { background: var(--ochre); box-shadow: 0 0 0 3px var(--ochre-soft); }
+    .stage-segment.failed { background: var(--coral); box-shadow: 0 0 0 3px var(--coral-soft); }
+    .stage-labels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 10px; margin-top: 10px; }
+    .stage-label { display: flex; align-items: center; gap: 5px; min-width: 0; color: var(--muted); font-size: 10px; }
+    .stage-label::before { content: ""; width: 6px; height: 6px; flex: 0 0 auto; background: var(--line-strong); border-radius: 50%; }
+    .stage-label.done { color: var(--sage); }
+    .stage-label.done::before { background: var(--sage); }
+    .stage-label.current { color: var(--ink); font-weight: 800; }
+    .stage-label.current::before { background: var(--ochre); }
+    .stage-label.failed { color: var(--coral); font-weight: 800; }
+    .stage-label.failed::before { background: var(--coral); }
     .drawer-section { padding: 18px 0; border-bottom: 1px solid var(--line); }
     .drawer-section:last-child { border-bottom: 0; }
     .drawer-section h3 { margin: 0 0 11px; font-size: 13px; }
@@ -172,6 +193,86 @@
     .fact { padding: 9px 10px; background: #f5f2ed; border-radius: 5px; }
     .fact span { display: block; color: var(--muted); font-size: 10px; }
     .fact strong { display: block; margin-top: 4px; font-size: 12px; }
+    .rerun-planner { padding: 18px 0 3px; border-bottom: 1px solid var(--line); }
+    .rerun-planner[hidden] { display: none; }
+    .rerun-planner h3 { margin-bottom: 5px; }
+    .planner-intro { margin: 0 0 13px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .planner-block { margin-top: 14px; }
+    .planner-label-row { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 8px; }
+    .planner-label-row strong { font-size: 11px; }
+    .planner-label-row span { color: var(--muted); font-size: 10px; }
+    .vlm-options { display: grid; gap: 7px; }
+    .vlm-option { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 9px 10px; color: var(--ink); background: #f5f2ed; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+    .vlm-option:has(input:checked) { background: var(--ochre-soft); border-color: #dfc48f; }
+    .vlm-option input { width: 15px; height: 15px; margin: 1px 0 0; accent-color: var(--ochre); }
+    .vlm-option strong { display: block; font-size: 11px; }
+    .vlm-option small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .vlm-score { color: var(--coral); font-size: 10px; font-weight: 800; white-space: nowrap; }
+    .vlm-empty { margin: 0; padding: 9px 10px; color: var(--muted); background: #f5f2ed; border-radius: 6px; font-size: 10px; line-height: 1.45; }
+    .locator-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .locator-chip { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 9px; color: var(--ink); background: #f5f2ed; border: 1px solid transparent; border-radius: 6px; cursor: pointer; text-align: left; }
+    .locator-chip:hover { border-color: var(--line-strong); }
+    .locator-chip.is-active { background: var(--ochre-soft); border-color: #dfc48f; }
+    .locator-chip strong { font-size: 10px; }
+    .locator-chip small { color: var(--muted); font-size: 9px; }
+    .intent-input { display: block; width: 100%; min-height: 58px; padding: 9px 10px; resize: vertical; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font: inherit; font-size: 11px; line-height: 1.5; }
+    .intent-input:focus { outline: 2px solid var(--ochre-soft); border-color: var(--ochre); }
+    .intent-hint { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .plan-options { display: grid; gap: 7px; }
+    .plan-option { display: flex; justify-content: space-between; gap: 10px; align-items: center; width: 100%; padding: 9px 10px; color: var(--ink); background: #f5f2ed; border: 1px solid transparent; border-radius: 6px; cursor: pointer; text-align: left; }
+    .plan-option:hover { border-color: var(--line-strong); }
+    .plan-option.is-active { background: var(--ochre-soft); border-color: #dfc48f; }
+    .plan-option strong { display: block; font-size: 11px; }
+    .plan-option span { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
+    .plan-option em { color: var(--blue); font-size: 10px; font-style: normal; white-space: nowrap; }
+    .runtime-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+    .runtime-option { min-width: 0; padding: 10px; color: var(--ink); background: #f5f2ed; border: 1px solid transparent; border-radius: 6px; cursor: pointer; text-align: left; }
+    .runtime-option:hover { border-color: var(--line-strong); }
+    .runtime-option.is-active { background: var(--ochre-soft); border-color: #dfc48f; }
+    .runtime-option:disabled { cursor: not-allowed; opacity: .56; }
+    .runtime-option:disabled:hover { border-color: transparent; }
+    .runtime-option strong { display: block; font-size: 11px; }
+    .runtime-option small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .runtime-option em { display: block; margin-top: 6px; color: var(--sage); font-size: 10px; font-style: normal; font-weight: 800; }
+    .runtime-note { margin: 7px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .runtime-note.is-warning { color: var(--coral); }
+    .plan-result { margin-top: 13px; padding: 11px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 7px; }
+    .plan-result-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+    .plan-result-head strong { font-size: 12px; }
+    .plan-result-head span { color: var(--sage); font-size: 11px; font-weight: 800; }
+    .plan-path { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-top: 9px; }
+    .plan-step { padding: 4px 7px; color: var(--ink); background: var(--ochre-soft); border-radius: 4px; font-size: 10px; font-weight: 750; }
+    .plan-arrow { color: var(--muted); font-size: 10px; }
+    .plan-interpretation { margin: 10px 0 0; padding-top: 9px; color: var(--ink); border-top: 1px solid var(--line); font-size: 10px; line-height: 1.5; }
+    .plan-interpretation strong { color: var(--blue); }
+    .plan-clarification { margin: 7px 0 0; color: var(--coral); font-size: 10px; line-height: 1.45; }
+    .plan-scope { margin: 7px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .plan-scope strong { color: var(--ink); }
+    .rerun-monitor { padding: 18px 0 3px; border-bottom: 1px solid var(--line); }
+    .rerun-monitor[hidden] { display: none; }
+    .rerun-monitor-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+    .rerun-monitor-head strong { font-size: 13px; }
+    .rerun-monitor-head span { color: var(--blue); font-size: 10px; font-weight: 800; }
+    .rerun-monitor-copy { margin: 6px 0 10px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .rerun-progress { height: 6px; overflow: hidden; background: var(--line); border-radius: 999px; }
+    .rerun-progress i { display: block; height: 100%; background: var(--ochre); border-radius: inherit; }
+    .rerun-progress-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; color: var(--muted); font-size: 10px; }
+    .rerun-expectation { margin-top: 11px; padding: 10px; background: #f5f2ed; border-radius: 6px; }
+    .rerun-expectation strong { display: block; margin-bottom: 4px; font-size: 10px; }
+    .rerun-expectation span { color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .rerun-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+    .rerun-compare figure { margin: 0; }
+    .rerun-compare img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 5px; }
+    .rerun-compare img.is-new { filter: saturate(1.08) contrast(1.04); }
+    .rerun-compare figcaption { margin-top: 5px; color: var(--muted); font-size: 10px; }
+    .rerun-delta { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; background: var(--sage-soft); border-radius: 5px; color: var(--sage); font-size: 10px; }
+    .rerun-action-row { display: grid; gap: 7px; margin-top: 10px; }
+    .rerun-action-row button { min-height: 36px; padding: 8px 10px; border-radius: 5px; cursor: pointer; font-size: 11px; font-weight: 800; }
+    .rerun-action-row .rerun-primary { color: #fff9ec; background: var(--ink); border: 1px solid var(--ink); }
+    .rerun-action-row .rerun-secondary { color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); }
+    .rerun-action-row .rerun-danger { color: var(--coral); background: var(--coral-soft); border: 1px solid #e7c0b5; }
+    .plan-keeps { margin: 9px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .plan-keeps strong { color: var(--ink); }
     .drawer-actions { display: flex; gap: 9px; padding: 15px 24px 20px; background: var(--surface-strong); border-top: 1px solid var(--line); }
     .drawer-actions button { flex: 1; min-height: 42px; padding: 9px 11px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 800; }
     .drawer-actions button:disabled { cursor: not-allowed; opacity: .55; }
@@ -235,20 +336,20 @@
         </div>
         <div class="batch-heading">
           <div>
-            <p class="eyebrow">批量混剪 · 透明桌垫 v9</p>
-            <h1>挑出值得继续的两条</h1>
-            <p class="subheading">5 个创意方向已经完成首轮样片。先看画面和结论，需要解释时再打开右侧复核。</p>
+            <p class="eyebrow">批量混剪 · table-mat-batch-001</p>
+            <h1>样片效果确认</h1>
+            <p class="subheading">5 个候选的修复版样片已生成。先看实际画面和 VLM 结论，再决定是否进入下一道批量门。</p>
           </div>
           <div class="header-note" aria-label="批次概况">
-            <span class="meta-pill"><strong>评分</strong> 3 / 5</span>
-            <span class="meta-pill"><strong>预算</strong> $8.20 / $30</span>
-            <span class="meta-pill attention"><strong>待我处理</strong> 4 项</span>
+            <span class="meta-pill"><strong>VLM 评分</strong> 5 / 5</span>
+            <span class="meta-pill"><strong>恢复成本</strong> $0.00</span>
+            <span class="meta-pill attention"><strong>待我处理</strong> 5 项</span>
           </div>
         </div>
         <nav class="phase-rail" aria-label="批量阶段">
           <button class="phase done" data-phase="building"><span class="phase-dot"></span><span>建批</span></button>
           <button class="phase done" data-phase="sampling"><span class="phase-dot"></span><span>首轮样片</span></button>
-          <button class="phase active" data-phase="scoring"><span class="phase-dot"></span><span>评分</span></button>
+          <button class="phase active" data-phase="scoring"><span class="phase-dot"></span><span>样片确认</span></button>
           <button class="phase" data-phase="selection"><span class="phase-dot"></span><span>人工选择</span></button>
           <button class="phase" data-phase="editing"><span class="phase-dot"></span><span>精剪</span></button>
           <button class="phase" data-phase="publishing"><span class="phase-dot"></span><span>发布</span></button>
@@ -260,7 +361,7 @@
       <div class="layout">
         <section aria-labelledby="gallery-title">
           <div class="gallery-head">
-            <div><p class="section-kicker">候选画廊 · 先看结论，再看证据</p><h2 id="gallery-title">5 个方向</h2><span class="gallery-count">3 个已评分 · 1 个待评分 · 1 个技术失败</span></div>
+            <div><p class="section-kicker">候选画廊 · 先看实际样片，再看证据</p><h2 id="gallery-title">5 个候选</h2><span class="gallery-count">5 个已评分 · 5 个修复版样片 · 等待人工确认</span></div>
             <label class="sorter">排序 <select id="sorter" aria-label="候选排序"><option value="decision">可决策程度</option><option value="score">评分最高</option><option value="original">原始方向顺序</option></select></label>
           </div>
           <div class="gallery" id="gallery"></div>
@@ -268,17 +369,18 @@
 
         <aside class="decision" aria-labelledby="decision-title">
           <div class="decision-head"><div><p class="eyebrow">现在最重要的事</p><h2>批量决策</h2></div><span class="decision-index">01 / 02</span></div>
-          <h3 class="decision-title" id="decision-title">把样片看完</h3>
-          <p class="decision-copy">3 个方向已经有评分。先确认样片效果，之后再选 1–2 条进入精剪。</p>
+          <h3 class="decision-title" id="decision-title">确认批量样片</h3>
+          <p class="decision-copy">五个候选都已完成本地修复渲染。先逐个查看样片，再决定哪些候选进入下一阶段。</p>
           <ul class="decision-list">
-            <li class="decision-item is-done"><span class="decision-mark"></span><div><strong>结果先行</strong><span>推荐 · 8.4 分</span></div><em>已看</em></li>
-            <li class="decision-item"><span class="decision-mark"></span><div><strong>痛点先行</strong><span>可选 · 7.9 分</span></div><em>待看</em></li>
-            <li class="decision-item"><span class="decision-mark"></span><div><strong>证据链先行</strong><span>可选 · 7.6 分</span></div><em>待看</em></li>
-            <li class="decision-item is-risk"><span class="decision-mark"></span><div><strong>产品质感版</strong><span>技术失败 · 需重试</span></div><em>异常</em></li>
+            <li class="decision-item"><span class="decision-mark"></span><div><strong>结果先行</strong><span>7.6 分 · 修复版</span></div><em>待看</em></li>
+            <li class="decision-item"><span class="decision-mark"></span><div><strong>痛点先行</strong><span>7.6 分 · 修复版</span></div><em>待看</em></li>
+            <li class="decision-item"><span class="decision-mark"></span><div><strong>证据链先行</strong><span>7.6 分 · 修复版</span></div><em>待看</em></li>
+            <li class="decision-item"><span class="decision-mark"></span><div><strong>高密度快剪</strong><span>7.4 分 · 修复版</span></div><em>待看</em></li>
+            <li class="decision-item"><span class="decision-mark"></span><div><strong>产品质感版</strong><span>7.9 分 · 修复版</span></div><em>待看</em></li>
           </ul>
-          <button class="primary" id="approveButton">通过 3 个样片并进入选择</button>
+          <button class="primary" id="approveButton">通过已确认样片并进入选择</button>
           <button class="secondary-action" id="showAllButton">查看所有待处理项</button>
-          <div class="decision-foot"><div class="budget-line"><span>批次预算</span><strong>$8.20 / $30.00</strong></div><div class="budget-track" aria-label="预算使用 28%"><span></span></div><div class="budget-line"><span>当前并行</span><strong>2 / 3 个候选</strong></div></div>
+          <div class="decision-foot"><div class="budget-line"><span>批次预算</span><strong>$0.00 / $30.00</strong></div><div class="budget-track" aria-label="预算使用 0%"><span style="width:0%"></span></div><div class="budget-line"><span>当前状态</span><strong>5 / 5 等待确认</strong></div></div>
         </aside>
       </div>
     </main>
@@ -302,14 +404,57 @@
       showcase: "../../assets/showcase.jpg",
       test: "../../grok_image_1.jpeg"
     };
-    const candidates = [
-      { id: "result", label: "结果先行", score: 8.4, status: "推荐", statusClass: "recommended", summary: "先展示最终效果，再补证据。前三秒信息密度最高，产品动作最清楚。", evidence: ["钩子清楚", "口播匹配", "节奏稳定"], cost: "$1.46", stage: "7 / 7 阶段", image: media.showcase, position: "left", duration: "00:15", details: [8.8, 8.5, 8.2, 8.1, 8.4], checks: ["创意方向", "开头钩子", "核心证明", "节奏与画面", "字幕可读性"] },
-      { id: "pain", label: "痛点先行", score: 7.9, status: "可选", statusClass: "", summary: "先把桌面凌乱的痛点放大，再给出透明桌垫的解决方式。", evidence: ["情绪到位", "卖点明确", "结尾偏弱"], cost: "$1.58", stage: "7 / 7 阶段", image: media.showcase, position: "center", duration: "00:15", details: [8.2, 7.8, 8.0, 7.4, 7.9], checks: ["创意方向", "开头钩子", "核心证明", "节奏与画面", "字幕可读性"] },
-      { id: "proof", label: "证据链先行", score: 7.6, status: "可选", statusClass: "", summary: "连续呈现三组使用证据，可信度高，但开头需要更直接。", evidence: ["证据完整", "原声自然", "开场较慢"], cost: "$1.32", stage: "6 / 7 阶段", image: media.showcase, position: "right", duration: "00:15", details: [7.7, 7.2, 8.6, 7.1, 7.6], checks: ["创意方向", "开头钩子", "核心证明", "节奏与画面", "字幕可读性"] },
-      { id: "dense", label: "高密度快剪", score: null, status: "待评分", statusClass: "", summary: "样片已生成，评分还未完成。", evidence: ["样片可看"], cost: "$1.21", stage: "6 / 7 阶段", image: media.showcase, position: "center", duration: "00:15", details: [7.2, 7.8, 7.4, 8.2, 7.0], checks: ["创意方向", "开头钩子", "核心证明", "节奏与画面", "字幕可读性"] },
-      { id: "texture", label: "产品质感版", score: null, status: "技术失败", statusClass: "failed", summary: "渲染阶段出现字体加载失败，当前样片不完整。", evidence: ["需要重试"], cost: "$0.74", stage: "4 / 7 阶段", image: media.test, position: "center", duration: "—", failed: true, details: [0, 0, 0, 0, 0], checks: ["创意方向", "开头钩子", "核心证明", "节奏与画面", "字幕可读性"] }
+    const pipelineStages = [
+      { id: "research", label: "参考解析" },
+      { id: "proposal", label: "创意方案" },
+      { id: "script", label: "口播与字幕" },
+      { id: "scene_plan", label: "镜头映射" },
+      { id: "assets", label: "制作准备" },
+      { id: "sample", label: "样片确认" },
+      { id: "edit", label: "修改与精剪" },
+      { id: "compose", label: "成片生成" },
+      { id: "publish", label: "交付下载" }
     ];
-    const state = { selected: new Set(), active: null };
+    const rerunPlans = {
+      pacing: { label: "节奏与镜头", summary: "只调整镜头节奏和剪辑顺序", from: "edit", steps: ["edit", "compose"], cost: "$0.42", keeps: "保留参考解析、创意方案、剧本、素材和原始样片" },
+      copy: { label: "口播与字幕", summary: "修改文案、口播或字幕内容", from: "script", steps: ["script", "scene_plan", "assets", "sample", "edit", "compose"], cost: "$1.26", keeps: "保留参考解析与创意方向；旧版审批不会继承" },
+      visual: { label: "画面与素材", summary: "替换画面素材或视觉处理", from: "assets", steps: ["assets", "sample", "edit", "compose"], cost: "$0.88", keeps: "保留参考解析、创意方案、剧本和口播" },
+      technical: { label: "技术修复", summary: "修复字体、依赖或渲染失败", from: "sample", steps: ["sample"], cost: "$0.18", keeps: "保留全部创意内容，只重试失败阶段" }
+    };
+    const renderRuntimes = {
+      remotion: { label: "Remotion", available: true, best: "React 时间轴与现有场景组件，适合稳定批量交付。", tradeoff: "需要 Node / Chromium；复杂 HTML 动效不如 GSAP 直接。" },
+      hyperframes: { label: "HyperFrames", available: false, best: "HTML / CSS / GSAP 动效，适合动势强的品牌片和 kinetic typography。", tradeoff: "当前环境未通过 preflight；启用后需要重新验证渲染路径。" }
+    };
+    function runtimeLabel(runtime) {
+      return renderRuntimes[runtime]?.label || "未选择";
+    }
+    const rerunAnchors = {
+      opening: { label: "00:00–00:03 · 开头钩子", short: "前 3 秒", intent: "pacing", example: "直接进入产品动作，删掉开头铺垫" },
+      pacing: { label: "00:03–00:08 · 镜头节奏", short: "镜头节奏", intent: "pacing", example: "把这段切得更紧，减少停顿" },
+      copy: { label: "00:00–00:15 · 口播与字幕", short: "口播字幕", intent: "copy", example: "口播更短，字幕只保留一个核心卖点" },
+      visual: { label: "00:03–00:12 · 画面与素材", short: "画面素材", intent: "visual", example: "换成更清楚的产品特写，保持原来的卖点" },
+      failure: { label: "样片确认 · 失败阶段", short: "失败阶段", intent: "technical", example: "修复字体依赖后，只重试失败阶段" }
+    };
+    const anchorForIntent = { pacing: "pacing", copy: "copy", visual: "visual", technical: "failure" };
+    const vlmRecommendationMeta = {
+      "创意方向": { anchor: "opening", intent: "pacing", advice: "开头先给结果，再补解释，避免观众等待上下文。", evidence: "前 3 秒信息进入较慢" },
+      "开头钩子": { anchor: "opening", intent: "pacing", advice: "把第一个产品动作提前，并删掉无信息增量的铺垫。", evidence: "产品动作出现偏晚" },
+      "核心证明": { anchor: "visual", intent: "visual", advice: "替换为更清楚的产品特写，保留当前卖点顺序。", evidence: "核心证据画面不够明确" },
+      "节奏与画面": { anchor: "pacing", intent: "pacing", advice: "减少镜头停顿，压缩 00:03–00:08 的过渡。", evidence: "镜头切换存在停顿" },
+      "字幕可读性": { anchor: "copy", intent: "copy", advice: "字幕缩成两行以内，并提高关键字与背景的对比。", evidence: "00:06–00:09 对比度偏低" }
+    };
+    function stageStates(sampleStatus = "awaiting_human") {
+      return Object.fromEntries(pipelineStages.map((stage, index) => [stage.id, index < 5 ? "completed" : index === 5 ? sampleStatus : "pending"]));
+    }
+    const candidates = [
+      { id: "result", label: "结果先行", score: 7.6, status: "待确认", statusClass: "recommended", summary: "画面质感优秀，但钩子弱、产品展示不足、节奏略慢。", evidence: ["画面质感高", "无黑帧", "建议加强钩子"], cost: "$0.00", stage: "样片确认 · 5 / 9", image: media.showcase, video: "../../projects/table-mat-batch-001-c1/renders/sample-v2.mp4", position: "left", duration: "00:10", revision: 2, stageStates: stageStates(), details: [6.0, 8.5, 7.0, 9.0, 7.5], checks: ["创意方向", "开头钩子", "核心证明", "节奏与画面", "字幕可读性"] },
+      { id: "pain", label: "痛点先行", score: 7.6, status: "待确认", statusClass: "", summary: "画面质感优秀，但产品展示缺失且节奏拖沓。", evidence: ["无黑帧", "音量正常", "产品展示不足"], cost: "$0.00", stage: "样片确认 · 5 / 9", image: media.showcase, video: "../../projects/table-mat-batch-001-c2/renders/sample-v2.mp4", position: "center", duration: "00:10", revision: 2, stageStates: stageStates(), details: [7.0, 8.5, 6.5, 9.0, 7.5], checks: ["创意方向", "开头钩子", "核心证明", "节奏与画面", "字幕可读性"] },
+      { id: "proof", label: "证据链先行", score: 7.6, status: "待确认", statusClass: "", summary: "画面精美，但产品展示不足、节奏偏慢，需要加强动态演示。", evidence: ["画面精美", "无黑帧", "建议动态演示"], cost: "$0.00", stage: "样片确认 · 5 / 9", image: media.showcase, video: "../../projects/table-mat-batch-001-c3/renders/sample-v2.mp4", position: "right", duration: "00:10", revision: 2, stageStates: stageStates(), details: [7.0, 8.5, 6.5, 9.0, 7.0], checks: ["创意方向", "开头钩子", "核心证明", "节奏与画面", "字幕可读性"] },
+      { id: "dense", label: "高密度快剪", score: 7.4, status: "待确认", statusClass: "", summary: "画面质感优秀，但缺乏产品实拍和动作演示，钩子不足。", evidence: ["样片可看", "无黑帧", "产品呈现不足"], cost: "$0.00", stage: "样片确认 · 5 / 9", image: media.showcase, video: "../../projects/table-mat-batch-001-c4/renders/sample-v2.mp4", position: "center", duration: "00:10", revision: 2, stageStates: stageStates(), details: [6.5, 8.5, 6.5, 9.0, 7.0], checks: ["创意方向", "开头钩子", "核心证明", "节奏与画面", "字幕可读性"] },
+      { id: "texture", label: "产品质感版", score: 7.9, status: "待确认", statusClass: "", summary: "整体品质较高，但节奏略缓且缺乏动态演示，影响转化力。", evidence: ["口播匹配", "无黑帧", "节奏略缓"], cost: "$0.00", stage: "样片确认 · 5 / 9", image: media.test, video: "../../projects/table-mat-batch-001-c5/renders/sample-v2.mp4", position: "center", duration: "00:10", revision: 2, stageStates: stageStates(), details: [7.0, 8.5, 7.0, 9.0, 8.0], checks: ["创意方向", "开头钩子", "核心证明", "节奏与画面", "字幕可读性"] }
+    ];
+    candidates.forEach((candidate) => { candidate.renderRuntime = "remotion"; });
+    const state = { selected: new Set(), active: null, planner: null };
     const gallery = document.getElementById("gallery");
     const tray = document.getElementById("selectionTray");
     const drawer = document.getElementById("drawer");
@@ -319,6 +464,20 @@
     function showToast(message) {
       toast.textContent = message; toast.classList.add("is-visible");
       clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.remove("is-visible"), 2600);
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
+    }
+
+    function vlmRecommendations(candidate) {
+      return candidate.checks.reduce((items, label, index) => {
+        const score = candidate.details[index];
+        const meta = vlmRecommendationMeta[label];
+        if (!meta || candidate.score == null || score >= 8) return items;
+        items.push({ id: `${candidate.id}-${index}`, label, score, ...meta });
+        return items;
+      }, []);
     }
 
     function card(candidate) {
@@ -336,7 +495,7 @@
       mediaBox.append(image, top, bottom);
       const body = document.createElement("div"); body.className = "candidate-body";
       const heading = document.createElement("div"); heading.className = "candidate-heading";
-      heading.innerHTML = `<h3>${candidate.label}</h3><span class="score">${candidate.score == null ? "—" : candidate.score.toFixed(1)} <small>/ 10</small></span>`;
+      heading.innerHTML = `<h3>${candidate.label}</h3><span class="score">${candidate.score == null ? "—" : `${candidate.rerun ? "当前版 " : ""}${candidate.score.toFixed(1)}`} <small>/ 10</small></span>`;
       const summary = document.createElement("p"); summary.className = "candidate-summary"; summary.textContent = candidate.summary;
       const evidence = document.createElement("div"); evidence.className = "evidence-row";
       candidate.evidence.forEach((item, index) => { const tag = document.createElement("span"); tag.className = `evidence${candidate.failed || index === candidate.evidence.length - 1 && candidate.score != null && candidate.score < 8 ? " warn" : ""}`; tag.textContent = item; evidence.append(tag); });
@@ -349,26 +508,453 @@
 
     function renderGallery(list = candidates) { gallery.replaceChildren(...list.map(card)); }
 
+    function stageProgressMarkup(candidate) {
+      const statuses = candidate.stageStates || stageStates();
+      const completed = pipelineStages.filter((stage) => statuses[stage.id] === "completed").length;
+      const current = pipelineStages.find((stage) => ["awaiting_human", "in_progress", "failed"].includes(statuses[stage.id]));
+      const currentStatus = current ? ({ awaiting_human: "等待确认", in_progress: "重跑中", failed: "处理失败" }[statuses[current.id]] || "进行中") : "已完成";
+      const segments = pipelineStages.map((stage) => `<span class="stage-segment ${statuses[stage.id] === "completed" ? "done" : statuses[stage.id] === "failed" ? "failed" : ["awaiting_human", "in_progress"].includes(statuses[stage.id]) ? "current" : ""}" aria-label="${stage.label}：${statuses[stage.id]}"></span>`).join("");
+      const labels = pipelineStages.map((stage) => `<span class="stage-label ${statuses[stage.id] === "completed" ? "done" : statuses[stage.id] === "failed" ? "failed" : ["awaiting_human", "in_progress"].includes(statuses[stage.id]) ? "current" : ""}">${stage.label}</span>`).join("");
+      return `<section class="stage-progress"><div class="stage-progress-head"><strong>制作进度</strong><span>${completed} / ${pipelineStages.length} 已完成 · ${current ? current.label : "全部阶段"} · ${currentStatus}</span></div><div class="stage-track">${segments}</div><div class="stage-labels">${labels}</div></section>`;
+    }
+
+    function plannerVlmMarkup(candidate) {
+      const findings = vlmRecommendations(candidate);
+      if (!findings.length) return `<p class="vlm-empty">VLM 当前没有标记低于 8.0 的维度。你仍可以用下面的定位和文字描述提出修改。</p>`;
+      return `<div class="vlm-options">${findings.map((finding) => `<label class="vlm-option"><input type="checkbox" data-vlm-finding="${finding.id}"><span><strong>${finding.label} · ${finding.evidence}</strong><small>${finding.advice}</small></span><em class="vlm-score">${finding.score.toFixed(1)} / 10</em></label>`).join("")}</div>`;
+    }
+
+    function plannerSelectedFindings(candidate) {
+      const selected = new Set(state.planner?.vlmSelections || []);
+      return vlmRecommendations(candidate).filter((finding) => selected.has(finding.id));
+    }
+
+    function plannerPlan(candidate) {
+      const findings = plannerSelectedFindings(candidate);
+      let plan;
+      if (!findings.length) {
+        const source = rerunPlans[state.planner.intent];
+        plan = { ...source, steps: [...source.steps] };
+      } else {
+        const starts = findings.map((finding) => rerunPlans[finding.intent].from);
+        const fromIndex = Math.min(...starts.map((stageId) => pipelineStages.findIndex((stage) => stage.id === stageId)));
+        const composeIndex = pipelineStages.findIndex((stage) => stage.id === "compose");
+        const uniquePlans = [...new Map(findings.map((finding) => [finding.intent, rerunPlans[finding.intent]])).values()];
+        const baseCosts = uniquePlans.map((item) => Number.parseFloat(item.cost.slice(1)));
+        const cost = uniquePlans.length === 1 ? `$${baseCosts[0].toFixed(2)}` : `$${Math.max(...baseCosts).toFixed(2)}+`;
+        plan = {
+          label: findings.length > 1 ? "组合修改" : rerunPlans[findings[0].intent].label,
+          summary: findings.map((finding) => finding.label).join("、"),
+          from: pipelineStages[fromIndex].id,
+          steps: pipelineStages.slice(fromIndex, composeIndex + 1).map((stage) => stage.id),
+          cost,
+          keeps: findings.length > 1 ? "保留未受影响的前置阶段；旧版审批不会继承" : rerunPlans[findings[0].intent].keeps
+        };
+      }
+      const currentRuntime = candidate.renderRuntime || "remotion";
+      const selectedRuntime = state.planner.renderRuntime || currentRuntime;
+      if (selectedRuntime === currentRuntime) return plan;
+      const editIndex = pipelineStages.findIndex((stage) => stage.id === "edit");
+      const planFromIndex = pipelineStages.findIndex((stage) => stage.id === plan.from);
+      const fromIndex = Math.min(planFromIndex, editIndex);
+      const composeIndex = pipelineStages.findIndex((stage) => stage.id === "compose");
+      const baseCost = Number.parseFloat(plan.cost.replace(/[^0-9.]/g, "")) || 0;
+      return {
+        ...plan,
+        label: `${plan.label} + 切换引擎`,
+        from: pipelineStages[fromIndex].id,
+        steps: pipelineStages.slice(fromIndex, composeIndex + 1).map((stage) => stage.id),
+        cost: `$${(baseCost + 0.36).toFixed(2)}`,
+        keeps: `${plan.keeps}；旧引擎成片不复用，保留为对照版本`
+      };
+    }
+
+    function averageScore(details) {
+      return Number((details.reduce((sum, score) => sum + score, 0) / details.length).toFixed(1));
+    }
+
+    function captureRerunBase(candidate) {
+      return {
+        revision: candidate.revision,
+        score: candidate.score,
+        status: candidate.status,
+        statusClass: candidate.statusClass,
+        summary: candidate.summary,
+        evidence: [...candidate.evidence],
+        stage: candidate.stage,
+        stageStates: { ...candidate.stageStates },
+        failed: candidate.failed,
+        details: [...candidate.details]
+      };
+    }
+
+    function restoreRerunBase(candidate, base) {
+      if (candidate.rerun?.previewTimer) clearTimeout(candidate.rerun.previewTimer);
+      if (candidate.rerun?.fullTimer) clearTimeout(candidate.rerun.fullTimer);
+      Object.assign(candidate, {
+        revision: base.revision,
+        score: base.score,
+        status: base.status,
+        statusClass: base.statusClass,
+        summary: base.summary,
+        evidence: [...base.evidence],
+        stage: base.stage,
+        stageStates: { ...base.stageStates },
+        failed: base.failed,
+        details: [...base.details],
+        rerun: null
+      });
+    }
+
+    function rerunStageStates(fromStage, stopStage, stopStatus = "awaiting_human") {
+      const fromIndex = pipelineStages.findIndex((stage) => stage.id === fromStage);
+      const stopIndex = pipelineStages.findIndex((stage) => stage.id === stopStage);
+      return Object.fromEntries(pipelineStages.map((stage, index) => [stage.id, index < fromIndex ? "completed" : index < stopIndex ? "completed" : index === stopIndex ? stopStatus : "pending"]));
+    }
+
+    function completeStageStates() {
+      return Object.fromEntries(pipelineStages.map((stage) => [stage.id, "completed"]));
+    }
+
+    function refreshCandidate(candidate) {
+      renderGallery();
+      updateTray();
+      if (drawer.classList.contains("is-open") && state.active === candidate.id) openDrawer(candidate.id);
+    }
+
+    function rerunExpectation(candidate, plan, instruction) {
+      const target = instruction.trim() || `按「${plan.label}」修正${plan.summary || "当前问题"}`;
+      const currentRuntime = candidate.renderRuntime || "remotion";
+      const selectedRuntime = state.planner?.renderRuntime || currentRuntime;
+      const runtimeChange = selectedRuntime === currentRuntime ? `沿用 ${runtimeLabel(currentRuntime)}` : `渲染引擎从 ${runtimeLabel(currentRuntime)} 切换为 ${runtimeLabel(selectedRuntime)}`;
+      return `${target}。${runtimeChange}；系统只重跑受影响阶段，未改动内容沿用 v${candidate.revision}。`;
+    }
+
+    function previewStopFor(plan) {
+      return plan.from === "edit" ? "compose" : "sample";
+    }
+
+    function startPreview(candidate, run) {
+      run.previewTimer = setTimeout(() => finishPreview(candidate), 900);
+    }
+
+    function finishPreview(candidate) {
+      const run = candidate.rerun;
+      if (!run || run.phase !== "preview_running") return;
+      run.phase = "awaiting_preview_review";
+      run.progress = 100;
+      run.currentStage = run.previewStopStage;
+      run.previewScore = run.baseScore == null ? null : Number(Math.min(9.6, run.baseScore + (run.plan.from === "edit" ? 0.3 : 0.2)).toFixed(1));
+      run.previewDetails = run.baseDetails.map((score, index) => index === 1 || index === 3 ? Number(Math.min(9.8, score + 0.5).toFixed(1)) : score);
+      if (run.plan.steps.length === 1) {
+        run.phase = "awaiting_final_review";
+        run.finalScore = run.previewScore;
+        run.finalDetails = run.previewDetails;
+        candidate.status = "修复待确认";
+        candidate.statusClass = "rerun-review";
+        candidate.summary = `失败阶段已修复；确认后才会替换当前版 v${run.baseRevision}。`;
+        candidate.evidence = ["失败阶段已重试", "等待采用"];
+        candidate.stage = `${pipelineStages.find((stage) => stage.id === run.previewStopStage).label} · 待确认`;
+        candidate.stageStates = rerunStageStates(run.plan.from, run.plan.from, "awaiting_human");
+        refreshCandidate(candidate);
+        showToast(`${candidate.label} 的失败阶段已修复，请确认是否采用`);
+        return;
+      }
+      candidate.status = "预览待确认";
+      candidate.statusClass = "rerun-review";
+      candidate.summary = `预览已就绪；当前版 v${run.baseRevision} 仍可继续使用。`;
+      candidate.evidence = ["预览已生成", "旧版保留"];
+      candidate.stage = `${pipelineStages.find((stage) => stage.id === run.previewStopStage).label} · 预览待确认`;
+      candidate.stageStates = rerunStageStates(run.plan.from, run.previewStopStage, "awaiting_human");
+      refreshCandidate(candidate);
+      showToast(`${candidate.label} 的预览已就绪，请先确认变化是否符合预期`);
+    }
+
+    function continueFullRerun(candidate) {
+      const run = candidate.rerun;
+      if (!run || run.phase !== "awaiting_preview_review") return;
+      run.phase = "full_running";
+      run.progress = 54;
+      run.currentStage = run.plan.from;
+      candidate.status = "重跑中";
+      candidate.statusClass = "rerunning";
+      candidate.summary = `预览已通过，正在生成 v${run.targetRevision} 完整成片。`;
+      candidate.evidence = ["预览已通过", "完整成片生成中"];
+      candidate.stage = `${pipelineStages.find((stage) => stage.id === run.plan.from).label} · 重跑中`;
+      candidate.stageStates = rerunStageStates(run.plan.from, run.plan.from, "in_progress");
+      refreshCandidate(candidate);
+      run.fullTimer = setTimeout(() => finishFullRerun(candidate), 1200);
+    }
+
+    function finishFullRerun(candidate) {
+      const run = candidate.rerun;
+      if (!run || run.phase !== "full_running") return;
+      run.phase = "awaiting_final_review";
+      run.progress = 100;
+      run.currentStage = "compose";
+      run.finalScore = run.baseScore == null ? null : Number(Math.min(9.7, run.baseScore + (run.plan.from === "edit" ? 0.4 : 0.3)).toFixed(1));
+      run.finalDetails = run.previewDetails || run.baseDetails;
+      candidate.status = "成片待确认";
+      candidate.statusClass = "rerun-review";
+      candidate.score = run.baseScore;
+      candidate.summary = `v${run.targetRevision} 已生成，确认后才会替换当前版本。`;
+      candidate.evidence = ["完整成片已生成", "等待采用"];
+      candidate.stage = "成片确认 · 待采用";
+      candidate.stageStates = rerunStageStates(run.plan.from, "compose", "awaiting_human");
+      refreshCandidate(candidate);
+      showToast(`${candidate.label} 的完整成片已生成，请确认是否采用`);
+    }
+
+    function discardRerun(candidate, message = "已放弃新版本，继续使用当前版") {
+      const base = candidate.rerun?.base;
+      if (!base) return;
+      restoreRerunBase(candidate, base);
+      state.selected.delete(candidate.id);
+      state.planner = null;
+      refreshCandidate(candidate);
+      showToast(`${candidate.label} ${message}`);
+    }
+
+    function promoteRerun(candidate) {
+      const run = candidate.rerun;
+      if (!run || run.phase !== "awaiting_final_review") return;
+      if (run.previewTimer) clearTimeout(run.previewTimer);
+      if (run.fullTimer) clearTimeout(run.fullTimer);
+      Object.assign(candidate, {
+        revision: run.targetRevision,
+        score: run.finalScore,
+        status: run.finalScore >= 8 ? "可选" : "待评分",
+        statusClass: run.finalScore >= 8 ? "" : "",
+        summary: `已采用 v${run.targetRevision}；${run.plan.label} 修改完成。`,
+        evidence: ["新版本已采用", "VLM 复评完成"],
+        stage: "成片确认 · 8 / 9",
+        stageStates: rerunStageStates(run.plan.from, "publish", "awaiting_human"),
+        renderRuntime: run.renderRuntime || candidate.renderRuntime || "remotion",
+        failed: false,
+        details: [...run.finalDetails],
+        rerun: null
+      });
+      state.selected.delete(candidate.id);
+      state.planner = null;
+      refreshCandidate(candidate);
+      showToast(`${candidate.label} 已采用 v${candidate.revision}，旧版仍保留在版本历史`);
+    }
+
+    function rerunMonitorMarkup(candidate) {
+      const run = candidate.rerun;
+      if (!run) return "";
+      const path = run.plan.steps.map((stageId, index) => `${index ? `<span class="plan-arrow">→</span>` : ""}<span class="plan-step">${pipelineStages.find((stage) => stage.id === stageId).label}</span>`).join("");
+      const expected = escapeHtml(run.expectation);
+      const base = `v${run.baseRevision}`;
+      const target = `v${run.targetRevision}`;
+      if (run.phase === "preview_running" || run.phase === "full_running") {
+        const full = run.phase === "full_running";
+        return `<section class="rerun-monitor"><div class="rerun-monitor-head"><strong>${full ? "完整重跑中" : "先出可审阅预览"}</strong><span>${base} → ${target}</span></div><p class="rerun-monitor-copy">${full ? "预览已通过，正在继续生成完整成片。" : `先跑到「${pipelineStages.find((stage) => stage.id === run.previewStopStage).label}」，当前版本仍保持可用。`}</p><div class="plan-path">${path}</div><div class="rerun-progress"><i style="width:${run.progress}%"></i></div><div class="rerun-progress-meta"><span>${full ? "完整成片生成" : `正在${pipelineStages.find((stage) => stage.id === run.currentStage).label}`}</span><span>${run.progress}% · ${full ? "约 2 分钟" : "约 45 秒"}</span></div><div class="rerun-expectation"><strong>本次预期变化</strong><span>${expected}</span></div><div class="rerun-action-row"><button type="button" class="rerun-secondary" data-rerun-action="view-old">继续使用当前版 ${base}</button><button type="button" class="rerun-danger" data-rerun-action="cancel">取消本次重跑</button></div></section>`;
+      }
+      const preview = run.phase === "awaiting_preview_review";
+      const shortRun = run.plan.steps.length === 1;
+      const currentScore = preview ? run.previewScore : run.finalScore;
+      const score = currentScore == null ? "待 VLM 复评" : `${currentScore.toFixed(1)} / 10`;
+      const scoreDelta = currentScore == null || run.baseScore == null ? null : (currentScore - run.baseScore).toFixed(1);
+      const title = preview ? "预览已就绪" : shortRun ? "修复结果已就绪" : "完整成片已就绪";
+      const copy = preview ? "先看变化是否符合预期，再决定是否继续完整重跑。" : shortRun ? "只重试失败阶段，确认后才会替换当前版本。" : "新版本已生成，确认后才会替换当前版本。";
+      const action = preview ? `<button type="button" class="rerun-primary" data-rerun-action="continue-full">接受预览，继续完整重跑</button><button type="button" class="rerun-secondary" data-rerun-action="edit-scope">调整修改范围</button>` : `<button type="button" class="rerun-primary" data-rerun-action="accept-final">采用 ${target} 作为当前版本</button>`;
+      return `<section class="rerun-monitor"><div class="rerun-monitor-head"><strong>${title}</strong><span>${base} → ${target}</span></div><p class="rerun-monitor-copy">${copy}</p><div class="rerun-compare"><figure><img src="${candidate.image}" alt="当前版本 ${base}"><figcaption>当前版本 ${base}（继续可用）</figcaption></figure><figure><img class="is-new" src="${run.previewImage || candidate.image}" alt="新版本 ${target} 预览"><figcaption>新版本 ${target} 预览</figcaption></figure></div><div class="rerun-delta"><span>预估质量 ${score}</span><strong>${scoreDelta == null ? "待复评" : `${Number(scoreDelta) >= 0 ? "+" : ""}${scoreDelta}`}</strong></div><div class="rerun-expectation"><strong>本次预期变化</strong><span>${expected}</span></div><div class="rerun-action-row">${action}<button type="button" class="rerun-danger" data-rerun-action="discard">不满意，保留 ${base}</button></div></section>`;
+    }
+
+    function rerunPlannerMarkup(candidate) {
+      const currentRuntime = candidate.renderRuntime || "remotion";
+      return `<section class="rerun-planner" id="rerunPlanner" hidden><h3>自动规划最小修改路径</h3><p class="planner-intro">VLM 先给建议，你确认范围后再规划重跑。</p><div class="planner-block"><div class="planner-label-row"><strong>1. VLM 低分建议</strong><span>勾选本次要处理的项</span></div>${plannerVlmMarkup(candidate)}</div><div class="planner-block"><div class="planner-label-row"><strong>2. 定位问题</strong><span>时间段 / 质量维度</span></div><div class="locator-chips"><button type="button" class="locator-chip" data-rerun-anchor="opening"><strong>前 3 秒</strong><small>开头钩子</small></button><button type="button" class="locator-chip" data-rerun-anchor="pacing"><strong>镜头节奏</strong><small>00:03–00:08</small></button><button type="button" class="locator-chip" data-rerun-anchor="copy"><strong>口播字幕</strong><small>00:00–00:15</small></button><button type="button" class="locator-chip" data-rerun-anchor="visual"><strong>画面素材</strong><small>00:03–00:12</small></button><button type="button" class="locator-chip" data-rerun-anchor="failure"><strong>失败阶段</strong><small>技术修复</small></button></div></div><div class="planner-block"><div class="planner-label-row"><strong>3. 补充修改目标</strong><span>可改写建议</span></div><textarea class="intent-input" id="rerunInstruction" maxlength="160" placeholder="例如：前 3 秒直接进入产品动作，删掉第一段铺垫"></textarea><p class="intent-hint">VLM 建议会先生成草稿，你可以改写；也可用「位置 + 问题 + 目标」补充。</p></div><div class="planner-block"><div class="planner-label-row"><strong>4. 修改类型</strong><span>系统据此计算依赖</span></div><div class="plan-options"><button type="button" class="plan-option" data-rerun-intent="pacing"><span><strong>节奏与镜头</strong><span>开头太慢、镜头顺序或剪辑节奏</span></span><em>最小重跑</em></button><button type="button" class="plan-option" data-rerun-intent="copy"><span><strong>口播与字幕</strong><span>改文案、口播、字幕或卖点表达</span></span><em>影响较大</em></button><button type="button" class="plan-option" data-rerun-intent="visual"><span><strong>画面与素材</strong><span>替换素材、镜头画面或视觉处理</span></span><em>重新取样</em></button><button type="button" class="plan-option" data-rerun-intent="technical"><span><strong>技术修复</strong><span>字体、依赖、渲染失败或样片损坏</span></span><em>只重试失败阶段</em></button></div></div><div class="planner-block"><div class="planner-label-row"><strong>5. 渲染引擎</strong><span>当前锁定：${runtimeLabel(currentRuntime)}</span></div><div class="runtime-options">${Object.entries(renderRuntimes).map(([id, runtime]) => `<button type="button" class="runtime-option${id === currentRuntime ? " is-active" : ""}" data-render-runtime="${id}"${runtime.available ? "" : " disabled"}><strong>${runtime.label}</strong><small>${runtime.best}</small><em>${!runtime.available ? "当前环境不可用" : id === currentRuntime ? "沿用当前锁定" : "切换需重新确认"}</em></button>`).join("")}</div><p class="runtime-note">提案阶段会锁定引擎。局部修改默认沿用 ${runtimeLabel(currentRuntime)}；HyperFrames 通过环境预检后才可选择。</p></div><div class="plan-result" id="planResult"></div></section>`;
+    }
+
+    function renderPlanResult() {
+      if (!state.planner) return;
+      const candidate = candidates.find((item) => item.id === state.planner.candidateId);
+      const plan = candidate && plannerPlan(candidate);
+      const anchor = rerunAnchors[state.planner.anchor] || rerunAnchors[anchorForIntent[state.planner.intent]];
+      const result = document.getElementById("planResult");
+      if (!candidate || !plan || !anchor || !result) return;
+      const path = plan.steps.map((stageId, index) => `${index ? `<span class="plan-arrow">→</span>` : ""}<span class="plan-step">${pipelineStages.find((stage) => stage.id === stageId).label}</span>`).join("");
+      const instruction = escapeHtml((state.planner.instruction || anchor.example).trim());
+      const findings = plannerSelectedFindings(candidate);
+      const vlmScope = findings.length ? findings.map((finding) => `${finding.label} ${finding.score.toFixed(1)}`).join("、") : "无低分建议";
+      const userScope = state.planner.instruction && !state.planner.instructionAuto ? instruction : "未补充";
+      const displayAnchor = findings.length > 1 ? `组合定位 · ${findings.map((finding) => finding.label).join("、")}` : anchor.label;
+      const interpretationLabel = state.planner.instructionAuto ? "系统草稿" : "已理解";
+      const instructionAnchor = state.planner.instructionAnchor && rerunAnchors[state.planner.instructionAnchor];
+      const locationConflict = instructionAnchor && instructionAnchor.label !== anchor.label;
+      const clarification = locationConflict ? `<p class="plan-clarification">描述仍指向「${escapeHtml(instructionAnchor.short)}」，当前定位是「${escapeHtml(anchor.short)}」。请重新编辑描述，或切回原定位。</p>` : "";
+      const currentRuntime = candidate.renderRuntime || "remotion";
+      const selectedRuntime = state.planner.renderRuntime || currentRuntime;
+      const runtimeChanged = selectedRuntime !== currentRuntime;
+      const runtimeNotice = runtimeChanged ? `<p class="runtime-note is-warning">已选择 ${runtimeLabel(selectedRuntime)}。这是一次高影响决策，会改变渲染路径和视觉表现；确认后将写入新的 runtime decision。</p>` : `<p class="runtime-note">沿用当前锁定的 ${runtimeLabel(currentRuntime)}，保证局部修改和原版可比。</p>`;
+      result.innerHTML = `<div class="plan-result-head"><strong>建议路径：从「${pipelineStages.find((stage) => stage.id === plan.from).label}」开始</strong><span>预计 ${plan.cost}</span></div><div class="plan-path">${path}</div><p class="plan-interpretation"><strong>${interpretationLabel}：</strong>${escapeHtml(displayAnchor)} · ${instruction}</p><p class="plan-scope"><strong>VLM 建议范围：</strong>${escapeHtml(vlmScope)}<br><strong>用户补充范围：</strong>${userScope}</p><p class="plan-scope"><strong>渲染引擎：</strong>${runtimeLabel(selectedRuntime)}${runtimeChanged ? "（切换，需重新确认）" : "（沿用当前锁定）"}</p>${clarification}${runtimeNotice}<p class="plan-keeps"><strong>会保留：</strong>${plan.keeps}。将创建新版本 v${(candidate.revision || 0) + 1}，旧版审批不会自动继承。</p>`;
+      document.querySelectorAll("[data-rerun-intent]").forEach((button) => button.classList.toggle("is-active", button.dataset.rerunIntent === state.planner.intent));
+      document.querySelectorAll("[data-rerun-anchor]").forEach((button) => button.classList.toggle("is-active", button.dataset.rerunAnchor === state.planner.anchor));
+      document.querySelectorAll("[data-render-runtime]").forEach((button) => button.classList.toggle("is-active", button.dataset.renderRuntime === state.planner.renderRuntime));
+    }
+
+    function syncDrawerActions(candidate) {
+      const rejectButton = document.getElementById("rejectButton");
+      const approveButton = document.getElementById("drawerApprove");
+      rejectButton.disabled = false;
+      approveButton.disabled = false;
+      const rerunPhase = candidate.rerun?.phase;
+      if (rerunPhase === "preview_running" || rerunPhase === "full_running") {
+        rejectButton.disabled = true;
+        approveButton.disabled = true;
+        rejectButton.textContent = "重跑中";
+        approveButton.textContent = "等待新版本";
+        return;
+      }
+      if (rerunPhase === "awaiting_preview_review" || rerunPhase === "awaiting_final_review") {
+        rejectButton.disabled = true;
+        approveButton.disabled = true;
+        rejectButton.textContent = "请在预览区决策";
+        approveButton.textContent = "等待采用版本";
+        return;
+      }
+      if (state.planner) {
+        rejectButton.textContent = "返回质量信息";
+        approveButton.disabled = false;
+        approveButton.textContent = "确认路径并重跑";
+        return;
+      }
+      rejectButton.textContent = candidate.failed ? "修复并重跑" : "修改并重跑";
+      approveButton.disabled = candidate.failed || candidate.score == null;
+      approveButton.textContent = candidate.failed ? "查看失败原因" : candidate.score == null ? "等待评分" : state.selected.has(candidate.id) ? "已选入精剪" : "确认此候选";
+    }
+
     let lastTrigger = null;
     function openDrawer(id) {
       const candidate = candidates.find((item) => item.id === id); if (!candidate) return;
-      state.active = candidate.id; document.getElementById("drawerTitle").textContent = candidate.label; document.getElementById("drawerSubtitle").textContent = candidate.summary;
+      state.active = candidate.id; state.planner = null; document.getElementById("drawerTitle").textContent = candidate.label; document.getElementById("drawerSubtitle").textContent = `${candidate.summary} · v${candidate.revision || 1}`;
       const scroll = document.getElementById("drawerScroll");
       const bars = ["创意方向", "开头钩子", "核心证明", "节奏与画面", "字幕可读性"].map((label, index) => `<div class="score-bar"><span>${label}</span><i><span style="width:${candidate.details[index] * 10}%"></span></i><b>${candidate.score == null ? "—" : candidate.details[index].toFixed(1)}</b></div>`).join("");
-      const checks = candidate.checks.map((label) => `<div class="confirm-row"><span class="confirm-check">✓</span><strong>${label}</strong><span>${candidate.failed ? "未完成" : "通过"}</span></div>`).join("");
+      const checks = candidate.checks.map((label) => `<div class="confirm-row"><span class="confirm-check">✓</span><strong>${label}</strong><span>${candidate.rerun ? "当前版" : candidate.failed ? "未完成" : "通过"}</span></div>`).join("");
       scroll.innerHTML = `
-        <div class="drawer-video"><img src="${candidate.image}" alt="${candidate.label}完整样片预览" style="object-position:${candidate.position}"><div class="video-caption"><span>${candidate.failed ? "样片不完整" : "样片预览 · 00:00—00:03"}</span><span>${candidate.duration}</span></div></div>
-        <section class="drawer-section"><h3>质量判断</h3><div class="score-summary"><div class="big-score">${candidate.score == null ? "—" : candidate.score.toFixed(1)}<span> / 10</span></div><div class="score-bars">${bars}</div></div></section>
+        <div class="drawer-video">${candidate.video ? `<video controls preload="metadata" poster="${candidate.image}" aria-label="${candidate.label}修复版样片"><source src="${candidate.video}" type="video/mp4">当前浏览器不支持视频预览</video>` : `<img src="${candidate.image}" alt="${candidate.label}完整样片预览" style="object-position:${candidate.position}">`}<div class="video-caption"><span>${candidate.failed ? "样片不完整" : "修复版样片 · 可直接播放"}</span><span>${candidate.duration}</span></div></div>
+        ${stageProgressMarkup(candidate)}
+        ${rerunMonitorMarkup(candidate)}
+        ${rerunPlannerMarkup(candidate)}
+        <section class="drawer-section"><h3>${candidate.rerun ? "当前版本质量" : "质量判断"}</h3><div class="score-summary"><div class="big-score">${candidate.score == null ? "—" : candidate.score.toFixed(1)}<span> / 10</span></div><div class="score-bars">${bars}</div></div></section>
         <section class="drawer-section"><h3>样片效果确认</h3><div class="confirm-list">${checks}</div></section>
         <section class="drawer-section"><h3>三轨状态</h3><div class="track-list"><div class="track"><strong>口播</strong><span>${candidate.failed ? "未完成" : "清晰 · 已对齐"}</span></div><div class="track"><strong>BGM</strong><span>${candidate.failed ? "未完成" : "已匹配"}</span></div><div class="track"><strong>原声</strong><span>${candidate.failed ? "未完成" : "保留"}</span></div></div></section>
-        <section class="drawer-section"><h3>制作证据</h3><div class="evidence-grid"><div class="fact"><span>制作成本</span><strong>${candidate.cost}</strong></div><div class="fact"><span>重试次数</span><strong>${candidate.failed ? "1 次" : "0 次"}</strong></div><div class="fact"><span>渲染引擎</span><strong>Remotion</strong></div><div class="fact"><span>当前版本</span><strong>v${candidate.failed ? "1" : "3"}</strong></div></div>${candidate.failed ? `<p style="margin:12px 0 0;color:var(--coral);font-size:12px;line-height:1.55">失败原因：字体加载失败，样片画面不完整。建议先修复字体依赖，再重新提交。</p>` : ""}</section>`;
-      const approveButton = document.getElementById("drawerApprove");
-      approveButton.disabled = candidate.score == null;
-      approveButton.textContent = candidate.failed ? "关闭详情" : candidate.score == null ? "等待评分" : state.selected.has(candidate.id) ? "已选入精剪" : "确认此候选";
+        <section class="drawer-section"><h3>制作证据</h3><div class="evidence-grid"><div class="fact"><span>制作成本</span><strong>${candidate.cost}</strong></div><div class="fact"><span>重试次数</span><strong>${candidate.failed ? "1 次" : "0 次"}</strong></div><div class="fact"><span>渲染引擎</span><strong>${runtimeLabel(candidate.rerun?.renderRuntime || candidate.renderRuntime || "remotion")}</strong></div><div class="fact"><span>当前版本</span><strong>v${candidate.revision || 1}</strong></div></div>${candidate.failed ? `<p style="margin:12px 0 0;color:var(--coral);font-size:12px;line-height:1.55">失败原因：字体加载失败，样片画面不完整。建议先修复字体依赖，再重新提交。</p>` : ""}</section>`;
+      scroll.querySelectorAll("[data-vlm-finding]").forEach((checkbox) => checkbox.addEventListener("change", () => {
+        const selections = new Set(state.planner.vlmSelections || []);
+        if (checkbox.checked) selections.add(checkbox.dataset.vlmFinding); else selections.delete(checkbox.dataset.vlmFinding);
+        state.planner.vlmSelections = [...selections];
+        const selectedFindings = plannerSelectedFindings(candidate);
+        const input = document.getElementById("rerunInstruction");
+        if (state.planner.instructionAuto && selectedFindings.length) {
+          state.planner.instruction = selectedFindings.map((finding) => finding.advice).join("；");
+          state.planner.instructionAnchor = selectedFindings[0].anchor;
+          if (input) input.value = state.planner.instruction;
+          state.planner.anchor = selectedFindings[0].anchor;
+          state.planner.intent = selectedFindings[0].intent;
+        } else if (state.planner.instructionAuto && !selectedFindings.length) {
+          state.planner.instruction = "";
+          state.planner.instructionAnchor = null;
+          if (input) input.value = "";
+        }
+        renderPlanResult();
+      }));
+      scroll.querySelectorAll("[data-rerun-anchor]").forEach((button) => button.addEventListener("click", () => {
+        const anchor = rerunAnchors[button.dataset.rerunAnchor];
+        state.planner.anchor = button.dataset.rerunAnchor;
+        state.planner.intent = anchor.intent;
+        const input = document.getElementById("rerunInstruction");
+        if (input && state.planner.instructionAuto) { state.planner.instruction = anchor.example; state.planner.instructionAnchor = button.dataset.rerunAnchor; input.value = anchor.example; }
+        renderPlanResult();
+      }));
+      scroll.querySelectorAll("[data-rerun-intent]").forEach((button) => button.addEventListener("click", () => {
+        state.planner.intent = button.dataset.rerunIntent;
+        state.planner.anchor = anchorForIntent[state.planner.intent];
+        const anchor = rerunAnchors[state.planner.anchor];
+        const input = document.getElementById("rerunInstruction");
+        if (input && state.planner.instructionAuto) { state.planner.instruction = anchor.example; state.planner.instructionAnchor = state.planner.anchor; input.value = anchor.example; }
+        renderPlanResult();
+      }));
+      scroll.querySelector("#rerunInstruction")?.addEventListener("input", (event) => { state.planner.instruction = event.target.value; state.planner.instructionAnchor = state.planner.anchor; state.planner.instructionAuto = false; renderPlanResult(); });
+      scroll.querySelectorAll("[data-render-runtime]").forEach((button) => button.addEventListener("click", () => {
+        state.planner.renderRuntime = button.dataset.renderRuntime;
+        renderPlanResult();
+      }));
+      scroll.querySelectorAll("[data-rerun-action]").forEach((button) => button.addEventListener("click", () => {
+        const action = button.dataset.rerunAction;
+        if (action === "view-old") { closeDrawer(); showToast(`当前版 v${candidate.rerun?.baseRevision || candidate.revision} 仍可继续使用`); return; }
+        if (action === "cancel" || action === "discard") { discardRerun(candidate, action === "cancel" ? "已取消本次重跑，继续使用当前版" : "已放弃新版本，继续使用当前版"); closeDrawer(); return; }
+        if (action === "continue-full") { continueFullRerun(candidate); return; }
+        if (action === "accept-final") { promoteRerun(candidate); closeDrawer(); return; }
+        if (action === "edit-scope") {
+          const base = candidate.rerun?.base;
+          if (base) restoreRerunBase(candidate, base);
+          refreshCandidate(candidate);
+          openRerunPlanner();
+        }
+      }));
+      syncDrawerActions(candidate);
       lastTrigger = document.activeElement; drawer.classList.add("is-open"); backdrop.classList.add("is-open"); drawer.setAttribute("aria-hidden", "false"); drawer.removeAttribute("inert"); document.body.style.overflow = "hidden"; document.getElementById("drawerTitle").setAttribute("tabindex", "-1"); document.getElementById("drawerTitle").focus();
     }
 
-    function closeDrawer() { drawer.classList.remove("is-open"); backdrop.classList.remove("is-open"); drawer.setAttribute("aria-hidden", "true"); drawer.setAttribute("inert", ""); document.body.style.overflow = ""; state.active = null; if (lastTrigger && typeof lastTrigger.focus === "function") lastTrigger.focus(); }
+    function closeDrawer() { drawer.classList.remove("is-open"); backdrop.classList.remove("is-open"); drawer.setAttribute("aria-hidden", "true"); drawer.setAttribute("inert", ""); document.body.style.overflow = ""; state.active = null; state.planner = null; if (lastTrigger && typeof lastTrigger.focus === "function") lastTrigger.focus(); }
+
+    function openRerunPlanner() {
+      const candidate = candidates.find((item) => item.id === state.active); if (!candidate) return;
+      if (candidate.rerun) { showToast("新版本正在处理，请先在预览区完成决策"); return; }
+      const anchor = candidate.failed ? "failure" : "opening";
+      state.planner = { candidateId: candidate.id, intent: rerunAnchors[anchor].intent, anchor, instruction: "", instructionAnchor: null, instructionAuto: true, vlmSelections: [], renderRuntime: candidate.renderRuntime || "remotion" };
+      const planner = document.getElementById("rerunPlanner"); if (planner) planner.hidden = false;
+      syncDrawerActions(candidate); renderPlanResult();
+      planner?.querySelector("[data-rerun-intent].is-active")?.focus();
+    }
+
+    function confirmRerun() {
+      const candidate = candidates.find((item) => item.id === state.active); const plan = state.planner && candidate && plannerPlan(candidate);
+      if (!candidate || !plan) return;
+      if (state.planner.instructionAnchor && state.planner.instructionAnchor !== state.planner.anchor) { showToast("请先让定位和修改描述保持一致"); return; }
+      if (!renderRuntimes[state.planner.renderRuntime]?.available) { showToast(`${runtimeLabel(state.planner.renderRuntime)} 当前环境不可用，请先通过运行时预检`); return; }
+      const instruction = (state.planner.instruction || "").trim() || (rerunAnchors[state.planner.anchor] || rerunAnchors[anchorForIntent[state.planner.intent]]).example;
+      const base = captureRerunBase(candidate);
+      const fromIndex = pipelineStages.findIndex((stage) => stage.id === plan.from);
+      const previewStopStage = previewStopFor(plan);
+      const run = {
+        id: `rerun-${candidate.id}-${Date.now()}`,
+        phase: "preview_running",
+        base,
+        baseRevision: base.revision || 1,
+        targetRevision: (base.revision || 0) + 1,
+        baseScore: Number.isFinite(base.score) ? base.score : null,
+        baseDetails: [...base.details],
+        plan: { ...plan, steps: [...plan.steps] },
+        previewStopStage,
+        currentStage: plan.from,
+        progress: plan.from === "edit" ? 38 : 24,
+        expectation: rerunExpectation(candidate, plan, instruction),
+        instruction,
+        renderRuntime: state.planner.renderRuntime || candidate.renderRuntime || "remotion",
+        vlmFindingIds: [...(state.planner.vlmSelections || [])],
+        previewImage: candidate.image,
+        previewScore: null,
+        finalScore: null,
+        previewTimer: null,
+        fullTimer: null
+      };
+      candidate.rerun = run;
+      candidate.status = "重跑中";
+      candidate.statusClass = "rerunning";
+      candidate.failed = false;
+      candidate.summary = `已创建 v${run.targetRevision} 草稿，先生成可审阅预览。`;
+      candidate.evidence = ["预览生成中", "当前版保留"];
+      candidate.stage = `${pipelineStages[fromIndex].label} · 预览生成中`;
+      candidate.stageStates = rerunStageStates(plan.from, previewStopStage, "in_progress");
+      state.selected.delete(candidate.id);
+      state.planner = null;
+      openDrawer(candidate.id);
+      startPreview(candidate, run);
+      showToast(`${candidate.label} 已创建 v${run.targetRevision} 重跑草稿：先生成预览，再决定是否完整重跑`);
+    }
 
     function updateTray() {
       const ids = [...state.selected]; document.getElementById("trayCount").textContent = `已选 ${ids.length} / 2`; tray.classList.toggle("is-visible", ids.length > 0);
@@ -378,8 +964,8 @@
     }
 
     document.getElementById("closeDrawer").addEventListener("click", closeDrawer); backdrop.addEventListener("click", closeDrawer); window.addEventListener("keydown", (event) => { if (event.key === "Escape") closeDrawer(); if (event.key === "Tab" && drawer.classList.contains("is-open")) { const focusables = [...drawer.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])")].filter((item) => !item.disabled); if (!focusables.length) return; const first = focusables[0]; const last = focusables[focusables.length - 1]; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } } });
-    document.getElementById("drawerApprove").addEventListener("click", () => { if (state.active) { const candidate = candidates.find((item) => item.id === state.active); if (candidate.failed) { showToast("请先处理技术失败，再确认这个候选"); } else if (candidate.score == null) { showToast("请先完成评分，再选择这个候选"); } else if (!state.selected.has(candidate.id) && state.selected.size >= 2) { showToast("最多选择 2 个候选"); } else if (!state.selected.has(candidate.id)) { state.selected.add(candidate.id); renderGallery(); updateTray(); showToast(`${candidate.label} 已加入精剪选择`); } } closeDrawer(); });
-    document.getElementById("rejectButton").addEventListener("click", () => { showToast("已打开返工路径：请在候选工作台补充结构化原因"); closeDrawer(); });
+    document.getElementById("drawerApprove").addEventListener("click", () => { if (state.planner) return confirmRerun(); if (state.active) { const candidate = candidates.find((item) => item.id === state.active); if (candidate.failed) { showToast("请先处理技术失败，再确认这个候选"); } else if (candidate.score == null) { showToast("请先完成评分，再选择这个候选"); } else if (!state.selected.has(candidate.id) && state.selected.size >= 2) { showToast("最多选择 2 个候选"); } else if (!state.selected.has(candidate.id)) { state.selected.add(candidate.id); renderGallery(); updateTray(); showToast(`${candidate.label} 已加入精剪选择`); } } closeDrawer(); });
+    document.getElementById("rejectButton").addEventListener("click", () => { if (state.planner) { const candidate = candidates.find((item) => item.id === state.active); state.planner = null; const planner = document.getElementById("rerunPlanner"); if (planner) planner.hidden = true; if (candidate) syncDrawerActions(candidate); return; } openRerunPlanner(); });
     document.getElementById("approveButton").addEventListener("click", () => showToast("已记录：3 个样片通过，批次进入人工选择"));
     document.getElementById("mobileApprove").addEventListener("click", () => showToast("向上滑动查看候选，点击卡片进入复核"));
     document.getElementById("showAllButton").addEventListener("click", () => showToast("已定位到 4 个待处理项"));

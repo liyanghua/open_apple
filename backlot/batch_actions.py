@@ -89,6 +89,85 @@ def _batch_json(batch_dir: Path) -> dict[str, Any]:
     return data
 
 
+def selection_quality_failures(
+    batch: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    child_dir: Path,
+) -> list[str]:
+    """P1 质量门：候选可被选入终稿编辑室前的硬门槛。
+
+    检查评估报告非 fatal、样本五项效果确认全 pass、字幕完整、开场对齐、候选差异度；
+    返回失败列表（空表示可选）。只读候选自身制品，不脆断真实候选。
+    """
+    failures: list[str] = []
+    child_dir = Path(child_dir)
+
+    def _read(name: str) -> Any:
+        stem = name if name.endswith(".json") else f"{name}.json"
+        for path in (child_dir / "artifacts" / stem,
+                     child_dir / "artifacts" / f"{name}.final.json",
+                     child_dir / "artifacts" / f"{name}.sample.json"):
+            if path.exists():
+                try:
+                    return json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    return None
+        return None
+
+    # 1) 评估报告不得为 fatal fail（SKU/价格/参数/敏感词致命项）。
+    er = _read("evaluation_report")
+    if not isinstance(er, dict):
+        failures.append("缺少评价报告，不可选入终稿")
+    elif er.get("status") == "fail":
+        failures.append("评估报告为 fail（fatal L1a），不可选入终稿")
+    # 2) 样本五项效果确认须全部 pass（若已批准则取 review 上的确认项）。
+    reviews_dir = child_dir / "operator" / "reviews"
+    sample_reviews: list[dict[str, Any]] = []
+    if reviews_dir.is_dir():
+        for rp in sorted(reviews_dir.glob("*.json")):
+            try:
+                review = json.loads(rp.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(review, dict) and review.get("kind") == "sample":
+                sample_reviews.append(review)
+    latest_sample = max(
+        sample_reviews,
+        key=lambda item: (str(item.get("created_at") or ""), str(item.get("review_id") or "")),
+        default=None,
+    )
+    if latest_sample is not None:
+        confirmations = latest_sample.get("effect_confirmation")
+        if latest_sample.get("status") != "approved" or not isinstance(confirmations, dict) or set(confirmations) != {
+            "creative_direction", "hook", "proof", "pacing", "readability"
+        } or any(v != "pass" for v in confirmations.values()):
+            failures.append("样本五项效果确认未全部 pass")
+    else:
+        failures.append("缺少样片审批记录，不可进入终稿")
+    # 3) 字幕完整性：final_props.captions 非空且无空文案。
+    fp = _read("final_props")
+    captions = (fp.get("captions") if isinstance(fp, dict) else None) or []
+    if not captions or any(not str(c.get("text") or c.get("word") or "").strip() for c in captions):
+        failures.append("字幕缺失或存在空字幕项")
+    # 4) 开场对齐：首镜头须有屏显文案（首镜承担钩子）。
+    sep = _read("shot_execution_plan")
+    shots = (sep.get("shots") if isinstance(sep, dict) else None) or []
+    opening = next((s for s in shots if str(s.get("id") or "").endswith("01")), shots[0] if shots else None)
+    opening_copy = ((opening or {}).get("screen_copy") or "").strip() if opening else ""
+    if not opening_copy:
+        failures.append("开场镜头无屏显文案（开场对齐缺失，钩子不可读）")
+    # 5) 候选差异度：钩子/方向须与其它候选不同（禁止同质化候选打头）。
+    hook = str((candidate.get("direction") or {}).get("hook") or "").strip()
+    other_hooks = {
+        str((o.get("direction") or {}).get("hook") or "").strip()
+        for o in (batch.get("candidates") or [])
+        if o.get("candidate_id") != candidate.get("candidate_id")
+    }
+    if hook and other_hooks and len({hook, *other_hooks}) == 1:
+        failures.append("候选与其它候选同质化（钩子完全一致，无差异度）")
+    return failures
+
+
 def _decision_log(batch_dir: Path) -> dict[str, Any]:
     path = batch_dir / "artifacts" / "decision_log.json"
     if not path.is_file():
@@ -97,19 +176,21 @@ def _decision_log(batch_dir: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {"version": "1.0", "project_id": batch_dir.name, "decisions": []}
 
 
-def _append_child_decision(
+def _build_batch_approval_decision(
     child_dir: Path,
     *,
     actor_id: str,
     batch_action_id: str,
     gate: str,
     review_snapshot: Mapping[str, Any],
-) -> None:
-    """候选 decision_log 追加 batch_approval 条目（契约 §6：可互相追溯）。"""
-    log = _decision_log(child_dir)
-    log.pop("semantic_sha256", None)
-    log.pop("artifact_sha256", None)
-    entry = {
+) -> dict[str, Any]:
+    """候选 decision_log 追加 batch_approval 条目（契约 §6：可互相追溯）。
+
+    仅构建并返回 entry；实际落盘由 ``ReviewService.decide(batch_decision=...)``
+    在**同一个候选生成事务**内 staged（P0-2 原子性），避免「review 已提交、
+    decision_log 未提交」的半提交。
+    """
+    return {
         "decision_id": f"{batch_action_id}-{child_dir.name}",
         "stage": "sample" if gate == "sample" else "script" if gate == "script" else "assets",
         "category": "batch_approval",
@@ -129,15 +210,38 @@ def _append_child_decision(
         "batch_action_id": batch_action_id,
         "review_snapshot": dict(review_snapshot),
     }
-    log["decisions"] = list(log.get("decisions") or []) + [entry]
+
+
+def _ensure_batch_approval_decision(
+    child_dir: Path, entry: Mapping[str, Any], *, actor_id: str
+) -> None:
+    """Idempotently ensure a batch-approval decision is present in the log.
+
+    Used only during recovery of a half-commit (review already approved but its
+    decision-log audit may be missing). Appending here is a recovery-time
+    compensation write; the normal path stages it atomically via
+    ``ReviewService.decide(batch_decision=...)``.
+    """
+    from lib.artifact_hashing import attach_hashes
+    from lib.artifact_io import write_artifact_atomic
+
+    log = _decision_log(child_dir)
+    log.pop("semantic_sha256", None)
+    log.pop("artifact_sha256", None)
+    decisions = list(log.get("decisions") or [])
+    decision_id = str(entry.get("decision_id") or "")
+    if any(d.get("decision_id") == decision_id for d in decisions):
+        return
+    decisions.append(dict(entry))
+    log["decisions"] = decisions
     store = ProjectCommitStore(child_dir)
     with store.transaction(
-        action={"action_id": f"batch-decision-{batch_action_id}-{child_dir.name}", "type": "batch_approval"},
+        action={"action_id": f"batch-decision-{decision_id}", "type": "batch_approval"},
         result={"status": "committed"},
         audit={"event_type": "batch_approval_decision", "actor_id": actor_id},
     ) as sink:
         write_artifact_atomic(
-            "artifacts/decision_log.json", "decision_log", log,
+            "artifacts/decision_log.json", "decision_log", attach_hashes(log),
             project_dir=child_dir, sink=sink,
         )
 
@@ -242,6 +346,12 @@ class BatchActionService:
             if item is None or item.get("status") != "evaluated" or not item.get("evaluation_report_ref"):
                 raise OperatorError.validation_failed(
                     f"候选 {candidate_id} 当前不可选（必须 evaluated 且带评价引用）"
+                )
+            child_dir = self.batch_dir.parent / str(item.get("project_id") or candidate_id)
+            q_failures = selection_quality_failures(batch, item, child_dir)
+            if q_failures:
+                raise OperatorError.validation_failed(
+                    f"候选 {candidate_id} 未通过质量门：" + "；".join(q_failures)
                 )
 
         batch_action_id = f"batch-action-{uuid.uuid4().hex}"
@@ -478,26 +588,32 @@ class BatchActionService:
 
         final = _load_record(self.batch_dir, batch_action_id) or record
         committed = [p for p in final["participants"] if p["state"] == "committed"]
-        try:
-            from backlot.batch_events import append_event
-            append_event(
-                self.batch_dir, type="gate_changed", aggregate_revision=aggregate_revision,
-                phase=gate, payload={"gate": gate, "candidates": [p["candidate_id"] for p in committed]},
-            )
-        except Exception:
-            pass
-        return {
+        final_aggregate, current_revisions = self._current_revision()
+        result_payload = {
             "status": "committed",
             "batch_action_id": batch_action_id,
+            "aggregate_revision": final_aggregate,
             "participants": [
                 {
                     "candidate_id": p["candidate_id"],
                     "review_id": p["review_id"],
                     "status": "committed",
+                    "result_revision": current_revisions.get(p["candidate_id"]),
                 }
                 for p in committed
             ],
         }
+        final["result"] = result_payload
+        _save_record(self.batch_dir, final)
+        try:
+            from backlot.batch_events import append_event
+            append_event(
+                self.batch_dir, type="gate_changed", aggregate_revision=final_aggregate,
+                phase=gate, payload={"gate": gate, "candidates": [p["candidate_id"] for p in committed]},
+            )
+        except Exception:
+            pass
+        return result_payload
 
     def _reject(
         self,
@@ -535,7 +651,19 @@ class BatchActionService:
             child_dir = self.batch_dir.parent / participant["project_id"]
             service = ReviewService(child_dir)
             pending = service.pending()
-            if pending is None or pending.get("review_id") != participant["review_id"]:
+            batch_decision = _build_batch_approval_decision(
+                child_dir,
+                actor_id=actor_id,
+                batch_action_id=batch_action_id,
+                gate=gate,
+                review_snapshot={
+                    "review_id": participant["review_id"],
+                    "kind": _GATE_KIND.get(gate),
+                    "subject_version": participant["subject_version"],
+                    "subject_hash": participant["subject_hash"],
+                },
+            )
+            if pending is not None and pending.get("review_id") != participant["review_id"]:
                 raise OperatorError(
                     "stale", f"候选 {candidate_id} 的审批内容已变化，禁止静默覆盖", 409,
                     details={
@@ -544,6 +672,26 @@ class BatchActionService:
                         "retryable": False,
                     },
                 )
+            if pending is None:
+                # 恢复/半提交：review 已不在 pending。区分「已 approved（幂等继续）」
+                # 与「内容真的变化（stale）」，避免把已提交的候选误判为 stale。
+                review = service.review_state(participant["review_id"])
+                if review is None or review.get("status") != "approved":
+                    raise OperatorError(
+                        "stale", f"候选 {candidate_id} 的审批内容已变化，禁止静默覆盖", 409,
+                        details={
+                            "batch_action_id": batch_action_id,
+                            "participant_errors": [{"candidate_id": candidate_id, "error": "review changed"}],
+                            "retryable": False,
+                        },
+                    )
+                # 幂等继续：补齐可能缺失的 auditor 决策（恢复期审计补偿）。
+                _ensure_batch_approval_decision(child_dir, batch_decision, actor_id=actor_id)
+                participant["state"] = "committed"
+                participant["commit_marker"] = _now()
+                record["updated_at"] = _now()
+                _save_record(self.batch_dir, record)
+                continue
             participant["state"] = "committing"
             record["updated_at"] = _now()
             _save_record(self.batch_dir, record)
@@ -558,18 +706,7 @@ class BatchActionService:
                 expected_version=int(participant["subject_version"]),
                 expected_hash=str(participant["subject_hash"]),
                 effect_confirmations=confirmations,
-            )
-            _append_child_decision(
-                child_dir,
-                actor_id=actor_id,
-                batch_action_id=batch_action_id,
-                gate=gate,
-                review_snapshot={
-                    "review_id": participant["review_id"],
-                    "kind": _GATE_KIND.get(gate),
-                    "subject_version": participant["subject_version"],
-                    "subject_hash": participant["subject_hash"],
-                },
+                batch_decision=batch_decision,
             )
             participant["state"] = "committed"
             participant["commit_marker"] = _now()
@@ -621,5 +758,26 @@ def recover_batch_action(batch_dir: Path, batch_action_id: str) -> dict[str, Any
         )
     except Exception:
         pass
-    return {"status": "committed", "batch_action_id": batch_action_id}
-
+    current = _load_record(Path(batch_dir), batch_action_id) or record
+    try:
+        aggregate, revisions = service._current_revision()
+    except Exception:
+        aggregate, revisions = str(current.get("aggregate_revision") or ""), {}
+    committed = [p for p in current.get("participants", []) if p.get("state") == "committed"]
+    result = {
+        "status": "committed",
+        "batch_action_id": batch_action_id,
+        "aggregate_revision": aggregate,
+        "participants": [
+            {
+                "candidate_id": p.get("candidate_id"),
+                "review_id": p.get("review_id"),
+                "status": "committed",
+                "result_revision": revisions.get(p.get("candidate_id")),
+            }
+            for p in committed
+        ],
+    }
+    current["result"] = result
+    _save_record(Path(batch_dir), current)
+    return result

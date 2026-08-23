@@ -1,7 +1,7 @@
 # 批量混剪运营工作台交互设计（2026-08-23）
 
 > 日期：2026-08-23
-> 版本：v1.0
+> 版本：v1.1
 > 状态：设计稿，待实施
 > 范围：OpenMontage `cinematic-fast` 批量混剪模式的运营工作台（`/p/<project-id>`）交互设计；候选单任务工作台保留不变
 > 依赖文档：`Design_Review_2026-08-22.md`（评价/批量数据层）、`Autoresearch_Video_Remix_Integration_Design_2026-08-23.md`（优化闭环）、`skills/pipelines/cinematic-fast/optimize-director.md`（批量编排 runbook）
@@ -19,6 +19,8 @@
 | 审批密度 | 批级一键通过（每个门一次批操作，逐候选列表可展开复核、单独驳回） |
 | 优化模式 | 纯人工 review：`optimization_policy.enabled=false`，不显示迭代面板、不自动 mutation |
 | 首轮启动参数 | 默认值：沿用 v8 透明桌垫素材池 / 5 默认方向 / 抖音 9:16 竖屏 15s / 预算 30 USD |
+| 样片质量底线 | 字幕缺失、候选结构同质化、开场画面与首段口播冲突时，样片只能停在质量阻塞，不得进入候选选择 |
+| 编辑室入口 | 批级样片门完成后，用户选择 1–2 个已评估候选，才进入对应候选的最新终稿编辑室 |
 
 架构边界（不因本设计改变）：不新增第二套 orchestrator；`candidate_batch` 只是索引；每个候选是独立项目（独立 artifact/checkpoint/decision_log）；`decision_log` 是追加式审计；所有写入经 ProjectCommitStore 事务或原子写入。
 
@@ -51,7 +53,7 @@
 | 建批 | batch 已存在 | 5 候选项目已分叉 |
 | 首轮样片 | 任一候选 in_progress | 全部候选 ∈ {sampled, failed} |
 | 评分 | 任一候选 sampled | 全部存活候选 evaluated |
-| 人工选择 | 全部 evaluated | `selection.selected_candidate_ids` 非空 |
+| 人工选择 | 全部可继续候选 `evaluated` 且样片效果门完成 | `selection.selected_candidate_ids` 非空 |
 | 精剪 | 有选中候选 | 选中候选完成 edit+compose |
 | 发布 | 选中候选已交付 | 全部选中候选 publish 完成 |
 
@@ -69,13 +71,40 @@
 - 评价卡（L1a 状态 + 8 维 L3 分数带颜色，与成片评价卡同款渲染）；
 - 三轨音频状态（口播/BGM/原声）；
 - 成本（USD）与失败原因（技术失败与质量失败分开显示）；
+- 差异证据：相对批次基线的差异镜头数、差异类型（顺序/素材窗口/时长/视觉处理）；
+- 开场证据：前 3 秒样片与首段口播的「一致 / 需确认 / 冲突」结论；
+- 字幕状态：`已就绪`、`待补齐` 或 `已确认无字幕`，不得把空值渲染为 `undefined`；
 - optimization 启用时追加：加权总分、达标标记（本轮不启用，不显示）。
+
+### 2.3.1 样片质量预检与候选差异
+
+每个候选在进入「样片效果确认」前必须生成 `sample_quality_preflight`，并把结果投影到批页。预检至少包含：
+
+| 检查 | 规则 | 失败处理 |
+|---|---|---|
+| `caption_integrity` | 每条可见字幕必须是非空字符串；缺失字段显式标记 `missing`，渲染层不得直接插值空值 | 阻塞样片门，显示「字幕待补齐」 |
+| `opening_alignment` | `00:00–00:03` 的主要视觉动作/构图必须与首段口播意图一致；低置信度进入人工确认，语义冲突直接阻塞 | 阻塞样片门，显示证据帧和首段口播 |
+| `candidate_divergence` | 每个候选相对批次基线至少有 3 个镜头在顺序、素材窗口、时长或视觉处理上发生结构化差异；候选间不得共享同一差异指纹 | 阻塞该候选，不能只靠改标题或首句口播通过 |
+
+共享素材池是允许的，但必须通过 `candidate_variant_plan` 记录每个候选的镜头级变体和差异原因。预检结果和证据引用进入候选 revision，不能由 UI 临时计算后丢弃。
 
 ### 2.4 人工选择区
 
 - 显示评分排序后的候选顺序；
-- 勾选 1–2 条 → 「进入精剪」按钮 → `batch_select_for_edit` 动作（写 `candidate_batch.selection` + decision_log，`select_for_edit` 校验 evaluated + 评价引用）；
+- 只有样片门已完成、候选已 `evaluated` 且 `sample_quality_preflight` 通过的候选可勾选；
+- 勾选 1–2 条 → 「进入终稿编辑室」按钮 → `batch_select_for_edit` 动作（写 `candidate_batch.selection` + decision_log，`select_for_edit` 校验 evaluated + 评价引用）；
 - 选中前，精剪/发布相关入口不可用。
+
+### 2.4.1 从批量工作台进入终稿编辑室
+
+终稿编辑室不是批量生产的替代页面，而是批量样片门之后的单候选深加工页面。入口必须同时满足：
+
+1. 批次中可继续处理的候选已完成样片门；技术失败候选保留留档，不得伪装成完成；
+2. 用户已查看批级差异、开场一致性和字幕状态，并完成样片效果确认；
+3. 用户选择 1–2 个候选，且每个候选都有有效的评价引用和当前 revision；
+4. 系统为每个选中候选生成深链 `/p/<candidate-id>`，进入该候选的最新可用 revision，而不是新建项目或打开旧 draft。
+
+批页仍是批级审批、对比和回退的事实入口；编辑室只负责选中候选的局部修改、最小重跑和终稿交付。若候选在进入编辑室前 revision 变化，入口显示「需要重新确认」，不得静默带入旧评价或旧定位。
 
 ### 2.5 预算/并发面板
 
@@ -91,7 +120,28 @@
 
 批页顶部的 6 相轨道是候选集合的聚合进度；候选抽屉内另行显示 9 个执行阶段：`research → proposal → script → scene_plan → assets → sample → edit → compose → publish`。评分、音轨和五项确认属于当前样片产物的质量证据，不替代阶段状态。
 
-候选级「修改并重跑」采用意图驱动：用户选择节奏/镜头、口播/字幕、画面/素材或技术修复，系统根据候选当前阶段、revision 和 artifact 依赖计算最小路径，返回起始阶段、重跑阶段、保留阶段、成本和新 revision。用户确认后才创建重跑任务；重跑期间候选阶段回退为 `in_progress`，旧版本审批失效但历史保留。revision 在规划期间变化时返回 `stale`，前端先补拉候选状态再重新计算路径。
+候选级「修改并重跑」采用意图驱动：用户选择节奏/镜头、口播/字幕、画面/素材或技术修复，系统根据候选当前阶段、revision 和 artifact 依赖计算最小路径，返回起始阶段、重跑阶段、保留阶段、成本和新 revision。候选项目不变，但每次修改创建独立的 `rerun_run` 执行记录；`candidate_id` 保持不变，旧 revision 继续作为当前可用版本，目标 revision 先以 draft 形式生成。revision 在规划期间变化时返回 `stale`，前端先补拉候选状态再重新计算路径。
+
+### 2.7.1 重跑任务、预览门与版本回退
+
+重跑不是把当前候选直接覆盖成“重跑中”，而是一个可取消、可审阅的运行状态机：
+
+```text
+draft_plan
+  → preview_running
+  → awaiting_preview_review
+  → full_running
+  → awaiting_final_review
+  → promoted | discarded
+```
+
+`rerun_run` 至少绑定 `candidate_id`、`base_revision`、`target_revision`、`change_set`、`rerun_plan`、`preview_stop_stage`、`expectation` 和进度事件。它仍复用候选自己的九阶段执行图，只执行受影响的最小子图，不新建第二个候选项目，也不覆盖当前 revision。
+
+确认修改后先进入预览门：节奏/镜头类默认先跑到 `compose` 生成低成本短预览；口播/字幕、画面/素材类先跑到 `sample`；技术修复只重试失败阶段。预览区必须同时显示当前版与新版本、`base → target` revision、预计质量变化、用户修改预期和将保留的内容。用户可以「接受预览，继续完整重跑」「调整修改范围」或「不满意，保留当前版」，因此长时间完整生成不会成为不可逆等待。
+
+完整成片生成后仍停在 `awaiting_final_review`，只有用户点击「采用新版本」才提升 `target_revision` 为当前版本。技术修复只有一个受影响阶段时，修复结果直接进入同一个最终复核状态，不再重复跑 compose。用户放弃或取消时清理 draft 运行记录，恢复到 `base_revision`；下一次修改默认基于最后接受版本，不继承被放弃版本的审批结果。旧版与每次 `rerun_run` 的事件、成本和决策记录保留在历史中。
+
+渲染引擎在 proposal 阶段从 Remotion 与 HyperFrames 中选择，并写入 `proposal_packet.production_plan.render_runtime` 和 `edit_decisions.render_runtime`。局部重跑默认沿用已锁定引擎，确保新旧版本可比；用户可以显式切换，但这属于高影响变更，工作台必须重算路径/成本、再次确认，并向 decision log 追加同一 `render_runtime_selection` subject 的修订记录。系统不得在运行失败时静默切换引擎。
 
 ### 2.8 局部修改意图的表达与定位
 
@@ -99,9 +149,15 @@
 
 1. **定位**：用户先点选时间段、镜头、质量维度或失败阶段，例如「00:00–00:03 · 开头钩子」「镜头节奏」「口播字幕」。入口由当前播放器、评分项和阶段状态带入，避免用户回忆内部阶段 id。
 2. **描述**：系统提供四类修改类型作为快捷分类；用户可补充一句自然语言，推荐句式为「位置 + 问题 + 目标」，例如「前 3 秒直接进入产品动作，删掉第一段铺垫」。
-3. **复述**：提交前先显示「已理解」摘要，把时间/镜头锚点、目标和影响范围复述给用户；若描述缺少目标或存在歧义，只追问一个最小澄清项，不让用户填写完整表单。
+3. **复述**：提交前先显示摘要，把时间/镜头锚点、目标和影响范围复述给用户；用户没有改写模型草稿时标记为「系统草稿」，用户实际补充后才标记为「已理解」。若描述缺少目标或存在歧义，只追问一个最小澄清项，不让用户填写完整表单。
 
 系统将定位锚点和自然语言描述一起写入只读 `rerun_plan`，再计算最小路径。锚点必须绑定当前 `child_revision`；revision 变化时计划失效并要求重新定位，不能把旧时间段或旧镜头静默套到新版本。
+
+### 2.9 VLM 低分建议与用户确认范围
+
+VLM 评分只负责发现问题和提出建议，不直接触发重跑。候选抽屉打开「修改并重跑」后，若存在低于阈值的评分维度，面板按维度展示：分数、证据定位、建议动作和对应锚点。用户勾选本次要处理的低分项，系统将建议转成可编辑的自然语言草稿；用户可以删改草稿、取消某个建议或手动扩大/缩小定位范围。
+
+重跑计划必须同时显示两类来源：`VLM 建议范围` 与 `用户补充范围`。只有用户勾选的建议和用户输入都通过一致性检查后，确认按钮才可提交。多个建议的影响阶段取依赖闭包并集，不能只按第一条建议规划；没有低分建议时仍保留手动定位入口。
 
 ## 3. 审批与确认流（批级一键通过模式）
 
@@ -151,7 +207,7 @@
 | 候选方向 | 结果先行 / 痛点先行 / 证据链先行 / 高密度快剪 / 产品质感版 |
 | 平台/时长 | 抖音 9:16 竖屏，15s |
 | 预算 | 30 USD（cost_tracker 为准，candidate_batch 只做索引） |
-| provider/model/runtime | 沿用 v8：豆包 TTS（seed-tts-2.0）+ pixabay BGM + Remotion |
+| provider/model/runtime | 提案阶段同时评估 Remotion / HyperFrames；用户确认后锁定 `render_runtime`，局部重跑默认沿用该引擎 |
 | 优化模式 | `optimization_policy.enabled=false`（纯人工 review） |
 
 生产流程：`build_default_optimization_policy(enabled=false)` → `create_candidate_batch`（`source_media_refs` 指向素材池）→ `batch_fork.fork_candidate_projects` → 逐候选 proposal→script→scene_plan→assets→sample（并发 ≤3、技术失败按 `max_retries_per_candidate` 重试、provider 全程固定、失败候选留档）→ 全部评分后停在「人工选择」等待用户。
@@ -178,6 +234,9 @@
 - 投影：批项目 fixture（batch + 2 个候选子项目）→ `batch_review` payload 契约测试
 - 动作：`batch_select_for_edit`（非法候选/超 2 条拒绝）与 `batch_approve_gate`（幂等/回滚/审计）单测
 - UI：`renderBatch` 关键文案与样式契约测试（沿用 `test_operator_ui_contract.py` 模式）
+- 质量预检：字幕缺失/空值、开场语义冲突、候选差异不足均阻塞样片门，并输出可定位证据；正常样片不得出现 `undefined` 字幕文本
+- 候选变体：`candidate_variant_plan` 可重放、共享素材池不误判为同质化、同一差异指纹被拒绝
+- 编辑室入口：未完成样片门、未评估、缺少评价引用或超过 2 个候选时拒绝进入；通过后深链到选中候选当前 revision
 - 全量回归：现有 1798 例全绿 + 新增用例
 
 ## 8. 风险与边界

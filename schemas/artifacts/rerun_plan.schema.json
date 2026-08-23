@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/rerun_plan",
+  "type": "object",
+  "required": ["version", "plan_id", "candidate_id", "base_revision", "target_revision", "intent", "anchor", "instruction", "from_stage", "stages", "preserved_stages", "preview_stop_stage", "render_runtime"],
+  "properties": {
+    "version": {"type": "string"}, "plan_id": {"type": "string"}, "candidate_id": {"type": "string"},
+    "base_revision": {"type": "string"}, "target_revision": {"type": "string"},
+    "intent": {"enum": ["pacing", "copy", "visual", "technical"]}, "anchor": {"type": "object"},
+    "instruction": {"type": "string", "minLength": 1}, "vlm_finding_ids": {"type": "array", "items": {"type": "object"}},
+    "confirmed_scope": {"type": "object"}, "from_stage": {"type": "string"}, "stages": {"type": "array", "items": {"type": "string"}},
+    "preserved_stages": {"type": "array", "items": {"type": "string"}}, "preview_stop_stage": {"type": "string"},
+    "render_runtime": {"enum": ["remotion", "hyperframes", "ffmpeg"]}, "estimated_cost_usd": {"type": "number"}, "created_at": {"type": "string"}
+  },
+  "additionalProperties": false
+}

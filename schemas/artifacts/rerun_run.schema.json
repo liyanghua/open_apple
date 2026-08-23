@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/rerun_run",
+  "type": "object",
+  "required": ["version", "run_id", "candidate_id", "base_revision", "target_revision", "plan_id", "status", "progress", "current_revision"],
+  "properties": {
+    "version": {"type": "string"}, "run_id": {"type": "string"}, "candidate_id": {"type": "string"},
+    "base_revision": {"type": "string"}, "target_revision": {"type": "string"}, "plan_id": {"type": "string"},
+    "plan": {"type": "object"}, "status": {"enum": ["draft_plan", "preview_running", "awaiting_preview_review", "full_running", "awaiting_final_review", "promoted", "discarded"]},
+    "progress": {"type": "object"}, "preview_ref": {}, "output_ref": {}, "current_revision": {"type": "string"}, "created_at": {"type": "string"}, "updated_at": {"type": "string"}
+  },
+  "additionalProperties": false
+}

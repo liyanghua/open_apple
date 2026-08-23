@@ -311,6 +311,11 @@ def compute_phase(
             return "selection", "全部存活候选已评分，等待人工选择"
         if phases <= {"sampled", "evaluated", "failed"} and "sampled" in phases:
             return "scoring", "候选已有样片，等待评分"
+        # P1-4: 乱序成片（无选择即已完成 compose/publish）不再回退 sampling。
+        if phases <= {"published"}:
+            return "completed", "全部存活候选已发布"
+        if phases <= {"composed", "published", "evaluated"} and "composed" in phases:
+            return "selection", "候选已全部成片，等待人工选择（精剪/发布对象）"
         return "sampling", "至少一个候选尚未完成样片"
     selected = [view for view in views if view["candidate_id"] in selected_ids]
     if all(view["candidate_phase"] == "published" for view in selected):
@@ -447,6 +452,14 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
 
     selection = batch.get("selection") if isinstance(batch.get("selection"), Mapping) else {}
     selected_ids = [str(item) for item in (selection.get("selected_candidate_ids") or [])]
+    # Keep the UI's selectable set aligned with the API's hard quality gate.
+    # Import lazily to avoid the batch_actions -> batch_state import cycle.
+    from backlot.batch_actions import selection_quality_failures
+
+    for view, candidate in zip(views, candidates):
+        view["selection_quality_failures"] = selection_quality_failures(
+            batch, candidate, child_root / view["project_id"]
+        )
     blocked_reasons = [w["code"] for w in warnings if w["code"] == "over_budget"]
     phase, phase_reason = compute_phase(views, selected_ids, blocked_reasons)
     awaiting_assets = any(
@@ -560,7 +573,10 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
             "reason": str(selection.get("reason") or ""),
             "eligible_candidate_ids": [
                 view["candidate_id"] for view in views
-                if view["status"] == "evaluated" and view["candidate_phase"] not in {"missing", "corrupt"}
+                if view["status"] == "evaluated"
+                and view["candidate_phase"] not in {"missing", "corrupt"}
+                and ((view.get("score") or {}).get("evaluation") or {}).get("status") != "fail"
+                and not view.get("selection_quality_failures")
             ],
         },
         "pending_gates": gates,

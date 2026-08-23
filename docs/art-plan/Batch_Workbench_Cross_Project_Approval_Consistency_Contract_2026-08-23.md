@@ -5,6 +5,11 @@
 > 状态：实施前契约
 > 适用动作：`batch_approve_gate`、`batch_select_for_edit`、`candidate_rerun`、`batch_rerun`
 > 上游设计：[`Batch_Workbench_Interaction_Design_2026-08-23.md`](./Batch_Workbench_Interaction_Design_2026-08-23.md)
+>
+> **实现状态（2026-08-23）**：`batch_select_for_edit` 已在工作台走通（本批人工选择 c2/c3）。`batch_approve_gate`
+> **在本批被绕过**——样片批准是逐候选 `write_checkpoint(sample,completed,human_approved=True)` 的简化路径，
+> 未实现本契约的 prepare/commit + coordinator record + 五效果确认 + stale/幂等 + 恢复器。详见
+> [`Table_Mat_Batch_001_Run_Retrospective_2026-08-23.md`](./Table_Mat_Batch_001_Run_Retrospective_2026-08-23.md)（R2 待实现）。
 
 本契约定义批根项目与候选项目同时参与时的权限、幂等、乐观并发、提交和故障恢复。它不把多个单项目 `ProjectCommitStore` 调用伪装成一个事务。
 
@@ -48,7 +53,26 @@
 
 `batch_select_for_edit` 只允许选择 1–2 个已 `evaluated` 候选；它必须携带 `aggregate_revision`、候选 evaluation revision/hash 和 reason。该动作只提交批根项目时，不需要 child commit，但必须重新确认候选仍可选。
 
-局部修改先产生只读的 `rerun_plan`，再提交 `candidate_rerun` 或 `batch_rerun`。请求必须携带候选读取时的 `child_revision`、用户可读的 `intent_anchor`（时间段/镜头/质量维度/失败阶段）、自然语言 `instruction`、修改意图、系统计算的 `from_stage`、排序后的 `affected_stages`、`kept_stages`、预计成本和幂等键。服务端必须重新校验锚点仍属于该 revision，并重新计算依赖闭包与客户端计划比对；不一致返回 `validation_failed`，revision 变化返回 `stale`。重跑提交生成新 revision，旧版审批不继承，历史与 decision log 保留。
+局部修改先产生只读的 `rerun_plan`，再提交 `candidate_rerun` 或 `batch_rerun`。请求必须携带候选读取时的 `child_revision`、用户可读的 `intent_anchor`（时间段/镜头/质量维度/失败阶段）、自然语言 `instruction`、VLM 建议的 `vlm_finding_ids`、用户确认的 `confirmed_scope`、修改意图、锁定的 `render_runtime`、系统计算的 `from_stage`、排序后的 `affected_stages`、`kept_stages`、预计成本和幂等键。服务端必须重新校验锚点仍属于该 revision，核对 VLM finding 仍来自同一评分 revision，并重新计算依赖闭包与客户端计划比对；不一致返回 `validation_failed`，revision 变化返回 `stale`。`render_runtime` 与当前 production lock 不一致时，还必须携带新的 `render_runtime_selection` decision revision 和用户确认，禁止静默切换。重跑提交生成新 revision，旧版审批不继承，历史与 decision log 保留。
+
+重跑提交创建独立的 `rerun_run`，但不创建新的候选项目：
+
+```json
+{
+  "run_id": "rerun-uuid",
+  "candidate_id": "direction-result-first",
+  "base_revision": 3,
+  "target_revision": 4,
+  "phase": "preview_running",
+  "render_runtime": "remotion",
+  "change_set": {"intent": "pacing", "instruction": "前 3 秒直接进入产品动作"},
+  "rerun_plan": {"from_stage": "edit", "affected_stages": ["edit", "compose"], "kept_stages": ["research", "proposal", "script", "scene_plan", "assets", "sample"]},
+  "preview_stop_stage": "compose",
+  "expectation": "前 3 秒更快进入产品动作，未改动内容沿用 v3"
+}
+```
+
+`phase` 只能按 `draft_plan → preview_running → awaiting_preview_review → full_running → awaiting_final_review → promoted|discarded` 转移；若技术修复只包含一个失败阶段，`preview_running` 完成后可直接进入 `awaiting_final_review`。`base_revision` 在整个运行期间保持当前可用，只有 `promoted` 才更新候选 current pointer；`discarded`、取消或预览拒绝都必须保留历史事件但不提升 revision。批量 `batch_rerun` 必须为每个候选建立独立 `rerun_run`，协调记录只负责 all-or-nothing 地提交运行意图和状态，不把多个候选的 revision 合并成一个版本。
 
 ## 3. 协调记录
 
