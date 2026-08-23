@@ -263,6 +263,10 @@ Skill 负责指导 Agent 的判断和表达；不得把创意决策硬编码进 
 
 ## 修订记录
 
+- **v2.25（2026-08-23）样片续跑程序模板全部 schema 校验通过（批准后即跑）**：
+  - `projects/table-mat-batch-001/continue_sample.py`：素材创意锁批准后的样片阶段续跑程序（门检查：任意候选未批整体拒绝付费调用；--dry-run 仅内存校验）。制品模板 8 件全部通过 validate_artifact：asset_manifest（7 代理镜 + 6 段豆包口播 type=narration + pixabay BGM + 本地混音，v8 约定对齐）、final_props（Explainer 450 帧 1080x1920 + 屏显短词字幕 + 音频混音记录）、caption_policy_revision（status=approved_for_sample_revision + authorization/change_impact 契约）、render_plan（sample 0-300 帧 0.5x quick）、edit_decisions（schema 合法形态；Remotion props 的 src 音频与词级字幕走渲染时适配，不落入制品）、sample_report、sample_execution_trace（三差 audio/caption/creative_rule + 样片窗口 included 状态）、evaluation_report（sample scope，hard_gate.coverage 契约）；
+  - 5 候选 dry-run 全绿；live 路径保留 voice-timeline-fit 实测适配（0/+10/+20/+50 语速档）、并发 ≤3、批准后豆包 TTS/pixabay/media_proxy/audio_mixer/video_compose 串行执行。
+
 - **v2.24（2026-08-23）驾驶舱门复核材料：素材创意锁逐候选可展开（用户反馈「样片阶段都是空的」）**：
   - 根因：状态正确（5 候选在素材创意锁，样片尚未生成），但批页门面板只有一行候选 ID + 按钮，无任何可复核材料，且候选卡音频轨错误显示「未计划」——用户无法感知「该做什么、要批准什么」；
   - `batch_state.child_snapshot` 新增：批页投影按需补建 formal review（script/assets/sample 门幂等 ensure，与 load_operator_state 同通道）；`gate_material` 门复核材料（assets 门：7 镜字幕清单 + 口播 provider/model/voice + BGM provider/profile + 素材计划汇总（代理镜/口播段/BGM/付费预估）+ 生产锁（9:16/15s/remotion））；无样片时音频轨由 asset_plan 派生（planned=true, state=planned）；
