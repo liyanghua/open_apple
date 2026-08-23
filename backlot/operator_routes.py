@@ -591,38 +591,59 @@ def create_operator_router(
 
     @router.post("/projects/{project_id}/batch/select")
     async def batch_select_for_edit(project_id: str, request: Request) -> dict:
-        """批级驾驶舱：人工选择 1–2 个候选进入精剪（设计文档 §4.2）。"""
+        """批级驾驶舱：人工选择 1–2 个候选进入精剪（契约 B：乐观并发 + 幂等）。"""
         session = authenticate(request, project_id, "review", csrf=True)
         payload = await body(request)
         key = request.headers.get("idempotency-key", "").strip()
         if not key:
             raise OperatorError.validation_failed("缺少重复提交保护标识")
+        from backlot.auth import authorize_project
+
+        def authorizer(child_id: str, actor: Any) -> bool:
+            return authorize_project(auth_store(), actor, child_id, "review")
+
         candidate_ids = [str(item) for item in (payload.get("candidate_ids") or [])]
-        return BatchActionService(project(project_id)).select_for_edit(
+        return BatchActionService(project(project_id), authorizer=authorizer).select_for_edit(
             actor_id=session.actor.user_id,
             idempotency_key=key,
+            aggregate_revision=str(payload.get("aggregate_revision") or ""),
             candidate_ids=candidate_ids,
             reason=str(payload.get("reason") or ""),
         )
 
     @router.post("/projects/{project_id}/batch/approve-gate")
     async def batch_approve_gate(project_id: str, request: Request) -> dict:
-        """批级一键通过：script/assets/sample 三个门逐候选审批（审计不合并）。"""
+        """批级一键通过（契约 B）：participants 快照 + 协调记录 + 恢复。"""
         session = authenticate(request, project_id, "review", csrf=True)
         payload = await body(request)
         key = request.headers.get("idempotency-key", "").strip()
         if not key:
             raise OperatorError.validation_failed("缺少重复提交保护标识")
+        from backlot.auth import authorize_project
+
+        def authorizer(child_id: str, actor: Any) -> bool:
+            return authorize_project(auth_store(), actor, child_id, "review")
+
         gate = str(payload.get("gate") or "")
-        candidate_ids = [str(item) for item in (payload.get("candidate_ids") or [])]
-        if not candidate_ids:
-            raise OperatorError.validation_failed("缺少待确认的候选")
-        return BatchActionService(project(project_id)).approve_gate(
+        participants = [
+            dict(item) for item in (payload.get("participants") or [])
+            if isinstance(item, dict)
+        ]
+        return BatchActionService(project(project_id), authorizer=authorizer).approve_gate(
             actor_id=session.actor.user_id,
             idempotency_key=key,
+            aggregate_revision=str(payload.get("aggregate_revision") or ""),
             gate=gate,
-            candidate_ids=candidate_ids,
             reason=str(payload.get("reason") or ""),
+            participants=participants,
         )
+
+    @router.post("/projects/{project_id}/batch/actions/{batch_action_id}/recover")
+    async def batch_recover(project_id: str, batch_action_id: str, request: Request) -> dict:
+        """协调记录恢复（契约 B §4.3）：续跑未完成的提交。"""
+        authenticate(request, project_id, "review", csrf=True)
+        from backlot.batch_actions import recover_batch_action
+
+        return recover_batch_action(project(project_id), batch_action_id)
 
     return router

@@ -20,6 +20,9 @@ ERROR_CODES = frozenset({
     "invalid_write_context",
     "recovery_required",
     "idempotency_conflict",
+    # 批级跨项目动作（契约 B）：批聚合 revision 或候选快照过期 / 协调记录待恢复
+    "stale",
+    "needs_recovery",
 })
 
 _UNSAFE_PUBLIC_TEXT = re.compile(
@@ -46,12 +49,14 @@ class OperatorError(Exception):
         status_code: int,
         *,
         field_errors: list[dict[str, str]] | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         if code not in ERROR_CODES:
             raise ValueError(f"Unknown operator error code: {code}")
         self.code = code
         self.message = _safe_public_text(message)
         self.status_code = int(status_code)
+        self.details = details
         self.field_errors = []
         for item in field_errors or []:
             if set(item) != {"field", "message"}:
@@ -75,4 +80,8 @@ class OperatorError(Exception):
         error: dict[str, Any] = {"code": self.code, "message": self.message}
         if self.field_errors:
             error["field_errors"] = list(self.field_errors)
+        if self.details:
+            for key, value in self.details.items():
+                if key not in {"code", "message"}:
+                    error[key] = value
         return {"error": error}

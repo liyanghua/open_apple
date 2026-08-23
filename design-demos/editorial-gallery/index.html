@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Editorial Gallery · 批量审批工作台</title>
+  <link rel="icon" href="data:,">
   <style>
     :root {
       --canvas: #f3f0ea;
@@ -173,6 +174,7 @@
     .fact strong { display: block; margin-top: 4px; font-size: 12px; }
     .drawer-actions { display: flex; gap: 9px; padding: 15px 24px 20px; background: var(--surface-strong); border-top: 1px solid var(--line); }
     .drawer-actions button { flex: 1; min-height: 42px; padding: 9px 11px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 800; }
+    .drawer-actions button:disabled { cursor: not-allowed; opacity: .55; }
     .drawer-actions .approve { color: #fff9ec; background: var(--ink); border: 1px solid var(--ink); }
     .drawer-actions .reject { color: var(--coral); background: var(--coral-soft); border: 1px solid #e7c0b5; }
     .mobile-action { display: none; }
@@ -211,7 +213,7 @@
       .drawer-header { padding: 18px 16px 14px; }
       .drawer-scroll { padding: 16px 16px 24px; }
       .drawer-actions { padding: 12px 16px 16px; }
-      .selection-tray { right: 12px; bottom: 70px; left: 12px; min-height: 58px; gap: 9px; padding: 8px; }
+      .selection-tray { right: 12px; bottom: 70px; left: 12px; min-height: 58px; gap: 9px; padding: 8px; transform: translateY(calc(100% + 86px)); }
       .selection-copy { font-size: 11px; }
       .tray-button { min-height: 38px; padding: 7px 10px; font-size: 11px; }
       .mobile-action { position: fixed; z-index: 18; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: rgba(252, 251, 248, .96); border-top: 1px solid var(--line); }
@@ -288,7 +290,7 @@
     <div class="mobile-action"><p>样片评分完成 3 / 5</p><button id="mobileApprove">打开待办</button></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <div class="drawer-backdrop" id="backdrop"></div>
-    <aside class="drawer" id="drawer" aria-labelledby="drawerTitle" aria-hidden="true">
+    <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" aria-hidden="true" inert>
       <header class="drawer-header"><div><p class="eyebrow" id="drawerEyebrow">候选详情</p><h2 id="drawerTitle">结果先行</h2><p id="drawerSubtitle">先展示最终效果，再补证据</p></div><button class="close" id="closeDrawer" aria-label="关闭候选详情">×</button></header>
       <div class="drawer-scroll" id="drawerScroll"></div>
       <footer class="drawer-actions"><button class="reject" id="rejectButton">要求返工</button><button class="approve" id="drawerApprove">确认此候选</button></footer>
@@ -347,6 +349,7 @@
 
     function renderGallery(list = candidates) { gallery.replaceChildren(...list.map(card)); }
 
+    let lastTrigger = null;
     function openDrawer(id) {
       const candidate = candidates.find((item) => item.id === id); if (!candidate) return;
       state.active = candidate.id; document.getElementById("drawerTitle").textContent = candidate.label; document.getElementById("drawerSubtitle").textContent = candidate.summary;
@@ -359,11 +362,13 @@
         <section class="drawer-section"><h3>样片效果确认</h3><div class="confirm-list">${checks}</div></section>
         <section class="drawer-section"><h3>三轨状态</h3><div class="track-list"><div class="track"><strong>口播</strong><span>${candidate.failed ? "未完成" : "清晰 · 已对齐"}</span></div><div class="track"><strong>BGM</strong><span>${candidate.failed ? "未完成" : "已匹配"}</span></div><div class="track"><strong>原声</strong><span>${candidate.failed ? "未完成" : "保留"}</span></div></div></section>
         <section class="drawer-section"><h3>制作证据</h3><div class="evidence-grid"><div class="fact"><span>制作成本</span><strong>${candidate.cost}</strong></div><div class="fact"><span>重试次数</span><strong>${candidate.failed ? "1 次" : "0 次"}</strong></div><div class="fact"><span>渲染引擎</span><strong>Remotion</strong></div><div class="fact"><span>当前版本</span><strong>v${candidate.failed ? "1" : "3"}</strong></div></div>${candidate.failed ? `<p style="margin:12px 0 0;color:var(--coral);font-size:12px;line-height:1.55">失败原因：字体加载失败，样片画面不完整。建议先修复字体依赖，再重新提交。</p>` : ""}</section>`;
-      document.getElementById("drawerApprove").textContent = candidate.failed ? "关闭详情" : state.selected.has(candidate.id) ? "已选入精剪" : "确认此候选";
-      drawer.classList.add("is-open"); backdrop.classList.add("is-open"); drawer.setAttribute("aria-hidden", "false"); document.getElementById("closeDrawer").focus();
+      const approveButton = document.getElementById("drawerApprove");
+      approveButton.disabled = candidate.score == null;
+      approveButton.textContent = candidate.failed ? "关闭详情" : candidate.score == null ? "等待评分" : state.selected.has(candidate.id) ? "已选入精剪" : "确认此候选";
+      lastTrigger = document.activeElement; drawer.classList.add("is-open"); backdrop.classList.add("is-open"); drawer.setAttribute("aria-hidden", "false"); drawer.removeAttribute("inert"); document.body.style.overflow = "hidden"; document.getElementById("drawerTitle").setAttribute("tabindex", "-1"); document.getElementById("drawerTitle").focus();
     }
 
-    function closeDrawer() { drawer.classList.remove("is-open"); backdrop.classList.remove("is-open"); drawer.setAttribute("aria-hidden", "true"); state.active = null; }
+    function closeDrawer() { drawer.classList.remove("is-open"); backdrop.classList.remove("is-open"); drawer.setAttribute("aria-hidden", "true"); drawer.setAttribute("inert", ""); document.body.style.overflow = ""; state.active = null; if (lastTrigger && typeof lastTrigger.focus === "function") lastTrigger.focus(); }
 
     function updateTray() {
       const ids = [...state.selected]; document.getElementById("trayCount").textContent = `已选 ${ids.length} / 2`; tray.classList.toggle("is-visible", ids.length > 0);
@@ -372,8 +377,8 @@
       if (ids.length) { const copy = document.createElement("div"); copy.className = "selection-copy"; copy.innerHTML = `<strong>${ids.map((id) => candidates.find((item) => item.id === id).label).join("、")}</strong><span>选择完成后进入精剪</span>`; items.append(copy); }
     }
 
-    document.getElementById("closeDrawer").addEventListener("click", closeDrawer); backdrop.addEventListener("click", closeDrawer); window.addEventListener("keydown", (event) => { if (event.key === "Escape") closeDrawer(); });
-    document.getElementById("drawerApprove").addEventListener("click", () => { if (state.active) { const candidate = candidates.find((item) => item.id === state.active); if (!candidate.failed) { state.selected.add(candidate.id); renderGallery(); updateTray(); showToast(`${candidate.label} 已加入精剪选择`); } else { showToast("请先处理技术失败，再确认这个候选"); } } closeDrawer(); });
+    document.getElementById("closeDrawer").addEventListener("click", closeDrawer); backdrop.addEventListener("click", closeDrawer); window.addEventListener("keydown", (event) => { if (event.key === "Escape") closeDrawer(); if (event.key === "Tab" && drawer.classList.contains("is-open")) { const focusables = [...drawer.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])")].filter((item) => !item.disabled); if (!focusables.length) return; const first = focusables[0]; const last = focusables[focusables.length - 1]; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } } });
+    document.getElementById("drawerApprove").addEventListener("click", () => { if (state.active) { const candidate = candidates.find((item) => item.id === state.active); if (candidate.failed) { showToast("请先处理技术失败，再确认这个候选"); } else if (candidate.score == null) { showToast("请先完成评分，再选择这个候选"); } else if (!state.selected.has(candidate.id) && state.selected.size >= 2) { showToast("最多选择 2 个候选"); } else if (!state.selected.has(candidate.id)) { state.selected.add(candidate.id); renderGallery(); updateTray(); showToast(`${candidate.label} 已加入精剪选择`); } } closeDrawer(); });
     document.getElementById("rejectButton").addEventListener("click", () => { showToast("已打开返工路径：请在候选工作台补充结构化原因"); closeDrawer(); });
     document.getElementById("approveButton").addEventListener("click", () => showToast("已记录：3 个样片通过，批次进入人工选择"));
     document.getElementById("mobileApprove").addEventListener("click", () => showToast("向上滑动查看候选，点击卡片进入复核"));

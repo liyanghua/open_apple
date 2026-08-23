@@ -263,6 +263,14 @@ Skill 负责指导 Agent 的判断和表达；不得把创意决策硬编码进 
 
 ## 修订记录
 
+- **v2.20（2026-08-23）跨项目审批一致性契约落地（契约 B）**：
+  - `operator_review` schema kind += `script_lock`；`ReviewService.ensure_script_review_for_checkpoint`（检查点派生 formal review，script 门必须引用 script_lock review）+ `decide` 支持 script_lock（stage=script，检查点直批 + 下阶段推进）；load_operator_state 在 script 阶段自动补 review；
+  - `backlot/batch_actions.py` 重写为协调器：`batch_approve_gate`/`batch_select_for_edit` 请求携带 `aggregate_revision` + participants（review 快照；script 门空快照由服务端从检查点派生回填）；协调记录 `operator/batch-actions/<id>.json` 状态机（preparing/prepared/committing/committed/rejected/needs_recovery/replayed + 参与者状态与 commit marker）；prepare 阶段校验批级+逐候选 review 权限、归属 containment、快照服务端重读（不信任客户端）、sample 五项确认必须全 pass；commit 逐候选原子提交 + 每候选 decision_log 追加 `batch_approval`（新类别，带 batch_action_id + review_snapshot）；崩溃后 `recover_batch_action` 续跑（`POST /batch/actions/{id}/recover`），无法继续 → `needs_recovery`(503) 绝不静默覆盖；
+  - `OperatorError` 支持 `details`（失败响应携带 batch_action_id/participant_errors/current_revisions/retryable）；新增错误码 `stale`(409)/`needs_recovery`(503)；
+  - 幂等：同 key+digest → `replayed`（状态弹出避免覆盖）；同 key 异 digest → 409；replay 检查先于 revision 校验（提交后重放不受 revision 前进影响）；
+  - 前端 api.js/renderBatch 对齐契约（aggregate_revision、participants 快照、needs_recovery 续跑按钮、stale 自动刷新）；
+  - 故障注入测试 11 例：prepare 快照不匹配无副作用（rejected 记录）、确认项非全 pass 拒绝、单候选无权限整体拒绝、commit 中途注入故障 → needs_recovery → recover 续跑完成、提交后重放 replayed、key 复用冲突、stale、script 检查点派生审批、审计追溯（候选 decision_log batch_action_id）。
+
 - **v2.19（2026-08-23）批级聚合状态与事件契约落地（契约 A）**：
   - 新增 `backlot/batch_state.py`：批级只读投影——`batch_review` 载荷按契约 §2（schema_version/kind/batch_id/aggregate_revision/snapshot_at/consistency/phase 八态/phase_reason/rail 六相/candidates[status 保留原始值 + candidate_phase 机器值 + child_revision + stage_states + pending_reviews + score/media/cost/links/failure]/budget[cost_tracker 权威 + 索引比对降级]/concurrency/selection[eligible_candidate_ids]/pending_gates/warnings）；相位归约按 §3（失败/缺失候选不阻塞相位；over_budget 或全灭才 blocked；rework 相位回退 → aggregate_revision 变化）；一致性 stable/unstable（读取期间二次复核）/degraded（缺失/损坏/预算不一致/超预算）；
   - 新增 `backlot/batch_events.py`：append-only `operator/batch-events.jsonl` 事件流（8 类事件、event_seq 严格递增、event_id 去重、detect_gap 缺口检测、last-snapshot 去重的 publish_snapshot：变化候选发 candidate_changed + snapshot_published；修复 flock 重入死锁）；`GET /api/v2/projects/{id}/batch/events?after_seq=` 补拉端点；批页每次拉取 operator-state 即发布快照事件；

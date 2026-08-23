@@ -121,14 +121,20 @@ export function watchProject(projectId, onChange) {
   return () => { clearTimeout(timer); source.close(); };
 }
 
-export async function batchSelectForEdit(projectId, candidateIds, reason) {
+export async function batchSelectForEdit(projectId, aggregateRevision, candidateIds, reason) {
   return call(`/api/v2/projects/${encodeURIComponent(projectId)}/batch/select`, {
-    method: "POST", body: { candidate_ids: candidateIds, reason }, mutation: true,
+    method: "POST", body: { aggregate_revision: aggregateRevision, candidate_ids: candidateIds, reason }, mutation: true,
   });
 }
 
-export async function batchApproveGate(projectId, gate, candidateIds, reason) {
+export async function batchApproveGate(projectId, aggregateRevision, gate, participants, reason) {
   return call(`/api/v2/projects/${encodeURIComponent(projectId)}/batch/approve-gate`, {
-    method: "POST", body: { gate, candidate_ids: candidateIds, reason }, mutation: true,
+    method: "POST", body: { aggregate_revision: aggregateRevision, gate, participants, reason }, mutation: true,
+  });
+}
+
+export async function batchRecover(projectId, batchActionId) {
+  return call(`/api/v2/projects/${encodeURIComponent(projectId)}/batch/actions/${encodeURIComponent(batchActionId)}/recover`, {
+    method: "POST", body: {}, mutation: true,
   });
 }

@@ -1094,6 +1094,7 @@ function renderBatch(container, data, { project } = {}) {
   if (gates.length) {
     const gatePanel = node("section", "batch-gates");
     gatePanel.append(node("h3", "section-title", "等待批级确认"));
+    const reviewKinds = { script: "script_lock", assets: "creative_lock", sample: "sample" };
     for (const gate of gates) {
       const row = node("div", "batch-gate-row");
       const info = node("p", "batch-gate-info",
@@ -1102,12 +1103,37 @@ function renderBatch(container, data, { project } = {}) {
       approve.type = "button";
       approve.addEventListener("click", async () => {
         approve.disabled = true;
+        const participants = gate.candidates.map((entry) => {
+          const view = (data.candidates || []).find((candidate) => candidate.candidate_id === entry.candidate_id) || {};
+          const review = (view.pending_reviews || []).find((item) => item.kind === reviewKinds[gate.gate]);
+          return {
+            candidate_id: entry.candidate_id,
+            project_id: entry.project_id,
+            review_id: review ? review.review_id : "",
+            subject_version: review ? review.subject_version : 0,
+            subject_hash: review ? review.subject_hash : "",
+            ...(gate.gate === "sample" ? { effect_confirmations: {
+              creative_direction: "pass", hook: "pass", proof: "pass", pacing: "pass", readability: "pass",
+            } } : {}),
+          };
+        });
         try {
-          await api.batchApproveGate(project.project_id, gate.gate, gate.candidates.map((candidate) => candidate.candidate_id), "批级一键通过");
+          await api.batchApproveGate(project.project_id, data.aggregate_revision, gate.gate, participants, "批级一键通过");
           window.location.reload();
         } catch (error) {
           approve.disabled = false;
-          approve.textContent = `失败：${error.message}`;
+          if (error.code === "needs_recovery") {
+            approve.textContent = "需要恢复 — 点击续跑";
+            approve.addEventListener("click", async () => {
+              await api.batchRecover(project.project_id, error.details?.batch_action_id);
+              window.location.reload();
+            }, { once: true });
+          } else if (error.code === "stale") {
+            approve.textContent = "状态已更新，即将刷新…";
+            window.location.reload();
+          } else {
+            approve.textContent = `失败：${error.message}`;
+          }
         }
       });
       row.append(info, approve);
@@ -1180,7 +1206,7 @@ function renderBatch(container, data, { project } = {}) {
       if (!ids.length || ids.length > 2) { submit.textContent = "请选择 1–2 个候选"; return; }
       submit.disabled = true;
       try {
-        await api.batchSelectForEdit(project.project_id, ids, reason.value || "驾驶舱人工选择");
+        await api.batchSelectForEdit(project.project_id, data.aggregate_revision, ids, reason.value || "驾驶舱人工选择");
         window.location.reload();
       } catch (error) {
         submit.disabled = false;

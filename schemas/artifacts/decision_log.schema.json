@@ -77,6 +77,7 @@
               "music_source",
               "motion_commitment",
               "concept_selection",
+              "batch_approval",
               "voice_selection",
               "capability_extension",
               "playbook_override",
@@ -199,6 +200,15 @@
             "type": "integer",
             "minimum": 1,
             "description": "1-based rework round this decision belongs to (only for rework/rejection decisions)."
+          },
+          "batch_action_id": {
+            "type": "string",
+            "description": "批级跨项目动作 id（契约 B：候选决策与协调记录可互相追溯）"
+          },
+          "review_snapshot": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "审批时的 review 快照（review_id/kind/subject_version/subject_hash）"
           }
         },
         "allOf": [

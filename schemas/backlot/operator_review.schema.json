@@ -9,7 +9,7 @@
     "schema_version": {"const": "1.0"},
     "review_id": {"type": "string", "minLength": 1},
     "project_id": {"type": "string", "minLength": 1},
-    "kind": {"enum": ["creative_lock", "sample"]},
+    "kind": {"enum": ["creative_lock", "sample", "script_lock"]},
     "subject_id": {"type": "string", "minLength": 1},
     "subject_version": {"type": "integer", "minimum": 1},
     "subject_hash": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},

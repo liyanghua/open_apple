@@ -1,7 +1,7 @@
 # Editorial Gallery 批量审批工作台设计
 
 > 日期：2026-08-23  
-> 状态：设计规范，待实现  
+> 状态：设计规范与 mockup 已验证，生产接入待实现
 > 适用入口：`/p/<batch-id>`  颁发给：批量混剪运营与内容负责人
 
 ## 1. 设计目标
@@ -184,22 +184,46 @@ OpenMontage 的批量审批工作台需要同时服务两种人：每天处理�
 
 ## 5. 数据映射与范围
 
-本次 mockup 只模拟已有 `batch_review.data`：`phase`、`phase_label`、`candidates`、`budget`、`selection`、`pending_gates`。不新增后端字段，不把 mockup 的展示字段当成新的事实来源。
+本次 mockup 是隔离的 fixture-driven 原型，使用一个本地 adapter 把现有 `batch_review.data` 映射成展示模型；按钮只模拟结果，不调用生产 API。展示模型不能反向成为事实来源。
 
-实现阶段再按以下顺序接入：
+### 5.1 现有 payload 到展示模型
 
-1. 将当前 `renderBatch` 拆分为 `renderBatchHeader`、`renderCandidateGallery`、`renderDecisionRail`、`renderCandidateDrawer`、`renderSelectionTray`。
-2. 卡片只消费现有候选摘要；抽屉消费现有 `evaluation`、`audio_tracks`、`preview_url` 和失败字段。
-3. 事务、revision、批级审批和状态聚合保持由后端契约负责；UI 只提交动作并根据结果刷新。
+| 展示内容 | 事实来源 | 规则 |
+|---|---|---|
+| 阶段 | `data.phase`、`data.phase_reason`、`data.rail` | 不读取不存在的 `phase_label`；中文文案由 UI label map 提供 |
+| 候选画面 | `candidate.media.sample_url` | 缺失显示“样片尚未生成”，不伪造封面 |
+| 评分 | `candidate.score.weighted_total`、`candidate.score.dimension_scores`、`candidate.score.evaluation` | `evaluation.recommended_action=proceed` 推导可继续，`repair` 推导需返工，`reject` 推导质量失败 |
+| 音轨 | `candidate.media.audio_tracks` | 当前只显示轨道状态；真实播放地址出现前不伪造 audio src |
+| 成本/重试 | `candidate.cost.cost_usd`、`candidate.cost.attempts` | 批预算以 `data.budget` 的 cost tracker 投影为准 |
+| 技术失败 | `candidate.failure.failure`、`candidate.failure.technical`、`candidate_phase` | `missing/corrupt` 显示为异常状态，不从画廊移除 |
+| 待审批 | `candidate.pending_reviews[]`、`data.pending_gates[]` | 抽屉中的确认项必须使用五个 canonical keys |
+| 可选择候选 | `data.selection.eligible_candidate_ids` | 只有 `phase=selection` 才显示选择托盘；不重新猜测资格 |
+
+`direction`、创意摘要和证据标签目前属于展示 DTO：mockup fixture 可以提供它们；接入生产前必须决定把它们加入 operator schema，或改由 proposal/score artifact 的确定性字段派生，不能在前端凭空生成事实。
+
+### 5.2 真实动作边界
+
+mockup 中的“通过样片”“确认此候选”“要求返工”和“进入精剪”均使用本地 fake action adapter，并覆盖 `committed`、`replayed`、`stale`、`forbidden`、`validation_failed`、`needs_recovery` 的演示结果。它们不调用当前 `/batch/*` 端点。
+
+真实接入前必须完成：
+
+1. 将当前 `renderBatch` 拆分为 `renderBatchHeader`、`renderCandidateGallery`、`renderDecisionRail`、`renderCandidateDrawer`、`renderSelectionTray`，并同步改造 page shell，移除单任务左侧阶段导航的强制渲染。
+2. 批量审批请求携带 `aggregate_revision`、每候选 `review_id/subject_version/subject_hash` 和 sample 五项确认；选择请求携带 evaluation revision/hash。
+3. 后端实现 coordinator 的 prepare/commit/recovery 和逐候选权限校验，UI 根据响应状态禁用/恢复主动作。
+4. 批级事件接入 `/batch/events`，检测 `event_seq` 缺口后完整补拉，同时保留抽屉和选择托盘上下文。
+5. 将候选方向、摘要、推荐级别和证据标签补入 schema 或定义稳定的 artifact 派生规则。
 
 ## 6. Mockup 验收标准
 
 - 浏览器直接打开或通过本地静态服务器访问，无需后端数据即可展示完整批页。
+- 推荐在仓库根目录使用 `python3 -m http.server 4173`，然后访问 `/design-demos/editorial-gallery/`；这样 mockup 的真实媒体相对路径可用。mockup 也应能在 `file://` 下打开，但媒体加载失败时必须显示诚实的占位状态。
 - 桌面端首屏同时看见顶部批次指挥条、至少 3 张候选卡和决策栏。
 - 点击候选卡打开抽屉；关闭后保留原滚动位置和选择状态。
 - 点击“播放 3 秒”只影响当前候选，不造成布局跳动。
 - 进入选择状态后，选择托盘出现；超过 2 个候选时前端即时阻止。
 - 移动端没有横向溢出，底部操作条不遮挡卡片内容。
+- 抽屉具备 `role=dialog`、`aria-modal=true`、焦点移入/移出、Escape 关闭和背景滚动锁定。
+- mockup 至少覆盖稳定评分、选择托盘、技术失败和一个动作错误提示；真实一致性状态在后续接入测试中覆盖。
 - 视觉上避免紫色渐变、霓虹、过度圆角和“技术字段瀑布”。
 
 ## 7. 非目标

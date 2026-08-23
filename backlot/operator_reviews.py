@@ -200,6 +200,42 @@ class ReviewService:
             submitted_by="legacy-compat",
         )
 
+    def ensure_script_review_for_checkpoint(self) -> dict[str, Any] | None:
+        """为 awaiting_human 的 script 检查点补 formal script_lock review。
+
+        契约 B：`script` 门必须引用 `script_lock` review。检查点是事实来源，
+        review 由其绑定的 script artifact 哈希派生，供批级/单任务审批使用
+        正常的版本/哈希守卫事务。
+        """
+        existing = self.pending()
+        if existing is not None:
+            return existing
+        checkpoint_path = self.project_dir / "checkpoint_script.json"
+        try:
+            checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(checkpoint, Mapping) or checkpoint.get("status") != "awaiting_human":
+            return None
+        record = (checkpoint.get("artifacts") or {}).get("script")
+        if isinstance(record, Mapping):
+            data = record.get("data") if isinstance(record.get("data"), Mapping) else record
+            subject_hash = record.get("semantic_sha256")
+        else:
+            data, subject_hash = None, None
+        if not isinstance(data, Mapping) or not isinstance(subject_hash, str):
+            return None
+        if not re.fullmatch(r"[a-fA-F0-9]{64}", subject_hash):
+            return None
+        version = max(1, int(checkpoint.get("versions") or 1))
+        return self.create(
+            kind="script_lock",
+            subject_id=f"script-v{version}",
+            subject_version=version,
+            subject_hash=subject_hash,
+            submitted_by="legacy-compat",
+        )
+
     def decide(
         self,
         *,
@@ -272,7 +308,11 @@ class ReviewService:
                             expected_hash=expected_hash,
                             sink=sink,
                         )
-                stage = "assets" if review["kind"] == "creative_lock" else "sample"
+                stage = (
+                    "assets" if review["kind"] == "creative_lock"
+                    else "sample" if review["kind"] == "sample"
+                    else "script"
+                )
                 checkpoint_path = self.project_dir / f"checkpoint_{stage}.json"
                 checkpoint = None
                 if checkpoint_path.exists():
