@@ -1065,6 +1065,134 @@ function renderEvaluationCard(evaluation) {
   return card;
 }
 
+function renderBatch(container, data, { project } = {}) {
+  const workbench = node("div", "batch-cockpit");
+
+  // 一致性 + 预算 / 并发面板
+  const consistencyLabel = { stable: "稳定", unstable: "候选读取期间发生变化", degraded: "存在降级候选或预算不一致" };
+  const budgetPanel = node("section", "batch-budget");
+  budgetPanel.append(node("h3", "section-title", `批量状态（${data.phase || "—"} · ${consistencyLabel[data.consistency] || data.consistency || "—"}）`));
+  if (data.phase_reason) budgetPanel.append(node("p", "batch-phase-reason", data.phase_reason));
+  const budget = data.budget || {};
+  budgetPanel.append(node("p", "batch-budget-line",
+    `已花费 $${(budget.spent_usd ?? 0).toFixed(2)}${budget.max_cost_usd ? ` / 预算 $${budget.max_cost_usd.toFixed(2)}` : ""} · 候选 ${(data.candidates || []).length} 个 · 并发 ${(data.concurrency || {}).active_count ?? 0}/${(data.concurrency || {}).max_parallel ?? 3}${budget.over_budget ? " · 已超预算" : ""}`));
+  workbench.append(budgetPanel);
+
+  // 降级/警告
+  if ((data.warnings || []).length) {
+    const warnPanel = node("section", "batch-warnings");
+    warnPanel.append(node("h3", "section-title", "警告与降级候选"));
+    for (const warning of data.warnings) {
+      warnPanel.append(node("p", "batch-warning",
+        `${warning.candidate_id ? `[${warning.candidate_id}] ` : ""}${warning.description} — ${warning.suggested_action || ""}`));
+    }
+    workbench.append(warnPanel);
+  }
+
+  // 批级门审批（一键通过）
+  const gates = (data.pending_gates || []).filter((gate) => gate.candidates?.length);
+  if (gates.length) {
+    const gatePanel = node("section", "batch-gates");
+    gatePanel.append(node("h3", "section-title", "等待批级确认"));
+    for (const gate of gates) {
+      const row = node("div", "batch-gate-row");
+      const info = node("p", "batch-gate-info",
+        `${gate.label}：${gate.candidates.map((candidate) => candidate.candidate_id).join("、")}（${gate.candidates.length} 个候选）`);
+      const approve = node("button", "primary-button", "一键全部通过");
+      approve.type = "button";
+      approve.addEventListener("click", async () => {
+        approve.disabled = true;
+        try {
+          await api.batchApproveGate(project.project_id, gate.gate, gate.candidates.map((candidate) => candidate.candidate_id), "批级一键通过");
+          window.location.reload();
+        } catch (error) {
+          approve.disabled = false;
+          approve.textContent = `失败：${error.message}`;
+        }
+      });
+      row.append(info, approve);
+      gatePanel.append(row);
+    }
+    workbench.append(gatePanel);
+  }
+
+  // 候选矩阵
+  const matrix = node("section", "batch-matrix");
+  matrix.append(node("h3", "section-title", "候选矩阵"));
+  const table = node("div", "batch-matrix-table");
+  for (const candidate of data.candidates || []) {
+    const cell = node("article", `batch-candidate-card status-${candidate.candidate_phase || candidate.status || "planned"}`);
+    const heading = node("div", "batch-candidate-heading");
+    heading.append(node("strong", "batch-candidate-label", candidate.label || candidate.candidate_id));
+    heading.append(node("span", "status-chip", candidate.candidate_phase || candidate.status || "planned"));
+    cell.append(heading);
+    const direction = Object.values(candidate.direction || {}).join(" / ");
+    if (direction) cell.append(node("p", "batch-candidate-direction", direction));
+    const stageLine = (candidate.stage_states || []).map((state) => `${state.stage_id}:${state.status}`).join(" · ");
+    if (stageLine) cell.append(node("p", "batch-candidate-stages", stageLine));
+    cell.append(node("p", "batch-candidate-cost", `成本 $${(candidate.cost?.cost_usd ?? 0).toFixed(2)} · 尝试 ${candidate.cost?.attempts ?? 0}${candidate.failure?.failure ? ` · 失败：${candidate.failure.failure}` : ""}`));
+    if (candidate.media?.sample_url) {
+      const link = node("a", "batch-candidate-link", "查看样片");
+      link.href = candidate.media.sample_url;
+      link.target = "_blank";
+      cell.append(link);
+    }
+    const tracks = candidate.media?.audio_tracks || [];
+    if (tracks.length) {
+      const trackLine = tracks.map((track) => `${track.label}:${track.state === "present" ? "有" : track.state === "missing" ? "缺" : "未计划"}`).join(" · ");
+      cell.append(node("p", "batch-candidate-tracks", trackLine));
+    }
+    if (candidate.score?.evaluation) cell.append(renderEvaluationCard(candidate.score.evaluation));
+    table.append(cell);
+  }
+  matrix.append(table);
+  workbench.append(matrix);
+
+  // 人工选择区
+  const selectPanel = node("section", "batch-select");
+  selectPanel.append(node("h3", "section-title", "人工选择：选 1–2 条进入精剪"));
+  const selected = data.selection?.selected_candidate_ids || [];
+  if (selected.length) {
+    selectPanel.append(node("p", "batch-select-done", `已选择：${selected.join("、")}（${data.selection?.reason || ""}）`));
+  } else {
+    const picks = new Set();
+    const checkboxes = node("div", "batch-select-list");
+    for (const candidate of data.candidates || []) {
+      if (candidate.status !== "evaluated") continue;
+      const label = node("label", "batch-select-item");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) picks.add(candidate.candidate_id); else picks.delete(candidate.candidate_id);
+        if (picks.size > 2) { checkbox.checked = false; picks.delete(candidate.candidate_id); }
+      });
+      label.append(checkbox, document.createTextNode(` ${candidate.label || candidate.candidate_id}`));
+      checkboxes.append(label);
+    }
+    selectPanel.append(checkboxes);
+    const reason = document.createElement("input");
+    reason.className = "batch-select-reason";
+    reason.placeholder = "选择理由（写入决策记录）";
+    const submit = node("button", "primary-button", "进入精剪");
+    submit.type = "button";
+    submit.addEventListener("click", async () => {
+      const ids = [...picks];
+      if (!ids.length || ids.length > 2) { submit.textContent = "请选择 1–2 个候选"; return; }
+      submit.disabled = true;
+      try {
+        await api.batchSelectForEdit(project.project_id, ids, reason.value || "驾驶舱人工选择");
+        window.location.reload();
+      } catch (error) {
+        submit.disabled = false;
+        submit.textContent = `失败：${error.message}`;
+      }
+    });
+    selectPanel.append(reason, submit);
+  }
+  workbench.append(selectPanel);
+  container.append(workbench);
+}
+
 function renderDelivery(container, data, { editable = false, onOperation = () => {}, pendingOperations = [] } = {}) {
   const pendingCandidateIds = {};
   const pendingCopyOverrides = new Map();
@@ -1323,6 +1451,7 @@ function renderEditor(container, stage, editor, project, snapshot) {
       onNavigate: () => store.selectStage(project.stages.find((item) => item.label === "分镜")?.id),
     }),
     sample_review: (target, value) => renderSample(target, value, { project }),
+    batch_review: (target, value) => renderBatch(target, value, { project }),
     edit_review: renderEdit,
     delivery_review: (target, value) => renderDelivery(target, value, { editable: canEdit, onOperation, pendingOperations: changes }),
     unavailable: (target, value) => target.append(node("p", "empty-copy", value.message)),

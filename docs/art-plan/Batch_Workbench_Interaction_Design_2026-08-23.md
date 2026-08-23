@@ -5,6 +5,7 @@
 > 状态：设计稿，待实施
 > 范围：OpenMontage `cinematic-fast` 批量混剪模式的运营工作台（`/p/<project-id>`）交互设计；候选单任务工作台保留不变
 > 依赖文档：`Design_Review_2026-08-22.md`（评价/批量数据层）、`Autoresearch_Video_Remix_Integration_Design_2026-08-23.md`（优化闭环）、`skills/pipelines/cinematic-fast/optimize-director.md`（批量编排 runbook）
+> 必须先满足的实现契约：[`Batch_Workbench_Aggregate_State_Event_Contract_2026-08-23.md`](./Batch_Workbench_Aggregate_State_Event_Contract_2026-08-23.md)、[`Batch_Workbench_Cross_Project_Approval_Consistency_Contract_2026-08-23.md`](./Batch_Workbench_Cross_Project_Approval_Consistency_Contract_2026-08-23.md)
 
 ## 0. 背景与已确认决策
 
@@ -170,3 +171,9 @@
 - **事务兼容**：候选项目已启用 operator generations 的，`batch_approve_gate` 必须经 `ProjectCommitStore` 事务，失败整体回滚。
 - **失败候选**：只灰显留档，绝不删除；「失败候选不会成为 best」由 `record_candidate_result` 与 `select_for_edit` 双重保证。
 - **自动迭代边界**：本轮 `enabled=false`，迭代面板与 mutation 能力不渲染、不执行；未来启用需先过 Gold Set release gate。
+
+## 9. 契约落地顺序
+
+1. 先实现批级聚合状态与事件契约，确定 `aggregate_revision`、候选 N、相位归约、事件补拉和 `batch_review` schema。
+2. 再实现跨项目审批一致性契约，完成 coordinator record、prepare/commit/recovery、幂等和逐候选权限校验。
+3. 只有两份契约的故障注入、stale、重放和多候选回归测试通过后，才进入批页 UI 和首轮真实批量生产。

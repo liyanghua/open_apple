@@ -495,3 +495,19 @@ h3 { font-size: 15px; }
 .sample-audio-track.state-missing { border-color: #e53e3e; background: #fff5f5; }
 .sample-audio-track .track-state { font-size: 12px; color: #4a5568; }
 .sample-audio-track .track-warn { font-size: 12px; color: #c53030; }
+
+/* 批级驾驶舱（Batch_Workbench_Interaction_Design §2） */
+.batch-cockpit { display: flex; flex-direction: column; gap: 16px; }
+.batch-budget-line { font-size: 13px; color: #4a5568; }
+.batch-gate-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 8px; margin: 6px 0; }
+.batch-gate-info { margin: 0; font-size: 13px; }
+.batch-matrix-table { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.batch-candidate-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.batch-candidate-card.status-failed { opacity: 0.55; }
+.batch-candidate-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.batch-candidate-direction, .batch-candidate-stages, .batch-candidate-cost, .batch-candidate-tracks { font-size: 12px; color: #4a5568; margin: 0; }
+.batch-candidate-link { font-size: 12px; }
+.batch-select-list { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }
+.batch-select-item { font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.batch-select-reason { display: block; width: 100%; max-width: 420px; padding: 8px 10px; border: 1px solid #cbd5e0; border-radius: 6px; margin: 8px 0; }
+.batch-select-done { font-size: 14px; color: #1f9d55; }

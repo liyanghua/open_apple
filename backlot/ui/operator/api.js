@@ -120,3 +120,15 @@ export function watchProject(projectId, onChange) {
   };
   return () => { clearTimeout(timer); source.close(); };
 }
+
+export async function batchSelectForEdit(projectId, candidateIds, reason) {
+  return call(`/api/v2/projects/${encodeURIComponent(projectId)}/batch/select`, {
+    method: "POST", body: { candidate_ids: candidateIds, reason }, mutation: true,
+  });
+}
+
+export async function batchApproveGate(projectId, gate, candidateIds, reason) {
+  return call(`/api/v2/projects/${encodeURIComponent(projectId)}/batch/approve-gate`, {
+    method: "POST", body: { gate, candidate_ids: candidateIds, reason }, mutation: true,
+  });
+}

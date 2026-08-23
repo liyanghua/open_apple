@@ -263,6 +263,12 @@ Skill 负责指导 Agent 的判断和表达；不得把创意决策硬编码进 
 
 ## 修订记录
 
+- **v2.19（2026-08-23）批级聚合状态与事件契约落地（契约 A）**：
+  - 新增 `backlot/batch_state.py`：批级只读投影——`batch_review` 载荷按契约 §2（schema_version/kind/batch_id/aggregate_revision/snapshot_at/consistency/phase 八态/phase_reason/rail 六相/candidates[status 保留原始值 + candidate_phase 机器值 + child_revision + stage_states + pending_reviews + score/media/cost/links/failure]/budget[cost_tracker 权威 + 索引比对降级]/concurrency/selection[eligible_candidate_ids]/pending_gates/warnings）；相位归约按 §3（失败/缺失候选不阻塞相位；over_budget 或全灭才 blocked；rework 相位回退 → aggregate_revision 变化）；一致性 stable/unstable（读取期间二次复核）/degraded（缺失/损坏/预算不一致/超预算）；
+  - 新增 `backlot/batch_events.py`：append-only `operator/batch-events.jsonl` 事件流（8 类事件、event_seq 严格递增、event_id 去重、detect_gap 缺口检测、last-snapshot 去重的 publish_snapshot：变化候选发 candidate_changed + snapshot_published；修复 flock 重入死锁）；`GET /api/v2/projects/{id}/batch/events?after_seq=` 补拉端点；批页每次拉取 operator-state 即发布快照事件；
+  - 修复 script 门审批路径（ReviewService 只有 creative_lock/sample review：script 门直批 awaiting_human script 检查点，assets/sample 门走 ReviewService.decide，不匹配/已决 → 跳过而非失败）；
+  - 验收测试：1/2/5/10 候选矩阵、全失败 blocked、缺失/损坏降级 + warning、预算不一致 degraded（以 cost_tracker 为准）、读取期间子项目变化 unstable、相位回退 revision 变化、事件去重/递增/缺口/快照发布去重（21 例批级 + backlot 全量 271 passed）。
+
 - **v2.18（2026-08-23）代码评审 3 个 P1 门禁漏洞修复**：
   - **P1-① accepted/passed 重算验证**：`lib/optimization_run` 新增 `_verify_pass`——`record_iteration(outcome="accepted")` 与 `record_confirmation(passed=True)` 按冻结 `policy_snapshot` 重算（weighted_total≥阈值、无 failure_dimensions、`dimension_scores` 必填且 required 维度齐全、每维≥单维阈值），不达标抛 `ValueError` 拒绝（此前只信调用方，weighted_total=0 也能 accepted）；
   - **P1-② 确认失败立即 repair**：`record_confirmation` 任一次 `passed=False` 立即切回 `running`（失败维度保存在 `confirmation.runs[-1]`），不再执行下一次确认；修复后需 `start_confirmation(reset=True)` 重新确认；

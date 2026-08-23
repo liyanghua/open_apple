@@ -258,6 +258,9 @@ ARTIFACT_FILES = {
     "production_lock": "production_lock.json",
     "creative_control_plan": "creative_control_plan.json",
     "sample_execution_trace": "sample_execution_trace.json",
+    "candidate_batch": "candidate_batch.json",
+    "optimization_policy": "optimization_policy.json",
+    "optimization_run": "optimization_run.json",
 }
 
 

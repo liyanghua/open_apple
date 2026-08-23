@@ -19,6 +19,7 @@ from fastapi import APIRouter, Request
 
 from backlot.operator_adapters import get_adapter
 from backlot.operator_drafts import DraftService
+from backlot.batch_actions import BatchActionService
 from backlot.delivery_review_revisions import DeliveryReviewRevisionService
 from backlot.operator_errors import OperatorError
 from backlot.operator_impact import ImpactService
@@ -576,6 +577,52 @@ def create_operator_router(
             owner_id=session.actor.user_id,
             idempotency_key=request.headers.get("idempotency-key", ""),
             request_digest=semantic_sha256(payload),
+        )
+
+    @router.get("/projects/{project_id}/batch/events")
+    async def batch_events(project_id: str, request: Request) -> dict:
+        """批事件补拉（契约 §5）：after_seq 之后的事件；缺口检测由客户端执行。"""
+        authenticate(request, project_id, "read")
+        from backlot.batch_events import detect_gap, read_events
+
+        after_seq = int(request.query_params.get("after_seq") or 0)
+        events = read_events(project(project_id), after_seq=after_seq)
+        return {"events": events, "gaps": detect_gap(events)}
+
+    @router.post("/projects/{project_id}/batch/select")
+    async def batch_select_for_edit(project_id: str, request: Request) -> dict:
+        """批级驾驶舱：人工选择 1–2 个候选进入精剪（设计文档 §4.2）。"""
+        session = authenticate(request, project_id, "review", csrf=True)
+        payload = await body(request)
+        key = request.headers.get("idempotency-key", "").strip()
+        if not key:
+            raise OperatorError.validation_failed("缺少重复提交保护标识")
+        candidate_ids = [str(item) for item in (payload.get("candidate_ids") or [])]
+        return BatchActionService(project(project_id)).select_for_edit(
+            actor_id=session.actor.user_id,
+            idempotency_key=key,
+            candidate_ids=candidate_ids,
+            reason=str(payload.get("reason") or ""),
+        )
+
+    @router.post("/projects/{project_id}/batch/approve-gate")
+    async def batch_approve_gate(project_id: str, request: Request) -> dict:
+        """批级一键通过：script/assets/sample 三个门逐候选审批（审计不合并）。"""
+        session = authenticate(request, project_id, "review", csrf=True)
+        payload = await body(request)
+        key = request.headers.get("idempotency-key", "").strip()
+        if not key:
+            raise OperatorError.validation_failed("缺少重复提交保护标识")
+        gate = str(payload.get("gate") or "")
+        candidate_ids = [str(item) for item in (payload.get("candidate_ids") or [])]
+        if not candidate_ids:
+            raise OperatorError.validation_failed("缺少待确认的候选")
+        return BatchActionService(project(project_id)).approve_gate(
+            actor_id=session.actor.user_id,
+            idempotency_key=key,
+            gate=gate,
+            candidate_ids=candidate_ids,
+            reason=str(payload.get("reason") or ""),
         )
 
     return router

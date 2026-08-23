@@ -1683,6 +1683,111 @@ def _select_current_stage(stages: list[Mapping[str, Any]]) -> Mapping[str, Any]:
     return stages[-1]
 
 
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 批级驾驶舱投影（Batch_Workbench_Aggregate_State_Event_Contract v1.0 §2）
+# 实现细节委托 backlot/batch_state.py；此处只做顶层状态装配。
+# ---------------------------------------------------------------------------
+
+
+def _batch_editor(board: Mapping[str, Any], batch: Mapping[str, Any]) -> dict[str, Any]:
+    from backlot.batch_state import build_batch_review_data
+
+    data = build_batch_review_data(board, batch)
+    return {"type": "batch_review", "data": data}
+
+
+def _batch_progress_percent(data: Mapping[str, Any], phase: str) -> int:
+    rail_phases = [str(item.get("phase")) for item in (data.get("rail") or [])]
+    total = max(len(rail_phases), 1)
+    if phase == "completed":
+        return 100
+    if phase in rail_phases:
+        index = rail_phases.index(phase)
+    else:  # blocked：停驻在最后推进到的位置
+        index = total - 1
+    return round(index / total * 100)
+
+
+def _batch_operator_state(board: Mapping[str, Any], batch: Mapping[str, Any]) -> dict[str, Any]:
+    """批项目（含 candidate_batch）的批级状态投影。"""
+    from backlot.batch_state import RAIL_LABELS, build_batch_review_data
+
+    data = build_batch_review_data(board, batch)
+    phase = str(data.get("phase") or "building")
+    gates = [gate for gate in (data.get("pending_gates") or []) if gate.get("candidates")]
+    stages = []
+    for rail_item in data.get("rail") or []:
+        rail_phase = str(rail_item.get("phase"))
+        raw_status = rail_item.get("status")
+        stage_status = (
+            "completed" if raw_status == "completed"
+            else ("awaiting_human" if gates and raw_status == "current" else
+                  "in_progress" if raw_status == "current" else "pending")
+        )
+        stages.append({
+            "id": rail_phase,
+            "label": RAIL_LABELS.get(rail_phase, rail_phase),
+            "status": STATUS_LABELS.get(stage_status, STATUS_LABELS["unknown"]),
+            "version": 0,
+            "updated_at": None,
+            "updated_by": None,
+            "editable": False,
+            "summary": _stage_summary(RAIL_LABELS.get(rail_phase, rail_phase), stage_status),
+            "warnings": [w.get("description") for w in (data.get("warnings") or []) if w.get("candidate_id") is None],
+            "editor": {"type": "unavailable", "data": {"message": "批级阶段在驾驶舱总览中展示"}},
+        })
+    current = next((stage for stage in stages if stage["id"] == phase), stages[0])
+    pending_review = None
+    if gates:
+        gate = gates[0]
+        pending_review = {
+            "kind": "batch_gate",
+            "label": f"批量确认{gate['label']}（{len(gate['candidates'])} 个候选）",
+            "summary": data.get("phase_reason") or "可在驾驶舱逐候选复核后一键全部通过",
+            "subject_version": 0,
+            "gate": gate["gate"],
+            "candidates": gate["candidates"],
+        }
+    consistency_label = {"stable": "稳定", "unstable": "读取期间候选状态变化", "degraded": "存在降级候选或预算不一致"}
+    state: dict[str, Any] = {
+        "schema_version": "1.0",
+        "project_id": str(board.get("project_id") or "unknown-batch"),
+        "title": _safe_text(board.get("title"), "批量混剪"),
+        "pipeline": "cinematic-fast",
+        "skill": None,
+        "summary": {
+            "current_stage": RAIL_LABELS.get(phase, phase),
+            "current_task": f"{data.get('phase_reason') or '批量生产进行中'}（一致性：{consistency_label.get(data.get('consistency'), data.get('consistency'))}）",
+            "progress_percent": _batch_progress_percent(data, phase),
+            "next_action": "等待批级门确认" if pending_review else "在驾驶舱查看候选矩阵与评分",
+            "estimated_seconds": None,
+            "estimate_confidence": None,
+            "spent_usd": float((data.get("budget") or {}).get("spent_usd") or 0),
+        },
+        "stages": stages,
+        "workspace": {
+            "stage_id": phase,
+            "editor": _batch_editor(board, batch),
+            "read_only": True,
+            "upgrade_action": None,
+        },
+        "pending_review": pending_review,
+        "permissions": ["view", "review"],
+        "active_job": None,
+        "revision": "0" * 64,
+        "legacy": {
+            "read_only": False,
+            "source_pipeline": "cinematic-fast",
+            "upgrade_available": False,
+            "message": "",
+        },
+    }
+    state["revision"] = operator_revision(state)
+    validate_operator_state(state)
+    return state
+
+
 def operator_revision(state: Mapping[str, Any]) -> str:
     payload = {key: value for key, value in state.items() if key != "revision"}
     canonical = json.dumps(
@@ -1713,6 +1818,10 @@ def _performance_summary(project_dir: Path) -> dict[str, Any]:
 def project_operator_state(board_state: Mapping[str, Any]) -> dict[str, Any]:
     """Project BoardState into a recursively closed business response."""
     board = dict(board_state)
+    # 批项目（candidate_batch 索引存在）走批级驾驶舱分支（设计文档 §4.1）。
+    candidate_batch = _artifact(board, "candidate_batch")
+    if isinstance(candidate_batch, Mapping) and candidate_batch.get("candidates"):
+        return _batch_operator_state(board, candidate_batch)
     pipeline_meta = board.get("pipeline") if isinstance(board.get("pipeline"), Mapping) else {}
     pipeline_type = str(pipeline_meta.get("pipeline_type") or "unknown")
     raw_stages = [
@@ -1895,6 +2004,26 @@ def load_operator_state(
     ]
     state["revision"] = operator_revision(state)
     validate_operator_state(state)
+    # 批事件流（契约 §5）：批页每次拉取状态即发布 snapshot_published +
+    # 变化候选的 candidate_changed；投递失败不回滚事实提交，客户端可重新拉取。
+    editor = state.get("workspace", {}).get("editor") if isinstance(state.get("workspace"), Mapping) else None
+    if isinstance(editor, Mapping) and editor.get("type") == "batch_review":
+        try:
+            from backlot.batch_events import publish_snapshot
+
+            data = editor.get("data") if isinstance(editor.get("data"), Mapping) else {}
+            publish_snapshot(
+                project_dir,
+                aggregate_revision=str(data.get("aggregate_revision") or ""),
+                phase=str(data.get("phase") or "building"),
+                candidates={
+                    str(view.get("candidate_id") or ""): view.get("child_revision")
+                    for view in (data.get("candidates") or [])
+                    if isinstance(view, Mapping) and view.get("candidate_id")
+                },
+            )
+        except Exception:
+            pass
     return state
 
 
