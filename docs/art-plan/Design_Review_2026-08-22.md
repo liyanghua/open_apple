@@ -263,6 +263,12 @@ Skill 负责指导 Agent 的判断和表达；不得把创意决策硬编码进 
 
 ## 修订记录
 
+- **v2.21（2026-08-23）第一轮真实批量生产启动（阶段二，纯人工 review）**：
+  - 批工作区 `projects/table-mat-batch-001`：`optimization_policy` 冻结（enabled=false）+ 启动决策（默认参数：v8 透明桌垫素材池 / 5 方向 / 抖音 9:16 15s / 预算 30 USD）+ `candidate_batch`（5 候选、source_media_refs、批次预算）+ 经 `lib.batch_fork` 分叉 5 个候选项目（共享 v8 研究制品 + analysis/ 派生证据，B3 门通过）；
+  - 5 个候选方向（c1 结果先行 / c2 痛点先行 / c3 证据链先行 / c4 高密度快剪 / c5 产品质感版）各完成差异化 proposal（selected_concept/钩子/首句/字幕）+ completed 检查点，script 差异化（钩子/首句/字幕/开场目标）停在 **awaiting_human（script_lock 门）**；
+  - 驾驶舱实况：phase=sampling、script 门待批级一键通过（5 候选）、预算面板 $0/$30、聚合一致性 stable；`backlot validate` 全链 VALID（每候选 research+proposal completed + script awaiting_human）；backlot 全量 276 passed / 1 skipped；
+  - **生产停在第一个批级门，等待用户审批**（批级一键通过后继续 scene_plan → assets 创意锁 → 真实 TTS/BGM/样片渲染，并发 ≤3）。
+
 - **v2.20（2026-08-23）跨项目审批一致性契约落地（契约 B）**：
   - `operator_review` schema kind += `script_lock`；`ReviewService.ensure_script_review_for_checkpoint`（检查点派生 formal review，script 门必须引用 script_lock review）+ `decide` 支持 script_lock（stage=script，检查点直批 + 下阶段推进）；load_operator_state 在 script 阶段自动补 review；
   - `backlot/batch_actions.py` 重写为协调器：`batch_approve_gate`/`batch_select_for_edit` 请求携带 `aggregate_revision` + participants（review 快照；script 门空快照由服务端从检查点派生回填）；协调记录 `operator/batch-actions/<id>.json` 状态机（preparing/prepared/committing/committed/rejected/needs_recovery/replayed + 参与者状态与 commit marker）；prepare 阶段校验批级+逐候选 review 权限、归属 containment、快照服务端重读（不信任客户端）、sample 五项确认必须全 pass；commit 逐候选原子提交 + 每候选 decision_log 追加 `batch_approval`（新类别，带 batch_action_id + review_snapshot）；崩溃后 `recover_batch_action` 续跑（`POST /batch/actions/{id}/recover`），无法继续 → `needs_recovery`(503) 绝不静默覆盖；
