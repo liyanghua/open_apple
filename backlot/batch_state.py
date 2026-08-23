@@ -146,8 +146,8 @@ def _gate_material(child_dir: Path, awaiting_stage: str) -> dict[str, Any] | Non
                 "voice": narration.get("voice") or tts.get("voice") or "",
             },
             "bgm": {
-                "provider": music.get("provider") or bgm.get("provider") or "",
-                "profile": music.get("profile") or bgm.get("profile") or "",
+                "provider": bgm.get("provider") or music.get("provider") or "",
+                "profile": bgm.get("profile") or music.get("profile") or "",
             },
             "plan_summary": {
                 "proxy_shots": sum(1 for item in planned if str(item.get("type", "")) in {"video_proxy", "video"}),
