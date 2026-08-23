@@ -263,6 +263,12 @@ Skill 负责指导 Agent 的判断和表达；不得把创意决策硬编码进 
 
 ## 修订记录
 
+- **v2.26（2026-08-23）BGM 供应商修订 pixabay→SUNO（用户确认）+ 样片程序补全技术校验链**：
+  - pixabay 音乐检索被供应商端 403 反爬阻断（浏览器 UA 同样 403），按升级协议向用户提交选项，用户选择 SUNO 生成（SUNO_API_KEY 已配置）；`revise_bgm_suno.py` 逐候选执行：decision_log 追加 `music_source`（同类别同主题修订：pixabay rejected_because 403 阻断 → suno 入选）+ 生产锁 v2（bgm.provider=suno，profile/ducking 不变）+ creative_lock 审批包 v2 重建 + checkpoint_assets 回到 awaiting_human；批根同步记录；
+  - 驾驶舱 gate_material 的 BGM provider 改为锁值优先（此前读 script 元数据，修订后显示滞后）；
+  - `continue_sample.py` 补全样片技术校验链（此前缺口）：final_qa（`social_vertical_sample_540p30` 样片 profile）→ video_judge（l3-v1.0 advisory，不可用→scored=false 不阻塞）→ technical_validator（scope=sample、subject_hash=渲染文件 sha256、execution_diff_ref=执行差、judge dimensions 注入 creative_advisory）→ 输出即 evaluation_report；致命 L1a 失败中止候选并上报；预构建哈希与落盘确定性一致；
+  - **等待用户对 bundle v2 点击「素材创意确认 → 一键全部通过」**；批准后 continue_sample.py 实跑（SUNO BGM → 混音 → Remotion 渲染 → 校验/评分 → 样片效果确认门）。
+
 - **v2.25（2026-08-23）样片续跑程序模板全部 schema 校验通过（批准后即跑）**：
   - `projects/table-mat-batch-001/continue_sample.py`：素材创意锁批准后的样片阶段续跑程序（门检查：任意候选未批整体拒绝付费调用；--dry-run 仅内存校验）。制品模板 8 件全部通过 validate_artifact：asset_manifest（7 代理镜 + 6 段豆包口播 type=narration + pixabay BGM + 本地混音，v8 约定对齐）、final_props（Explainer 450 帧 1080x1920 + 屏显短词字幕 + 音频混音记录）、caption_policy_revision（status=approved_for_sample_revision + authorization/change_impact 契约）、render_plan（sample 0-300 帧 0.5x quick）、edit_decisions（schema 合法形态；Remotion props 的 src 音频与词级字幕走渲染时适配，不落入制品）、sample_report、sample_execution_trace（三差 audio/caption/creative_rule + 样片窗口 included 状态）、evaluation_report（sample scope，hard_gate.coverage 契约）；
   - 5 候选 dry-run 全绿；live 路径保留 voice-timeline-fit 实测适配（0/+10/+20/+50 语速档）、并发 ≤3、批准后豆包 TTS/pixabay/media_proxy/audio_mixer/video_compose 串行执行。
