@@ -1570,9 +1570,15 @@ function render(snapshot) {
 
   const selected = project.stages.find((stage) => stage.id === snapshot.selectedStageId) || project.stages[0];
   if (!selected) return;
-  byId("workspace-title").textContent = selected.label;
-  byId("workspace-status").textContent = `${selected.status} · 第 ${selected.version || 0} 版`;
-  renderEditor(byId("workspace-content"), selected, selected.editor, project, snapshot);
+  // 批级驾驶舱：无论选中哪个批级相位 tab，都渲染批级总览（阶段 tab 仅为进度指示），
+  // 不再落到各相位的 unavailable 空 editor（用户反馈：建批过程没有内容）。
+  const batchEditor = project.workspace?.editor?.type === "batch_review" ? project.workspace.editor : null;
+  const editor = batchEditor || selected.editor;
+  byId("workspace-title").textContent = batchEditor ? "批量驾驶舱" : selected.label;
+  byId("workspace-status").textContent = batchEditor
+    ? `${project.summary.current_stage} · ${project.summary.progress_percent}%`
+    : `${selected.status} · 第 ${selected.version || 0} 版`;
+  renderEditor(byId("workspace-content"), selected, editor, project, snapshot);
 
   const review = byId("review-summary");
   review.replaceChildren();

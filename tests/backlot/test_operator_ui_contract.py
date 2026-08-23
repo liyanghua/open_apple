@@ -351,3 +351,10 @@ def test_batch_cockpit_uses_imported_api_bindings() -> None:
     assert "batchRecover(" in app
     assert "api.batchApproveGate" not in app
     assert "api.batchSelectForEdit" not in app
+
+
+def test_batch_cockpit_renders_on_every_phase_tab() -> None:
+    """用户反馈回归守卫：批页任何相位 tab 都渲染驾驶舱，不落到空 editor。"""
+    app = _read(OPERATOR_ROOT / "app.js")
+    assert 'project.workspace?.editor?.type === "batch_review"' in app
+    assert "批量驾驶舱" in app
