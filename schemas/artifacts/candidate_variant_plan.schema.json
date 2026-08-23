@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/candidate_variant_plan",
+  "title": "Candidate Variant Plan",
+  "description": "Candidate-level variant intent authored before asset/sample production: six variation dimensions, shot-level difference fingerprints, and opening-window constraints. Diversity starts in planning, not by rewriting only the first three seconds after sampling.",
+  "type": "object",
+  "required": [
+    "version", "batch_id", "candidate_id", "variant_revision", "baseline_ref",
+    "dimensions", "shot_differences", "difference_fingerprint", "provenance",
+    "opening_window", "opening_only_change"
+  ],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "batch_id": { "type": "string", "minLength": 1 },
+    "candidate_id": { "type": "string", "minLength": 1 },
+    "variant_revision": { "type": "integer", "minimum": 1 },
+    "baseline_ref": {
+      "type": "object",
+      "required": ["name", "path"],
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "artifact_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "dimensions": {
+      "type": "object",
+      "required": [
+        "hook_type", "narrative_structure", "visual_grammar",
+        "pacing_profile", "evidence_strategy", "asset_strategy"
+      ],
+      "properties": {
+        "hook_type": { "$ref": "#/$defs/dimension" },
+        "narrative_structure": { "$ref": "#/$defs/dimension" },
+        "visual_grammar": { "$ref": "#/$defs/dimension" },
+        "pacing_profile": { "$ref": "#/$defs/dimension" },
+        "evidence_strategy": { "$ref": "#/$defs/dimension" },
+        "asset_strategy": { "$ref": "#/$defs/dimension" }
+      },
+      "additionalProperties": false
+    },
+    "shot_differences": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["shot_id", "difference_type", "evidence_class", "evidence_ref"],
+        "properties": {
+          "shot_id": { "type": "string", "minLength": 1 },
+          "difference_type": {
+            "type": "string",
+            "enum": ["shot_order", "source_window", "duration", "visual_grammar", "evidence_role", "asset_role", "caption_layout"]
+          },
+          "evidence_class": { "type": "string", "enum": ["structural", "visual"] },
+          "evidence_ref": {
+            "type": "object",
+            "required": ["kind", "path"],
+            "properties": {
+              "kind": { "type": "string" },
+              "path": { "type": "string" },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            },
+            "additionalProperties": false
+          },
+          "time_range": {
+            "type": ["object", "null"],
+            "required": ["start_seconds", "end_seconds"],
+            "properties": {
+              "start_seconds": { "type": "number", "minimum": 0 },
+              "end_seconds": { "type": "number", "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "difference_fingerprint": {
+      "type": "object",
+      "required": ["structure_hash", "visual_hash", "timing_hash", "changed_dimension_count", "structural_shot_count"],
+      "properties": {
+        "structure_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "visual_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "timing_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "changed_dimension_count": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "structural_shot_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "opening_window": {
+      "type": "object",
+      "required": ["start_seconds", "end_seconds"],
+      "properties": {
+        "start_seconds": { "type": "number", "const": 0 },
+        "end_seconds": { "type": "number", "const": 3 }
+      },
+      "additionalProperties": false
+    },
+    "opening_only_change": { "type": "boolean" },
+    "approval_status": {
+      "type": "string",
+      "enum": ["awaiting_human", "approved", "rejected"],
+      "description": "差异策略的审批状态；生成时必须 awaiting_human，creative_lock 批准后才可进入素材/样片生产"
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "author": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "input_hashes": { "type": "object", "additionalProperties": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "semantic_sha256": { "type": "string" },
+    "artifact_sha256": { "type": "string" }
+  },
+  "$defs": {
+    "dimension": {
+      "type": "object",
+      "required": ["value", "baseline_value", "changed", "rationale"],
+      "properties": {
+        "value": { "type": "string", "minLength": 1 },
+        "baseline_value": { "type": "string" },
+        "changed": { "type": "boolean" },
+        "rationale": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

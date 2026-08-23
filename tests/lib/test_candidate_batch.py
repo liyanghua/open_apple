@@ -34,6 +34,12 @@ def test_create_batch_is_valid():
     validate_artifact("candidate_batch", batch)
     assert batch["candidates"][0]["status"] == "planned"
     assert batch["selection"]["selected_candidate_ids"] == []
+    assert all(
+        candidate["variant_plan_ref"]["strategy_id"]
+        for candidate in batch["candidates"]
+    )
+    assert batch["candidates"][0]["direction"]["hook"] == "result_first"
+    assert batch["candidates"][1]["direction"]["hook"] == "problem_first"
 
 
 def test_create_batch_rejects_empty_research():

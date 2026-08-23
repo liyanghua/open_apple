@@ -1,11 +1,38 @@
 # 批量样片恢复与正式化实施方案（2026-08-23）
 
+> **当前实现快照（2026-08-23，代码更新后）**：本文件前文保留当时的实施决策与历史状态；最新落地状态、回归结果和批量混剪验收记录见
+> [`Table_Mat_Batch_001_Batch_Acceptance_Record_2026-08-23.md`](./Table_Mat_Batch_001_Batch_Acceptance_Record_2026-08-23.md)。
+
+## 当前实现进度
+
+| 能力 | 当前状态 | 代码/制品 | 说明 |
+|---|---|---|---|
+| 样片时间轴、源裁剪、字幕与混音 payload | 已落地 | `lib/sample_payload.py`、`lib/sample_recovery.py` | 已用于样片渲染前校验和恢复路径 |
+| 候选差异计划与 pairwise 矩阵 | 已落地 | `schemas/artifacts/candidate_variant_plan.schema.json`、`lib/candidate_diversity.py` | 六维差异、镜头级指纹、opening-only 检查；批页可投影矩阵 |
+| 差异门与历史批次兼容 | 已落地 | `lib/candidate_batch.py`、`backlot/batch_actions.py`、`lib/sample_preflight.py` | 新批次默认 `warning`；`hard_gate` 阻塞缺计划/不足差异；旧批次 `legacy_read_only` |
+| 效率/质量报告 | 已落地 | `lib/batch_reporting.py`、两份 report schema | 从事件、cost log、评价制品和人工复核重建，支持幂等回填 |
+| 批页报告/差异投影 | 已落地 | `backlot/batch_state.py`、operator DTO/UI | 报告缺失、部分或降级时显示恢复动作并禁用选择/发布 |
+| 跨项目路径安全与 stale 输入 | 已落地 | `backlot/batch_state.py`、`lib/batch_reporting.py` | candidate project path 做 projects-root containment；报告/差异事实参与 aggregate revision |
+| VLM 创意评审 | 部分 | `batch_quality_report` 支持 `creative_advisory` | 当前 `table-mat-batch-001` 仍有候选未运行 VLM，报告应为 `partial`，不能伪报通过 |
+| 多样性 rollout | 待推进 | `diversity_mode` | 需完成一批新的五候选 smoke 后，再把新批次默认提升为 `hard_gate` |
+| 新批主链路差异策略 | 已接入（warning） | `lib/candidate_diversity.py`、`lib/candidate_batch.py`、`lib/batch_fork.py`、`lib/approval_groups.py` | 建批自动分配五套默认策略；分叉自动落盘 `candidate_variant_plan`；creative lock 纳入人审材料；历史批次不回溯 |
+| R1 voice-fit/样片 stage 服务 | 部分 | 现有库函数可复用 | 仍需把临时编排彻底吸收为正式 stage service/skill |
+| R3 preview/promote/discard 工作台流转 | 部分 | `lib/rerun_plan.py`、schemas | 契约基础已存在，仍需完整接入 UI/API 和预览确认状态机 |
+
+**验证快照**：全量回归基线 `1873 passed / 11 skipped`；本轮修复后的差异/报告/批页聚焦回归 `51 passed`，Python 编译检查通过。未把未运行 VLM 的批次提升为质量通过。
+
+**主链路接入验证（2026-08-23）**：候选差异策略专项 `31 passed`，批页/差异/报告/fastline 集成专项 `49 passed`。新批次默认仍为 `warning`：差异不足会记录 warning，但 creative lock 未获人工批准时不得进入 assets/sample；`table-mat-batch-001` 继续保持 `legacy_read_only`。
+
+**单视频边界**：`candidate_variant_plan` 只由 `candidate_batch`/`batch_fork` 路径创建。普通单项目没有 `project.json.candidate.batch_id` 标记，不要求差异计划、不增加差异审批材料，也不改变原有 cinematic-fast 的阶段和成本路径。
+
 > 状态：已确认，待实施
 > 适用批次：`table-mat-batch-001`
 > 目标：先无付费恢复五个样片，再将样片生产、声音锁定、批量审批恢复、候选差异校验与可逆重跑纳入正式工作台。
 >
 > **实现进度（2026-08-23 批次已完结）**：详见
 > [`Table_Mat_Batch_001_Run_Retrospective_2026-08-23.md`](./Table_Mat_Batch_001_Run_Retrospective_2026-08-23.md)。
+> **新增实施计划**：候选多样性与效率/效果报告见
+> [`docs/superpowers/plans/2026-08-23-batch-diversity-and-reporting.md`](../superpowers/plans/2026-08-23-batch-diversity-and-reporting.md)。
 > 本轮落地 R0（新增 `lib/sample_payload.py` / `lib/sample_recovery.py`；5 候选全量成片，
 > `sample→edit→compose→publish` completed；批尾人工选择 c2/c3，批相位 completed/100%）。
 > **未按批级契约执行**：样片批准绕开 `batch_approve_gate`（R2 未实现，无 prepare/commit/coordinator/恢复）。
@@ -162,3 +189,14 @@
 5. `caption_integrity`、`opening_alignment`、`candidate_divergence` 和编辑室门禁通过批量 fixture 回归后，才允许把批量工作台作为终稿编辑室的正式入口。
 
 产品 SKU、价格和参数的权威档案不在本次恢复范围内；在该档案提供并接入前，任何修复后的样片只能用于人工审看与创意复评，不能用于自动排名或进入精剪选择。
+
+## 6. 新增主线：候选多样性与效率/效果报告
+
+本计划的后续批量生产不再接受“只换前三秒/第一句口播”的候选差异，也不再依赖批页临时计算效率或质量指标。具体实施拆为两条可独立验收的路线：
+
+| 路线 | P0/P1 交付 | P2/P3 发布门 |
+|---|---|---|
+| 候选多样性 | `candidate_variant_plan` 契约、六维变体规划、镜头级差异指纹、结构差异与视觉相似度分开检测 | 批页展示差异矩阵；warning 模式烟测通过后升级 hard gate |
+| 效率 + 效果报告 | `batch_run_report`、`batch_quality_report` 契约与确定性重建器；事件/成本/checkpoint/评价制品为唯一事实源 | 批页展示效率摘要、质量矩阵、阻塞项和推荐动作；历史批次只读回填 |
+
+实施边界：`candidate_batch` 仍是索引，候选内容仍写入子项目；`table-mat-batch-001` 只做报告回填和验收，不重新调用任何生成或评估 provider。报告必须携带输入哈希和 `rubric_version`，缺失事件、成本不一致或 VLM 未运行时显示 `partial/degraded`，不得伪造为零耗时、零成本或通过。

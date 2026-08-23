@@ -261,6 +261,8 @@ ARTIFACT_FILES = {
     "candidate_batch": "candidate_batch.json",
     "optimization_policy": "optimization_policy.json",
     "optimization_run": "optimization_run.json",
+    "batch_run_report": "batch_run_report.json",
+    "batch_quality_report": "batch_quality_report.json",
 }
 
 

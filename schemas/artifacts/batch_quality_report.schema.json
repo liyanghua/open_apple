@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/batch_quality_report",
+  "title": "Batch Quality Report",
+  "description": "Reproducible quality report: facts coverage, technical QA, advisory VLM dimensions, human confirmations, diversity, rework, and recommendations. VLM remains advisory and is never substituted for a hard technical gate.",
+  "type": "object",
+  "required": [
+    "version", "batch_id", "run_id", "generated_at", "input_hashes",
+    "rubric_version", "source_refs", "data_quality",
+    "candidates", "pairwise_diversity", "human_review", "recommendations"
+  ],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "batch_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "report_revision": { "type": "integer", "minimum": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "input_hashes": { "type": "object", "additionalProperties": { "type": "string" } },
+    "rubric_version": { "type": "string", "minLength": 1, "description": "Judge/evaluation rubric version" },
+    "source_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "path", "sha256", "record_count"],
+        "properties": {
+          "kind": { "type": "string" },
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "record_count": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "data_quality": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["complete", "partial", "degraded"] },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "candidate_id": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["candidate_id", "status", "next_action"],
+        "properties": {
+          "candidate_id": { "type": "string" },
+          "status": { "type": "string", "enum": ["pass", "revise", "fail", "missing"] },
+          "score": { "type": ["number", "null"], "minimum": 0, "maximum": 10 },
+          "vlm_dimensions": {
+            "type": "object",
+            "properties": {
+              "hook": { "type": ["number", "null"], "minimum": 0, "maximum": 10 },
+              "opening_alignment": { "type": ["number", "null"], "minimum": 0, "maximum": 10 },
+              "proof": { "type": ["number", "null"], "minimum": 0, "maximum": 10 },
+              "pacing": { "type": ["number", "null"], "minimum": 0, "maximum": 10 },
+              "readability": { "type": ["number", "null"], "minimum": 0, "maximum": 10 },
+              "diversity": { "type": ["number", "null"], "minimum": 0, "maximum": 10 }
+            },
+            "additionalProperties": false
+          },
+          "confirmations": {
+            "type": ["object", "null"],
+            "properties": {
+              "creative_direction": { "type": "string" },
+              "hook": { "type": "string" },
+              "proof": { "type": "string" },
+              "pacing": { "type": "string" },
+              "readability": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
+          "blocking_items": { "type": "array", "items": { "type": "string" } },
+          "rework": {
+            "type": ["object", "null"],
+            "properties": {
+              "tags": { "type": "array", "items": { "type": "string" } },
+              "rounds": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          },
+          "next_action": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "pairwise_diversity": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["candidate_a", "candidate_b", "changed_dimensions", "structural_shot_count", "passes"],
+        "properties": {
+          "candidate_a": { "type": "string" },
+          "candidate_b": { "type": "string" },
+          "changed_dimensions": { "type": "integer", "minimum": 0 },
+          "structural_shot_count": { "type": "integer", "minimum": 0 },
+          "visual_risk": { "type": "string", "enum": ["none", "low", "high", "unknown"] },
+          "passes": { "type": "boolean" },
+          "evidence_refs": { "type": "array", "items": { "type": "object" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "human_review": {
+      "type": "object",
+      "properties": {
+        "selected_candidate_ids": { "type": "array", "items": { "type": "string" } },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["candidate_id", "action"],
+        "properties": {
+          "candidate_id": { "type": "string" },
+          "action": { "type": "string" },
+          "reason": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "semantic_sha256": { "type": "string" },
+    "artifact_sha256": { "type": "string" }
+  },
+  "additionalProperties": false
+}

@@ -118,6 +118,36 @@ def _require_approved_creative_control_plan(
         )
 
 
+def _candidate_variant_plan_ref(project_dir: Path) -> dict[str, str] | None:
+    """Return the candidate plan's integrity reference for creative lock.
+
+    Candidate projects are marked in ``project.json`` by ``batch_fork``.  The
+    plan is written before proposal/assets, so it may not belong to any one
+    stage checkpoint yet; the approval bundle therefore includes it directly.
+    """
+    marker_path = project_dir / "project.json"
+    try:
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        marker = {}
+    candidate = marker.get("candidate") if isinstance(marker, dict) else None
+    if not isinstance(candidate, dict) or not candidate.get("batch_id"):
+        return None
+    plan_path = project_dir / "artifacts" / "candidate_variant_plan.json"
+    if not plan_path.is_file():
+        raise ValueError(
+            "candidate project is missing candidate_variant_plan; generate and review the default diversity plan before creative_lock"
+        )
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    validate_artifact("candidate_variant_plan", plan)
+    return {
+        "name": "candidate_variant_plan",
+        "path": "artifacts/candidate_variant_plan.json",
+        "semantic_sha256": str(plan["semantic_sha256"]),
+        "artifact_sha256": str(plan["artifact_sha256"]),
+    }
+
+
 def build_approval_bundle(
     project_dir: Path, manifest: dict[str, Any], group_name: str, *, sink=None
 ) -> dict[str, Any]:
@@ -140,6 +170,12 @@ def build_approval_bundle(
         for name, artifact in (checkpoint.get("artifacts") or {}).items():
             if isinstance(artifact, dict) and {"path", "semantic_sha256", "artifact_sha256"} <= artifact.keys():
                 refs.append({"name": name, "path": artifact["path"], "semantic_sha256": artifact["semantic_sha256"], "artifact_sha256": artifact["artifact_sha256"]})
+    variant_ref = _candidate_variant_plan_ref(project_dir) if group_name == "creative_lock" else None
+    if variant_ref is not None and not any(
+        ref.get("path") == variant_ref["path"] for ref in refs
+    ):
+        refs.append(variant_ref)
+        input_hashes["candidate_variant_plan"] = variant_ref["semantic_sha256"]
     bundle_id = f"{project_id}-{group_name}"
     previous = list(_bundle_dir(project_dir, create=sink is None).glob(f"{bundle_id}-v*-*.json"))
     version = max([int(p.name.split("-v", 1)[1].split("-", 1)[0]) for p in previous] or [0]) + 1

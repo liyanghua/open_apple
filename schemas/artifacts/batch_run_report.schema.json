@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/batch_run_report",
+  "title": "Batch Run Report",
+  "description": "Reproducible efficiency report rebuilt from run events, cost records, checkpoints, and the candidate index. No provider/VLM/render calls are made to produce it.",
+  "type": "object",
+  "required": [
+    "version", "batch_id", "run_id", "generated_at", "input_hashes",
+    "rubric_version", "source_refs", "data_quality",
+    "timing", "stages", "provider_calls", "cache", "concurrency",
+    "throughput", "cost", "candidate_cycles", "milestones"
+  ],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "batch_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "report_revision": { "type": "integer", "minimum": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "input_hashes": { "type": "object", "additionalProperties": { "type": "string" } },
+    "rubric_version": { "type": "string", "minLength": 1, "description": "Metric-definition version for the run report" },
+    "source_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "path", "sha256", "record_count"],
+        "properties": {
+          "kind": { "type": "string" },
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "record_count": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "data_quality": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["complete", "partial", "degraded"] },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "candidate_id": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "timing": {
+      "type": "object",
+      "required": ["queue_seconds", "active_seconds", "human_wait_seconds"],
+      "properties": {
+        "queue_seconds": { "type": "number", "minimum": 0 },
+        "active_seconds": { "type": "number", "minimum": 0 },
+        "human_wait_seconds": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["stage_id", "wall_seconds", "active_seconds", "attempts"],
+        "properties": {
+          "stage_id": { "type": "string" },
+          "wall_seconds": { "type": "number", "minimum": 0 },
+          "active_seconds": { "type": "number", "minimum": 0 },
+          "attempts": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "provider_calls": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["provider", "model", "count", "cost_usd"],
+        "properties": {
+          "provider": { "type": "string" },
+          "model": { "type": ["string", "null"] },
+          "count": { "type": "integer", "minimum": 0 },
+          "cost_usd": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "cache": {
+      "type": "object",
+      "required": ["hits", "misses", "rate"],
+      "properties": {
+        "hits": { "type": "integer", "minimum": 0 },
+        "misses": { "type": "integer", "minimum": 0 },
+        "rate": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "concurrency": {
+      "type": "object",
+      "properties": {
+        "max_parallel": { "type": "integer", "minimum": 1 },
+        "peak_active": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "throughput": {
+      "type": "object",
+      "required": ["candidates_per_hour"],
+      "properties": {
+        "candidates_per_hour": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "cost": {
+      "type": "object",
+      "required": ["total_usd"],
+      "properties": {
+        "total_usd": { "type": "number", "minimum": 0 },
+        "per_candidate_usd": { "type": ["number", "null"], "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "candidate_cycles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["candidate_id", "attempts", "status"],
+        "properties": {
+          "candidate_id": { "type": "string" },
+          "attempts": { "type": "integer", "minimum": 0 },
+          "status": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "milestones": {
+      "type": "object",
+      "required": ["start_to_sample", "sample_to_selectable", "select_to_delivery"],
+      "properties": {
+        "start_to_sample": { "type": ["number", "null"], "minimum": 0 },
+        "sample_to_selectable": { "type": ["number", "null"], "minimum": 0 },
+        "select_to_delivery": { "type": ["number", "null"], "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "semantic_sha256": { "type": "string" },
+    "artifact_sha256": { "type": "string" }
+  },
+  "additionalProperties": false
+}

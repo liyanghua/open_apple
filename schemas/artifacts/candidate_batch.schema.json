@@ -71,6 +71,15 @@
       },
       "additionalProperties": false
     },
+    "diversity_mode": {
+      "type": "string",
+      "enum": ["warning", "hard_gate", "legacy_read_only"],
+      "description": "候选差异度的执行模式：hard_gate 拒绝缺 variant_plan_ref 的候选；warning 记 warning 并继续；legacy_read_only 为历史批次只读"
+    },
+    "diversity": {
+      "type": ["object", "null"],
+      "description": "批级差异摘要（pairwise 矩阵 / 同质化警告），由 candidate_diversity 聚合"
+    },
     "candidates": {
       "type": "array",
       "minItems": 1,
@@ -98,6 +107,10 @@
           },
           "sample_ref": { "type": ["object", "null"] },
           "evaluation_report_ref": { "type": ["object", "null"] },
+          "variant_plan_ref": {
+            "type": ["object", "null"],
+            "description": "该候选的 candidate_variant_plan 引用；hard_gate 批次必填"
+          },
           "cost_usd": { "type": "number", "minimum": 0 },
           "attempts": { "type": "integer", "minimum": 0, "description": "P2: 该候选已消耗的生成尝试次数（重试预算）" },
           "failure": { "type": ["string", "null"] },

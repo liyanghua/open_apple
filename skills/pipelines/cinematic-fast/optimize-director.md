@@ -1,6 +1,6 @@
 # Optimize Director - Cinematic Fastline（批量混剪 + 可选自动迭代）
 
-Read `skills/meta/batch-producer.md`、`skills/meta/judge-calibration.md` 与
+Read `skills/meta/batch-producer.md`、`skills/meta/candidate-diversity-producer.md`、`skills/meta/judge-calibration.md` 与
 `docs/art-plan/Autoresearch_Video_Remix_Integration_Design_2026-08-23.md`
 before acting. Python owns schema 校验、分数聚合、状态转换、指纹去重与预算；
 **候选选择、失败解释、mutation 选择和阶段推进由本 skill 编排**——不新增第二
@@ -25,13 +25,16 @@ policy 置为 enabled=true 进入自动迭代。
 ## 1. 首轮：建批 → 分叉 → 并行样片（人工 review 模式）
 
 1. `lib.candidate_batch.create_candidate_batch(batch_id, shared_research_refs=…,
-   candidates=…, source_media_refs=…)` —— 5 个方向互不相同：结果先行 /
+   candidates=…, source_media_refs=…)` —— 库会为未指定计划的候选生成稳定
+   `variant_plan_ref`；5 个方向互不相同：结果先行 /
    痛点先行 / 证据链先行 / 高密度快剪 / 产品质感版；写入
    `batch-<id>/artifacts/candidate_batch.json`。
 2. `lib.batch_fork.fork_candidate_projects(batch, source_project_dir=…,
    pipeline_dir=…)` —— 每个候选独立项目 + 共享研究制品 + analysis/ 派生
-   证据 + completed research 检查点（B3 门会校验派生文件）。
-3. 每个候选项目走 proposal → script → scene_plan → assets → sample：
+   证据 + `candidate_variant_plan.json` + completed research 检查点（B3 门会校验派生文件）。
+3. 为每个候选建立 `creative_lock` bundle 并等待用户审批。bundle 必须包含
+   `candidate_variant_plan`；审批前不得启动 assets/sample 的付费调用。
+4. 每个候选项目走 proposal → script → scene_plan → assets → sample：
    - **并发上限 2–3**（batch.concurrency.max_parallel），同一时刻不超过；
    - render payload 一律经 `lib.render_payload.build_render_payload(...)`
      组装，禁止手工拼 JSON；
@@ -40,12 +43,12 @@ policy 置为 enabled=true 进入自动迭代。
    - 技术失败（provider/render）≠ 质量失败：按
      `max_retries_per_candidate` 重试，记录 `technical_failures`，绝不伪装
      成低分。
-4. 每候选样片：`final_qa` → `technical_validator`（scope=sample）→
+5. 每候选样片：`final_qa` → `technical_validator`（scope=sample）→
    `video_judge`（rubric `l3-v1.0`）。judge fail-closed：缺维/非法分直接
    失败重试；judge 不可用 → `scored=false`，不得宣称达标。
-5. `lib.candidate_batch.record_candidate_result(...)` 回写
+6. `lib.candidate_batch.record_candidate_result(...)` 回写
    `evaluation_report_ref` / `dimension_scores` / 成本。
-6. 向用户呈现 scorecard（评价卡 + 前 3 秒对比 + 三轨音频）；用户选 1–2 条
+7. 向用户呈现 scorecard（评价卡 + 前 3 秒对比 + 三轨音频）；用户选 1–2 条
    （`lib.candidate_batch.select_for_edit`，evaluated + 评价引用才可选）。
    选中候选各自 edit → compose → publish（publish 三态门见 publish-director）。
 

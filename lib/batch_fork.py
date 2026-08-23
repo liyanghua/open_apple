@@ -20,7 +20,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from lib.artifact_io import write_artifact_atomic
+from lib.candidate_diversity import build_default_variant_plan
 from lib.checkpoint import init_project, write_checkpoint
+from schemas.artifacts import validate_artifact
 
 # 共享研究的制品 + 派生文件（analysis/ 证据帧必须一起复制，B3 门会校验）。
 SHARED_RESEARCH_ARTIFACTS = (
@@ -44,6 +46,8 @@ def fork_candidate_project(
     *,
     source_project_dir: Path,
     pipeline_dir: Path,
+    baseline_ref: Mapping[str, Any] | None = None,
+    candidate_index: int = 0,
 ) -> Path:
     """Create one candidate project seeded with the shared research pass.
 
@@ -97,7 +101,30 @@ def fork_candidate_project(
         next_action=None,
     )
 
-    # 4) 候选元数据写入 project.json（batch 索引之外的可追溯性）。
+    # 4) Materialize the default variant contract before proposal/assets.  A
+    # user-authored plan is preserved on restart; a newly forked candidate gets
+    # a deterministic awaiting_human plan that the creative-lock bundle can
+    # present alongside the other creative inputs.
+    variant_path = project_dir / "artifacts" / "candidate_variant_plan.json"
+    if variant_path.is_file():
+        existing = json.loads(variant_path.read_text(encoding="utf-8"))
+        validate_artifact("candidate_variant_plan", existing)
+    else:
+        plan = build_default_variant_plan(
+            str(candidate.get("batch_id") or ""),
+            candidate_id,
+            candidate_index,
+            baseline_ref=baseline_ref,
+            direction=candidate.get("direction"),
+        )
+        write_artifact_atomic(
+            "artifacts/candidate_variant_plan.json",
+            "candidate_variant_plan",
+            plan,
+            project_dir=project_dir,
+        )
+
+    # 5) 候选元数据写入 project.json（batch 索引之外的可追溯性）。
     marker_path = project_dir / "project.json"
     marker = json.loads(marker_path.read_text(encoding="utf-8"))
     marker["candidate"] = {
@@ -120,13 +147,20 @@ def fork_candidate_projects(
 ) -> dict[str, Path]:
     """Fork every candidate in the batch; returns {candidate_id: project_dir}."""
     created: dict[str, Path] = {}
-    for candidate in batch.get("candidates", []):
+    baseline_ref = next(
+        (dict(ref) for ref in (batch.get("shared_research") or {}).get("refs", [])
+         if isinstance(ref, Mapping)),
+        None,
+    )
+    for candidate_index, candidate in enumerate(batch.get("candidates", [])):
         if not isinstance(candidate, Mapping):
             continue
         project_dir = fork_candidate_project(
             dict(candidate, batch_id=batch.get("batch_id", "")),
             source_project_dir=source_project_dir,
             pipeline_dir=pipeline_dir,
+            baseline_ref=baseline_ref,
+            candidate_index=candidate_index,
         )
         created[str(candidate["candidate_id"])] = project_dir
     return created

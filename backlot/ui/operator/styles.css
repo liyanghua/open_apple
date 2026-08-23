@@ -516,3 +516,17 @@ h3 { font-size: 15px; }
 .batch-warnings { margin-top: 12px; }
 .batch-warning { font-size: 13px; color: #b7791f; margin: 2px 0; }
 .batch-phase-reason { font-size: 13px; color: #4a5568; margin: 2px 0; }
+
+/* 候选差异度矩阵 + 批次报告（差异度与报告计划） */
+.batch-diversity, .batch-reports { border-top: 1px solid #edf2f7; padding-top: 12px; }
+.batch-diversity-mode, .batch-diversity-empty, .batch-diversity-missing { font-size: 13px; color: #4a5568; margin: 4px 0; }
+.batch-diversity-rows { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.batch-diversity-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 8px; }
+.batch-diversity-row.fail { border-color: #e53e3e; }
+.batch-diversity-pair { font-size: 13px; font-weight: 600; }
+.batch-diversity-metrics { font-size: 12px; color: #4a5568; }
+.batch-reports-status { font-size: 13px; margin: 4px 0; }
+.batch-reports-status.state-degraded, .batch-reports-status.state-missing { color: #b7791f; }
+.batch-reports-status.state-complete { color: #1f9d55; }
+.batch-reports-summary, .batch-reports-warnings, .batch-reports-recommendation, .batch-reports-disabled { font-size: 13px; color: #4a5568; margin: 4px 0; }
+.batch-reports-disabled { color: #c05621; }

@@ -1,0 +1,110 @@
+{
+  "batch_id": "table-mat-batch-fixture",
+  "project_id": "batch-table-mat-batch-fixture",
+  "diversity_mode": "warning",
+  "candidates": [
+    {
+      "candidate_id": "cand-a",
+      "label": "A",
+      "case": "diverse_pass",
+      "status": "evaluated",
+      "cost_usd": 1.0,
+      "attempts": 1,
+      "cost_log_total": 1.0,
+      "events_count": 5,
+      "direction": { "hook": "hook-a" },
+      "dimensions": {
+        "hook_type": { "value": "A-hook", "baseline_value": "b", "changed": true, "rationale": "r" },
+        "narrative_structure": { "value": "A-nar", "baseline_value": "b", "changed": true, "rationale": "r" },
+        "visual_grammar": { "value": "A-vg", "baseline_value": "b", "changed": true, "rationale": "r" },
+        "pacing_profile": { "value": "b", "baseline_value": "b", "changed": false, "rationale": "r" },
+        "evidence_strategy": { "value": "b", "baseline_value": "b", "changed": false, "rationale": "r" },
+        "asset_strategy": { "value": "b", "baseline_value": "b", "changed": false, "rationale": "r" }
+      },
+      "structural_shot_ids": ["s0", "s1", "s2"],
+      "opening_only_change": false,
+      "evaluation_status": "revise"
+    },
+    {
+      "candidate_id": "cand-b",
+      "label": "B",
+      "case": "diverse_pass",
+      "status": "evaluated",
+      "cost_usd": 0.9,
+      "attempts": 1,
+      "cost_log_total": 0.9,
+      "events_count": 5,
+      "direction": { "hook": "hook-b" },
+      "dimensions": {
+        "hook_type": { "value": "B-hook", "baseline_value": "b", "changed": true, "rationale": "r" },
+        "narrative_structure": { "value": "B-nar", "baseline_value": "b", "changed": true, "rationale": "r" },
+        "visual_grammar": { "value": "B-vg", "baseline_value": "b", "changed": true, "rationale": "r" },
+        "pacing_profile": { "value": "b", "baseline_value": "b", "changed": false, "rationale": "r" },
+        "evidence_strategy": { "value": "b", "baseline_value": "b", "changed": false, "rationale": "r" },
+        "asset_strategy": { "value": "b", "baseline_value": "b", "changed": false, "rationale": "r" }
+      },
+      "structural_shot_ids": ["s0", "s1", "s2"],
+      "opening_only_change": false,
+      "evaluation_status": "pass"
+    },
+    {
+      "candidate_id": "cand-c",
+      "label": "C",
+      "case": "opening_only_blocked",
+      "status": "evaluated",
+      "cost_usd": 0.8,
+      "attempts": 1,
+      "cost_log_total": 0.8,
+      "events_count": 3,
+      "direction": { "hook": "hook-c" },
+      "dimensions": {
+        "hook_type": { "value": "C-hook", "baseline_value": "b", "changed": true, "rationale": "r" },
+        "narrative_structure": { "value": "C-nar", "baseline_value": "b", "changed": true, "rationale": "r" },
+        "visual_grammar": { "value": "C-vg", "baseline_value": "b", "changed": true, "rationale": "r" },
+        "pacing_profile": { "value": "b", "baseline_value": "b", "changed": false, "rationale": "r" },
+        "evidence_strategy": { "value": "b", "baseline_value": "b", "changed": false, "rationale": "r" },
+        "asset_strategy": { "value": "b", "baseline_value": "b", "changed": false, "rationale": "r" }
+      },
+      "structural_shot_ids": ["s0", "s1", "s2"],
+      "opening_only_change": true,
+      "evaluation_status": "revise"
+    },
+    {
+      "candidate_id": "cand-d",
+      "label": "D",
+      "case": "failed_candidate",
+      "status": "failed",
+      "cost_usd": 0.5,
+      "attempts": 2,
+      "cost_log_total": 0.5,
+      "events_count": 2,
+      "direction": { "hook": "hook-d" },
+      "dimensions": null,
+      "structural_shot_ids": [],
+      "opening_only_change": false,
+      "evaluation_status": "fail"
+    },
+    {
+      "candidate_id": "cand-e",
+      "label": "E",
+      "case": "cost_degraded",
+      "status": "evaluated",
+      "cost_usd": 1.5,
+      "attempts": 1,
+      "cost_log_total": 0.5,
+      "events_count": 0,
+      "direction": { "hook": "hook-e" },
+      "dimensions": {
+        "hook_type": { "value": "E-hook", "baseline_value": "b", "changed": true, "rationale": "r" },
+        "narrative_structure": { "value": "E-nar", "baseline_value": "b", "changed": true, "rationale": "r" },
+        "visual_grammar": { "value": "E-vg", "baseline_value": "b", "changed": true, "rationale": "r" },
+        "pacing_profile": { "value": "b", "baseline_value": "b", "changed": false, "rationale": "r" },
+        "evidence_strategy": { "value": "b", "baseline_value": "b", "changed": false, "rationale": "r" },
+        "asset_strategy": { "value": "b", "baseline_value": "b", "changed": false, "rationale": "r" }
+      },
+      "structural_shot_ids": ["s0", "s1", "s2"],
+      "opening_only_change": false,
+      "evaluation_status": "revise"
+    }
+  ]
+}

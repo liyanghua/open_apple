@@ -165,6 +165,42 @@ def selection_quality_failures(
     }
     if hook and other_hooks and len({hook, *other_hooks}) == 1:
         failures.append("候选与其它候选同质化（钩子完全一致，无差异度）")
+    # 6) 候选差异度：历史批次保持只读；新批次按 mode 执行硬门。
+    diversity_mode = str(batch.get("diversity_mode") or "legacy_read_only")
+    if diversity_mode == "legacy_read_only":
+        return failures
+    variant_plan = _read("candidate_variant_plan")
+    if isinstance(variant_plan, dict):
+        from lib.candidate_diversity import compare_candidate_pair, selection_diversity_failures
+        siblings = []
+        for other in (batch.get("candidates") or []):
+            if not isinstance(other, Mapping) or other.get("candidate_id") == candidate.get("candidate_id"):
+                continue
+            other_id = str(other.get("project_id") or other.get("candidate_id") or "")
+            other_plan = None
+            try:
+                other_dir = (child_dir.parent / other_id).resolve()
+                other_dir.relative_to(child_dir.parent.resolve())
+                other_path = other_dir / "artifacts" / "candidate_variant_plan.json"
+            except (ValueError, OSError):
+                other_path = child_dir.parent / "__invalid_candidate__" / "artifacts" / "candidate_variant_plan.json"
+            try:
+                other_plan = json.loads(other_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                pass
+            if isinstance(other_plan, dict):
+                siblings.append(other_plan)
+        diversity = selection_diversity_failures(variant_plan, siblings)
+        if diversity_mode == "hard_gate":
+            for item in diversity["structural_failures"]:
+                failures.append(f"差异度不足：{item}")
+            for sibling in siblings:
+                pair = compare_candidate_pair(variant_plan, sibling)
+                if not pair["passes"]:
+                    failures.append(f"与候选 {sibling.get('candidate_id')} 的批级差异不足")
+    else:
+        if diversity_mode == "hard_gate":
+            failures.append("缺少候选差异计划（candidate_variant_plan），不可选入终稿")
     return failures
 
 
@@ -560,6 +596,24 @@ class BatchActionService:
                 ):
                     self._reject(
                         batch_action_id, record, f"候选 {candidate_id} 样片五项确认必须全部 pass",
+                        "validation_failed", 422,
+                    )
+            if gate in {"assets", "sample"}:
+                # 差异度硬门：候选须有有效的 candidate_variant_plan。hard_gate 拒，warning/legacy 继续。
+                diversity_mode = str(batch.get("diversity_mode") or "legacy_read_only")
+                variant_plan_path = child_dir / "artifacts" / "candidate_variant_plan.json"
+                variant_plan = None
+                if variant_plan_path.exists():
+                    try:
+                        variant_plan = json.loads(variant_plan_path.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError):
+                        variant_plan = None
+                from lib.candidate_diversity import assert_candidate_variant_ready
+                div_failures = assert_candidate_variant_ready(variant_plan)
+                if div_failures and diversity_mode == "hard_gate":
+                    self._reject(
+                        batch_action_id, record,
+                        f"候选 {candidate_id} 差异度硬门未通过：" + "；".join(div_failures),
                         "validation_failed", 422,
                     )
             participant["state"] = "prepared"

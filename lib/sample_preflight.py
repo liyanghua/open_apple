@@ -75,6 +75,16 @@ def validate_sample_inputs(artifacts: Mapping[str, Any]) -> dict[str, Any]:
     if artifacts.get("candidate_variant") is not None:
         issues.extend(check_candidate_divergence(variant, sibling_variants))
 
+    # 差异度结构硬门：候选差异计划（candidate_variant_plan）结构失败在渲染前阻塞。
+    variant_plan = artifacts.get("candidate_variant_plan")
+    diversity_mode = str(artifacts.get("diversity_mode") or "warning")
+    if variant_plan is None and diversity_mode == "hard_gate":
+        issues.append("差异度不足：缺少候选差异计划（candidate_variant_plan）")
+    elif variant_plan is not None:
+        from lib.candidate_diversity import assert_candidate_variant_ready
+        for item in assert_candidate_variant_ready(variant_plan if isinstance(variant_plan, Mapping) else None):
+            issues.append(f"差异度不足：{item}")
+
     return {"ok": not issues, "issues": issues}
 
 

@@ -75,6 +75,43 @@ def _child_with_review(tmp_path: Path, candidate_id: str, kind: str = "sample") 
         "version": "1.0", "project_id": candidate_id,
         "shots": [{"id": "shot-01", "screen_copy": "一铺即护", "duration_seconds": 2.3}],
     })
+    # P1 质量门要求：评估报告（非 fatal）+ 已批准的样本 review（五项确认全 pass）。
+    _write(child / "artifacts" / "evaluation_report.json", {
+        "version": "1.0", "project_id": candidate_id, "status": "revise",
+        "hard_gate": {"pass": False, "checks": []}, "recommended_action": "repair",
+    })
+    approved = dict(_review(candidate_id, "sample", review_id=f"{candidate_id}-sample-v2-approved"))
+    approved["status"] = "approved"
+    approved["decided_by"] = "owner"
+    approved["decided_at"] = "2026-08-23T00:01:00+00:00"
+    approved["effect_confirmation"] = {
+        "creative_direction": "pass", "hook": "pass", "proof": "pass",
+        "pacing": "pass", "readability": "pass",
+    }
+    _write(child / "operator" / "reviews" / f"{candidate_id}-sample-v2-approved.json", approved)
+    # 差异度硬门：candidate_variant_plan（六维中 3 维变更 + 3 结构镜头差异，非 opening-only）。
+    from lib.candidate_diversity import build_variant_plan
+    _write(child / "artifacts" / "candidate_variant_plan.json", build_variant_plan(
+        batch_id="b1", candidate_id=candidate_id, variant_revision=1,
+        baseline_ref={"name": "x", "path": "artifacts/x.json"},
+        dimensions={
+            "hook_type": {"value": f"{candidate_id}-hook", "baseline_value": "b", "changed": True, "rationale": "r"},
+            "narrative_structure": {"value": f"{candidate_id}-nar", "baseline_value": "b", "changed": True, "rationale": "r"},
+            "visual_grammar": {"value": f"{candidate_id}-vg", "baseline_value": "b", "changed": True, "rationale": "r"},
+            "pacing_profile": {"value": "b", "baseline_value": "b", "changed": False, "rationale": "r"},
+            "evidence_strategy": {"value": "b", "baseline_value": "b", "changed": False, "rationale": "r"},
+            "asset_strategy": {"value": "b", "baseline_value": "b", "changed": False, "rationale": "r"},
+        },
+        shot_differences=[
+            {"shot_id": "s0", "difference_type": "shot_order", "evidence_class": "structural",
+             "evidence_ref": {"kind": "artifact", "path": "p0"}},
+            {"shot_id": "s1", "difference_type": "duration", "evidence_class": "structural",
+             "evidence_ref": {"kind": "artifact", "path": "p1"}},
+            {"shot_id": "s2", "difference_type": "source_window", "evidence_class": "structural",
+             "evidence_ref": {"kind": "artifact", "path": "p2"}},
+        ],
+        opening_only_change=False,
+    ))
     return child
 
 
@@ -354,3 +391,31 @@ def test_select_rejects_candidate_missing_captions_or_opening(tmp_path: Path):
             candidate_ids=["cand-01"], reason="同质候选",
         )
     assert "质量门" in str(excinfo.value)
+
+
+def test_sample_gate_hard_gate_rejects_missing_variant_plan(tmp_path: Path):
+    """差异度硬门：diversity_mode=hard_gate 时，缺 candidate_variant_plan 的候选在
+    sample 门 prepare 阶段被拒（validation_failed）。"""
+    batch_dir = _batch_project(tmp_path)
+    batch = json.loads((batch_dir / "artifacts" / "candidate_batch.json").read_text(encoding="utf-8"))
+    batch["diversity_mode"] = "hard_gate"
+    _write(batch_dir / "artifacts" / "candidate_batch.json", batch)
+
+    child = tmp_path / "cand-01"
+    _write(child / "project.json", {"project_id": "cand-01", "title": "cand-01", "pipeline_type": "cinematic-fast"})
+    _write(child / "operator" / "reviews" / "cand-01-sample-v1-abc.json", _review("cand-01", "sample"))
+    # 故意不写 candidate_variant_plan.json
+
+    service = _service(tmp_path, batch_dir)
+    revision, _ = service._current_revision()
+    with pytest.raises(OperatorError) as excinfo:
+        service.approve_gate(
+            actor_id="owner", idempotency_key="k-hard", aggregate_revision=revision,
+            gate="sample", reason="x",
+            participants=[{
+                "candidate_id": "cand-01", "project_id": "cand-01",
+                "review_id": "cand-01-sample-v1-abc", "subject_version": 1, "subject_hash": "a" * 64,
+                "effect_confirmations": {key: "pass" for key in EFFECT_CONFIRMATION_KEYS},
+            }],
+        )
+    assert "差异度硬门" in str(excinfo.value)

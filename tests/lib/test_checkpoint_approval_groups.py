@@ -54,3 +54,23 @@ def test_creative_lock_bundle_requires_a_locked_director_control_plan(tmp_path: 
     }
     with pytest.raises(ValueError, match="creative_control_plan.*approved"):
         build_approval_bundle(project, manifest, "creative_lock")
+
+
+def test_single_project_creative_lock_does_not_require_variant_plan(tmp_path: Path):
+    project = tmp_path / "single-project"; (project / "artifacts").mkdir(parents=True)
+    (project / "project.json").write_text(json.dumps({"project_id": "single-project"}))
+    for stage in ("proposal", "scene_plan", "assets"):
+        (project / f"checkpoint_{stage}.json").write_text(
+            json.dumps({"stage": stage, "status": "completed", "artifacts": {}})
+        )
+    manifest = {
+        "approval_groups": {
+            "creative_lock": {
+                "members": ["proposal", "scene_plan", "assets"],
+                "terminal_stage": "assets",
+                "required_artifacts": [],
+            }
+        }
+    }
+    bundle = build_approval_bundle(project, manifest, "creative_lock")
+    assert not any(ref["name"] == "candidate_variant_plan" for ref in bundle["artifact_refs"])

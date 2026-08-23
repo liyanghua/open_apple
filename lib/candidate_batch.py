@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from lib.artifact_hashing import attach_hashes
+from lib.candidate_diversity import default_variant_strategy
 from schemas.artifacts import validate_artifact
 
 STATUS_FLOW = ("planned", "in_progress", "sampled", "evaluated", "failed", "selected_for_edit")
@@ -42,6 +43,7 @@ def create_candidate_batch(
     max_parallel: int = 3,
     budget: Mapping[str, Any] | None = None,
     source_media_refs: list[str] | None = None,
+    diversity_mode: str = "warning",
 ) -> dict[str, Any]:
     if not shared_research_refs:
         raise ValueError("candidate_batch requires at least one shared research ref")
@@ -49,16 +51,35 @@ def create_candidate_batch(
         raise ValueError("candidate_batch requires at least one candidate")
     if len(candidates) > max_candidates:
         raise ValueError(f"candidate_batch candidate count {len(candidates)} exceeds max_candidates {max_candidates}")
+    if diversity_mode not in {"warning", "hard_gate", "legacy_read_only"}:
+        raise ValueError(f"invalid diversity_mode {diversity_mode!r}")
 
     normalized: list[dict[str, Any]] = []
-    for item in candidates:
+    for candidate_index, item in enumerate(candidates):
         status = item.get("status", "planned")
         if status not in STATUS_FLOW:
             raise ValueError(f"invalid candidate status {status!r}")
+        strategy = default_variant_strategy(candidate_index, item.get("direction"))
+        direction = dict(item.get("direction") or {})
+        # Keep the legacy five-axis direction contract populated so proposal
+        # authors receive the same default intent that creative lock reviews.
+        direction.setdefault("hook", strategy["hook_type"])
+        direction.setdefault("pacing", strategy["pacing_profile"])
+        direction.setdefault("packaging", strategy["visual_grammar"])
+        direction.setdefault("audience", strategy["evidence_strategy"])
+        direction.setdefault("duration", "batch_default")
+        variant_ref = item.get("variant_plan_ref")
+        if variant_ref is None:
+            variant_ref = {
+                "name": "candidate_variant_plan",
+                "path": "artifacts/candidate_variant_plan.json",
+                "strategy_id": strategy["strategy_id"],
+                "approval_status": "awaiting_human",
+            }
         candidate: dict[str, Any] = {
             "candidate_id": str(item["candidate_id"]),
             "label": str(item.get("label") or item["candidate_id"]),
-            "direction": dict(item.get("direction") or {}),
+            "direction": direction,
             "project_id": str(item["project_id"]),
             "status": status,
             "sample_ref": item.get("sample_ref"),
@@ -80,6 +101,7 @@ def create_candidate_batch(
             "model": item.get("model"),
             "render_runtime": item.get("render_runtime"),
             "output_ref": item.get("output_ref"),
+            "variant_plan_ref": dict(variant_ref) if isinstance(variant_ref, Mapping) else variant_ref,
         }
         normalized.append(candidate)
 
@@ -106,6 +128,7 @@ def create_candidate_batch(
             if budget is not None else None
         ),
         "differentiation_axes": dict(differentiation_axes or {"hook": True, "pacing": True, "packaging": True, "audience": True, "duration": True}),
+        "diversity_mode": diversity_mode,
         "candidates": normalized,
         "selection": {"selected_candidate_ids": [], "selected_at": None, "reason": ""},
     }

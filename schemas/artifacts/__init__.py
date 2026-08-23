@@ -63,6 +63,9 @@ ARTIFACT_NAMES = [
     "optimization_run",
     "rerun_plan",
     "rerun_run",
+    "candidate_variant_plan",
+    "batch_run_report",
+    "batch_quality_report",
 ]
 
 
@@ -312,6 +315,16 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
                 raise jsonschema.ValidationError(
                     f"candidate_batch selection requires evaluated candidates; {candidate_id!r} is {by_status[candidate_id]!r}"
                 )
+        if data.get("diversity_mode") == "hard_gate":
+            missing = [
+                item["candidate_id"] for item in data["candidates"]
+                if not item.get("variant_plan_ref")
+            ]
+            if missing:
+                raise jsonschema.ValidationError(
+                    "candidate_batch hard_gate 批次每个候选都必须有 variant_plan_ref；"
+                    f"缺失候选：{', '.join(missing)}"
+                )
     elif name == "repair":
         if not data["lock_compliant"]:
             raise jsonschema.ValidationError(
@@ -369,6 +382,44 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
         if status == "passed" and not confirmation["passed"]:
             raise jsonschema.ValidationError(
                 "optimization_run status passed requires confirmation.passed"
+            )
+    elif name == "candidate_variant_plan":
+        shot_ids = [row["shot_id"] for row in data["shot_differences"]]
+        if len(set(shot_ids)) != len(shot_ids):
+            raise jsonschema.ValidationError(
+                "candidate_variant_plan shot_differences shot_id values must be unique"
+            )
+        for row in data["shot_differences"]:
+            tr = row.get("time_range")
+            if isinstance(tr, dict):
+                if tr["end_seconds"] <= tr["start_seconds"]:
+                    raise jsonschema.ValidationError(
+                        "candidate_variant_plan shot_differences time_range must be half-open (end > start)"
+                    )
+        if data["opening_only_change"]:
+            opening_rows = [
+                row for row in data["shot_differences"]
+                if isinstance(row.get("time_range"), dict)
+                and row["time_range"]["end_seconds"] > 3
+            ]
+            if opening_rows:
+                raise jsonschema.ValidationError(
+                    "candidate_variant_plan opening_only_change 不得有 end_seconds > 3 的镜头差异"
+                )
+        changed_count = sum(
+            1 for dim in data["dimensions"].values() if dim.get("changed")
+        )
+        fingerprint = data["difference_fingerprint"]
+        if fingerprint["changed_dimension_count"] != changed_count:
+            raise jsonschema.ValidationError(
+                "candidate_variant_plan difference_fingerprint.changed_dimension_count 必须等于 dimensions 中 changed=true 的数量"
+            )
+        structural_count = sum(
+            1 for row in data["shot_differences"] if row["evidence_class"] == "structural"
+        )
+        if fingerprint["structural_shot_count"] != structural_count:
+            raise jsonschema.ValidationError(
+                "candidate_variant_plan difference_fingerprint.structural_shot_count 必须等于 structural 证据类别的镜头差异数量"
             )
 
 

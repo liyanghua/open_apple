@@ -72,6 +72,9 @@ def test_fork_creates_candidate_projects_with_valid_research(tmp_path: Path):
         assert marker["candidate"]["candidate_id"] == candidate_id
         assert marker["candidate"]["batch_id"] == "mix-001"
         assert marker["candidate"]["source_research_project"] == "source-research"
+        plan = json.loads((project_dir / "artifacts" / "candidate_variant_plan.json").read_text())
+        assert plan["approval_status"] == "awaiting_human"
+        assert plan["difference_fingerprint"]["structural_shot_count"] >= 3
 
 
 def test_fork_is_idempotent(tmp_path: Path):
@@ -81,3 +84,6 @@ def test_fork_is_idempotent(tmp_path: Path):
     second = fork_candidate_projects(batch, source_project_dir=source, pipeline_dir=tmp_path)
     assert set(first) == set(second)
     read_checkpoint(tmp_path, "cand-01", "research")  # 仍有效
+    first_plan = (first["cand-01"] / "artifacts" / "candidate_variant_plan.json").read_bytes()
+    second_plan = (second["cand-01"] / "artifacts" / "candidate_variant_plan.json").read_bytes()
+    assert first_plan == second_plan

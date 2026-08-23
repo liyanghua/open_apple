@@ -36,6 +36,16 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _safe_child_dir(child_root: Path, project_id: str) -> Path | None:
+    """Resolve a candidate path without allowing traversal outside projects."""
+    try:
+        candidate = (child_root / project_id).resolve()
+        candidate.relative_to(child_root.resolve())
+        return candidate
+    except (ValueError, OSError):
+        return None
+
+
 def _child_revision_inputs(project_dir: Path, child_dir: Path) -> dict[str, Any] | None:
     """子项目 revision 输入：不存在 → None；project.json 缺失/损坏 → 抛异常。"""
     if not child_dir.is_dir():
@@ -330,12 +340,14 @@ def aggregate_revision(
     candidates_summary: list[dict[str, Any]],
     selection: Mapping[str, Any],
     budget_summary: Mapping[str, Any],
+    facts: Mapping[str, Any] | None = None,
 ) -> str:
     return _sha256(_canonical({
         "batch_generation_id": batch_generation_id,
         "candidates": candidates_summary,
         "selection": selection,
         "budget_summary": budget_summary,
+        "facts": dict(facts or {}),
     }))
 
 
@@ -354,7 +366,15 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
     for candidate in candidates:
         candidate_id = str(candidate.get("candidate_id") or "")
         project_id = str(candidate.get("project_id") or candidate_id)
-        child_dir = child_root / project_id
+        child_dir = _safe_child_dir(child_root, project_id)
+        if child_dir is None:
+            child_dir = child_root / "__invalid_candidate__"
+            warnings.append({
+                "code": "candidate_path_invalid",
+                "candidate_id": candidate_id,
+                "description": f"候选项目路径越界：{project_id}",
+                "suggested_action": "修正 candidate_batch.project_id",
+            })
         snapshot = child_snapshot(project_dir, child_dir)
         read_inputs[candidate_id] = snapshot.get("child_revision")
         phase = candidate_phase_for(str(candidate.get("status") or "planned"), snapshot)
@@ -412,7 +432,8 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
             candidate_id,
         )
         try:
-            second = child_snapshot(project_dir, child_root / project_id).get("child_revision")
+            safe_dir = _safe_child_dir(child_root, project_id)
+            second = child_snapshot(project_dir, safe_dir).get("child_revision") if safe_dir else None
         except Exception:
             second = first_revision
         if second != first_revision:
@@ -457,9 +478,93 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
     from backlot.batch_actions import selection_quality_failures
 
     for view, candidate in zip(views, candidates):
+        candidate_dir = _safe_child_dir(child_root, view["project_id"]) or (child_root / "__invalid_candidate__")
         view["selection_quality_failures"] = selection_quality_failures(
-            batch, candidate, child_root / view["project_id"]
+            batch, candidate, candidate_dir
         )
+    # 差异度矩阵：从每个候选的 candidate_variant_plan 计算 pairwise 差异（eligible 集由此派生）。
+    from lib.candidate_diversity import compare_candidate_pair
+    variant_plans: dict[str, dict[str, Any]] = {}
+    for candidate in candidates:
+        candidate_id = str(candidate.get("candidate_id") or "")
+        candidate_dir = _safe_child_dir(child_root, str(candidate.get("project_id") or candidate_id))
+        if candidate_dir is None:
+            continue
+        plan_path = candidate_dir / "artifacts" / "candidate_variant_plan.json"
+        if plan_path.exists():
+            try:
+                variant_plans[candidate_id] = json.loads(plan_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                pass
+    pairwise = []
+    ids = sorted(variant_plans)
+    for i in range(len(ids)):
+        for j in range(i + 1, len(ids)):
+            pairwise.append(compare_candidate_pair(variant_plans[ids[i]], variant_plans[ids[j]]))
+    diversity = {
+        "mode": batch.get("diversity_mode") or "legacy_read_only",
+        "plans_present": len(variant_plans),
+        "plans_missing": [str(c.get("candidate_id")) for c in candidates if str(c.get("candidate_id")) not in variant_plans],
+        "pairwise": pairwise,
+    }
+    pairwise_blocked_ids: set[str] = set()
+    if str(batch.get("diversity_mode") or "legacy_read_only") == "hard_gate":
+        for result in pairwise:
+            if not result.get("passes"):
+                pairwise_blocked_ids.update({str(result.get("candidate_a") or ""), str(result.get("candidate_b") or "")})
+    # 报告投影：只读批根 artifacts 下的 batch_run_report / batch_quality_report。
+    reports = {"run": None, "quality": None, "status": "missing", "warnings": []}
+    run_path = project_dir / "artifacts" / "batch_run_report.json"
+    if run_path.exists():
+        try:
+            rr = json.loads(run_path.read_text(encoding="utf-8"))
+            stages = rr.get("stages") if isinstance(rr.get("stages"), list) else []
+            slowest = max(
+                (s for s in stages if isinstance(s, Mapping) and s.get("wall_seconds")),
+                key=lambda s: float(s.get("wall_seconds") or 0.0),
+                default=None,
+            )
+            reports["run"] = {
+                "data_quality": rr.get("data_quality"),
+                "cost": rr.get("cost"),
+                "throughput": rr.get("throughput"),
+                "milestones": rr.get("milestones"),
+                "slowest_stage": {"stage_id": slowest.get("stage_id"), "wall_seconds": slowest.get("wall_seconds")} if isinstance(slowest, Mapping) else None,
+                "rubric_version": rr.get("rubric_version"),
+                "generated_at": rr.get("generated_at"),
+            }
+        except (OSError, json.JSONDecodeError):
+            reports["warnings"].append("batch_run_report 不可读")
+    quality_path = project_dir / "artifacts" / "batch_quality_report.json"
+    if quality_path.exists():
+        try:
+            qr = json.loads(quality_path.read_text(encoding="utf-8"))
+            reports["quality"] = {
+                "data_quality": qr.get("data_quality"),
+                "rubric_version": qr.get("rubric_version"),
+                "recommendations": qr.get("recommendations"),
+                "generated_at": qr.get("generated_at"),
+            }
+        except (OSError, json.JSONDecodeError):
+            reports["warnings"].append("batch_quality_report 不可读")
+    if reports["run"] is not None and reports["quality"] is not None:
+        statuses = {
+            (reports["run"].get("data_quality") or {}).get("status"),
+            (reports["quality"].get("data_quality") or {}).get("status"),
+        }
+        reports["status"] = "degraded" if "degraded" in statuses else ("partial" if "partial" in statuses else "complete")
+    elif reports["run"] is not None or reports["quality"] is not None:
+        reports["status"] = "partial"
+    # P2/Task7-4: 报告缺失/降级时给出恢复动作，禁止 UI 伪报“完成”。
+    if reports["status"] == "missing":
+        reports["recovery_action"] = "rebuild_reports"
+        reports["disabled_actions"] = ["select", "publish"]
+    elif reports["status"] in {"partial", "degraded"}:
+        reports["recovery_action"] = "backfill_reports"
+        reports["disabled_actions"] = ["select", "publish"]
+    else:
+        reports["recovery_action"] = None
+        reports["disabled_actions"] = []
     blocked_reasons = [w["code"] for w in warnings if w["code"] == "over_budget"]
     phase, phase_reason = compute_phase(views, selected_ids, blocked_reasons)
     awaiting_assets = any(
@@ -496,6 +601,10 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
         ],
         {"selected_candidate_ids": selected_ids, "reason": selection.get("reason")},
         budget_summary,
+        {
+            "diversity": diversity,
+            "reports": reports,
+        },
     )
 
     concurrency = batch.get("concurrency") if isinstance(batch.get("concurrency"), Mapping) else {}
@@ -577,8 +686,11 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
                 and view["candidate_phase"] not in {"missing", "corrupt"}
                 and ((view.get("score") or {}).get("evaluation") or {}).get("status") != "fail"
                 and not view.get("selection_quality_failures")
+                and view["candidate_id"] not in pairwise_blocked_ids
             ],
         },
         "pending_gates": gates,
         "warnings": warnings,
+        "diversity": diversity,
+        "reports": reports,
     }

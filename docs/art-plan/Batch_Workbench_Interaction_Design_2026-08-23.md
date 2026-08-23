@@ -88,6 +88,47 @@
 
 共享素材池是允许的，但必须通过 `candidate_variant_plan` 记录每个候选的镜头级变体和差异原因。预检结果和证据引用进入候选 revision，不能由 UI 临时计算后丢弃。
 
+### 2.3.2 候选差异矩阵与报告摘要
+
+批页在评分对比卡下方增加一块“表达差异”矩阵，行/列为候选，单元格显示：变更维度数、结构差异镜头数、结构状态、视觉相似度风险和证据引用。矩阵必须把“结构完全相同”和“视觉相似度过高”分成两种结论；缺少 `candidate_variant_plan` 时显示“差异证据缺失”，不能推断为通过。
+
+批页同时显示两个只读报告摘要：
+
+- **运行效率**：总耗时、最慢阶段、排队/执行/人工等待、重试率、缓存命中率、总成本和三段业务周期（启动→样片、样片→可选、选择→交付）。
+- **成片效果**：L1a 事实覆盖、技术 QA、VLM 维度、五项人工确认、返工次数、阻塞项和下一步建议。
+
+摘要必须带报告时间、输入哈希状态和 `rubric_version`；事件缺失、成本不一致或 VLM 未运行时用“数据不完整/已降级”表达，禁止 UI 临时补算成 0。
+
+### 2.3.3 报告/一致性状态的可见契约
+
+批页消费的是批根 `batch_review.data.reports` 的只读 DTO，不从 UI 状态重新计算业务指标。两个报告的 canonical 文件固定为：
+
+```text
+projects/<batch-id>/artifacts/batch_run_report.json
+projects/<batch-id>/artifacts/batch_quality_report.json
+```
+
+两个 DTO 必须包含 `report_revision`、`run_id`、`generated_at`、`semantic_sha256`、`input_hashes`、`source_refs` 和 `data_quality`。`generated_at` 只用于显示新鲜度，不参与 `semantic_sha256`；同一 `run_id + input_hashes` 重建时，报告正文和 semantic hash 必须稳定。
+
+批页只展示以下业务字段：运行效率（总耗时、最慢阶段、人工等待、重试率、缓存命中率、成本和三段里程碑）、成片效果（硬门结论、VLM 维度、五项确认、差异风险、返工次数和推荐动作）以及数据质量（`complete`、`partial`、`degraded`、`missing` 与结构化 warning）。
+
+`report_revision`、`aggregate_revision` 或任一候选 `child_revision` 与当前批快照不一致时，页面进入“报告待刷新”状态：保留证据查看，禁用“批量通过/进入精剪”等事实写入动作；只显示「重新拉取报告」或「回到当前快照」。事件缺口、来源 hash 缺失、成本对账不一致和 VLM 缺失必须分别显示，不能统一压成“评分较低”。
+
+### 2.3.4 跨项目审批的用户可见状态
+
+批级审批在 UI 上表现为一个动作，但状态必须映射 coordinator record：
+
+| 协调状态 | 页面表达 | 可用动作 |
+|---|---|---|
+| `preparing` / `prepared` | 正在核对候选快照 | 关闭抽屉；不可重复提交 |
+| `committing` | 正在写入 N 个候选 | 只读；显示已准备/待提交数量 |
+| `committed` | 已通过 N 个候选 | 继续评分或进入选择 |
+| `rejected` / `stale` | 快照过期或校验未通过 | 重新拉取并逐候选查看冲突 |
+| `needs_recovery` | 需要恢复，未视为通过 | 仅查看恢复详情；禁止进入下一阶段 |
+| `replayed` | 已返回原动作结果 | 不新增审批记录 |
+
+批量审批请求必须携带 `aggregate_revision` 与每个候选的 `review_id/subject_version/subject_hash`；任一候选权限或快照不一致，整批动作在 prepare 阶段拒绝，不留下部分批准。
+
 ### 2.4 人工选择区
 
 - 显示评分排序后的候选顺序；
@@ -111,6 +152,7 @@
 - 已花费 vs 预算上限（`candidate_batch.budget.max_cost_usd` 与各候选 `cost_usd` 汇总）；
 - 当前并行候选数 vs `max_parallel`；
 - 技术失败候选与剩余重试次数。
+- 同一区域提供效率报告入口，但只读报告制品，不把 provider/model/runtime 放入判断层；技术细节放入候选抽屉的证据层。
 
 ### 2.6 迭代面板（仅 `optimization_policy.enabled=true` 时显示）
 
@@ -252,3 +294,15 @@ VLM 评分只负责发现问题和提出建议，不直接触发重跑。候选�
 1. 先实现批级聚合状态与事件契约，确定 `aggregate_revision`、候选 N、相位归约、事件补拉和 `batch_review` schema。
 2. 再实现跨项目审批一致性契约，完成 coordinator record、prepare/commit/recovery、幂等和逐候选权限校验。
 3. 只有两份契约的故障注入、stale、重放和多候选回归测试通过后，才进入批页 UI 和首轮真实批量生产。
+
+## 10. 当前接入阻塞（2026-08-23 review）
+
+本设计和 mockup 的视觉/交互方向已冻结，但生产接入暂不宣称完成。以下问题必须在 schema、投影和测试中闭合后，才能把 mockup fake adapter 替换为真实动作：
+
+1. **报告快照 envelope**：`batch_run_report` 与 `batch_quality_report` 需要共同的 `batch_generation_id`、`aggregate_revision`、候选 `child_revision` 快照、必填 `report_revision`/`semantic_sha256` 和 `data_quality=missing` 语义；`generated_at` 必须排除在 semantic hash 外。
+2. **事实绑定**：事件去重键必须包含 `source_project_id/candidate_id`，不能只用 `(run_id,event_seq)`；成本必须声明 batch root 预留与 child 实际扣费的 owner/去重规则。
+3. **变体接入**：明确 variant-plan writer、checkpoint/revision/ref 结构和 assets/sample 前置读取；六维模型与旧五轴只做兼容映射，不得由 UI 推断。pairwise 必须以“相对 baseline 的差异 + 差异指纹唯一性”为事实，不用 shot-id 交集替代。
+4. **只读投影**：聚合读取不得写 batch event 或 ensure review；事件应由事实提交后的 outbox 发布，历史回填只允许写 canonical report 文件。
+5. **闭合质量门**：五项确认固定为 `creative_direction/hook/proof/pacing/readability` 且值只能为 `pass/revise/fail`；报告必须独立承载 L1a、technical QA、VLM advisory 和 hard-gate 结论。
+
+在这些项通过前，`design-demos/editorial-gallery/index.html` 只作为可浏览高保真原型，URL 参数 `?outcome=stale|forbidden|validation_failed|needs_recovery|replayed` 用于演示一致性失败态，不调用生产 API。

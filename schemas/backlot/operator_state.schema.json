@@ -763,6 +763,13 @@
                   "null"
                 ],
                 "additionalProperties": true
+              },
+              "selection_quality_failures": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "候选质量门失败项（评估/五项确认/字幕/开场/差异度）"
               }
             },
             "additionalProperties": false
@@ -938,6 +945,110 @@
             },
             "additionalProperties": false
           }
+        },
+        "diversity": {
+          "type": "object",
+          "required": [
+            "mode",
+            "plans_present",
+            "plans_missing",
+            "pairwise"
+          ],
+          "properties": {
+            "mode": {
+              "type": "string"
+            },
+            "plans_present": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "plans_missing": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "pairwise": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "candidate_a",
+                  "candidate_b",
+                  "changed_dimensions",
+                  "structural_shot_count",
+                  "passes"
+                ],
+                "properties": {
+                  "candidate_a": {
+                    "type": "string"
+                  },
+                  "candidate_b": {
+                    "type": "string"
+                  },
+                  "changed_dimensions": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "structural_shot_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "visual_risk": {
+                    "type": "string"
+                  },
+                  "passes": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "reports": {
+          "type": "object",
+          "required": [
+            "status",
+            "warnings"
+          ],
+          "properties": {
+            "run": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "quality": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "status": {
+              "type": "string"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "recovery_action": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "disabled_actions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

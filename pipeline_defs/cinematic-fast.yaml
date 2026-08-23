@@ -40,6 +40,7 @@ required_skills:
   - pipelines/cinematic-fast/compose-director
   - pipelines/cinematic-fast/publish-director
   - meta/fastline
+  - meta/candidate-diversity-producer
   - meta/reviewer
   - meta/checkpoint-protocol
   - meta/animation-runtime-selector

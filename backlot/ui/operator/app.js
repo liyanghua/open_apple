@@ -1293,6 +1293,59 @@ function renderBatch(container, data, { project } = {}) {
     selectPanel.append(reason, submit);
   }
   workbench.append(selectPanel);
+
+  // 候选差异度矩阵（差异计划 + 两两差异 + 缺计划提示）
+  const diversity = data.diversity || {};
+  const divSection = node("section", "batch-diversity");
+  divSection.append(node("h3", "section-title", "候选差异度"));
+  if (diversity.mode) {
+    const modeLabel = { hard_gate: "硬门（不足即拒）", warning: "警告（记录并继续）", legacy_read_only: "历史只读" }[diversity.mode] || diversity.mode;
+    divSection.append(node("p", "batch-diversity-mode", `差异执行：${modeLabel}`));
+  }
+  const pairwise = diversity.pairwise || [];
+  if (pairwise.length) {
+    const rows = node("div", "batch-diversity-rows");
+    for (const pair of pairwise) {
+      const row = node("div", `batch-diversity-row ${pair.passes ? "pass" : "fail"}`);
+      row.append(node("span", "batch-diversity-pair", `${pair.candidate_a} vs ${pair.candidate_b}`));
+      row.append(node("span", "batch-diversity-metrics", `变更维度 ${pair.changed_dimensions} · 结构镜头 ${pair.structural_shot_count}${pair.visual_risk === "high" ? " · 视觉风险高" : ""}`));
+      row.append(node("span", "status-chip", pair.passes ? "通过" : "差异不足"));
+      rows.append(row);
+    }
+    divSection.append(rows);
+  } else {
+    divSection.append(node("p", "batch-diversity-empty", "暂无候选差异计划（未提交差异计划或历史批次）"));
+  }
+  if (diversity.plans_missing?.length) {
+    divSection.append(node("p", "batch-diversity-missing", `缺差异计划：${diversity.plans_missing.join("、")}`));
+  }
+  workbench.append(divSection);
+
+  // 批次报告（效率摘要 + 质量建议 + 数据完整/降级状态）
+  const reports = data.reports || {};
+  const repSection = node("section", "batch-reports");
+  repSection.append(node("h3", "section-title", "批次报告"));
+  const repStatus = reports.status || "missing";
+  const statusLabel = { complete: "数据完整", partial: "部分数据", degraded: "数据已降级", missing: "未生成" }[repStatus] || repStatus;
+  repSection.append(node("p", `batch-reports-status state-${repStatus}`, `报告状态：${statusLabel}`));
+  const run = reports.run;
+  if (run) {
+    const cost = run.cost?.total_usd ?? 0;
+    const slowest = run.slowest_stage ? `${run.slowest_stage.stage_id}（累计 ${Math.round(run.slowest_stage.wall_seconds)}s）` : "—";
+    repSection.append(node("p", "batch-reports-summary", `总成本 $${Number(cost).toFixed(2)} · 最慢阶段 ${slowest}`));
+    if (run.data_quality?.warnings?.length) {
+      repSection.append(node("p", "batch-reports-warnings", `数据提示：${run.data_quality.warnings.map((w) => w.message).join("、")}`));
+    }
+  }
+  const quality = reports.quality;
+  if (quality?.recommendations?.length) {
+    repSection.append(node("p", "batch-reports-recommendation", `建议：${quality.recommendations.map((r) => `${r.candidate_id}→${r.action}`).join("、")}`));
+  }
+  if (reports.disabled_actions?.length) {
+    repSection.append(node("p", "batch-reports-disabled", `已停用：${reports.disabled_actions.join("、")}（需 ${reports.recovery_action || "重建报告"}）`));
+  }
+  workbench.append(repSection);
+
   container.append(workbench);
 }
 

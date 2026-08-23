@@ -13,6 +13,7 @@ SEMANTIC_OMIT_PATHS = frozenset({
     ("artifact_sha256",),
     ("semantic_sha256",),
     ("created_at",),
+    ("generated_at",),
     ("metadata", "run_id"),
     ("metadata", "event_id"),
     ("metadata", "absolute_project_path"),

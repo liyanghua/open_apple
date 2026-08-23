@@ -358,3 +358,22 @@ def test_batch_cockpit_renders_on_every_phase_tab() -> None:
     app = _read(OPERATOR_ROOT / "app.js")
     assert 'project.workspace?.editor?.type === "batch_review"' in app
     assert "批量驾驶舱" in app
+
+
+def test_batch_cockpit_renders_diversity_matrix_and_reports() -> None:
+    """差异度与报告计划：批页渲染差异矩阵、效率摘要、质量建议与数据完整/降级状态。"""
+    app = _read(OPERATOR_ROOT / "app.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+    for term in (
+        "候选差异度", "差异执行", "变更维度", "结构镜头", "视觉风险", "缺差异计划",
+        "批次报告", "总成本", "最慢阶段", "建议", "报告状态", "数据已降级",
+        "数据提示", "已停用", "未生成",
+    ):
+        assert term in app
+    for term in (".batch-diversity", ".batch-diversity-row", ".batch-reports",
+                 ".batch-reports-status", ".batch-reports-disabled"):
+        assert term in css
+    # 不得在判定层渲染工程字段/undefined/原始枚举
+    assert "evaluation_report" not in app
+    assert "undefined" not in app
+    assert "status=sampled" not in app

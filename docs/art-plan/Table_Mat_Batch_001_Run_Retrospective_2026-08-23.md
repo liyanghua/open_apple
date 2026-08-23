@@ -1,5 +1,20 @@
 # table-mat-batch-001 批次复盘与固化清单（2026-08-23）
 
+> **状态说明**：下文第 1–5 节记录批次运行时的历史事实和当时暴露的问题，不因后续修复改写。代码修复后的最新进度见本页“后续实现更新”，可执行验收见 [`Table_Mat_Batch_001_Batch_Acceptance_Record_2026-08-23.md`](./Table_Mat_Batch_001_Batch_Acceptance_Record_2026-08-23.md)。
+
+## 后续实现更新（代码修复后）
+
+已吸收的事项：
+
+1. `create_candidate_batch()` 现在保留 `variant_plan_ref` 并写入 `diversity_mode`；新批次默认 `warning`，历史批次缺省按 `legacy_read_only` 兼容。
+2. pairwise 差异从结构镜头 ID 交集改为结构签名差异；批级 `eligible_candidate_ids` 在 `hard_gate` 下消费 pairwise 失败结果。
+3. `sample_preflight` 与 `batch_approve_gate` 在 `hard_gate` 下对缺失差异计划前置阻塞；历史批次不被追溯阻塞。
+4. `batch_run_report` / `batch_quality_report` 读取真实运行事件、项目根 `cost_log.json`、评价报告和 sample review；VLM 未评分会标记 `partial` 并给出恢复提示。
+5. 批页把报告/差异事实纳入 `aggregate_revision`；报告 `missing/partial/degraded` 时禁用选择和发布；跨候选读取增加 projects-root containment。
+6. 新批主链路已接入默认差异策略：建批自动补 `variant_plan_ref`，分叉自动写入 `candidate_variant_plan.json`，creative lock bundle 直接携带差异计划哈希并等待人工审批；本历史批次不回填、不追溯阻塞。
+
+仍未完成的事项：VLM provider 配置与完整评分、voice-fit 阶梯正式 stage service、R3 预览/提升/丢弃 UI 流程，以及通过新五候选 smoke 后将默认模式提升为 `hard_gate`。默认差异策略已固化为 `skills/meta/candidate-diversity-producer.md`，并纳入 `batch-producer` 与 `cinematic-fast/optimize-director`。
+
 > 状态：批次已完结交付（选中 c2/c3）
 > 关联设计：`Batch_Production_Recovery_and_Formalization_Plan_2026-08-23.md`（R0–R3）、
 > `Batch_Workbench_Cross_Project_Approval_Consistency_Contract_2026-08-23.md`、
@@ -83,6 +98,25 @@
 8. 修 caption_style 白字黑描边；注明 final_props 素材坐标 vs 代理坐标语义。
 
 > 验收建议：P0 两项后，先跑 1 个候选走**契约内** `batch_approve_gate`（含故障注入）→ `sample`(五项确认) → `select` → 精剪 → `publish` 全链，再推广到批。
+
+## 6. 专项复盘：候选同质化与结构化报告缺失
+
+### 6.1 候选多样性问题
+
+本批候选虽然登记了 hook/pacing/packaging 等方向轴，但没有在进入素材和样片生产前形成可校验的 `candidate_variant_plan`。因此“方向不同”没有被落实为镜头结构、画面语法、节奏和证据组织的差异，存在只改变开场几秒、主体镜头仍高度复用的风险。共享素材池本身不是问题，缺少镜头级差异证据才是问题。
+
+后续批次必须先写变体计划，再执行生产：六个维度（hook、叙事结构、视觉语法、节奏、证据策略、素材策略）至少改变三个；候选对之间至少有三个结构镜头差异；结构同质化与视觉相似度分开报出，不能合并成一个“同质化”分数。
+
+### 6.2 效率与效果报告缺失
+
+本批可以从事件、成本和评价制品事后拼出部分耗时与质量信息，但没有稳定的批级报告制品，无法回答“最慢阶段是什么、重试花了多少、候选为什么低分、哪条返工最值得做、成本是否被缓存降低”等决策问题。批页若自行计算这些指标，还会在事件缺失或成本索引漂移时给出虚假的 `$0` 或成功状态。
+
+正式化后由 `batch_run_report` 记录运行效率/成本，由 `batch_quality_report` 记录事实覆盖、技术 QA、VLM、人工确认、差异矩阵和返工建议；两个报告都保存输入哈希与评分 rubric 版本。历史批次只允许只读回填，不得为了补报告重新生产。
+
+### 6.3 与下一批的关系
+
+实施任务与验收命令已写入
+[`2026-08-23-batch-diversity-and-reporting.md`](../superpowers/plans/2026-08-23-batch-diversity-and-reporting.md)。在这两条路线的契约测试、五候选 fixture 和重启/缺失事件回归通过前，不提升自动排名，也不把批页的“推荐”当成自动选择依据。
 
 ---
 
