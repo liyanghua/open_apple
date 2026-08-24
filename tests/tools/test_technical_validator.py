@@ -96,6 +96,43 @@ def test_skip_heavy_report_cannot_pass(tmp_path: Path, monkeypatch):
     assert check["status"] == "fail" and check["fixable"] is True
 
 
+def test_expected_facts_autoload_from_product_facts(tmp_path: Path, monkeypatch):
+    """产品事实卡接线：expected_facts 为空时从 product_facts.json 自动加载。"""
+    _patch_media(monkeypatch)
+    (tmp_path / "artifacts").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "artifacts" / "product_facts.json").write_text(
+        json.dumps({
+            "version": "1.0", "product_name": "透明桌垫",
+            "sku": "TM-8888", "price": "29.9元", "params": ["3mm加厚"],
+        }, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    inputs = _base_inputs(tmp_path)
+    inputs["expected_facts"] = {}
+    inputs["project_dir"] = str(tmp_path)
+    report = TechnicalValidator().execute(inputs).data
+    sku = next(c for c in report["hard_gate"]["checks"] if c["id"] == "l1a_sku")
+    price = next(c for c in report["hard_gate"]["checks"] if c["id"] == "l1a_price")
+    params = next(c for c in report["hard_gate"]["checks"] if c["id"] == "l1a_params")
+    assert sku["status"] == "pass"
+    assert price["status"] == "pass"
+    assert params["status"] == "pass"
+
+
+def test_invalid_product_facts_is_not_silent_skip(tmp_path: Path, monkeypatch):
+    """产品事实卡无效时必须进 hard_gate，不能静默当「未提供」。"""
+    _patch_media(monkeypatch)
+    (tmp_path / "artifacts").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "artifacts" / "product_facts.json").write_text("{broken", encoding="utf-8")
+    inputs = _base_inputs(tmp_path)
+    inputs["expected_facts"] = {}
+    inputs["project_dir"] = str(tmp_path)
+    report = TechnicalValidator().execute(inputs).data
+    check = next(c for c in report["hard_gate"]["checks"] if c["id"] == "l1a_facts_invalid")
+    assert check["status"] == "fail"
+    assert report["status"] != "pass"
+
+
 def test_sku_conflict_is_fatal(tmp_path: Path, monkeypatch):
     _patch_media(monkeypatch)
     inputs = _base_inputs(tmp_path)

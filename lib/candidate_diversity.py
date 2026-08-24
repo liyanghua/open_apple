@@ -287,13 +287,6 @@ def compare_candidate_pair(
     fp_a = plan_a.get("difference_fingerprint") if isinstance(plan_a.get("difference_fingerprint"), Mapping) else {}
     fp_b = plan_b.get("difference_fingerprint") if isinstance(plan_b.get("difference_fingerprint"), Mapping) else {}
     visual_identical = fp_a.get("visual_hash") == fp_b.get("visual_hash")
-    # A plan may intentionally keep the same source shot slots while changing
-    # three or more creative dimensions (hook/narrative/grammar). Treat those
-    # slots as structurally diversified; an otherwise identical plan still
-    # remains at zero.
-    if structural_common == 0 and structural_a and structural_a == structural_b and changed_dims >= MIN_CHANGED_DIMENSIONS:
-        structural_common = len(structural_a)
-
     passes = (
         changed_dims >= MIN_CHANGED_DIMENSIONS
         and structural_common >= MIN_STRUCTURAL_SHOTS
@@ -339,8 +332,15 @@ def selection_diversity_failures(
         structural_failures.append("至少需变更三个差异维度")
     if bool(plan.get("opening_only_change")):
         structural_failures.append("仅改变前三秒（opening_only_change），不构成候选差异")
+    rows = plan.get("shot_differences") if isinstance(plan.get("shot_differences"), list) else []
+    computed_fp = compute_difference_fingerprint(
+        plan.get("dimensions") if isinstance(plan.get("dimensions"), Mapping) else {},
+        rows,
+    )
     fp = plan.get("difference_fingerprint") if isinstance(plan.get("difference_fingerprint"), Mapping) else {}
-    if int(fp.get("structural_shot_count") or 0) < MIN_STRUCTURAL_SHOTS:
+    if any(fp.get(key) != computed_fp[key] for key in computed_fp):
+        structural_failures.append("差异指纹与维度/镜头证据不一致")
+    if computed_fp["structural_shot_count"] < MIN_STRUCTURAL_SHOTS:
         structural_failures.append("结构镜头差异少于三个")
 
     visual_hash = fp.get("visual_hash")

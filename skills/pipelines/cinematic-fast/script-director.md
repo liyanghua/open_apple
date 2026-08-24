@@ -18,3 +18,12 @@ artifact starts with `status: draft`; Backlot records section decisions and adds
 approval identity/time when all sections are locked. If the control plan is
 missing or not approved, stop and report that the user must finish the
 导演总控单 first.
+
+## product fact card (前向约束)
+
+If `artifacts/product_facts.json` exists, read it via `lib.product_facts.load_product_facts` and apply the facts as a **forward constraint** on every section's `narration` and `screen_copy`:
+
+- Only claim selling points present in the card (or already grounded in research), and use the card's exact wording.
+- Any price mentioned must equal the card's price; any SKU/型号 mentioned must equal the card's SKU.
+- Run `lib.product_facts.check_text_facts(text, card)` on each section's narration and screen_copy; if it returns conflicts, rewrite that section until empty (or drop the conflicting claim).
+- Record the card as a fact source: set `metadata.fact_card_ref = {"name": "product_facts", "path": "artifacts/product_facts.json"}`.

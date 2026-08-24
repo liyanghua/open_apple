@@ -37,6 +37,10 @@ def _batch_project(tmp_path: Path, n: int = 2) -> Path:
         source_media_refs=["inputs/source/video-01.mp4"],
     )
     _write(batch_dir / "artifacts" / "candidate_batch.json", batch)
+    for report_name in ("batch_run_report", "batch_quality_report"):
+        _write(batch_dir / "artifacts" / f"{report_name}.json", {
+            "data_quality": {"status": "complete"},
+        })
     return batch_dir
 
 
@@ -157,6 +161,20 @@ def test_select_commits_and_replays(tmp_path: Path):
     )
     assert replay["status"] == "replayed"
     assert replay["selected_candidate_ids"] == ["cand-01"]
+
+
+def test_select_rejects_when_batch_reports_are_missing(tmp_path: Path):
+    batch_dir = _batch_project(tmp_path)
+    (batch_dir / "artifacts" / "batch_run_report.json").unlink()
+    _child_with_review(tmp_path, "cand-01")
+    service = _service(tmp_path, batch_dir)
+    revision, _ = service._current_revision()
+
+    with pytest.raises(OperatorError, match="批次报告"):
+        service.select_for_edit(
+            actor_id="owner", idempotency_key="missing-reports",
+            aggregate_revision=revision, candidate_ids=["cand-01"], reason="x",
+        )
 
 
 def test_select_key_reuse_conflict(tmp_path: Path):

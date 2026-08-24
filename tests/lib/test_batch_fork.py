@@ -87,3 +87,22 @@ def test_fork_is_idempotent(tmp_path: Path):
     first_plan = (first["cand-01"] / "artifacts" / "candidate_variant_plan.json").read_bytes()
     second_plan = (second["cand-01"] / "artifacts" / "candidate_variant_plan.json").read_bytes()
     assert first_plan == second_plan
+
+
+def test_fork_copies_batch_product_facts(tmp_path: Path):
+    source = _source_project(tmp_path)
+    batch = _batch(tmp_path)
+    # 批根产品事实卡（batch_id = mix-001）
+    batch_root = tmp_path / "mix-001" / "artifacts"
+    batch_root.mkdir(parents=True, exist_ok=True)
+    (batch_root / "product_facts.json").write_text(
+        json.dumps({"version": "1.0", "product_name": "透明桌垫",
+                    "sku": "TM-2mm", "price": "49.9元", "params": ["厚度 2mm"]},
+                   ensure_ascii=False),
+        encoding="utf-8",
+    )
+    created = fork_candidate_projects(batch, source_project_dir=source, pipeline_dir=tmp_path)
+    for candidate_id, project_dir in created.items():
+        card = project_dir / "artifacts" / "product_facts.json"
+        assert card.is_file()
+        assert json.loads(card.read_text(encoding="utf-8"))["sku"] == "TM-2mm"

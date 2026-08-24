@@ -17,7 +17,7 @@
 | 多样性 rollout | 待推进 | `diversity_mode` | 需完成一批新的五候选 smoke 后，再把新批次默认提升为 `hard_gate` |
 | 新批主链路差异策略 | 已接入（warning） | `lib/candidate_diversity.py`、`lib/candidate_batch.py`、`lib/batch_fork.py`、`lib/approval_groups.py` | 建批自动分配五套默认策略；分叉自动落盘 `candidate_variant_plan`；creative lock 纳入人审材料；历史批次不回溯 |
 | R1 voice-fit/样片 stage 服务 | 部分 | 现有库函数可复用 | 仍需把临时编排彻底吸收为正式 stage service/skill |
-| R3 preview/promote/discard 工作台流转 | 部分 | `lib/rerun_plan.py`、schemas | 契约基础已存在，仍需完整接入 UI/API 和预览确认状态机 |
+| R3 Editorial Gallery 接入与 preview/promote/discard | 已规划，待实施 | `lib/rerun_plan.py`、schemas、[`2026-08-24-editorial-gallery-real-data-integration.md`](../superpowers/plans/2026-08-24-editorial-gallery-real-data-integration.md) | 首期先接真实中间产物和只读最小重跑规划；执行、预览、提升与丢弃仍属后续阶段 |
 
 **验证快照**：全量回归基线 `1873 passed / 11 skipped`；本轮修复后的差异/报告/批页聚焦回归 `51 passed`，Python 编译检查通过。未把未运行 VLM 的批次提升为质量通过。
 

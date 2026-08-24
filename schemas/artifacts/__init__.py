@@ -66,6 +66,7 @@ ARTIFACT_NAMES = [
     "candidate_variant_plan",
     "batch_run_report",
     "batch_quality_report",
+    "product_facts",
 ]
 
 

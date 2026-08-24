@@ -191,6 +191,50 @@ def build_approval_bundle(
     return bundle
 
 
+def lock_execution_after_creative_lock(
+    project_dir: Path, *, approved_by: str, sink=None
+) -> dict[str, dict[str, Any]]:
+    """Lock the shot execution plan + authorize paid generation after the
+    creative_lock bundle is approved.
+
+    Returns the new artifact envelopes keyed by artifact name, so the caller can
+    refresh the checkpoint envelopes in the same transaction (avoiding envelope
+    drift between the rewritten artifacts and the already-written checkpoint).
+    """
+    from lib.artifact_io import write_artifact_atomic
+
+    envelopes: dict[str, dict[str, Any]] = {}
+    approved_at = datetime.now(timezone.utc).isoformat()
+    sep_path = project_dir / "artifacts" / "shot_execution_plan.json"
+    if sep_path.is_file():
+        try:
+            sep = json.loads(sep_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            sep = None
+        if isinstance(sep, dict):
+            sep = dict(sep)
+            sep["status"] = "approved"
+            sep["approval"] = {"approved_by": approved_by, "approved_at": approved_at}
+            envelopes["shot_execution_plan"] = write_artifact_atomic(
+                "artifacts/shot_execution_plan.json", "shot_execution_plan", sep,
+                project_dir=project_dir, sink=sink,
+            )
+    ap_path = project_dir / "artifacts" / "asset_plan.json"
+    if ap_path.is_file():
+        try:
+            ap = json.loads(ap_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            ap = None
+        if isinstance(ap, dict):
+            ap = dict(ap)
+            ap["paid_generation_approved"] = True
+            envelopes["asset_plan"] = write_artifact_atomic(
+                "artifacts/asset_plan.json", "asset_plan", ap,
+                project_dir=project_dir, sink=sink,
+            )
+    return envelopes
+
+
 def approve_bundle(
     project_dir: Path,
     bundle_id: str,
@@ -200,6 +244,13 @@ def approve_bundle(
     expected_hash: str | None = None,
     sink=None,
 ) -> Path:
+    """Approve a bundle: a pure approval-group state transition.
+
+    Does NOT apply any group-specific side effects (execution-plan locking or
+    paid-generation authorization); the creative_lock side effect is applied
+    explicitly by the caller (ReviewService.decide) via
+    ``lock_execution_after_creative_lock``.
+    """
     from backlot.project_write_sink import require_project_sink
     from backlot.operator_errors import OperatorError
 

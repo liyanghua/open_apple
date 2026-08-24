@@ -43,6 +43,15 @@ cinematic-fast.yaml`）。样片通过 `final_qa` + `technical_validator` 后运
   `evaluation_report.optimization` 区块（`optimization_policy.enabled=false`
   时该区块为 null，保持人工 review 优先）。
 
+## L3 评分生产编排（judge_with_average）
+
+用于**候选排序/选择**时，不要用单次 `video_judge`（单次打分有 ±1 漂移）。
+用 `tools.analysis.video_judge.judge_with_average(inputs, runs=3, seed_base=...)`
+跑 N 次取均值；其返回 `data` 已带 `run_count` / `model` / `rubric_version` /
+`dimensions`（score=均值，note 带 σ）和 `runs`（每次原始分）。把这整块写入
+`evaluation_report.creative_advisory`（`scored=true`、`summary` 标注「N 次均值」），
+`runs` 留档供审计。`VIDEO_JUDGE_MODEL` 环境变量切换模型（如 `qwen3-vl-plus`）。
+
 ## Execution diff + audio contract (P0-2 / P0-3)
 
 - Build `sample_execution_trace` with the full input set (script,

@@ -144,3 +144,39 @@ def test_video_judge_reports_non_json_error(tmp_path: Path, monkeypatch):
     result = VideoJudge().execute({"input_path": str(tmp_path / "f.mp4")})
     assert result.success is False
     assert "video_judge failed" in result.error
+
+
+def test_default_model_env_override(monkeypatch):
+    from tools.analysis.video_judge import default_model
+
+    monkeypatch.setenv("VIDEO_JUDGE_MODEL", "qwen3-vl-plus")
+    assert default_model() == "qwen3-vl-plus"
+    monkeypatch.delenv("VIDEO_JUDGE_MODEL", raising=False)
+    assert default_model() == "qwen-vl-max"
+
+
+def test_judge_with_average_averages_runs(tmp_path: Path, monkeypatch):
+    from tools.analysis.video_judge import judge_with_average
+    from tools.base_tool import ToolResult
+
+    video = tmp_path / "f.mp4"; video.write_bytes(b"v")
+    hook_scores = iter([7.0, 9.0, 8.0])
+
+    def fake_execute(self, inputs):
+        h = next(hook_scores)
+        dims = [
+            {"id": dim_id, "name": dim_id, "score": h if dim_id == "hook_clarity" else 8.0, "note": "n"}
+            for dim_id, _, _ in L3_DIMENSIONS
+        ]
+        return ToolResult(success=True, data={
+            "scored": True, "summary": "s", "dimensions": dims,
+            "rubric_version": "l3-v1.0", "model": "qwen3-vl-plus", "judge_version": "video_judge-0.2.0",
+        })
+
+    monkeypatch.setattr(VideoJudge, "execute", fake_execute)
+    result = judge_with_average({"input_path": str(video)}, runs=3)
+    assert result.success
+    hook = next(d for d in result.data["dimensions"] if d["id"] == "hook_clarity")
+    assert hook["score"] == 8.0  # (7+9+8)/3
+    assert result.data["run_count"] == 3
+    assert len(result.data["runs"]) == 3

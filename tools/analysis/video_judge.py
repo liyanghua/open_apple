@@ -102,6 +102,14 @@ def _parse_dimensions(parsed: Any, rubric: list[tuple[str, str, str]]) -> list[d
     ]
 
 
+def default_model() -> str:
+    """Resolve the VLM judge model: env override ``VIDEO_JUDGE_MODEL`` wins,
+    otherwise the DashScope default. Keeping this in one place lets a batch run
+    switch models without editing call sites."""
+    import os
+    return os.environ.get("VIDEO_JUDGE_MODEL") or "qwen-vl-max"
+
+
 class VideoJudge(BaseTool):
     name = "video_judge"
     version = "0.2.0"
@@ -130,7 +138,8 @@ class VideoJudge(BaseTool):
             "rubric_version": {"type": "string", "default": "l3-v1.0",
                                "description": "l3-v1.0（advisory）/ ecommerce-remix-v1.0（Autoresearch 门禁）"},
             "frame_count": {"type": "integer", "default": 8, "minimum": 2, "maximum": 16},
-            "model": {"type": "string", "default": "qwen-vl-max"},
+            "model": {"type": "string", "default": "qwen-vl-max",
+                       "description": "VLM 模型。默认 qwen-vl-max；可用环境变量 VIDEO_JUDGE_MODEL 覆盖（如 qwen3-vl-plus）。"},
             "seed": {"type": "integer", "description": "随机种子（§2.3 要求记录随机性）"},
             "audio_facts": {"type": "string", "description": "音频事实说明（口播/BGM 提供者、响度），辅助 Audio Quality 评分"},
         },
@@ -209,7 +218,7 @@ class VideoJudge(BaseTool):
         rubric_version = str(inputs.get("rubric_version", "l3-v1.0"))
         if rubric_version not in RUBRICS:
             return ToolResult(success=False, error=f"未知 rubric_version: {rubric_version}")
-        model = str(inputs.get("model", "qwen-vl-max"))
+        model = str(inputs.get("model") or default_model())
         seed = inputs.get("seed")
         try:
             with tempfile.TemporaryDirectory() as tmp:
@@ -240,3 +249,70 @@ class VideoJudge(BaseTool):
         if seed is not None:
             data["seed"] = int(seed)
         return ToolResult(success=True, data=data, artifacts=[str(output)] if output else [])
+
+
+def judge_with_average(
+    inputs: dict[str, Any], *, runs: int = 3, seed_base: int | None = None
+) -> ToolResult:
+    """Run ``video_judge`` ``runs`` times and average the per-dimension scores.
+
+    Single-run Qwen-VL scores drift (observed ±1 on hook_clarity). Averaging
+    damps that stochasticity for ranking decisions. Fail-closed: any failed run
+    aborts (never clamps or silently averages a failure). The returned ``data``
+    carries the averaged ``dimensions`` (score = mean, note = 均值±σ) plus a
+    ``runs`` array with every individual run for auditing.
+    """
+    tool = VideoJudge()
+    runs_data: list[dict[str, Any]] = []
+    for index in range(max(1, int(runs))):
+        run_inputs = dict(inputs)
+        if seed_base is not None:
+            run_inputs["seed"] = int(seed_base) + index
+        result = tool.execute(run_inputs)
+        if not result.success or not isinstance(result.data, dict):
+            return ToolResult(
+                success=False,
+                error=f"video_judge run {index + 1}/{runs} failed: {result.error}",
+            )
+        runs_data.append(result.data)
+
+    by_id: dict[str, list[float]] = {}
+    names: dict[str, str] = {}
+    notes: dict[str, list[str]] = {}
+    for data in runs_data:
+        for dim in data.get("dimensions") or []:
+            if not isinstance(dim, dict) or not isinstance(dim.get("score"), (int, float)):
+                continue
+            dim_id = str(dim.get("id") or "")
+            by_id.setdefault(dim_id, []).append(float(dim["score"]))
+            names.setdefault(dim_id, str(dim.get("name") or dim_id))
+            if dim.get("note"):
+                notes.setdefault(dim_id, []).append(str(dim["note"]))
+
+    dimensions: list[dict[str, Any]] = []
+    for dim_id, values in by_id.items():
+        mean = sum(values) / len(values)
+        variance = sum((v - mean) ** 2 for v in values) / len(values)
+        std = variance ** 0.5
+        note = "；".join(notes.get(dim_id, []))
+        dimensions.append({
+            "id": dim_id,
+            "name": names.get(dim_id, dim_id),
+            "score": round(mean, 2),
+            "note": f"{len(values)} 次均值（σ={std:.2f}）。{note}" if std > 0 else note,
+        })
+
+    first = runs_data[0]
+    return ToolResult(success=True, data={
+        "scored": True,
+        "summary": str(first.get("summary") or ""),
+        "dimensions": dimensions,
+        "rubric_version": first.get("rubric_version"),
+        "model": first.get("model"),
+        "judge_version": first.get("judge_version", "video_judge-0.2.0"),
+        "run_count": len(runs_data),
+        "runs": [
+            {k: v for k, v in run.items() if k != "runs"}
+            for run in runs_data
+        ],
+    })

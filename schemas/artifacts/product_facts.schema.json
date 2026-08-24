@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/product_facts",
+  "title": "Product Facts",
+  "description": "产品事实卡：生产前由用户填写的 SKU/价格/参数权威值（带出处），喂给 technical_validator 的 expected_facts，使 L1a 事实类检查从 skip 变为 pass。跳过时只填 product_name + filled_by 即可。",
+  "type": "object",
+  "required": ["version", "product_name"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "product_name": { "type": "string", "minLength": 1 },
+    "sku": { "type": "string", "description": "商品编号/型号（如 TM-2mm）" },
+    "price": { "type": "string", "description": "价格（如 49.9元 / ¥49.9）" },
+    "params": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "关键参数的自然语言表述列表（如 厚度 2mm）"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "每项事实的出处（sku/price/params -> 用户填写 / 商品页 / 官方）"
+    },
+    "filled_by": { "type": "string", "description": "填写人（user / agent / skipped）" },
+    "filled_at": { "type": "string", "format": "date-time" },
+    "semantic_sha256": { "type": "string" },
+    "artifact_sha256": { "type": "string" }
+  },
+  "additionalProperties": false
+}

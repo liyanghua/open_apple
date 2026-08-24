@@ -227,3 +227,37 @@ class TestFindingsFixes:
         fake_video.write_bytes(b"\x00" * 4096)
         res = backlot_client.get("/thumb/vid/renders/final.mp4")
         assert res.status_code == 404  # never the raw video bytes (F-03)
+
+
+class TestSharedMediaAcl:
+    """P1: projects/-prefixed shared media must carry its source project for ACL re-check."""
+
+    def test_resolve_served_media_extracts_source_project(self, projects_root):
+        target, source = server_mod._resolve_served_media(
+            projects_root / "film", "projects/other-film/inputs/source/clip.mp4"
+        )
+        assert source == "other-film"
+        assert target.name == "clip.mp4"
+        # project-local path carries no source project
+        _, local_source = server_mod._resolve_served_media(
+            projects_root / "film", "inputs/source/clip.mp4"
+        )
+        assert local_source is None
+
+    def test_resolve_served_media_rejects_escape(self, projects_root):
+        import fastapi
+
+        with pytest.raises(fastapi.HTTPException) as exc:
+            server_mod._resolve_served_media(
+                projects_root / "film", "../escaped/secret.txt"
+            )
+        assert exc.value.status_code == 403
+
+    def test_resolve_served_media_uses_normalized_source_project(self, projects_root):
+        target, source = server_mod._resolve_served_media(
+            projects_root / "authorized",
+            "projects/authorized/../victim/inputs/secret.mp4",
+        )
+
+        assert source == "victim"
+        assert target == (projects_root / "victim" / "inputs" / "secret.mp4").resolve()

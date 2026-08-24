@@ -450,11 +450,9 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
     ) -> FileResponse:
         require_access(request, project_id, "read")
         project_dir = _safe_project_dir(project_id)
-        target = (project_dir / file_path).resolve()
-        try:
-            target.relative_to(project_dir.resolve())
-        except ValueError:
-            raise HTTPException(status_code=403, detail="path escapes project")
+        target, source_project = _resolve_served_media(project_dir, file_path)
+        if source_project is not None and source_project != project_id:
+            require_access(request, source_project, "read")
         if not target.is_file():
             raise HTTPException(status_code=404, detail="media not found")
         width = min(THUMB_WIDTHS, key=lambda x: abs(x - w))
@@ -476,11 +474,9 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
     async def media(project_id: str, file_path: str, request: Request) -> FileResponse:
         require_access(request, project_id, "read")
         project_dir = _safe_project_dir(project_id)
-        target = (project_dir / file_path).resolve()
-        try:
-            target.relative_to(project_dir.resolve())
-        except ValueError:
-            raise HTTPException(status_code=403, detail="path escapes project")
+        target, source_project = _resolve_served_media(project_dir, file_path)
+        if source_project is not None and source_project != project_id:
+            require_access(request, source_project, "read")
         if not target.is_file():
             raise HTTPException(status_code=404, detail="media not found")
         return FileResponse(target)
@@ -594,6 +590,35 @@ def _safe_project_dir(project_id: str) -> Path:
     if not project_dir.is_dir():
         raise HTTPException(status_code=404, detail=f"unknown project: {project_id}")
     return project_dir
+
+
+def _resolve_served_media(project_dir: Path, file_path: str) -> tuple[Path, str | None]:
+    """Resolve a media/thumb target for serving.
+
+    Returns ``(target, source_project_id)``. Project-local paths are served from
+    the project and carry ``source_project_id=None``. ``projects/``-prefixed
+    paths are shared research media that live under another project's
+    ``inputs``; they are served from the ``projects/`` tree (constrained inside
+    ``PROJECTS_DIR``) and carry the source project id so the caller can re-check
+    its ACL — projects-root containment is NOT a project-level authorization.
+    """
+    parts = [part for part in file_path.split("/") if part not in {"", "."}]
+    if parts and parts[0] == "projects":
+        target = (PROJECTS_DIR.parent / file_path).resolve()
+        try:
+            relative = target.relative_to(PROJECTS_DIR.resolve())
+        except ValueError:
+            raise HTTPException(status_code=403, detail="path escapes projects")
+        if not relative.parts:
+            raise HTTPException(status_code=403, detail="shared media project is missing")
+        source_project = relative.parts[0]
+        return target, source_project
+    target = (project_dir / file_path).resolve()
+    try:
+        target.relative_to(project_dir.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="path escapes project")
+    return target, None
 
 
 def _sse(payload: dict) -> str:

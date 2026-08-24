@@ -33,3 +33,9 @@ for the next Agent run, not a silent edit to the contract.
 ## hook_plan (P1-1)
 
 Produce `hook_plan` (schema `schemas/artifacts/hook_plan.schema.json`, builder `lib/hook_plan.py`) and reference it from `creative_control_plan.hook_plan_ref`. It records the first 1-1.5s visual, first audible information, the promise, the real evidence backing it, the hook pattern and the differences from sibling candidate directions — in natural language, no internal JSON paths.
+
+## product_fact_card (产品事实卡)
+
+Before research, collect the product fact card (SKU / price / params + provenance) per `skills/meta/product-fact-card.md`. Write it to `artifacts/product_facts.json` via `write_artifact_atomic` (schema `product_facts`). A skipped card is allowed and only means L1a stays `revise`; `technical_validator` auto-loads the card when `expected_facts` is not passed explicitly.
+
+When a card exists, feed its facts into the `creative_control_plan.sections.fact_continuity.rules` via `lib.product_facts.fact_continuity_rules(card)` (plus any research-derived fact rules). This makes the director contract carry the "allowed facts" boundary forward: the price/SKU are fixed, and each selling point may only be stated as screen-visible evidence, never extrapolated.

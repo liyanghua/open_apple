@@ -207,9 +207,6 @@ class ReviewService:
         review 由其绑定的 script artifact 哈希派生，供批级/单任务审批使用
         正常的版本/哈希守卫事务。
         """
-        existing = self.pending()
-        if existing is not None:
-            return existing
         checkpoint_path = self.project_dir / "checkpoint_script.json"
         try:
             checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
@@ -228,6 +225,10 @@ class ReviewService:
         if not re.fullmatch(r"[a-fA-F0-9]{64}", subject_hash):
             return None
         version = max(1, int(checkpoint.get("versions") or 1))
+        existing = self.pending()
+        if existing is not None and existing.get("subject_hash") == subject_hash and int(existing.get("subject_version") or 0) == version:
+            return existing
+        # 现有 review 缺失或版本/哈希已过期：新建 review（create() 会 supersede 旧 awaiting_human review）
         return self.create(
             kind="script_lock",
             subject_id=f"script-v{version}",
@@ -243,9 +244,6 @@ class ReviewService:
         approval_bundle 派生（subject_id=bundle_id、version=bundle_version），
         decide(approved) 走 approve_bundle 通道，与单任务审批一致。
         """
-        existing = self.pending()
-        if existing is not None:
-            return existing
         checkpoint_path = self.project_dir / "checkpoint_assets.json"
         try:
             checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
@@ -267,6 +265,10 @@ class ReviewService:
         if not bundle_id:
             return None
         version = max(1, int(bundle.get("bundle_version") or 1))
+        existing = self.pending()
+        if existing is not None and existing.get("subject_hash") == subject_hash and int(existing.get("subject_version") or 0) == version:
+            return existing
+        # 现有 review 缺失或版本/哈希已过期：新建 review（create() 会 supersede 旧 awaiting_human review）
         return self.create(
             kind="creative_lock",
             subject_id=bundle_id,
@@ -329,6 +331,7 @@ class ReviewService:
                 if self.reviewer_required and review.get("submitted_by") == actor_id:
                     raise OperatorError("forbidden", "该项目要求由其他人员完成确认", 403)
 
+                locked_envelopes: dict[str, dict[str, Any]] = {}
                 if review["kind"] == "creative_lock":
                     if decision == "approved":
                         approve_bundle(
@@ -338,6 +341,13 @@ class ReviewService:
                             expected_version=expected_version,
                             expected_hash=expected_hash,
                             sink=sink,
+                        )
+                        # creative_lock 审批 = 素材创意门：锁定执行单 + 授权付费。
+                        # 在同一事务里拿到新 envelope，用于刷新 checkpoint，避免信封漂移。
+                        from lib.approval_groups import lock_execution_after_creative_lock
+
+                        locked_envelopes = lock_execution_after_creative_lock(
+                            self.project_dir, approved_by=actor_id, sink=sink
                         )
                     else:
                         reject_bundle(
@@ -363,6 +373,10 @@ class ReviewService:
                         human_approval_required=True,
                         human_approved=True,
                     )
+                    # 用锁后的新 envelope 覆盖 checkpoint 里的旧引用（同事务，杜绝漂移）
+                    artifacts = checkpoint.setdefault("artifacts", {})
+                    for name, envelope in locked_envelopes.items():
+                        artifacts[name] = envelope
                     sink.stage_json(
                         checkpoint_path.relative_to(self.project_dir).as_posix(),
                         checkpoint,

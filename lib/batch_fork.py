@@ -162,5 +162,22 @@ def fork_candidate_projects(
             baseline_ref=baseline_ref,
             candidate_index=candidate_index,
         )
+        # 产品事实卡批级共享：批根的一张卡复制给每个候选（候选只读使用）。
+        _copy_product_facts(batch, pipeline_dir, project_dir)
         created[str(candidate["candidate_id"])] = project_dir
     return created
+
+
+def _copy_product_facts(batch: Mapping[str, Any], pipeline_dir: Path, candidate_dir: Path) -> None:
+    """Copy the batch root's product_facts.json into a candidate (idempotent)."""
+    batch_id = str(batch.get("batch_id") or "")
+    if not batch_id:
+        return
+    source = Path(pipeline_dir) / batch_id / "artifacts" / "product_facts.json"
+    if not source.is_file():
+        return
+    target = Path(candidate_dir) / "artifacts" / "product_facts.json"
+    if target.is_file():
+        return  # 已有候选自有事实卡则保留，不覆盖
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, target)

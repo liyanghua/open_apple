@@ -1,5 +1,7 @@
 # Editorial Gallery UI 规范
 
+> 实施状态（2026-08-24）：高保真 mockup 已冻结；真实数据接入尚未完成。接口、历史降级和只读重跑规划见 [`2026-08-24-editorial-gallery-real-data-integration.md`](../superpowers/plans/2026-08-24-editorial-gallery-real-data-integration.md)。
+
 ## 一、页面层级
 
 页面只允许三层视觉层级：
@@ -140,3 +142,15 @@
 - [x] 每个候选显示差异覆盖与开场一致性证据；五候选不再只靠首镜/首句区分
 - [x] 样片门完成后选择 1–2 个候选才能进入终稿编辑室，入口携带当前 revision
 - [x] 报告摘要显示输入 hash、新鲜度、数据完整性与推荐动作，过期/降级时写入动作会被禁用
+
+## 七、真实数据适配规范（2026-08-24）
+
+- 生产页面与 Backlot API 必须同源，正式入口为 `/studio/<batch-id>`；不得依赖开发端口间 CORS 或直接读取本机文件路径。
+- 默认 adapter 只读真实 DTO；fixture 仅在显式 `?fixture=1` 时启用，并显示“演示数据”。请求失败不能自动回退 fixture。
+- 页面不自行推导批相位、候选是否可选、报告完整度、差异是否通过或最小重跑阶段；这些结论均来自服务端关闭式 DTO。
+- 历史批缺 `candidate_variant_plan` 时显示“差异证据缺失”，不能显示“0 风险”或“已通过”；VLM 未运行显示“未运行”，不能以人工分或技术 QA 代替。
+- 九阶段证据使用固定业务标签，阶段内 artifact 只展示摘要和安全链接；不向浏览器暴露绝对路径、生成凭证或内部 operator generation。
+- 修改规划的主动作是“生成修改计划”。在 `execution_allowed=false` 阶段不得出现“开始重跑”“采用新版本”等会让用户误以为已经执行的动作。
+- 规划结果必须同时说明：从哪一步重跑、保留什么、先看到什么预览、预计成本、修改预期和风险；不得只展示内部 stage id。
+- revision 过期时保留用户输入但要求重新确认定位；不得把旧时间段、旧镜头或 VLM finding 静默套到新 revision。
+- 正式验收必须使用真实 `table-mat-batch-001` DTO，在 1440px、1024px、390px 三档留存截图，并验证 5 个候选媒体、c2/c3 选择、quality partial、diversity missing 均与事实一致。

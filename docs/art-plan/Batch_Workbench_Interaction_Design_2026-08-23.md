@@ -1,11 +1,12 @@
 # 批量混剪运营工作台交互设计（2026-08-23）
 
 > 日期：2026-08-23
-> 版本：v1.1
-> 状态：设计稿，待实施
+> 版本：v1.2
+> 状态：批量驾驶舱已落地；Editorial Gallery 真实数据接入待实施
 > 范围：OpenMontage `cinematic-fast` 批量混剪模式的运营工作台（`/p/<project-id>`）交互设计；候选单任务工作台保留不变
 > 依赖文档：`Design_Review_2026-08-22.md`（评价/批量数据层）、`Autoresearch_Video_Remix_Integration_Design_2026-08-23.md`（优化闭环）、`skills/pipelines/cinematic-fast/optimize-director.md`（批量编排 runbook）
 > 必须先满足的实现契约：[`Batch_Workbench_Aggregate_State_Event_Contract_2026-08-23.md`](./Batch_Workbench_Aggregate_State_Event_Contract_2026-08-23.md)、[`Batch_Workbench_Cross_Project_Approval_Consistency_Contract_2026-08-23.md`](./Batch_Workbench_Cross_Project_Approval_Consistency_Contract_2026-08-23.md)
+> Editorial Gallery 接入计划：[`2026-08-24-editorial-gallery-real-data-integration.md`](../superpowers/plans/2026-08-24-editorial-gallery-real-data-integration.md)
 
 ## 0. 背景与已确认决策
 
@@ -146,6 +147,14 @@ projects/<batch-id>/artifacts/batch_quality_report.json
 4. 系统为每个选中候选生成深链 `/p/<candidate-id>`，进入该候选的最新可用 revision，而不是新建项目或打开旧 draft。
 
 批页仍是批级审批、对比和回退的事实入口；编辑室只负责选中候选的局部修改、最小重跑和终稿交付。若候选在进入编辑室前 revision 变化，入口显示「需要重新确认」，不得静默带入旧评价或旧定位。
+
+### 2.4.2 Editorial Gallery 真实产物接入边界（2026-08-24）
+
+正式入口使用 Backlot 同源页面 `/studio/<batch-id>`，默认读取 `GET /api/v2/projects/<batch-id>/editorial-gallery`；静态 mockup 只保留显式 `?fixture=1` 的视觉回归用途。真实 API 失败时必须显示错误和重试，不得自动回退到假候选、假评分或假差异结论。
+
+首期接入只开放“查看真实中间产物 + 生成最小重跑计划”：候选抽屉展示真实媒体、九阶段 checkpoint、中间制品、批级报告、评价与人工确认；`POST .../editorial-gallery/rerun-plan` 只计算计划并固定返回 `execution_allowed=false`，不得创建 run、修改 revision 或写入项目事实。真正的 preview/promote/discard 在后续 R3 执行阶段开放。
+
+`table-mat-batch-001` 是历史验收样本：无 `candidate_variant_plan` 时显示“差异证据缺失”，质量报告 `partial` 时保留“部分数据”，不得推断为通过。普通单视频工作台不出现该批级入口，也不增加差异化或跨项目依赖。
 
 ### 2.5 预算/并发面板
 

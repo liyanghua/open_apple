@@ -30,7 +30,7 @@ def _materialize(tmp_path: Path, *, with_reports: bool = False) -> tuple[Path, d
     (child / "artifacts" / "evaluation_report.json").write_text(
         json.dumps({"version": "1.0", "status": "revise", "hard_gate": {"pass": False, "checks": []},
                     "recommended_action": "repair"}), encoding="utf-8")
-    (child / "events.jsonl").write_text('{"n":1}\n', encoding="utf-8")
+    (child / "events.jsonl").write_text('{"n":1,"ts":"2026-08-24T00:00:00+00:00"}\n', encoding="utf-8")
 
     if with_reports:
         from scripts.backfill_batch_reports import _write

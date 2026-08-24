@@ -27,7 +27,7 @@ def _provenance() -> dict:
 def _run_report() -> dict:
     return {
         **_provenance(),
-        "timing": {"queue_seconds": 1.0, "active_seconds": 2.0, "human_wait_seconds": 0.5},
+        "timing": {"queue_seconds": 1.0, "active_seconds": 2.0, "human_wait_seconds": 0.5, "wall_seconds": 10.0},
         "stages": [{"stage_id": "sample", "wall_seconds": 10, "active_seconds": 8, "attempts": 1}],
         "provider_calls": [{"provider": "doubao", "model": "tts", "count": 1, "cost_usd": 0.1}],
         "cache": {"hits": 1, "misses": 2, "rate": 0.33},

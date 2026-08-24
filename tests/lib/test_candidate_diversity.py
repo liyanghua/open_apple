@@ -96,6 +96,7 @@ def test_opening_only_change_with_late_difference_rejected() -> None:
 # ---------------------------------------------------------------------------
 from lib.candidate_diversity import (
     DEFAULT_VARIANT_STRATEGIES,
+    assert_candidate_variant_ready,
     build_default_variant_plan,
     build_variant_plan,
     changed_dimension_count,
@@ -165,10 +166,33 @@ def test_default_variant_catalogue_produces_reviewable_distinct_plans() -> None:
 
 
 def test_pair_passes_for_distinct_candidates() -> None:
-    result = compare_candidate_pair(_plan("c1", prefix="A"), _plan("c2", prefix="B"))
+    distinct_shots = _shots()
+    for row in distinct_shots:
+        row["evidence_ref"] = {"kind": "artifact", "path": f"other-{row['shot_id']}"}
+    result = compare_candidate_pair(
+        _plan("c1", prefix="A"),
+        _plan("c2", prefix="B", shots=distinct_shots),
+    )
     assert result["passes"] is True
     assert result["changed_dimensions"] >= 3
     assert result["structural_shot_count"] >= 3
+
+
+def test_pair_rejects_identical_structural_shots_even_when_dimensions_differ() -> None:
+    result = compare_candidate_pair(_plan("c1", prefix="A"), _plan("c2", prefix="B"))
+
+    assert result["structural_shot_count"] == 0
+    assert result["passes"] is False
+
+
+def test_readiness_recomputes_structural_count_instead_of_trusting_fingerprint() -> None:
+    plan = _plan("c1")
+    plan["shot_differences"] = []
+    plan["difference_fingerprint"]["structural_shot_count"] = 3
+
+    failures = assert_candidate_variant_ready(plan)
+
+    assert any("结构镜头差异少于三个" in item for item in failures)
 
 
 def test_pair_fails_for_opening_only_change() -> None:

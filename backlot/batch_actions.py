@@ -89,6 +89,20 @@ def _batch_json(batch_dir: Path) -> dict[str, Any]:
     return data
 
 
+def _batch_reports_ready(batch_dir: Path) -> bool:
+    """Selection requires both persisted reports with complete source data."""
+    for name in ("batch_run_report", "batch_quality_report"):
+        path = batch_dir / "artifacts" / f"{name}.json"
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        quality = report.get("data_quality") if isinstance(report, Mapping) else None
+        if not isinstance(quality, Mapping) or quality.get("status") != "complete":
+            return False
+    return True
+
+
 def selection_quality_failures(
     batch: Mapping[str, Any],
     candidate: Mapping[str, Any],
@@ -375,6 +389,10 @@ class BatchActionService:
         if replay_pre is not None:
             return replay_pre
         self._assert_aggregate_revision(aggregate_revision)
+        if not _batch_reports_ready(self.batch_dir):
+            raise OperatorError.validation_failed(
+                "批次报告缺失或数据不完整，请先重建报告再选择候选"
+            )
         batch = _batch_json(self.batch_dir)
         by_id = {str(item["candidate_id"]): item for item in batch.get("candidates", [])}
         for candidate_id in candidate_ids:
@@ -752,16 +770,31 @@ class BatchActionService:
             confirmations = None
             if gate == "sample":
                 confirmations = {key: "pass" for key in EFFECT_CONFIRMATION_KEYS}
-            service.decide(
-                review_id=participant["review_id"],
-                decision="approved",
-                actor_id=actor_id,
-                reason=reason or f"批级一键通过（{_GATE_LABELS.get(gate, gate)}）",
-                expected_version=int(participant["subject_version"]),
-                expected_hash=str(participant["subject_hash"]),
-                effect_confirmations=confirmations,
-                batch_decision=batch_decision,
-            )
+            try:
+                service.decide(
+                    review_id=participant["review_id"],
+                    decision="approved",
+                    actor_id=actor_id,
+                    reason=reason or f"批级一键通过（{_GATE_LABELS.get(gate, gate)}）",
+                    expected_version=int(participant["subject_version"]),
+                    expected_hash=str(participant["subject_hash"]),
+                    effect_confirmations=confirmations,
+                    batch_decision=batch_decision,
+                )
+            except OperatorError as exc:
+                # 审批内容已更新（review_stale/stale）——不能把协调记录留在 committing：
+                # 显式落 rejected + 参与者 failed，让前端提示刷新重试。
+                if getattr(exc, "code", None) in {"review_stale", "stale"}:
+                    participant["state"] = "failed"
+                    participant["error"] = str(exc)
+                    record["updated_at"] = _now()
+                    _save_record(self.batch_dir, record)
+                    self._reject(
+                        batch_action_id, record,
+                        f"候选 {candidate_id} 审批内容已更新，请刷新后重试",
+                        "stale", 409, current={candidate_id: None},
+                    )
+                raise
             participant["state"] = "committed"
             participant["commit_marker"] = _now()
             record["updated_at"] = _now()

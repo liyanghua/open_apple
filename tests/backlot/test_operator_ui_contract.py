@@ -367,7 +367,7 @@ def test_batch_cockpit_renders_diversity_matrix_and_reports() -> None:
     for term in (
         "候选差异度", "差异执行", "变更维度", "结构镜头", "视觉风险", "缺差异计划",
         "批次报告", "总成本", "最慢阶段", "建议", "报告状态", "数据已降级",
-        "数据提示", "已停用", "未生成",
+        "数据提示", "已停用", "未生成", "selectionDisabled", "请先重建批次报告",
     ):
         assert term in app
     for term in (".batch-diversity", ".batch-diversity-row", ".batch-reports",
@@ -377,3 +377,9 @@ def test_batch_cockpit_renders_diversity_matrix_and_reports() -> None:
     assert "evaluation_report" not in app
     assert "undefined" not in app
     assert "status=sampled" not in app
+
+
+def test_operator_projection_does_not_hardcode_a_project_proxy_library() -> None:
+    projection = _read(REPO_ROOT / "backlot" / "operator_state.py")
+
+    assert "projects/table-mat-mix-v8/assets/video/proxies" not in projection

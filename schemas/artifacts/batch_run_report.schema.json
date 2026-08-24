@@ -55,11 +55,12 @@
     },
     "timing": {
       "type": "object",
-      "required": ["queue_seconds", "active_seconds", "human_wait_seconds"],
+      "required": ["queue_seconds", "active_seconds", "human_wait_seconds", "wall_seconds"],
       "properties": {
         "queue_seconds": { "type": "number", "minimum": 0 },
         "active_seconds": { "type": "number", "minimum": 0 },
-        "human_wait_seconds": { "type": "number", "minimum": 0 }
+        "human_wait_seconds": { "type": "number", "minimum": 0 },
+        "wall_seconds": { "type": "number", "minimum": 0, "description": "端到端墙钟耗时（首个事件到末个事件），含人工等待与编排时间" }
       },
       "additionalProperties": false
     },

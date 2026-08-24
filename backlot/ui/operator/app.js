@@ -1252,6 +1252,8 @@ function renderBatch(container, data, { project } = {}) {
   workbench.append(matrix);
 
   // 人工选择区
+  const reports = data.reports || {};
+  const selectionDisabled = (reports.disabled_actions || []).includes("select");
   const selectPanel = node("section", "batch-select");
   selectPanel.append(node("h3", "section-title", "人工选择：选 1–2 条进入精剪"));
   const selected = data.selection?.selected_candidate_ids || [];
@@ -1265,6 +1267,7 @@ function renderBatch(container, data, { project } = {}) {
       const label = node("label", "batch-select-item");
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
+      checkbox.disabled = selectionDisabled;
       checkbox.addEventListener("change", () => {
         if (checkbox.checked) picks.add(candidate.candidate_id); else picks.delete(candidate.candidate_id);
         if (picks.size > 2) { checkbox.checked = false; picks.delete(candidate.candidate_id); }
@@ -1276,8 +1279,11 @@ function renderBatch(container, data, { project } = {}) {
     const reason = document.createElement("input");
     reason.className = "batch-select-reason";
     reason.placeholder = "选择理由（写入决策记录）";
+    reason.disabled = selectionDisabled;
     const submit = node("button", "primary-button", "进入精剪");
     submit.type = "button";
+    submit.disabled = selectionDisabled;
+    if (selectionDisabled) submit.textContent = "请先重建批次报告";
     submit.addEventListener("click", async () => {
       const ids = [...picks];
       if (!ids.length || ids.length > 2) { submit.textContent = "请选择 1–2 个候选"; return; }
@@ -1322,7 +1328,6 @@ function renderBatch(container, data, { project } = {}) {
   workbench.append(divSection);
 
   // 批次报告（效率摘要 + 质量建议 + 数据完整/降级状态）
-  const reports = data.reports || {};
   const repSection = node("section", "batch-reports");
   repSection.append(node("h3", "section-title", "批次报告"));
   const repStatus = reports.status || "missing";

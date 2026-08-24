@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -90,11 +91,42 @@ def _child_dir(batch_dir: Path, candidate: Mapping[str, Any]) -> Path:
 
 
 def _scoped_eval(child_dir: Path) -> dict[str, Any] | None:
+    """Return the final-scope evaluation report, but merge in the sample-scope
+    VLM creative_advisory when the final report itself has none (the final
+    technical_validator does not run video_judge).
+
+    The merge is provenance-gated: it only happens when the sample report is
+    genuinely ``scope == "sample"`` and carries a valid ``subject_hash``, and
+    the merged summary is explicitly tagged as sample-scope (never presented as
+    a final quality conclusion). A provenance mismatch leaves the final report
+    unscored, which surfaces as an honest ``vlm_not_scored``."""
+    final = None
     for name in ("evaluation_report.final.json", "evaluation_report.json", "evaluation_report.sample.json"):
         data = _read_json(child_dir / "artifacts" / name)
-        if isinstance(data, dict):
-            return data
-    return None
+        if isinstance(data, dict) and final is None:
+            final = data
+    if final is None:
+        return None
+    advisory = final.get("creative_advisory") if isinstance(final.get("creative_advisory"), Mapping) else {}
+    if not (isinstance(advisory, Mapping) and advisory and advisory.get("scored")):
+        for name in ("evaluation_report.json", "evaluation_report.sample.json"):
+            sample = _read_json(child_dir / "artifacts" / name)
+            if not isinstance(sample, dict):
+                continue
+            sample_advisory = sample.get("creative_advisory")
+            if not (isinstance(sample_advisory, Mapping) and sample_advisory and sample_advisory.get("scored")):
+                continue
+            # provenance：sample 作用域 + 有效 subject_hash，才允许派生展示
+            scope = str(sample.get("scope") or "sample")
+            subject_hash = sample.get("subject_hash")
+            if scope != "sample" or not (isinstance(subject_hash, str) and re.fullmatch(r"[a-fA-F0-9]{64}", subject_hash)):
+                continue
+            merged = dict(final)
+            merged_advisory = dict(sample_advisory)
+            merged_advisory["summary"] = f"【样片作用域 VLM，非成片】{sample_advisory.get('summary') or ''}"
+            merged["creative_advisory"] = merged_advisory
+            return merged
+    return final
 
 
 def _collect_source_refs(batch_dir: Path, candidates: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -162,6 +194,9 @@ def build_batch_run_report(
     cost_log_count = 0
     event_count = 0
     cache_hits = cache_misses = 0
+    min_ts: float | None = None
+    max_ts: float | None = None
+    missing_ts = 0
 
     for candidate in candidates:
         candidate_id = str(candidate.get("candidate_id") or "")
@@ -183,6 +218,16 @@ def build_batch_run_report(
                 warnings.append({"code": "cost_mismatch", "message": "cost_log 与 candidate_batch 不一致", "candidate_id": candidate_id})
         total_cost += log_cost if isinstance(cost_log, Mapping) else index_cost
         for event in events:
+            ts_raw = event.get("ts")
+            if isinstance(ts_raw, str):
+                try:
+                    ts_val = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).timestamp()
+                    min_ts = ts_val if min_ts is None else min(min_ts, ts_val)
+                    max_ts = ts_val if max_ts is None else max(max_ts, ts_val)
+                except ValueError:
+                    missing_ts += 1
+            else:
+                missing_ts += 1
             if event.get("event") == "cache_hit": cache_hits += 1
             elif event.get("event") == "cache_miss": cache_misses += 1
             if event.get("event") == "finish":
@@ -211,11 +256,14 @@ def build_batch_run_report(
 
     if event_count == 0:
         warnings.append({"code": "missing_events", "message": "全批无运行事件"})
+    if missing_ts:
+        warnings.append({"code": "missing_timestamps", "message": f"{missing_ts} 条事件缺少/无法解析时间戳，wall_seconds 可能被低估"})
 
     data_quality = {"status": "complete", "warnings": []}
     if warnings:
         data_quality = {"status": "partial", "warnings": warnings}
 
+    wall_seconds = max(0.0, (max_ts - min_ts)) if min_ts is not None and max_ts is not None else 0.0
     return {
         "version": "1.0",
         "batch_id": batch_id,
@@ -228,7 +276,8 @@ def build_batch_run_report(
         "data_quality": data_quality,
         "timing": {"queue_seconds": 0.0,
                    "active_seconds": round(sum(row["active"] for row in stage_rows.values()), 3),
-                   "human_wait_seconds": round(sum(float(event.get("approval_wait_ms") or 0) / 1000 for rows in run_rows.values() for event in rows), 3)},
+                   "human_wait_seconds": round(sum(float(event.get("approval_wait_ms") or 0) / 1000 for rows in run_rows.values() for event in rows), 3),
+                   "wall_seconds": round(wall_seconds, 3)},
         "stages": [{"stage_id": sid, "wall_seconds": round(row["wall"], 3), "active_seconds": round(row["active"], 3), "attempts": len(row["runs"])}
                    for sid, row in sorted(stage_rows.items())],
         "provider_calls": [{"provider": provider, "model": model, "count": row["count"], "cost_usd": round(row["cost"], 6)}
@@ -236,7 +285,8 @@ def build_batch_run_report(
         "cache": {"hits": cache_hits, "misses": cache_misses,
                   "rate": (cache_hits / (cache_hits + cache_misses)) if (cache_hits + cache_misses) else 0.0},
         "concurrency": {"max_parallel": int((_read_json(batch_dir / "artifacts" / "candidate_batch.json") or {}).get("concurrency", {}).get("max_parallel", 1))},
-        "throughput": {"candidates_per_hour": round(len(candidates) / (sum(row["wall"] for row in stage_rows.values()) / 3600), 3) if stage_rows and sum(row["wall"] for row in stage_rows.values()) > 0 else 0.0},
+        # 吞吐口径统一：candidates / wall-clock（端到端墙钟），不是各阶段 machine_ms 求和
+        "throughput": {"candidates_per_hour": round(len(candidates) / (wall_seconds / 3600), 3) if wall_seconds > 0 and candidates else 0.0},
         "cost": {"total_usd": total_cost,
                  "per_candidate_usd": (total_cost / len(candidates)) if candidates else None},
         "candidate_cycles": cycles,

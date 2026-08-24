@@ -21,7 +21,7 @@
         "evidence_strategy": { "value": "b", "baseline_value": "b", "changed": false, "rationale": "r" },
         "asset_strategy": { "value": "b", "baseline_value": "b", "changed": false, "rationale": "r" }
       },
-      "structural_shot_ids": ["s0", "s1", "s2"],
+      "structural_shot_ids": ["b0", "b1", "b2"],
       "opening_only_change": false,
       "evaluation_status": "revise"
     },

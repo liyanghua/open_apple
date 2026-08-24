@@ -748,6 +748,19 @@ def _shot_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         for value in source_review.get("files") or []
         if isinstance(value, Mapping) and isinstance(value.get("path"), str)
     }
+    asset_manifest = _artifact(board, "asset_manifest")
+    proxy_by_scene = {
+        str(asset.get("scene_id")): str(asset.get("path"))
+        for asset in asset_manifest.get("assets") or []
+        if isinstance(asset, Mapping)
+        and isinstance(asset.get("scene_id"), str)
+        and isinstance(asset.get("path"), str)
+        and (
+            asset.get("source_tool") == "media_proxy"
+            or asset.get("subtype") == "source_proxy"
+            or str(asset.get("id") or "").startswith("proxy-")
+        )
+    }
     abstract = fingerprint.get("abstract_structure") if isinstance(fingerprint.get("abstract_structure"), Mapping) else {}
     content = analysis.get("content_analysis") if isinstance(analysis.get("content_analysis"), Mapping) else {}
     structure = analysis.get("structure_analysis") if isinstance(analysis.get("structure_analysis"), Mapping) else {}
@@ -791,6 +804,7 @@ def _shot_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         timeline_in = _number(timeline_interval.get("start_seconds"))
         timeline_out = _number(timeline_interval.get("end_seconds_exclusive"))
         source_path = mapping.get("source_path")
+        source_preview_path = proxy_by_scene.get(str(scene.get("id") or "")) or source_path
         source_item = source_by_path.get(str(source_path).replace("\\", "/"), {})
         source_summary = _safe_text(source_item.get("content_summary"))
         source_usable_for = [
@@ -873,9 +887,9 @@ def _shot_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "timeline_out_seconds": timeline_out if timeline_out is not None else (_number(scene.get("end_seconds")) or 0),
             "source_in_seconds": source_in,
             "source_out_seconds": source_out,
-            "preview_url": _media_url(project_id, source_path),
+            "preview_url": _media_url(project_id, source_preview_path),
             "poster_url": _thumb_url(
-                project_id, source_path,
+                project_id, source_preview_path,
                 time_seconds=(float(source_in) + float(source_out)) / 2
                 if source_in is not None and source_out is not None else None,
             ),

@@ -47,6 +47,7 @@ _FATAL_FIXABLE = {
     "l1a_loudness": (False, None),
     "l1a_resolution": (False, None),
     "l1a_fps": (False, None),
+    "l1a_facts_invalid": (False, None),
 }
 
 CHECK_NAMES = {
@@ -62,6 +63,7 @@ CHECK_NAMES = {
     "l1a_loudness": "音量正常",
     "l1a_resolution": "分辨率符合预期",
     "l1a_fps": "帧率符合预期",
+    "l1a_facts_invalid": "产品事实卡有效",
 }
 
 # 评审 #5：防止大量 skip 仍判 pass。十二项 L1a 检查中至少执行（非 skip）
@@ -116,6 +118,7 @@ class TechnicalValidator(BaseTool):
         "properties": {
             "input_path": {"type": "string"},
             "output_path": {"type": "string"},
+            "project_dir": {"type": "string", "description": "项目目录；提供时，expected_facts 为空会从 artifacts/product_facts.json 自动加载"},
             "project_id": {"type": "string"},
             "scope": {"enum": ["sample", "final"]},
             "judge_version": {"type": "string"},
@@ -223,6 +226,21 @@ class TechnicalValidator(BaseTool):
         # --- text-level fact checks (fatal) ---
         text_sources = inputs.get("text_sources") or []
         expected_facts = inputs.get("expected_facts") or {}
+        # 产品事实卡接线：未显式传 expected_facts 时，从项目 product_facts.json 自动加载
+        # （SKU/价格/参数），使 L1a 事实类检查从 skip 变为 pass。
+        # invalid 卡片不静默当"未提供"：记录一条可修复的事实卡检查，阻止自动 downgrade。
+        if not expected_facts and inputs.get("project_dir"):
+            from lib.product_facts import expected_facts_from_card, load_product_facts_status
+
+            status, card = load_product_facts_status(Path(inputs["project_dir"]))
+            if status == "valid":
+                expected_facts = expected_facts_from_card(card)
+            elif status == "invalid":
+                checks.append(self._check(
+                    "l1a_facts_invalid", "fail",
+                    "产品事实卡存在但无效（无法读取或 schema 不匹配），事实检查无法执行",
+                    {}, None, "修复 product_facts.json 或重新填写产品事实卡",
+                ))
 
         expected_sku = str(expected_facts.get("sku") or "").strip()
         if expected_sku:
