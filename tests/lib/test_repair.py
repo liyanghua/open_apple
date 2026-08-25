@@ -130,3 +130,47 @@ def test_rollback_when_new_version_unscored():
         target_dimensions=["product_evidence"],
     )
     assert decision["decision"] == "rollback"
+
+
+def test_repairs_from_evaluation_report_bridges_targets():
+    from lib.repair import repairs_from_evaluation_report
+
+    report = {
+        "scope": "sample",
+        "artifact_sha256": "b" * 64,  # 评价制品自身 hash
+        "subject_hash": "c" * 64,  # 被评估媒体的 hash（不应被当 artifact_sha256）
+        "repair_targets": [
+            {
+                "check_id": "l1a_subtitle_bounds", "action": "edit_caption",
+                "affected_shots": ["shot-03"], "scene_id": "s03",
+                "upstream_stage": "edit", "rerun_scope": "local", "estimated_cost_usd": 0.1,
+            },
+            {
+                "check_id": "l1a_black_frames", "action": "shorten_shot",
+                "affected_shots": ["shot-05"], "upstream_stage": "edit",
+                "rerun_scope": "preview", "estimated_cost_usd": 0.4,
+            },
+        ],
+    }
+    repairs = repairs_from_evaluation_report(
+        "p-test", report, production_lock_hash="a" * 64, rework_round=1,
+    )
+    assert len(repairs) == 2
+    caption, shorten = repairs
+    assert caption["action"] == "edit_caption"
+    assert caption["targets"] == [{"type": "shot", "id": "s03"}, {"type": "shot", "id": "shot-03"}]
+    assert caption["render_route"] == "still"  # local -> still
+    assert "upstream_stage=edit" in caption["note"]
+    assert shorten["action"] == "shorten_shot"
+    assert shorten["render_route"] == "full_render"  # shorten_shot 强制 full
+    # RepairPlan 绑定评价 scope + 评价制品自身的 artifact_sha256（不是 subject_hash）
+    assert caption["evaluation_report_ref"]["path"] == "artifacts/evaluation_report.sample.json"
+    assert caption["evaluation_report_ref"]["scope"] == "sample"
+    assert caption["evaluation_report_ref"]["artifact_sha256"] == "b" * 64
+
+
+def test_repairs_from_evaluation_report_skips_invalid_action():
+    from lib.repair import repairs_from_evaluation_report
+
+    report = {"repair_targets": [{"check_id": "x", "action": "not_real", "affected_shots": []}]}
+    assert repairs_from_evaluation_report("p", report, production_lock_hash="b" * 64) == []

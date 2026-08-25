@@ -355,3 +355,43 @@ def selection_diversity_failures(
         "structural_failures": structural_failures,
         "visual_similarity_warnings": visual_similarity_warnings,
     }
+
+
+# Proposal-level concept diversity (P1-2): the proposal's concept_options must
+# differ on structure, not just on the hook text. Machine-verifiable because it
+# reads the enum/string fields directly.
+PROPOSAL_STRUCTURAL_DIMS: tuple[str, ...] = ("narrative_structure", "visual_approach")
+
+
+def proposal_concept_diversity(
+    concept_options: Sequence[Mapping[str, Any]],
+    *,
+    min_concepts: int = 2,
+    min_distinct_dims: int = 2,
+) -> dict[str, Any]:
+    """Check that proposal concept options differ on >=2 structural dimensions.
+
+    Returns ``{pass, concept_count, distinct_dims, distinct_counts}``. A pass
+    requires enough concepts AND at least ``min_distinct_dims`` dimensions with
+    two or more distinct values (e.g. two different narrative structures and
+    two different visual approaches), so "same structure, different hook" is
+    rejected as a single-dimension change.
+    """
+    concepts = [c for c in concept_options if isinstance(c, Mapping)]
+    distinct_counts: dict[str, int] = {}
+    distinct_dims: list[str] = []
+    for dim in PROPOSAL_STRUCTURAL_DIMS:
+        values = {
+            str(c.get(dim) or "").strip()
+            for c in concepts
+            if str(c.get(dim) or "").strip()
+        }
+        distinct_counts[dim] = len(values)
+        if len(values) >= 2:
+            distinct_dims.append(dim)
+    return {
+        "pass": len(concepts) >= min_concepts and len(distinct_dims) >= min_distinct_dims,
+        "concept_count": len(concepts),
+        "distinct_dims": distinct_dims,
+        "distinct_counts": distinct_counts,
+    }

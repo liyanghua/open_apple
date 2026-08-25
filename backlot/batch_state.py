@@ -244,20 +244,8 @@ def child_snapshot(project_dir: Path, child_dir: Path) -> dict[str, Any]:
         None,
     )
     if awaiting_stage in {"script", "assets", "sample"}:
-        # 契约 B：门必须引用 formal review。批页投影按需补建（幂等），
-        # 使候选展开卡与批级一键通过共享同一 review 快照。
-        try:
-            from backlot.operator_reviews import ReviewService
-
-            service = ReviewService(child_dir)
-            ensure = {
-                "script": service.ensure_script_review_for_checkpoint,
-                "assets": service.ensure_assets_review_for_checkpoint,
-                "sample": service.ensure_sample_review_for_checkpoint,
-            }[awaiting_stage]
-            ensure()
-        except Exception:
-            pass
+        # 只读投影：不在此创建 review（那是写路径 batch_actions/reviews 的职责）。
+        # Gallery 只读入口可直接复用，避免在读取时产生写副作用。
         snapshot["gate_material"] = _gate_material(child_dir, awaiting_stage)
     reviews_dir = child_dir / "operator" / "reviews"
     if reviews_dir.is_dir():

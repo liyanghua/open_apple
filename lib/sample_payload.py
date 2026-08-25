@@ -174,7 +174,8 @@ def build_sample_render_payload(sample_payload: Mapping[str, Any]) -> dict[str, 
         if caption_word is None or not str(caption_word).strip():
             raise ValueError("sample payload 字幕缺少文案(word/text)")
         captions.append({"word": str(caption_word), "startMs": start_ms, "endMs": end_ms})
-    return {
+
+    payload: dict[str, Any] = {
         "render_runtime": runtime,
         "composition_mode": str(sample_payload.get("composition_mode") or "templated"),
         "renderer_family": renderer_family,
@@ -187,3 +188,30 @@ def build_sample_render_payload(sample_payload: Mapping[str, Any]) -> dict[str, 
         "subtitles": dict(sample_payload.get("subtitles") or {}),
         "metadata": metadata,
     }
+
+    # 花字风格：显式 captionStyle 优先，否则从 caption_style_fingerprint 派生。
+    if sample_payload.get("captionStyle"):
+        payload["captionStyle"] = sample_payload["captionStyle"]
+    elif sample_payload.get("caption_style_fingerprint"):
+        from lib.caption_style import to_overlay_spec
+
+        fingerprint = sample_payload["caption_style_fingerprint"]
+        applicability = str(fingerprint.get("applicability") or "") if isinstance(fingerprint, Mapping) else ""
+        style = fingerprint.get("style") if isinstance(fingerprint, Mapping) else None
+        # 仅 extracted / needs_review 应用样式；not_applicable（参考片无字幕）
+        # 走渲染器通用默认，绝不强制特定产品花字。
+        if applicability in {"extracted", "needs_review"} and isinstance(style, Mapping):
+            payload["captionStyle"] = to_overlay_spec(style)
+
+    # P2：scene_plan 的 caption/transition recipe intent → 渲染级规格。
+    # 渲染器按 scene_id 查 captionRecipes/transitionRecipes 落地花字/转场。
+    scene_plan = sample_payload.get("scene_plan")
+    if isinstance(scene_plan, Mapping) and scene_plan.get("scenes"):
+        from lib.recipe_router import scene_recipe_specs
+
+        specs = scene_recipe_specs(scene_plan, runtime)
+        if specs["caption_recipes"]:
+            payload["captionRecipes"] = specs["caption_recipes"]
+        if specs["transition_recipes"]:
+            payload["transitionRecipes"] = specs["transition_recipes"]
+    return payload

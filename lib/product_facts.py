@@ -102,6 +102,27 @@ def fact_continuity_rules(card: Mapping[str, Any] | None) -> list[str]:
         rules.append(f"价格固定为「{price}」，画面文字不得出现其他价格表述。")
     for param in params:
         rules.append(f"卖点「{param}」表述与事实卡一致；只陈述画面可见事实，不外推。")
+    # ProductBible：claims 可声称边界（authorized / needs_evidence / forbidden）
+    for claim in (card.get("claims") or []):
+        if not isinstance(claim, Mapping):
+            continue
+        text = str(claim.get("claim") or "").strip()
+        status = str(claim.get("status") or "").strip()
+        if not text or not status:
+            continue
+        if status == "forbidden":
+            rules.append(f"禁止声称「{text}」。")
+        elif status == "needs_evidence":
+            rules.append(f"主张「{text}」仅在画面/检测证据支撑时使用，不外推。")
+        # authorized：可直接声称，不加额外规则
+    # ProductBible：视觉真实性约束
+    vi = card.get("visual_identity") if isinstance(card.get("visual_identity"), Mapping) else {}
+    for item in (vi.get("must_preserve") or []):
+        if isinstance(item, str) and item.strip():
+            rules.append(f"视觉必须保留：{item.strip()}。")
+    for item in (vi.get("forbidden") or []):
+        if isinstance(item, str) and item.strip():
+            rules.append(f"视觉禁止出现：{item.strip()}。")
     return rules
 
 

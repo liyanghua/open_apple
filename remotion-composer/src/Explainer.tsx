@@ -297,6 +297,10 @@ export interface ExplainerProps {
   captionStyle?: CaptionStyleSpec;
   captionWordsPerPage?: number;
   audio?: AudioConfig;
+  /** scene_id -> caption recipe（lib.recipe_router 派生，P2） */
+  captionRecipes?: Record<string, import("./cinematic/types").CaptionRecipeSpec>;
+  /** scene_id -> transition recipe（lib.recipe_router 派生，P2） */
+  transitionRecipes?: Record<string, import("./cinematic/types").TransitionRecipeSpec>;
 }
 
 // ---------------------------------------------------------------------------
@@ -414,6 +418,7 @@ const VideoScene: React.FC<{
   transitionDuration?: number;
   sceneDurationSeconds: number;
   backgroundColor?: string;
+  transition?: import("./cinematic/types").TransitionRecipeSpec;
 }> = ({
   src,
   startFrom = 0,
@@ -422,13 +427,16 @@ const VideoScene: React.FC<{
   transitionDuration,
   sceneDurationSeconds,
   backgroundColor = "#0F172A",
+  transition,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const durationInFrames = Math.max(1, Math.round(sceneDurationSeconds * fps));
 
-  const hardIn = ["cut", "none"].includes((transitionIn || "").toLowerCase());
-  const hardOut = ["cut", "none"].includes((transitionOut || "").toLowerCase());
+  // recipe 转场：cut/impact/flash 都是硬切（无淡入淡出），fade 走默认。
+  const recipeType = transition?.type;
+  const hardIn = ["cut", "none"].includes((transitionIn || "").toLowerCase()) || (recipeType && recipeType !== "fade");
+  const hardOut = ["cut", "none"].includes((transitionOut || "").toLowerCase()) || (recipeType && recipeType !== "fade");
   const transitionFrames = Math.max(
     1,
     Math.round((transitionDuration ?? 8 / fps) * fps),
@@ -447,6 +455,15 @@ const VideoScene: React.FC<{
         extrapolateRight: "clamp",
       });
 
+  // 闪白 + impact punch（与 CinematicRenderer 一致）。
+  const tf = Math.max(1, transition?.duration_frames ?? 0);
+  const flashOpacity = recipeType === "flash" || recipeType === "impact"
+    ? interpolate(frame, [0, tf], [0.85, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
+    : 0;
+  const impactPunch = recipeType === "impact"
+    ? 1 + ((transition?.scale ?? 1.06) - 1) * interpolate(frame, [0, tf], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
+    : 1;
+
   return (
     <AbsoluteFill style={{ background: backgroundColor }}>
       <OffthreadVideo
@@ -457,10 +474,12 @@ const VideoScene: React.FC<{
           height: "100%",
           objectFit: "cover",
           opacity: fadeIn * fadeOut,
+          transform: `scale(${impactPunch})`,
         }}
         muted
       />
       <Vignette />
+      {flashOpacity > 0 ? <AbsoluteFill style={{ backgroundColor: "#FFFFFF", opacity: flashOpacity }} /> : null}
     </AbsoluteFill>
   );
 };
@@ -544,7 +563,7 @@ const BackgroundVideoLayer: React.FC<{
   );
 };
 
-const SceneRenderer: React.FC<{ cut: Cut; theme: ThemeConfig }> = ({ cut, theme }) => {
+const SceneRenderer: React.FC<{ cut: Cut; theme: ThemeConfig; transition?: import("./cinematic/types").TransitionRecipeSpec }> = ({ cut, theme, transition }) => {
   // Wrap component with background video or image if specified
   const maybeWrapWithBg = (element: React.ReactElement) => {
     if (cut.backgroundVideo) {
@@ -738,6 +757,7 @@ const SceneRenderer: React.FC<{ cut: Cut; theme: ThemeConfig }> = ({ cut, theme 
         transitionDuration={cut.transition_duration}
         sceneDurationSeconds={cut.out_seconds - cut.in_seconds}
         backgroundColor={cut.backgroundColor}
+        transition={transition}
       />,
     );
   }
@@ -816,7 +836,7 @@ export const Explainer: React.FC<ExplainerProps> = (props) => {
 
         return (
           <Sequence key={cut.id} from={from} durationInFrames={duration}>
-            <SceneRenderer cut={cut} theme={theme} />
+            <SceneRenderer cut={cut} theme={theme} transition={props.transitionRecipes?.[cut.id]} />
           </Sequence>
         );
       })}
@@ -844,6 +864,12 @@ export const Explainer: React.FC<ExplainerProps> = (props) => {
           highlightColor={theme.captionHighlightColor}
           backgroundColor={theme.captionBackgroundColor}
           captionStyle={props.captionStyle}
+          captionRecipes={props.captionRecipes}
+          scenes={cuts.map((cut) => ({
+            id: cut.id,
+            startSeconds: cut.in_seconds,
+            durationSeconds: cut.out_seconds - cut.in_seconds,
+          }))}
         />
       )}
 

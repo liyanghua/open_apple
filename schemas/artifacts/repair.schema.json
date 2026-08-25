@@ -132,6 +132,11 @@
         },
         "artifact_sha256": {
           "type": "string"
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["sample", "final"],
+          "description": "该修复针对的评价 scope（sample/final）；RepairPlan 必须与该 scope 绑定"
         }
       },
       "additionalProperties": false

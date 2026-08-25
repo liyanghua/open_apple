@@ -231,3 +231,33 @@ def test_selection_diversity_failures_splits_classes() -> None:
     )
     res = selection_diversity_failures(shared_visual, [sibling_visual])
     assert any("视觉指纹一致" in item for item in res["visual_similarity_warnings"])
+
+
+def test_proposal_concept_diversity_requires_two_structural_dims():
+    from lib.candidate_diversity import proposal_concept_diversity
+
+    same_structure = [
+        {"id": "c1", "narrative_structure": "problem_solution", "visual_approach": "真实测试+短字幕"},
+        {"id": "c2", "narrative_structure": "problem_solution", "visual_approach": "真实测试+短字幕"},
+    ]
+    res = proposal_concept_diversity(same_structure)
+    assert res["pass"] is False
+    assert res["distinct_dims"] == []
+
+    diverse = [
+        {"id": "c1", "narrative_structure": "problem_solution", "visual_approach": "真实测试+短字幕"},
+        {"id": "c2", "narrative_structure": "story", "visual_approach": "产品质感+氛围"},
+        {"id": "c3", "narrative_structure": "data_narrative", "visual_approach": "快剪+数据字卡"},
+    ]
+    res2 = proposal_concept_diversity(diverse)
+    assert res2["pass"] is True
+    assert set(res2["distinct_dims"]) == {"narrative_structure", "visual_approach"}
+    assert res2["concept_count"] == 3
+
+
+def test_proposal_concept_diversity_rejects_under_two_concepts():
+    from lib.candidate_diversity import proposal_concept_diversity
+
+    res = proposal_concept_diversity([{"id": "c1", "narrative_structure": "story", "visual_approach": "a"}])
+    assert res["pass"] is False
+    assert res["concept_count"] == 1

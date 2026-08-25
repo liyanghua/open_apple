@@ -171,3 +171,32 @@ def test_sample_payload_normalizes_captions_to_word_shape() -> None:
         {"word": "贴合桌角", "startMs": 2300, "endMs": 4700},
     ]
     assert result["captionWordsPerPage"] == 1
+
+
+def test_caption_style_passthrough_and_recipe_from_scene_plan() -> None:
+    from lib.sample_payload import build_sample_render_payload
+    from lib.caption_style import to_overlay_spec
+
+    payload = build_sample_render_payload({
+        "final_props": {
+            "fps": 30, "durationInFrames": 300,
+            "scenes": [
+                {"id": "shot-01", "assetId": "proxy-01", "fromFrame": 0,
+                 "toFrameExclusive": 69, "sourceInSeconds": 0.0, "sourceOutSeconds": 2.3},
+            ],
+        },
+        "asset_manifest": {"assets": [
+            {"id": "proxy-01", "path": "a.mp4", "duration_seconds": 2.3},
+        ]},
+        "render_runtime": "remotion",
+        "renderer_family": "explainer-data",
+        "scene_plan": {"scenes": [{"id": "shot-01", "caption_recipe_intent": "hook"}]},
+        "captionStyle": to_overlay_spec({
+            "font_family": "Long Cang", "vertical": True,
+            "stroke": {"color": "#000000", "width_px": 8},
+        }),
+    })
+    assert payload["captionStyle"]["fontFamily"] == "Long Cang"
+    assert payload["captionStyle"]["vertical"] is True
+    assert payload["captionStyle"]["strokeWidthPx"] == 8
+    assert payload["captionRecipes"]["shot-01"]["recipe_id"] == "keyword-highlight"

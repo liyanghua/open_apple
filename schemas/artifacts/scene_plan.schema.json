@@ -29,6 +29,16 @@
           "movement": { "type": "string" },
           "transition_in": { "type": "string" },
           "transition_out": { "type": "string" },
+          "transition_recipe_intent": {
+            "type": "string",
+            "enum": ["impact", "action_match", "proof", "soft"],
+            "description": "语义转场意图，由 lib.recipe_router.route_transition 解析到 recipe"
+          },
+          "caption_recipe_intent": {
+            "type": "string",
+            "enum": ["proof", "label", "hook", "reveal"],
+            "description": "语义字幕意图，由 lib.recipe_router.route_caption 解析到 recipe"
+          },
           "overlay_notes": { "type": "string" },
           "shot_language": {
             "type": "object",

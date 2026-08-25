@@ -7,7 +7,8 @@
     "version": {"type": "string"}, "run_id": {"type": "string"}, "candidate_id": {"type": "string"},
     "base_revision": {"type": "string"}, "target_revision": {"type": "string"}, "plan_id": {"type": "string"},
     "plan": {"type": "object"}, "status": {"enum": ["draft_plan", "preview_running", "awaiting_preview_review", "full_running", "awaiting_final_review", "promoted", "discarded"]},
-    "progress": {"type": "object"}, "preview_ref": {}, "output_ref": {}, "current_revision": {"type": "string"}, "created_at": {"type": "string"}, "updated_at": {"type": "string"}
+    "progress": {"type": "object"}, "preview_ref": {}, "output_ref": {}, "current_revision": {"type": "string"}, "created_at": {"type": "string"}, "updated_at": {"type": "string"},
+    "idempotency_key": {"type": "string", "description": "幂等键（Idempotency-Key），命中已有 run 时不重复写入"}
   },
   "additionalProperties": false
 }

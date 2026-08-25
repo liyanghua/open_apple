@@ -2148,21 +2148,43 @@ class VideoCompose(BaseTool):
             "sample_frames": f"{start}-{end - 1}",
         })
         edit_decisions = window_inputs.get("edit_decisions") or {}
+        runtime = (edit_decisions.get("render_runtime") or "remotion").strip().lower()
+        # P0：sample/window 层按 render_runtime 路由，绝不静默切换到 Remotion。
+        # HyperFrames/FFmpeg 若不能渲染窗口，走它们自身路径并表面失败（受治理约束）。
         atelier_window = (
-            edit_decisions.get("render_runtime") == "remotion"
+            runtime == "remotion"
             and (
                 edit_decisions.get("composition_mode") == "atelier"
                 or edit_decisions.get("renderer_family") == "bespoke"
             )
         )
+        resolved_cuts = edit_decisions.get("cuts") or []
         if atelier_window:
             window_decisions = json.loads(json.dumps(edit_decisions))
             window_decisions.setdefault("bespoke", {})["scale"] = 0.5
             result = self._render_via_atelier(window_inputs, window_decisions)
-        else:
+        elif runtime == "remotion":
             result = self._remotion_render(window_inputs)
+        elif runtime == "hyperframes":
+            result = self._render_via_hyperframes(
+                inputs=window_inputs, edit_decisions=edit_decisions,
+                asset_manifest=window_inputs.get("asset_manifest") or {},
+                resolved_cuts=resolved_cuts, output_path=output_path,
+                profile=window_inputs.get("profile"),
+            )
+        elif runtime == "ffmpeg":
+            result = self._render_via_ffmpeg(
+                inputs=window_inputs, edit_decisions=edit_decisions,
+                resolved_cuts=resolved_cuts, output_path=output_path,
+                profile=window_inputs.get("profile"),
+            )
+        else:
+            return ToolResult(
+                success=False, data={"render_mode": mode, "cache_key": key},
+                error=f"unknown render_runtime {runtime!r} for {mode} window render",
+            )
         if not result.success:
-            result.data.update({"render_mode": mode, "cache_key": key, "window": {"startFrame": start, "endFrameExclusive": end}, "remotion_invoked": True})
+            result.data.update({"render_mode": mode, "cache_key": key, "window": {"startFrame": start, "endFrameExclusive": end}, "remotion_invoked": runtime == "remotion"})
             return result
         if not output_path.is_file():
             return ToolResult(
@@ -2920,6 +2942,15 @@ class VideoCompose(BaseTool):
                     success=False,
                     error="CinematicRenderer received cuts but none could be adapted into scenes.",
                 )
+            # CinematicRenderer 读 captions.words（对象形状），而 payload 是平铺列表
+            # [{word, startMs, endMs}]。这里统一包装，避免 Explainer/CinematicRenderer
+            # 两套 captions 契约导致字幕丢失。
+            if isinstance(props.get("captions"), list):
+                props["captions"] = {
+                    "words": props["captions"],
+                    "wordsPerPage": props.get("captionWordsPerPage") or 1,
+                    "captionStyle": props.get("captionStyle"),
+                }
 
         requested_public_dir = inputs.get("public_dir")
         cleanup_public_dir = False

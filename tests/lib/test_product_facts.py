@@ -112,3 +112,30 @@ def test_check_text_facts_sku_conflict():
 
 def test_check_text_facts_empty_when_no_card():
     assert check_text_facts("任何文字 99元", None) == []
+
+
+def test_fact_continuity_rules_covers_claims_and_visual_identity():
+    card = {
+        "sku": "TM-2mm", "price": "69元",
+        "claims": [
+            {"claim": "0甲醛", "status": "needs_evidence", "evidence": "检测报告"},
+            {"claim": "全网最低价", "status": "forbidden"},
+        ],
+        "visual_identity": {"must_preserve": ["透明材质"], "forbidden": ["变色", "变形"]},
+    }
+    rules = fact_continuity_rules(card)
+    assert any("禁止声称「全网最低价」" in r for r in rules)
+    assert any("0甲醛" in r and "证据" in r for r in rules)
+    assert any("透明材质" in r for r in rules)
+    assert any("变色" in r for r in rules)
+
+
+def test_load_product_facts_accepts_claims_and_visual_identity(tmp_path: Path):
+    _write_card(tmp_path, {
+        "version": "1.0", "product_name": "透明桌垫", "sku": "TM-2mm",
+        "claims": [{"claim": "防水防油", "status": "authorized"}],
+        "visual_identity": {"must_preserve": ["透明"], "forbidden": ["变色"]},
+    })
+    status, card = load_product_facts_status(tmp_path)
+    assert status == "valid"
+    assert card["claims"][0]["status"] == "authorized"

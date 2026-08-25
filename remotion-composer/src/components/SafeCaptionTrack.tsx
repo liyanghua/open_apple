@@ -276,7 +276,7 @@ export const SafeCaptionTrack: React.FC<SafeCaptionProps> = ({
 // the same shape; keep the two mappings in sync.
 // ---------------------------------------------------------------------------
 
-export type CaptionPosition = "bottom" | "center" | "top";
+export type CaptionPosition = "bottom" | "center" | "top" | "topleft";
 export type CaptionEntrance = "pop" | "fade" | "slide_up" | "none";
 
 export type CaptionStyleSpec = {
@@ -293,6 +293,8 @@ export type CaptionStyleSpec = {
   entranceAnimation?: CaptionEntrance;
   /** 评审 #9b：字幕底部偏移单一数据源（指纹 bottom_offset_px），缺省 120。 */
   bottomOffsetPx?: number;
+  /** 花字竖排：逐字竖向堆叠（参考片书法花字）。 */
+  vertical?: boolean;
 };
 
 export type ResolvedCaptionStyle = {
@@ -308,6 +310,7 @@ export type ResolvedCaptionStyle = {
   position: CaptionPosition;
   entranceAnimation: CaptionEntrance;
   bottomOffsetPx: number;
+  vertical: boolean;
 };
 
 export const resolveCaptionOverlayStyle = (
@@ -327,5 +330,6 @@ export const resolveCaptionOverlayStyle = (
     position: style.position ?? "bottom",
     entranceAnimation: style.entranceAnimation ?? "pop",
     bottomOffsetPx: style.bottomOffsetPx ?? 120,
+    vertical: style.vertical ?? false,
   };
 };

@@ -55,3 +55,14 @@ Scene Plan.
 
 
 Caption policy 1.0.1: every source caption must declare origin, review, interval, and treatment (`retain`, `crop`, `mask`, or `replace`). Retain requires approved rights/copy/claim review. Reference captions are forbidden. Record `caption_source`, `source_caption_action`, and `source_caption_review` per shot; localized crop/mask reasons and safe-zone geometry are mandatory.
+
+## caption / transition recipe intent（runtime 无关，P2）
+
+每个 shot 必须填 `caption_recipe_intent`（`proof`/`label`/`hook`/`reveal`）和
+`transition_recipe_intent`（`impact`/`action_match`/`proof`/`soft`）——这是**语义意图**，
+不是具体做法。渲染器经 `lib.recipe_router.route_caption(intent, runtime)` /
+`route_transition(intent, runtime)` 解析到 recipe_id（含 runtime 能力检查与回退）。
+
+- 意图由 shot 的 `narrative_role` / `shot_intent` 派生，不写死 Remotion 组件名；
+- 运营可预览 `recipe_capabilities(runtime)` 里的 recipe 清单并替换；
+- 渲染 runtime 不支持首选 recipe 时自动回退，绝不静默换渲染器。

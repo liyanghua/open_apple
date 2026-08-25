@@ -19,6 +19,23 @@ approval identity/time when all sections are locked. If the control plan is
 missing or not approved, stop and report that the user must finish the
 导演总控单 first.
 
+## beat map（结构硬规则，禁止卖点清单）
+
+Read `skills/meta/reference-critic.md` + the `creative_control_plan`'s
+`reference_critique`. Do NOT write a selling-point list (铺开→贴合→防刮→防油→结果).
+Build a beat map instead, and tag every section with `beat_role` (one of
+`hook / problem / escalation / reveal / proof / payoff / cta`) + `viewer_state`
+(the viewer's state change after that beat, e.g. 好奇→焦虑→被解答):
+
+- **hook**（0–3s）：冲突/反常识/具体痛点，不用"功能直给"开场；
+- **problem / escalation**：把痛点放大，制造张力；
+- **reveal / proof**：产品如何解决 + 可见证据兑现承诺；
+- **payoff / cta**：结果 + 落地。
+
+The script must contain at least one `hook` + one `escalation`/`reveal` + one
+`payoff`/`cta`. A flat list of `proof` sections with no escalation/reveal is a
+structural failure and must be rewritten before the human gate.
+
 ## product fact card (前向约束)
 
 If `artifacts/product_facts.json` exists, read it via `lib.product_facts.load_product_facts` and apply the facts as a **forward constraint** on every section's `narration` and `screen_copy`:

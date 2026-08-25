@@ -23,6 +23,11 @@
       "enum": ["extracted", "needs_review", "not_applicable"],
       "description": "extracted=可直接按样式渲染; needs_review=已提取待人工修正; not_applicable=参考片无字幕"
     },
+    "profile": {
+      "type": "string",
+      "enum": ["generic", "calligraphy"],
+      "description": "命名字幕 profile。calligraphy=竖排楷书花字（仅当参考片/设置为 calligraphy 时应用，不是全局默认）"
+    },
     "source": {
       "type": "object",
       "required": ["research_breakdown_ref", "evidence_frames"],
@@ -77,7 +82,8 @@
         "line_breaks": { "type": "string", "description": "断行方式（按词/按短语/按字数）" },
         "entrance_animation": { "type": "string", "description": "入场动效（自然语言，如 整句淡入）" },
         "emphasis_animation": { "type": "string", "description": "强调词动效（如 放大+变色）" },
-        "sync_mode": { "type": "string", "enum": ["follow_visual", "follow_narration", "static"] }
+        "sync_mode": { "type": "string", "enum": ["follow_visual", "follow_narration", "static"] },
+        "vertical": { "type": "boolean", "description": "花字竖排：逐字竖向堆叠（参考片书法花字）" }
       },
       "additionalProperties": false
     },

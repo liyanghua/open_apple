@@ -651,6 +651,87 @@ def create_operator_router(
         return recover_batch_action(project(project_id), batch_action_id)
 
     # ------------------------------------------------------------ rerun (R3)
+    def _persist_rerun(child_dir: Path, plan: dict, run: dict) -> None:
+        """P1-3：把 rerun plan/run 持久化到候选项目（重跑循环消费的决策记录）。"""
+        if not child_dir.is_dir():
+            return
+        managed = (child_dir / "operator" / "operator-managed").exists()
+        if managed:
+            store = ProjectCommitStore(child_dir)
+            with store.transaction(action={"action_id": f"rerun-{run['run_id']}", "type": "candidate_rerun"}) as sink:
+                sink.stage_json("artifacts/rerun_plan.json", plan, schema="rerun_plan")
+                sink.stage_json("artifacts/rerun_run.json", run, schema="rerun_run")
+        else:
+            from lib.artifact_io import write_artifact_atomic
+
+            write_artifact_atomic("artifacts/rerun_plan.json", "rerun_plan", plan, project_dir=child_dir)
+            write_artifact_atomic("artifacts/rerun_run.json", "rerun_run", run, project_dir=child_dir)
+
+    def _child_current_revision(child_dir: Path, stage: str) -> str | None:
+        """读取候选项目某阶段的当前 revision_id（用于 child_revision 比对）。"""
+        stages = (str(stage), "edit_decisions", "proposal")
+        for cand in stages:
+            p = child_dir / "operator" / "current-revisions" / f"{cand}.json"
+            try:
+                d = json.loads(p.read_text(encoding="utf-8"))
+                rev = str(d.get("revision_id") or "")
+                if rev:
+                    return rev
+            except (OSError, json.JSONDecodeError):
+                continue
+        return None
+
+    def _find_rerun_by_key(child_dir: Path, idem_key: str) -> tuple[dict, dict] | None:
+        """Idempotency：若已存在带该 key 的 rerun_run，返回 (plan, run)。"""
+        p = child_dir / "artifacts" / "rerun_run.json"
+        try:
+            run = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(run, dict) and str(run.get("idempotency_key")) == idem_key:
+                plan = None
+                try:
+                    plan = json.loads((child_dir / "artifacts" / "rerun_plan.json").read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    plan = {}
+                return dict(plan or {}), dict(run)
+        except (OSError, json.JSONDecodeError):
+            return None
+        return None
+
+    def _child_candidate_dir(project_id: str, candidate_id: str) -> tuple[Path, str]:
+        """校验 candidate_id 属于该批，映射到真实 project_id，返回 (候选目录, 真实project_id)。
+
+        P0 安全：
+        - candidate_id 必须属于该批次（candidate_batch.json）；
+        - 目录用候选的 ``project_id``（不是裸 candidate_id），杜绝跨项目写文件；
+        - 目录必须在 projects 根内 + 项目存在。
+        """
+        import re
+
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", candidate_id):
+            raise OperatorError.forbidden("candidate_id 非法")
+        batch_path = project(project_id) / "artifacts" / "candidate_batch.json"
+        entry: dict[str, Any] = {}
+        try:
+            data = json.loads(batch_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                for c in (data.get("candidates") or []):
+                    if isinstance(c, dict) and str(c.get("candidate_id")) == candidate_id:
+                        entry = c
+                        break
+        except (OSError, json.JSONDecodeError):
+            entry = {}
+        if not entry:
+            raise OperatorError.forbidden("candidate 不属于该批次")
+        real_project_id = str(entry.get("project_id") or candidate_id)
+        child_dir = (projects_dir() / real_project_id).resolve()
+        try:
+            child_dir.relative_to(projects_dir().resolve())
+        except ValueError:
+            raise OperatorError.forbidden("candidate 路径越界")
+        if not child_dir.is_dir() or not (child_dir / "project.json").is_file():
+            raise OperatorError.not_found("候选项目不存在")
+        return child_dir, real_project_id
+
     def _build_rerun_plan(payload: dict, candidate_id: str, child_revision: str) -> dict:
         """从请求体构建 rerun_plan（字段对齐审批契约 §2）。"""
         from lib.rerun_plan import create_rerun_plan
@@ -680,14 +761,38 @@ def create_operator_router(
             plan = _build_rerun_plan(payload, candidate_id, child_revision)
         except ValueError as exc:
             raise OperatorError.validation_failed(str(exc)) from exc
-        return {"plan": plan, "run": create_rerun_run(plan)}
+        child_dir, real_project_id = _child_candidate_dir(project_id, candidate_id)
+        # P0：候选项目单独做 review 权限校验（不能用批次权限代理子项目）
+        authenticate(request, real_project_id, "review", csrf=False)
+        # child_revision 比对：防止对过期版本发起重跑
+        current = _child_current_revision(child_dir, plan.get("from_stage") or "")
+        if current and child_revision and current != child_revision:
+            raise OperatorError(
+                "revision_conflict",
+                f"child_revision 与当前版本不一致（当前 {current}，提交 {child_revision}）",
+                409,
+            )
+        # Idempotency-Key：命中已有 run 则直接返回，不重复写入
+        idem_key = str(payload.get("idempotency_key") or "")
+        if idem_key:
+            existing = _find_rerun_by_key(child_dir, idem_key)
+            if existing:
+                return {"plan": existing[0], "run": existing[1], "reused": True}
+        run = create_rerun_run(plan)
+        if idem_key:
+            run["idempotency_key"] = idem_key
+        _persist_rerun(child_dir, plan, run)
+        return {"plan": plan, "run": run}
 
     @router.post("/projects/{project_id}/batch/rerun")
     async def batch_rerun(project_id: str, request: Request) -> dict:
         """R3 批级重跑：为每个候选建立独立 rerun_run，协调记录 only-提交运行意图。"""
         authenticate(request, project_id, "review", csrf=True)
         payload = await body(request)
-        runs = []
+        from lib.rerun_plan import create_rerun_plan, create_rerun_run
+
+        # 阶段1：全部校验（归属/权限/revision/idempotency），任一失败即整体中止——避免部分写入
+        prepared: list[dict[str, Any]] = []
         for item in (payload.get("candidates") or []):
             if not isinstance(item, dict):
                 continue
@@ -695,13 +800,37 @@ def create_operator_router(
             child_revision = str(item.get("child_revision") or "")
             if not candidate_id or not child_revision:
                 continue
-            from lib.rerun_plan import create_rerun_plan, create_rerun_run
-
             try:
                 plan = _build_rerun_plan(item, candidate_id, child_revision)
             except ValueError as exc:
                 raise OperatorError.validation_failed(str(exc)) from exc
-            runs.append({"candidate_id": candidate_id, "plan_id": plan["plan_id"], "run": create_rerun_run(plan)})
+            child_dir, real_project_id = _child_candidate_dir(project_id, candidate_id)
+            authenticate(request, real_project_id, "review", csrf=False)
+            current = _child_current_revision(child_dir, plan.get("from_stage") or "")
+            if current and child_revision and current != child_revision:
+                raise OperatorError(
+                    "revision_conflict",
+                    f"candidate {candidate_id} child_revision 不一致（当前 {current}，提交 {child_revision}）",
+                    409,
+                )
+            idem_key = str(item.get("idempotency_key") or "")
+            existing = _find_rerun_by_key(child_dir, idem_key) if idem_key else None
+            prepared.append({
+                "candidate_id": candidate_id, "plan": plan, "child_dir": child_dir,
+                "idem_key": idem_key, "existing": existing,
+            })
+        # 阶段2：全部校验通过后写入
+        runs = []
+        for item in prepared:
+            if item["existing"]:
+                p, r = item["existing"]
+                runs.append({"candidate_id": item["candidate_id"], "plan_id": item["plan"]["plan_id"], "run": r, "reused": True})
+                continue
+            run = create_rerun_run(item["plan"])
+            if item["idem_key"]:
+                run["idempotency_key"] = item["idem_key"]
+            _persist_rerun(item["child_dir"], item["plan"], run)
+            runs.append({"candidate_id": item["candidate_id"], "plan_id": item["plan"]["plan_id"], "run": run})
         return {"runs": runs}
 
     return router

@@ -28,6 +28,12 @@ def _signature(project_dir: Path) -> tuple[tuple[str, int, int], ...]:
     reviews = project_dir / "operator" / "reviews"
     if reviews.is_dir():
         candidates.extend(reviews.glob("*.json"))
+    # 媒体目录（renders / sample / images / snapshots / music）：新增或替换成片
+    # 必须让缓存失效，否则 Renders 面板不会出现新版本。
+    for media_dir in ("renders", "assets/sample", "assets/images", "snapshots", "assets/music"):
+        d = project_dir / media_dir
+        if d.is_dir():
+            candidates.extend(f for f in d.iterdir() if f.is_file())
 
     signature: list[tuple[str, int, int]] = []
     for path in sorted(set(candidates)):

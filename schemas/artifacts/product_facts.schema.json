@@ -20,6 +20,46 @@
       "additionalProperties": { "type": "string" },
       "description": "每项事实的出处（sku/price/params -> 用户填写 / 商品页 / 官方）"
     },
+    "visual_identity": {
+      "type": "object",
+      "properties": {
+        "must_preserve": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "必须保留的视觉真实性（如 包装颜色、logo、产品形态）"
+        },
+        "allowed_variation": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "允许的视觉变化（如 角度、景别、光照）"
+        },
+        "forbidden": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "禁止的视觉表达（如 变色、变形、遮挡 logo）"
+        }
+      },
+      "additionalProperties": false,
+      "description": "产品视觉真实性约束（ProductBible）"
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim", "status"],
+        "properties": {
+          "claim": { "type": "string", "minLength": 1, "description": "产品主张（如 0甲醛）" },
+          "status": {
+            "type": "string",
+            "enum": ["authorized", "needs_evidence", "forbidden"],
+            "description": "authorized=可直接声称 / needs_evidence=仅在有证据时声称 / forbidden=禁止声称"
+          },
+          "evidence": { "type": "string", "description": "证据出处（如 检测报告/画面实测）" }
+        },
+        "additionalProperties": false
+      },
+      "description": "产品主张清单（含可声称边界）"
+    },
     "filled_by": { "type": "string", "description": "填写人（user / agent / skipped）" },
     "filled_at": { "type": "string", "format": "date-time" },
     "semantic_sha256": { "type": "string" },

@@ -138,6 +138,18 @@
             "enum": ["rewrite_hook", "edit_caption", "replace_asset", "shorten_shot"]
           },
           "affected_shots": { "type": "array", "items": { "type": "string" } },
+          "scene_id": { "type": "string", "description": "该修复针对的场景 id（scene_plan.scenes[].id）" },
+          "upstream_stage": {
+            "type": "string",
+            "enum": ["script", "scene_plan", "assets", "sample", "edit", "compose"],
+            "description": "重跑应从哪个上游阶段开始（P1-3 修复执行器）"
+          },
+          "rerun_scope": {
+            "type": "string",
+            "enum": ["local", "preview", "full"],
+            "description": "重跑范围：local=局部重渲染 / preview=样片 / full=整片"
+          },
+          "estimated_cost_usd": { "type": "number", "minimum": 0, "description": "该修复的预估成本" },
           "note": { "type": "string" }
         },
         "additionalProperties": false

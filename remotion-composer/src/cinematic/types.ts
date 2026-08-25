@@ -56,6 +56,29 @@ export interface CinematicCaptionConfig {
   captionStyle?: import("../components/SafeCaptionTrack").CaptionStyleSpec;
 }
 
+export type TransitionRecipeType = "cut" | "impact" | "fade" | "flash";
+
+export interface TransitionRecipeSpec {
+  recipe_id: string;
+  type: TransitionRecipeType;
+  scale?: number;
+  flash?: number;
+  flash_seconds?: number;
+  duration_frames?: number;
+  fallback_used?: boolean;
+}
+
+export type CaptionEntrance = "pop" | "fade" | "none" | "slide_up";
+export type CaptionEmphasis = "scale" | "underline" | "none";
+
+export interface CaptionRecipeSpec {
+  recipe_id: string;
+  entrance: CaptionEntrance;
+  emphasis: CaptionEmphasis;
+  energy: "high" | "low";
+  fallback_used?: boolean;
+}
+
 export interface CinematicRendererProps {
   [key: string]: unknown;
   scenes: CinematicScene[];
@@ -65,4 +88,8 @@ export interface CinematicRendererProps {
   soundtrack?: CinematicSoundtrack;
   music?: CinematicSoundtrack;
   captions?: CinematicCaptionConfig;
+  /** scene_id -> transition recipe（lib.recipe_router 派生，P2） */
+  transitionRecipes?: Record<string, TransitionRecipeSpec>;
+  /** scene_id -> caption recipe（lib.recipe_router 派生，P2） */
+  captionRecipes?: Record<string, CaptionRecipeSpec>;
 }

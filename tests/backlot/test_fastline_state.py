@@ -166,3 +166,25 @@ def test_board_state_cache_reuses_and_invalidates_on_state_file_change(tmp_path:
 
     _write(artifact, {"mode": "mux_only", "revision": "changed-size"})
     assert get_cached_board_state(project, build) == {"calls": 2}
+
+
+def test_board_state_cache_invalidates_on_new_render_media(tmp_path: Path) -> None:
+    """新增/替换成片 mp4 必须让缓存失效，否则 Renders 面板不显示新版本。"""
+    project = tmp_path / "cached-media"
+    (project / "artifacts").mkdir(parents=True)
+    (project / "renders").mkdir(parents=True)
+    _write(project / "artifacts" / "render_plan.json", {"mode": "full"})
+    calls = 0
+
+    def build(_: Path) -> dict:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    clear_state_cache()
+    assert get_cached_board_state(project, build) == {"calls": 1}
+    assert get_cached_board_state(project, build) == {"calls": 1}
+
+    # 新增一个成片 mp4（无 JSON 变更）→ 缓存必须失效
+    (project / "renders" / "final-cinematic.mp4").write_bytes(b"new render bytes")
+    assert get_cached_board_state(project, build) == {"calls": 2}

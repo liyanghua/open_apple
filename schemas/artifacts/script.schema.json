@@ -47,6 +47,15 @@
           "narration": { "type": "string" },
           "screen_copy": { "type": "string" },
           "section_goal": { "type": "string" },
+          "beat_role": {
+            "type": "string",
+            "enum": ["hook", "problem", "escalation", "reveal", "proof", "payoff", "cta", "other"],
+            "description": "该段落在 beat map 中的叙事角色"
+          },
+          "viewer_state": {
+            "type": "string",
+            "description": "该段落后观众应发生的状态变化（认知/情绪/张力，如 好奇→焦虑→被解答）"
+          },
           "pacing": { "type": "string" },
           "visual_intent": { "type": "string" },
           "evidence_requirements": { "type": "array", "items": { "type": "string" } },

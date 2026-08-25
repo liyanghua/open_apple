@@ -143,6 +143,7 @@ def plan_repair(
             "name": str(evaluation_report_ref["name"]),
             "path": str(evaluation_report_ref["path"]),
             **({"artifact_sha256": str(evaluation_report_ref["artifact_sha256"])} if evaluation_report_ref.get("artifact_sha256") else {}),
+            **({"scope": str(evaluation_report_ref["scope"])} if evaluation_report_ref.get("scope") else {}),
         },
         "production_lock_hash": production_lock_hash,
         "lock_compliant": True,
@@ -183,6 +184,89 @@ def repair_decision_entry(repair: Mapping[str, Any], *, subject: str, reason: st
         "confidence": 0.8,
         "user_visible": True,
     }
+
+
+def repairs_from_evaluation_report(
+    project_id: str,
+    evaluation_report: Mapping[str, Any],
+    *,
+    production_lock_hash: str,
+    rework_round: int = 1,
+) -> list[dict[str, Any]]:
+    """P1-3 修复执行器：把 evaluation_report.repair_targets 转成 sealed repair 制品。
+
+    repair_targets 现在带 scene_id / upstream_stage / rerun_scope /
+    estimated_cost_usd（evaluation_report schema 已扩展）。本函数把这些精简
+    目标桥接成完整 repair 制品（重跑循环消费的"修复执行器"决策记录）。
+    """
+    targets = [
+        t for t in (evaluation_report.get("repair_targets") or [])
+        if isinstance(t, Mapping)
+    ]
+    repairs: list[dict[str, Any]] = []
+    # 绑定评价 scope/subject_hash：RepairPlan 必须指向它实际针对的 sample/final 评价。
+    eval_scope = str(evaluation_report.get("scope") or "final")
+    eval_path = (
+        "artifacts/evaluation_report.final.json" if eval_scope == "final"
+        else "artifacts/evaluation_report.sample.json"
+    )
+    eval_ref: dict[str, Any] = {
+        "name": "evaluation_report",
+        "path": eval_path,
+        "scope": eval_scope,
+    }
+    # 绑定评价制品自身的 artifact_sha256（不是被评估媒体的 subject_hash）。
+    # 这样 RepairPlan 能回溯到它针对的那份 evaluation report。
+    if evaluation_report.get("artifact_sha256"):
+        eval_ref["artifact_sha256"] = str(evaluation_report["artifact_sha256"])
+    for index, target in enumerate(targets):
+        action = str(target.get("action") or "")
+        if action not in VALID_ACTIONS:
+            continue
+        scene_id = str(target.get("scene_id") or "").strip()
+        shots = [str(s).strip() for s in (target.get("affected_shots") or []) if str(s).strip()]
+        repair_targets: list[dict[str, Any]] = []
+        ids: set[str] = set()
+        if scene_id:
+            repair_targets.append({"type": "shot", "id": scene_id})
+            ids.add(scene_id)
+        for shot in shots:
+            if shot not in ids:
+                repair_targets.append({"type": "shot", "id": shot})
+                ids.add(shot)
+        if not repair_targets:
+            fallback_type = (
+                "hook" if action == "rewrite_hook"
+                else "caption" if action == "edit_caption"
+                else "shot"
+            )
+            repair_targets.append({"type": fallback_type, "id": scene_id or str(target.get("check_id") or "unknown")})
+
+        rerun_scope = str(target.get("rerun_scope") or "")
+        # shorten_shot 会移动时间轴，必须 full_render；其余按 rerun_scope 映射。
+        render_route = None if action == "shorten_shot" else _scope_to_route(rerun_scope)
+        note_parts: list[str] = []
+        if target.get("upstream_stage"):
+            note_parts.append(f"upstream_stage={target['upstream_stage']}")
+        if target.get("estimated_cost_usd") is not None:
+            note_parts.append(f"estimated_cost_usd={target['estimated_cost_usd']}")
+
+        repairs.append(plan_repair(
+            project_id,
+            repair_id=f"repair-r{rework_round}-{index + 1}",
+            action=action,
+            targets=repair_targets,
+            evaluation_report_ref=eval_ref,
+            production_lock_hash=production_lock_hash,
+            rework_round=rework_round,
+            render_route=render_route,
+            note="; ".join(note_parts),
+        ))
+    return repairs
+
+
+def _scope_to_route(scope: str) -> str | None:
+    return {"local": "still", "preview": "sample", "full": "full_render"}.get(str(scope))
 
 
 def _action_label(action: str) -> str:

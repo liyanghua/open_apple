@@ -1,5 +1,37 @@
 # Editorial Gallery Real Data Integration Implementation Plan
 
+## 0. 2026-08-25 实现审计更新
+
+本计划在开始实现前按当前工作树重新核对过。当前代码已经具备的是：
+
+- `backlot.operator_state` 已有 `batch_review` 编辑器入口；
+- `backlot.batch_state.build_batch_review_data()` 能从批根、候选子项目、checkpoint、operator review 和 scoped evaluation artifact 生成批级投影；
+- `candidate_batch` 已保存 `candidate_id` 与真实 `project_id` 两个字段，候选子项目通过 `project_id` 定位；
+- `/p/<project-id>` 是现有单项目 Operator 工作台；`/studio/<batch-id>`、Editorial Gallery DTO、Gallery 页面和 Gallery API 当前均不存在；
+- `candidate-rerun` 与 `batch/rerun` 是现有 R3 **写入型**接口，会创建 `rerun_run` 并写入候选项目，不能被 Gallery 的只读规划接口复用。
+
+因此，本计划不能被理解为“现有批量产物已经接入编辑工作室”。它只覆盖第一阶段的真实证据 Gallery；一线运营真正完成手动微调、预览、采用新版本的闭环属于第二阶段，必须建立在第一阶段的事实和权限契约之上。
+
+### 0.1 必须先处理的阻断项
+
+以下问题在开放任何 Gallery 重跑入口前必须修复，并纳入本计划的前置任务：
+
+1. **P0：现有重跑路由的候选归属、路径和权限不完整。** `backlot/operator_routes.py` 当前以 `projects_dir() / candidate_id` 写入，而批事实同时维护 `candidate_id` 和 `project_id`；候选不存在时 `_persist_rerun()` 静默返回，接口仍成功；单候选和批量重跑也没有校验候选属于当前批次、没有逐候选 `review` 授权，也没有强制 `Idempotency-Key`。在修复前禁止把它作为 Gallery 的执行后端。
+2. **P0：批量读取不是纯只读。** `backlot.batch_state.child_snapshot()` 在读取 `awaiting_human` 阶段时会调用 `ensure_script_review_for_checkpoint`、`ensure_assets_review_for_checkpoint` 或 `ensure_sample_review_for_checkpoint`，可能创建 `operator/reviews/*.json`。Gallery 读取必须增加 `materialize_reviews=False`（或等价纯投影 API）；只读验收必须比较文件清单、mtime、内容 hash，并允许明确列出的 thumbnail 缓存例外。
+3. **P1：Recipe Router 尚未形成真实 runtime 闭环。** `lib/recipe_router.py` 和 `lib/render_payload.py` 已有路由/派生函数，但生产路径没有调用 `build_render_payload()`；`sample_payload` 也没有把 `scene_plan` 的 recipe intent 传入，Remotion/HyperFrames/FFmpeg 没有统一消费 `recipe_id`。另外 recipe 能力声明含 `set`，直接 JSON 序列化会失败。该能力在 Gallery 计划中只能标记为“待接线”，不能宣称已支持运营替换。
+4. **P1：ProductBible 目前还是软约束。** `fact_continuity_rules()` 已生成 claims/visual identity 规则，但 `check_text_facts()` 仍只检查 SKU、价格、参数；claims 的 `forbidden`/`needs_evidence` 和 visual identity 的 `forbidden`/`must_preserve` 尚未进入脚本或成片硬校验。只有 claims/visual identity 的卡片还会被 `load_product_facts_status()` 判为 `skipped`。计划需明确生产前必填、脚本前向约束、L1a 事实校验和成片视觉真实性校验四个层次。
+5. **P1：BeatScript、ReferenceCritique 和候选概念差异尚未成为硬门。** `beat_role`、`viewer_state`、`reference_critique` 和 scene recipe intent 都是可选 schema 字段；`reference-critic.md` 未被 `cinematic-fast` manifest 强制调用；`proposal_concept_diversity()` 目前只有函数和单测，没有生产调用点，且默认最少 2 个概念与 proposal schema 的至少 3 个概念不一致。应增加 stage validator，明确 schema 硬约束与 skill 软约束。
+6. **P1：RepairPlan 未绑定真实评价 scope。** `lib/repair.py` 固定引用 `artifacts/evaluation_report.json`，而当前批量状态读取 `evaluation_report.sample.json` / `evaluation_report.final.json`；repair id 也可能在重复调用时碰撞。修复计划必须携带实际 scope、artifact path/hash 和幂等边界。
+
+### 0.2 计划分期决策
+
+本文件按两个可独立验收的里程碑执行：
+
+- **阶段 A：真实批量产物接入 Gallery（本计划主体）**。比较候选、查看样片/成片、评分、九阶段 checkpoint、报告、差异证据和只读最小重跑计划；不写生产事实。阶段 A 只在 P0-1/P0-2 完成后开放真实数据入口。
+- **阶段 B：Gallery 到现有 Operator Studio 的编辑闭环（本计划新增边界，执行另立子计划）**。`selected candidate + child_revision + active_media` 建立编辑会话，支持文案/字幕/转场/镜头时长/素材替换等微调，经现有 revision、delivery review、preview/promote/discard 和真实 rerun executor 交付新版本。
+
+阶段 A 的成功不能以“能跳转 `/p/<candidate-id>`”代替阶段 B；`/p` 是事实工作台，`/studio` 是批量证据入口，二者关系固定为“批量比较 → Gallery 定位 → Operator Studio 微调”。
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 将 `table-mat-batch-001` 及后续批次的真实中间产物接入 Editorial Gallery，使用户能在同一工作室比较候选、查看九阶段证据、定位修改意图并生成只读的最小重跑计划。
@@ -12,11 +44,20 @@
 
 ## 1. 已确认范围
 
+### 1.0 前置修复门（在 Chunk 1 之前）
+
+- [ ] **P0-1：修复现有 R3 重跑写接口。** 从批根的 `candidate_batch.candidates[]` 解析真实 `project_id`，校验 `candidate_id -> project_id` 归属、候选目录 containment、候选项目 `review` 权限、提交的 `child_revision`，候选不存在时返回明确错误；单候选与批量接口均强制 `Idempotency-Key`，相同 key 的语义冲突返回 409，不能生成重复 `rerun_run`。
+- [ ] **P0-2：拆分纯投影与 review 物化。** 为 `child_snapshot()` 增加显式 `materialize_reviews` 参数，Gallery/GET/只读 plan 路径固定传 `False`；现有批工作台的批准流程可继续传 `True`。为纯投影增加文件树 hash/mtime 回归测试。
+- [ ] **P1-1：冻结真实 artifact scope。** 明确 `evaluation_report.sample.json`、`evaluation_report.final.json`、`batch_quality_report.json` 与 `batch_run_report.json` 的命名、scope、revision/hash 关联；RepairPlan、Gallery 和批状态投影禁止回退到未 scoped 的 `evaluation_report.json`，除非明确标记 legacy/degraded。
+- [ ] **P1-2：把现有质量/创意扩展接入 stage validator。** 在修改 schema required 字段前，先补生产调用点和失败语义：`reference_critique`/BeatScript/recipe intent/concept diversity/ProductBible 必须能阻止错误 artifact 进入对应 checkpoint；仅在 Markdown 中声明不算完成。
+
+前置门未完成时，允许继续做 DTO schema、fixture 和页面静态拆分，但不得开放真实 `rerun-plan` 以外的执行能力，也不得宣称“运营可直接完成编辑交付”。
+
 ### 1.1 首期交付
 
 - 从批页或稳定深链 `/studio/<batch-id>` 打开同源 Editorial Gallery。
 - 使用真实批级报告、选择状态、候选媒体、九阶段 checkpoint 和中间制品。
-- 候选详情可播放 `sample-v2.mp4` / `final.mp4`，并可深链回 `/p/<candidate-id>`。
+- 候选详情可播放 `sample-v2.mp4` / `final.mp4`，并可深链回真实候选项目 `/p/<project-id>`（不能把 `candidate_id` 当作目录 id）。
 - 用户通过时间段、镜头、质量维度或失败阶段定位问题，再补充“位置 + 问题 + 目标”。
 - 服务端校验候选归属、`child_revision`、定位锚点和已锁定 runtime，返回最小重跑路径与预期；首期 `execution_allowed=false`。
 - 静态原型保留显式 fixture 模式，用于视觉回归；真实数据加载失败时显示真实错误，不自动回退为假数据。
@@ -190,7 +231,7 @@ flowchart LR
 **Files:** `backlot/editorial_gallery.py`、`backlot/batch_state.py`、`tests/backlot/test_editorial_gallery.py`。
 
 - [ ] **Step 1: 写失败映射测试。** 使用五候选 fixture，断言 c2/c3 选择状态、sample/final 媒体、固定九阶段和报告降级语义。
-- [ ] **Step 2: 实现 `build_editorial_gallery(project_dir)`。** 复用 `load_board_state`、`build_batch_review_data` 和 operator 的安全媒体 URL 规则；按白名单读取中间制品摘要。媒体按 artifact ref/hash 选择 `final.mp4`，再按固定 artifact ref 选择 `sample-v2.mp4`，mtime 只作为缺 ref 时的降级，并返回 `active_media.path/hash/revision/duration_seconds`。
+- [ ] **Step 2: 实现 `build_editorial_gallery(project_dir)`。** 复用 `load_board_state`、`build_batch_review_data(..., materialize_reviews=False)` 和 operator 的安全媒体 URL 规则；按白名单读取中间制品摘要。媒体按 artifact ref/hash 选择 `final.mp4`，再按固定 artifact ref 选择 `sample-v2.mp4`，mtime 只作为缺 ref 时的降级，并返回 `active_media.path/hash/revision/duration_seconds`。候选目录始终从批事实的 `project_id` 解析，`candidate_id` 只作为业务标识。
 - [ ] **Step 3: 加历史兼容。** 无 `candidate_variant_plan` 返回 `evidence_status=missing`；当前 scoped VLM 未运行返回 `status=missing`；批报告 advisory 与当前 revision/scope/rubric 不匹配返回 `provenance_conflict` + `degraded`；任何一种都不伪造评分。固定结论真值表：L1a `pass/revise/fail` 优先于 VLM advisory，技术 QA fail 优先于全部 advisory，selected 只表示选择事实，不改变质量结论。
 - [ ] **Step 4: 加快照稳定校验。** 读取前后比较 aggregate/child revision；变化时返回 `consistency=unstable`，页面只读且要求刷新。
 - [ ] **Step 5: 验证无写入。** 测试前后比较项目树文件清单、mtime 和内容 hash。
@@ -282,3 +323,14 @@ pytest tests/backlot/test_editorial_gallery.py \
 ## 6. 后续阶段，不属于本计划
 
 真正执行重跑前，必须另立计划完成：持久化 `rerun_run`、preview 低成本运行、预览确认、完整运行、promote/discard、并发/预算治理、checkpoint/decision log 原子提交、取消与故障恢复。届时执行仍发生在候选自己的九阶段内，只运行最小子图；旧 revision 在 promote 前始终保持 current。
+
+## 7. 阶段 B 子计划必须包含的编辑闭环契约
+
+阶段 A 完成后，不能直接把“生成只读计划”改成“开始重跑”。阶段 B 至少需要另立实现计划并覆盖：
+
+- **编辑会话身份**：`batch_id`、真实 `project_id`、`candidate_id`、`child_revision`、`active_media`、`aggregate_revision` 必须形成不可变会话快照；候选被重新选择或 revision 变化时会话失效。
+- **可编辑字段白名单**：文案/字幕、字幕样式、镜头顺序/时长、转场 recipe、素材替换和音频层分别声明 upstream stage、影响范围和是否需要重新生成；禁止前端直接改写 `final_props`、checkpoint 或 current pointer。
+- **版本流转**：草稿变更 → 局部预览 → 人工确认 → 完整运行 → `delivery_review` → promote/discard。promote 前旧版本保持 current，discard 必须可恢复到旧版本。
+- **权限与并发**：批根 review 权限不自动等于候选 edit/review 权限；所有写请求强制幂等键、CSRF、候选归属、revision 条件写和预算检查。
+- **执行器边界**：执行器消费结构化 rerun plan，不接受任意 stage/path；只运行最小子图，写入 checkpoint、decision log、events 和 revision history 必须原子化；失败恢复不能留下“已采用但无成片”的半状态。
+- **运营验收**：至少覆盖“选中 c2 → 修改前 3 秒字幕/镜头 → 预览 → 采用新版本”和“素材替换失败 → 保留旧版本”的端到端场景，并验证 `/p/<project-id>` 与 `/studio/<batch-id>` 的状态一致。

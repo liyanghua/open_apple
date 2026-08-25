@@ -12,7 +12,7 @@ import {
   useVideoConfig,
 } from "remotion";
 
-import { CinematicRendererProps, CinematicTone, CinematicVideoScene } from "./cinematic/types";
+import { CinematicRendererProps, CinematicTone, CinematicVideoScene, TransitionRecipeSpec } from "./cinematic/types";
 import { CaptionOverlay } from "./components/CaptionOverlay";
 import { resolveAsset } from "./lib/resolveAsset";
 
@@ -37,12 +37,14 @@ const toneGradient = (tone: CinematicTone) => {
   }
 };
 
-const SceneVideo: React.FC<{ scene: CinematicVideoScene }> = ({ scene }) => {
+const SceneVideo: React.FC<{ scene: CinematicVideoScene; transition?: TransitionRecipeSpec }> = ({ scene, transition }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const durationInFrames = Math.max(1, Math.round(scene.durationSeconds * fps));
-  const fadeInFrames = scene.fadeInFrames ?? 10;
-  const fadeOutFrames = scene.fadeOutFrames ?? 10;
+  // cut/impact/flash 都是"无淡入"的硬转场；只有 fade 走淡入淡出。
+  const noFade = transition !== undefined && transition.type !== "fade";
+  const fadeInFrames = noFade ? 0 : (scene.fadeInFrames ?? 10);
+  const fadeOutFrames = noFade ? 0 : (scene.fadeOutFrames ?? 10);
   const fadeOutStart = Math.max(0, durationInFrames - fadeOutFrames);
   const fadeInOpacity =
     fadeInFrames === 0
@@ -65,6 +67,21 @@ const SceneVideo: React.FC<{ scene: CinematicVideoScene }> = ({ scene }) => {
     extrapolateRight: "clamp",
   });
 
+  // Transition recipe: impact = 开场微缩放 punch + 闪；flash = 闪白；cut = 硬切。
+  const transitionFrames = Math.max(1, transition?.duration_frames ?? 0);
+  const flashType = transition?.type === "flash" || transition?.type === "impact";
+  const flashOpacity = flashType
+    ? interpolate(frame, [0, transitionFrames], [0.85, 0], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      })
+    : 0;
+  // impact：开场 punch（从 scale 放大）后回落到 1，而不是从 1 放大。
+  const impactPunch = transition?.type === "impact"
+    ? 1 + ((transition.scale ?? 1.06) - 1) * interpolate(frame, [0, transitionFrames], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
+    : 1;
+  const finalScale = scale * impactPunch;
+
   const trimBefore =
     scene.trimBeforeSeconds !== undefined
       ? Math.round(scene.trimBeforeSeconds * fps)
@@ -86,7 +103,7 @@ const SceneVideo: React.FC<{ scene: CinematicVideoScene }> = ({ scene }) => {
           width: "100%",
           height: "100%",
           objectFit: "cover",
-          transform: `scale(${scale})`,
+          transform: `scale(${finalScale})`,
           filter:
             scene.filter ?? "contrast(1.06) saturate(0.88) brightness(0.92)",
         }}
@@ -110,6 +127,9 @@ const SceneVideo: React.FC<{ scene: CinematicVideoScene }> = ({ scene }) => {
           opacity: 0.6,
         }}
       />
+      {flashOpacity > 0 ? (
+        <AbsoluteFill style={{ backgroundColor: "#FFFFFF", opacity: flashOpacity }} />
+      ) : null}
     </AbsoluteFill>
   );
 };
@@ -463,6 +483,8 @@ export const CinematicRenderer: React.FC<CinematicRendererProps> = ({
   soundtrack,
   music,
   captions,
+  transitionRecipes,
+  captionRecipes,
 }) => {
   return (
     <AbsoluteFill style={{ backgroundColor: "#000000" }}>
@@ -496,7 +518,7 @@ export const CinematicRenderer: React.FC<CinematicRendererProps> = ({
           durationInFrames={Math.round(scene.durationSeconds * FPS)}
         >
           {scene.kind === "video" ? (
-            <SceneVideo scene={scene} />
+            <SceneVideo scene={scene} transition={transitionRecipes?.[scene.id]} />
           ) : (
             <TitleCard
               text={scene.text}
@@ -523,6 +545,8 @@ export const CinematicRenderer: React.FC<CinematicRendererProps> = ({
           highlightColor={captions.highlightColor ?? "#FBBF24"}
           backgroundColor={captions.backgroundColor ?? "rgba(0, 0, 0, 0.6)"}
           captionStyle={captions.captionStyle}
+          captionRecipes={captionRecipes}
+          scenes={scenes}
         />
       ) : null}
     </AbsoluteFill>

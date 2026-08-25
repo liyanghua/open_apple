@@ -130,12 +130,30 @@ def build_reuse_assets_sample_input(project_dir: Path) -> tuple[dict[str, Any], 
             renderer_family = str(pp.get("renderer_family") or renderer_family)
         except (OSError, json.JSONDecodeError):
             pass
+    # P2/P1 修复：恢复路径必须带 scene_plan（recipe 意图）与 caption_style_fingerprint（花字）。
+    # 分别读取：文件存在但解析失败 = 损坏，应显式失败；不静默吞掉并降级渲染。
+    def _load_json_if_exists(name: str) -> dict[str, Any] | None:
+        p = artifacts / name
+        if not p.is_file():
+            return None
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"恢复失败：{name} 损坏（{exc}），请修复后重试") from exc
+        return data if isinstance(data, dict) else None
+
+    scene_plan = _load_json_if_exists("scene_plan.json")
+    csf = _load_json_if_exists("caption_style_fingerprint.json")
     payload = {
         "final_props": repaired_props,
         "asset_manifest": asset_manifest,
         "render_runtime": render_runtime,
         "renderer_family": renderer_family,
     }
+    if isinstance(scene_plan, dict):
+        payload["scene_plan"] = scene_plan
+    if isinstance(csf, dict):
+        payload["caption_style_fingerprint"] = csf
     preflight = validate_sample_inputs({
         "shot_execution_plan": json.loads((artifacts / "shot_execution_plan.json").read_text(encoding="utf-8")),
         "final_props": repaired_props,

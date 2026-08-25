@@ -25,6 +25,8 @@ def build_render_payload(
     caption_fingerprint: Mapping[str, Any] | None = None,
     audio_mix: Mapping[str, Any] | None = None,
     edit_decisions: Mapping[str, Any] | None = None,
+    scene_plan: Mapping[str, Any] | None = None,
+    render_runtime: str = "remotion",
 ) -> dict[str, Any]:
     """Assemble the render payload deterministically from approved artifacts."""
     payload: dict[str, Any] = dict(final_props)
@@ -50,5 +52,16 @@ def build_render_payload(
         if value is not None:
             payload["captionWordsPerPage"] = int(value)
             break
+
+    # P2：scene_plan 的 caption/transition recipe intent → 渲染级规格（runtime 无关）。
+    # 渲染器按 scene_id 查 captionRecipes/transitionRecipes 落地花字/转场效果。
+    if scene_plan:
+        from lib.recipe_router import scene_recipe_specs
+
+        specs = scene_recipe_specs(scene_plan, render_runtime)
+        if specs["caption_recipes"]:
+            payload["captionRecipes"] = specs["caption_recipes"]
+        if specs["transition_recipes"]:
+            payload["transitionRecipes"] = specs["transition_recipes"]
 
     return payload
