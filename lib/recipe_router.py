@@ -130,7 +130,9 @@ CAPTION_RENDER_SPECS: dict[str, dict[str, Any]] = {
 TRANSITION_RENDER_SPECS: dict[str, dict[str, Any]] = {
     "hard-cut-clean": {"type": "cut", "duration_frames": 0},
     "impact-cut": {"type": "impact", "scale": 1.06, "flash": 0.15, "duration_frames": 5},
-    "action-match": {"type": "fade", "duration_frames": 6},
+    # 动作匹配切 = 与下一镜 head 重叠的交叉溶解（DissolveBridge 渲染，不产生暗帧）。
+    # 旧实现是 clip 内部淡入淡出（无重叠 Sequence），评审 P1-4 判定会产生暗帧。
+    "action-match": {"type": "dissolve", "duration_frames": 8},
     "flash-proof": {"type": "flash", "flash_seconds": 0.12, "duration_frames": 4},
 }
 

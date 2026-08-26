@@ -56,7 +56,7 @@ export interface CinematicCaptionConfig {
   captionStyle?: import("../components/SafeCaptionTrack").CaptionStyleSpec;
 }
 
-export type TransitionRecipeType = "cut" | "impact" | "fade" | "flash";
+export type TransitionRecipeType = "cut" | "impact" | "fade" | "flash" | "dissolve";
 
 export interface TransitionRecipeSpec {
   recipe_id: string;

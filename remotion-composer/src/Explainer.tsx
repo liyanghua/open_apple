@@ -20,6 +20,7 @@ import { PieChart } from "./components/charts/PieChart";
 import { KPIGrid } from "./components/charts/KPIGrid";
 import { ProgressBar } from "./components/ProgressBar";
 import { CaptionOverlay, WordCaption } from "./components/CaptionOverlay";
+import { SafeCaptionTrack } from "./components/SafeCaptionTrack";
 import type {CaptionStyleSpec} from "./components/SafeCaptionTrack";
 import { SectionTitle } from "./components/SectionTitle";
 import { StatReveal } from "./components/StatReveal";
@@ -301,6 +302,8 @@ export interface ExplainerProps {
   captionRecipes?: Record<string, import("./cinematic/types").CaptionRecipeSpec>;
   /** scene_id -> transition recipe（lib.recipe_router 派生，P2） */
   transitionRecipes?: Record<string, import("./cinematic/types").TransitionRecipeSpec>;
+  /** 口播字幕轨（narration 逐词/逐句，底部安全区）；与花字(captions/captionStyle)双层共存 */
+  narrationSubtitles?: import("@remotion/captions").Caption[];
 }
 
 // ---------------------------------------------------------------------------
@@ -433,10 +436,17 @@ const VideoScene: React.FC<{
   const { fps } = useVideoConfig();
   const durationInFrames = Math.max(1, Math.round(sceneDurationSeconds * fps));
 
-  // recipe 转场：cut/impact/flash 都是硬切（无淡入淡出），fade 走默认。
+  // recipe 转场：cut/impact/flash/dissolve 都是硬切（无 clip 内部淡入淡出），
+  // 仅 fade recipe 或显式 transition="fade" 走 clip 内过渡。
+  // 默认（无 recipe、无显式过渡）= 硬切：修复旧实现"每镜默认 0.27s 淡入淡出 → 切点暗帧"。
+  // dissolve/flash/impact 作为 cut 层 token 同样按硬切处理（桥层/flash 覆盖各自语义）。
   const recipeType = transition?.type;
-  const hardIn = ["cut", "none"].includes((transitionIn || "").toLowerCase()) || (recipeType && recipeType !== "fade");
-  const hardOut = ["cut", "none"].includes((transitionOut || "").toLowerCase()) || (recipeType && recipeType !== "fade");
+  const tIn = (transitionIn || "").toLowerCase();
+  const tOut = (transitionOut || "").toLowerCase();
+  const hardTokens = ["cut", "none", "dissolve", "flash", "impact"];
+  const recipeFades = recipeType === "fade";
+  const hardIn = recipeType === "dissolve" ? true : (!tIn || hardTokens.includes(tIn)) && !recipeFades;
+  const hardOut = recipeType === "dissolve" ? true : (!tOut || hardTokens.includes(tOut)) && !recipeFades;
   const transitionFrames = Math.max(
     1,
     Math.round((transitionDuration ?? 8 / fps) * fps),
@@ -772,6 +782,28 @@ const SceneRenderer: React.FC<{ cut: Cut; theme: ThemeConfig; transition?: impor
 };
 
 // ---------------------------------------------------------------------------
+// Dissolve bridge：动作匹配切 = 下一 clip 头帧与上一 clip 尾帧重叠交叉溶解。
+// 旧实现把 dissolve 做成单个 clip 内部淡入淡出（Sequence 不重叠）→ 切点出现暗帧。
+// ---------------------------------------------------------------------------
+
+const DissolveBridge: React.FC<{
+  cut: Cut;
+  theme: ThemeConfig;
+  overlapFrames: number;
+}> = ({cut, theme, overlapFrames}) => {
+  const frame = useCurrentFrame();
+  const opacity = interpolate(frame, [0, Math.max(1, overlapFrames)], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  return (
+    <AbsoluteFill style={{opacity}}>
+      <SceneRenderer cut={cut} theme={theme} />
+    </AbsoluteFill>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Overlay renderer
 // ---------------------------------------------------------------------------
 
@@ -841,6 +873,21 @@ export const Explainer: React.FC<ExplainerProps> = (props) => {
         );
       })}
 
+      {/* Layer 1b: dissolve 桥（动作匹配切，重叠交叉溶解）——渲染在 Layer 1 之上，
+          不产生暗帧；flash/impact 仍在各自 clip 内部起效（无需桥）。 */}
+      {cuts.map((cut, i) => {
+        if (i === 0) return null;
+        const recipe = props.transitionRecipes?.[cut.id];
+        if (recipe?.type !== "dissolve") return null;
+        const overlap = Math.max(1, recipe.duration_frames ?? 8);
+        const from = Math.round(cut.in_seconds * fps) - overlap;
+        return (
+          <Sequence key={`dissolve-${cut.id}`} from={from} durationInFrames={overlap}>
+            <DissolveBridge cut={cut} theme={theme} overlapFrames={overlap} />
+          </Sequence>
+        );
+      })}
+
       {/* Layer 2: Overlays (section titles, stat reveals, hero titles) */}
       {overlays?.map((overlay, i) => {
         const from = Math.round(overlay.in_seconds * fps);
@@ -873,7 +920,12 @@ export const Explainer: React.FC<ExplainerProps> = (props) => {
         />
       )}
 
-      {/* Layer 4: Audio — narration */}
+      {/* Layer 4: 口播字幕轨（narration 逐词，底部安全区）——与花字(captionStyle)双层共存 */}
+      {props.narrationSubtitles && props.narrationSubtitles.length > 0 && (
+        <SafeCaptionTrack captions={props.narrationSubtitles} safeZoneProfile="douyin_9_16" />
+      )}
+
+      {/* Layer 5: Audio — narration */}
       {audio?.narration?.src && (
         <Audio src={resolveAsset(audio.narration.src)} volume={audio.narration.volume ?? 1} />
       )}
