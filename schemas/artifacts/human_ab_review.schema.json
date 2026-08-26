@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/human_ab_review",
+  "title": "Human A/B Review",
+  "description": "人工门 + A/B 对比评价记录：新成片 vs 旧成片（batch-002），按 8 维（创意方向/钩子/证明/节奏/可读性 + 故事结构/花字/转场）逐项给 new 评分（pass/adjust/redirect）与 vs_old 对比（better/equal/worse）。拒绝/返工须带 issue_tags。",
+  "type": "object",
+  "required": ["version", "project_id", "comparison", "dims", "created_at"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "project_id": { "type": "string", "minLength": 1 },
+    "comparison": {
+      "type": "object",
+      "required": ["old_label", "new_label"],
+      "properties": {
+        "old_label": { "type": "string", "description": "旧片标识（如 table-mat-batch-002-c1）" },
+        "old_path": { "type": ["string", "null"] },
+        "new_label": { "type": "string", "description": "新片标识（如 template-run-sheet-01-...）" },
+        "new_path": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "dims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["dim", "label", "new", "vs_old"],
+        "properties": {
+          "dim": {
+            "type": "string",
+            "enum": ["creative_direction", "hook", "proof", "pacing", "readability", "story_structure", "caption_huazi", "transition_rhythm"]
+          },
+          "label": { "type": "string" },
+          "new": { "type": "string", "enum": ["pass", "adjust", "redirect"] },
+          "vs_old": { "type": "string", "enum": ["better", "equal", "worse"] },
+          "note": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "overall": {
+      "type": "string",
+      "enum": ["new_better", "comparable", "new_worse"]
+    },
+    "issue_tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "拒绝/返工的结构化标签（weak_hook / caption_overlap / etc.）"
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "semantic_sha256": { "type": "string" },
+    "artifact_sha256": { "type": "string" }
+  },
+  "additionalProperties": false
+}
