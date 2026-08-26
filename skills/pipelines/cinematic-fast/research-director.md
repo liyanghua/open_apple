@@ -42,3 +42,15 @@ after recovery, no partial Research bundle may remain visible.
 ## caption_style_fingerprint (P1-1)
 
 Build `caption_style_fingerprint` (schema `schemas/artifacts/caption_style_fingerprint.schema.json`, builder `lib/caption_style.py`) from `research_breakdown` overlay observations. Reference without caption text → `applicability: not_applicable`; with captions → `needs_review` until a human confirms font family / size hierarchy / weight / stroke (automated part only seeds overlay samples, evidence frames and effect treatment). Never copy reference font files or caption assets — Remotion renders from this spec with open-source approximations.
+
+## template_pack（模板驱动，Req 2 输入）
+
+若项目有 `artifacts/template_pack.json`（`lib/template_import.build_template_pack` 产物），research 将其作为**外部结构化先验**消费，而**不是**对 43 条模板重复跑一遍视频分析：
+
+- 只读：`template_pack` 是一次导入后锁定的只读素材库；research 不改写它，不向它塞研究观察。
+- 共享研究制品：自有素材分析（`source_media_review` / `media_index` / `reference_source_matrix` / `research_breakdown` / `research_synthesis` / `research_scorecard`）仍产在**批根共享**一次，供全部 run 复用。模板模式只是把这批共享制品 + 商品事实一并链接到每个 run 的 `template_run_plan`.
+- 事实锁定：模板的 `caption_treatment` / `overlay_text` 是**人工拆解锁定值**，不是让 `video_analyzer` 重新猜测的观察。若用视频分析校验模板，只生成 warning/置信度，**不覆盖人工值**（见设计文档 §1.3 两层模型）。
+- 版权边界：模板包/参考片的 `overlay_text`、`dialogue`、字体、logo、音乐仅 `analysis_only`；research 阶段就要在 `originality_boundary` 记录"模板台词/花字不进入最终资产"。
+- provenance：`template_pack` 的 `source_document.sha256` / `parser_version` 进入研究的 provenance，保证重跑幂等、可审计。
+
+这条阶段（`checkpoint_research.json`）不产出 `template_pack` 本身——它是由导入脚本预先产生的；research 只消费并校验其存在与 hash。

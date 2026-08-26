@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/template_run_plan",
+  "title": "Template Run Plan",
+  "description": "单条模板适配的不可变计划（template_pack → 一条自有视频）。记录模板、商品事实、每个 slot 的素材绑定来源与替换理由、caption policy；是 asset/scene_plan 的共同输入，不绑定来源或理由的 slot 不能进入 paid assets。",
+  "type": "object",
+  "required": ["version", "run_id", "template_id", "template_pack_ref", "product_facts_ref", "adaptation_policy", "slot_bindings", "caption_policy", "status"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "template_id": { "type": "string", "minLength": 1 },
+    "template_pack_ref": {
+      "type": "object",
+      "required": ["artifact_sha256", "version"],
+      "properties": {
+        "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "version": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "product_facts_ref": {
+      "type": "object",
+      "required": ["artifact_sha256"],
+      "properties": { "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
+      "additionalProperties": false
+    },
+    "adaptation_policy": { "type": "string", "description": "改编策略（如 proof-first / pain-first / story），由模板表达或人工指定" },
+    "slot_bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slot_id", "source", "reason"],
+        "properties": {
+          "slot_id": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "enum": ["owned", "generate", "unbound"] },
+          "source_media_id": { "type": ["string", "null"] },
+          "asset_type": { "type": ["string", "null"] },
+          "reason": { "type": "string", "minLength": 1 }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "source": { "const": "owned" } }, "required": ["source"] },
+            "then": { "properties": { "source_media_id": { "type": "string", "minLength": 1 } }, "required": ["source_media_id"] }
+          },
+          {
+            "if": { "properties": { "source": { "const": "generate" } }, "required": ["source"] },
+            "then": { "properties": { "asset_type": { "type": "string", "minLength": 1 } }, "required": ["asset_type"] }
+          }
+        ],
+        "additionalProperties": false
+      }
+    },
+    "caption_policy": {
+      "type": "object",
+      "required": ["reference_text", "copy_reference_caption"],
+      "properties": {
+        "reference_text": { "type": "string", "enum": ["analysis_only", "forbidden"] },
+        "copy_reference_caption": { "type": "boolean", "const": false, "description": "参考花字/caption 绝不复制进最终字幕（硬门）" }
+      },
+      "additionalProperties": false
+    },
+    "status": {
+      "type": "string",
+      "enum": ["awaiting_human", "approved", "in_progress", "completed", "failed", "skipped"]
+    },
+    "semantic_sha256": { "type": "string" },
+    "artifact_sha256": { "type": "string" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "enum": ["approved", "in_progress"] } } },
+      "then": {
+        "properties": {
+          "slot_bindings": {
+            "not": { "contains": { "properties": { "source": { "const": "unbound" } }, "required": ["source"] } }
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

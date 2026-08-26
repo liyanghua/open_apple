@@ -4,67 +4,168 @@
   "title": "Shot Execution Plan",
   "type": "object",
   "required": [
-    "version", "project_id", "plan_id", "plan_version", "status", "created_at",
-    "creative_control_ref", "script_ref", "scene_plan_ref", "shots"
+    "version",
+    "project_id",
+    "plan_id",
+    "plan_version",
+    "status",
+    "created_at",
+    "creative_control_ref",
+    "script_ref",
+    "scene_plan_ref",
+    "shots"
   ],
   "properties": {
-    "version": {"const": "1.0"},
-    "project_id": {"type": "string", "minLength": 1},
-    "plan_id": {"type": "string", "minLength": 1},
-    "plan_version": {"type": "integer", "minimum": 1},
-    "status": {"enum": ["draft", "needs_revision", "approved"]},
-    "created_at": {"type": "string", "format": "date-time"},
-    "creative_control_ref": {"$ref": "#/$defs/artifact_ref"},
-    "script_ref": {"$ref": "#/$defs/artifact_ref"},
-    "scene_plan_ref": {"$ref": "#/$defs/artifact_ref"},
+    "version": {
+      "const": "1.0"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "plan_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "plan_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "needs_revision",
+        "approved"
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "creative_control_ref": {
+      "$ref": "#/$defs/artifact_ref"
+    },
+    "script_ref": {
+      "$ref": "#/$defs/artifact_ref"
+    },
+    "scene_plan_ref": {
+      "$ref": "#/$defs/artifact_ref"
+    },
     "shots": {
       "type": "array",
       "minItems": 1,
-      "items": {"$ref": "#/$defs/shot"}
+      "items": {
+        "$ref": "#/$defs/shot"
+      }
     },
-    "approval": {"$ref": "#/$defs/approval"},
-    "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+    "approval": {
+      "$ref": "#/$defs/approval"
+    },
+    "semantic_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "artifact_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
   },
   "allOf": [
     {
-      "if": {"properties": {"status": {"const": "approved"}}, "required": ["status"]},
-      "then": {"required": ["approval"]}
+      "if": {
+        "properties": {
+          "status": {
+            "const": "approved"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "approval"
+        ]
+      }
     }
   ],
   "additionalProperties": false,
   "$defs": {
     "artifact_ref": {
       "type": "object",
-      "required": ["artifact", "version", "artifact_sha256"],
+      "required": [
+        "artifact",
+        "version",
+        "artifact_sha256"
+      ],
       "properties": {
-        "artifact": {"type": "string", "minLength": 1},
-        "version": {"type": "integer", "minimum": 1},
-        "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        "artifact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "artifact_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
       },
       "additionalProperties": false
     },
     "approval": {
       "type": "object",
-      "required": ["approved_by", "approved_at"],
+      "required": [
+        "approved_by",
+        "approved_at"
+      ],
       "properties": {
-        "approved_by": {"type": "string", "minLength": 1},
-        "approved_at": {"type": "string", "format": "date-time"}
+        "approved_by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approved_at": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
       "additionalProperties": false
     },
     "source_selection": {
       "oneOf": [
-        {"type": "null"},
+        {
+          "type": "null"
+        },
         {
           "type": "object",
-          "required": ["media_id", "path", "start_seconds", "end_seconds", "fit_reason"],
+          "required": [
+            "media_id",
+            "path",
+            "start_seconds",
+            "end_seconds",
+            "fit_reason"
+          ],
           "properties": {
-            "media_id": {"type": "string", "minLength": 1},
-            "path": {"type": "string", "pattern": "^inputs/source/"},
-            "start_seconds": {"type": "number", "minimum": 0},
-            "end_seconds": {"type": "number", "exclusiveMinimum": 0},
-            "fit_reason": {"type": "string"}
+            "media_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^inputs/source/"
+            },
+            "start_seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "end_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "fit_reason": {
+              "type": "string"
+            }
           },
           "additionalProperties": false
         }
@@ -73,58 +174,223 @@
     "generation_proposal": {
       "type": "object",
       "required": [
-        "id", "operation", "prompt", "model_family", "duration_seconds", "aspect_ratio",
-        "reference_paths", "consistency_requirements", "prohibitions",
-        "estimated_fast_cost_usd", "estimated_standard_cost_usd", "evidence_risk"
+        "id",
+        "operation",
+        "prompt",
+        "model_family",
+        "duration_seconds",
+        "aspect_ratio",
+        "reference_paths",
+        "consistency_requirements",
+        "prohibitions",
+        "estimated_fast_cost_usd",
+        "estimated_standard_cost_usd",
+        "evidence_risk"
       ],
       "properties": {
-        "id": {"type": "string", "minLength": 1},
-        "operation": {"enum": ["text_to_video", "image_to_video", "reference_to_video"]},
-        "prompt": {"type": "string", "minLength": 1},
-        "model_family": {"const": "seedance"},
-        "duration_seconds": {"type": "integer", "minimum": 4, "maximum": 15},
-        "aspect_ratio": {"enum": ["16:9", "9:16", "1:1"]},
-        "reference_paths": {"type": "array", "maxItems": 9, "items": {"type": "string", "pattern": "^inputs/source/"}},
-        "consistency_requirements": {"type": "array", "items": {"type": "string"}},
-        "prohibitions": {"type": "array", "items": {"type": "string"}},
-        "estimated_fast_cost_usd": {"type": "number", "minimum": 0},
-        "estimated_standard_cost_usd": {"type": "number", "minimum": 0},
-        "evidence_risk": {"type": "string", "minLength": 1}
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation": {
+          "enum": [
+            "text_to_video",
+            "image_to_video",
+            "reference_to_video"
+          ]
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model_family": {
+          "const": "seedance"
+        },
+        "duration_seconds": {
+          "type": "integer",
+          "minimum": 4,
+          "maximum": 15
+        },
+        "aspect_ratio": {
+          "enum": [
+            "16:9",
+            "9:16",
+            "1:1"
+          ]
+        },
+        "reference_paths": {
+          "type": "array",
+          "maxItems": 9,
+          "items": {
+            "type": "string",
+            "pattern": "^inputs/source/"
+          }
+        },
+        "consistency_requirements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "prohibitions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "estimated_fast_cost_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "estimated_standard_cost_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "evidence_risk": {
+          "type": "string",
+          "minLength": 1
+        }
       },
       "additionalProperties": false
     },
     "shot": {
       "type": "object",
       "required": [
-        "id", "order", "purpose", "duration_seconds", "narration", "screen_copy",
-        "subject_action", "setting", "framing", "camera", "lighting", "sound",
-        "evidence_type", "coverage_status", "gap_class", "gap_strategy", "source_selection",
-        "reference_mechanisms", "industry_notes", "control_rule_refs", "generation_proposals",
+        "id",
+        "order",
+        "purpose",
+        "duration_seconds",
+        "narration",
+        "screen_copy",
+        "subject_action",
+        "setting",
+        "framing",
+        "camera",
+        "lighting",
+        "sound",
+        "evidence_type",
+        "coverage_status",
+        "gap_class",
+        "gap_strategy",
+        "source_selection",
+        "reference_mechanisms",
+        "industry_notes",
+        "control_rule_refs",
+        "generation_proposals",
         "selected_generation_task_id"
       ],
       "properties": {
-        "id": {"type": "string", "minLength": 1},
-        "order": {"type": "integer", "minimum": 1},
-        "purpose": {"type": "string"},
-        "duration_seconds": {"type": "number", "exclusiveMinimum": 0},
-        "narration": {"type": "string"},
-        "screen_copy": {"type": "string"},
-        "subject_action": {"type": "string"},
-        "setting": {"type": "string"},
-        "framing": {"type": "string"},
-        "camera": {"type": "string"},
-        "lighting": {"type": "string"},
-        "sound": {"type": "string"},
-        "evidence_type": {"enum": ["real_proof", "demonstration", "atmosphere", "transition", "cta"]},
-        "coverage_status": {"enum": ["enough", "gap"]},
-        "gap_class": {"enum": ["none", "expressive", "evidential"]},
-        "gap_strategy": {"enum": ["none", "real_capture", "rephrase", "remove", "generate"]},
-        "source_selection": {"$ref": "#/$defs/source_selection"},
-        "reference_mechanisms": {"type": "array", "items": {"type": "string"}},
-        "industry_notes": {"type": "array", "items": {"type": "string"}},
-        "control_rule_refs": {"type": "array", "items": {"type": "string"}},
-        "generation_proposals": {"type": "array", "items": {"$ref": "#/$defs/generation_proposal"}},
-        "selected_generation_task_id": {"type": ["string", "null"]}
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "duration_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "narration": {
+          "type": "string"
+        },
+        "screen_copy": {
+          "type": "string"
+        },
+        "subject_action": {
+          "type": "string"
+        },
+        "setting": {
+          "type": "string"
+        },
+        "framing": {
+          "type": "string"
+        },
+        "camera": {
+          "type": "string"
+        },
+        "lighting": {
+          "type": "string"
+        },
+        "sound": {
+          "type": "string"
+        },
+        "evidence_type": {
+          "enum": [
+            "real_proof",
+            "demonstration",
+            "atmosphere",
+            "transition",
+            "cta"
+          ]
+        },
+        "coverage_status": {
+          "enum": [
+            "enough",
+            "gap"
+          ]
+        },
+        "gap_class": {
+          "enum": [
+            "none",
+            "expressive",
+            "evidential"
+          ]
+        },
+        "gap_strategy": {
+          "enum": [
+            "none",
+            "real_capture",
+            "rephrase",
+            "remove",
+            "generate"
+          ]
+        },
+        "source_selection": {
+          "$ref": "#/$defs/source_selection"
+        },
+        "reference_mechanisms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "industry_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "control_rule_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "generation_proposals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/generation_proposal"
+          }
+        },
+        "selected_generation_task_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scene_id": {
+          "type": "string",
+          "description": "键控配对字段：本 shot 对应 scene/slot（评审 P0-1，禁止位置推断）"
+        },
+        "template_slot_ref": {
+          "type": "string",
+          "description": "键控配对字段：本 shot 对应 scene/slot（评审 P0-1，禁止位置推断）"
+        }
       },
       "additionalProperties": false
     }

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/template_batch",
+  "title": "Template Batch",
+  "description": "模板批量生产控制面（43 个 run）。锁定模板包、商品事实、共享研究、provider/model/runtime、并发/预算/重试、publish 策略；每个 run 独立 template_run_plan + project。不是 candidate_batch 的候选选择语义（不强制'只选 1-2 条'）。",
+  "type": "object",
+  "required": ["version", "batch_id", "template_pack_ref", "product_facts_ref", "runs", "concurrency", "budget", "publish_policy"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "batch_id": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "template_pack_ref": {
+      "type": "object",
+      "required": ["artifact_sha256", "version"],
+      "properties": {
+        "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "version": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "product_facts_ref": {
+      "type": "object",
+      "required": ["artifact_sha256"],
+      "properties": { "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
+      "additionalProperties": false
+    },
+    "shared_research_refs": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["template_id", "project_id", "template_run_plan_ref", "status"],
+        "properties": {
+          "template_id": { "type": "string", "minLength": 1 },
+          "project_id": { "type": "string", "minLength": 1 },
+          "template_run_plan_ref": {
+            "type": ["object", "null"],
+            "description": "真实 template_run_plan 的 artifact_sha256；null = plan 尚未落盘（禁止进入 paid assets）",
+            "required": ["artifact_sha256"],
+            "properties": { "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
+            "additionalProperties": false
+          },
+          "status": {
+            "type": "string",
+            "enum": ["planned", "awaiting_human", "in_progress", "sampled", "evaluated", "failed", "published", "skipped"]
+          },
+          "cost_usd": { "type": "number", "minimum": 0 },
+          "attempts": { "type": "integer", "minimum": 0 },
+          "failure_reason": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "concurrency": {
+      "type": "object",
+      "required": ["max_parallel"],
+      "properties": { "max_parallel": { "type": "integer", "minimum": 1 } },
+      "additionalProperties": false
+    },
+    "budget": {
+      "type": "object",
+      "required": ["max_cost_usd", "max_retries_per_run"],
+      "properties": {
+        "max_cost_usd": { "type": "number", "minimum": 0 },
+        "max_retries_per_run": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "publish_policy": { "type": "string", "enum": ["all_qa_passed", "selective"] },
+    "pilot_run_ids": { "type": "array", "items": { "type": "string" } },
+    "provider": { "type": ["object", "null"] },
+    "render_runtime": { "type": ["string", "null"] },
+    "model": { "type": ["string", "object", "null"], "description": "供应商/model（需经 approval 后确定）" },
+    "decision_ref": {
+      "type": ["object", "null"],
+      "description": "批级审批 decision_log 引用；未审批则 status 不得为 in_progress",
+      "properties": { "decision_id": { "type": "string" }, "approved_at": { "type": "string", "format": "date-time" } },
+      "additionalProperties": false
+    },
+    "status": {
+      "type": "string",
+      "enum": ["planned", "awaiting_human", "in_progress", "completed", "failed", "skipped"],
+      "description": "批根状态；未决(status=planned/awaiting_human)时禁止调度付费"
+    },
+    "progress": { "type": ["object", "null"], "description": "批级进度（completed/published 计数）" },
+    "report_ref": { "type": ["object", "null"], "description": "批级报告（batch_run_report 等）引用" },
+    "semantic_sha256": { "type": "string" },
+    "artifact_sha256": { "type": "string" }
+  },
+  "additionalProperties": false
+}

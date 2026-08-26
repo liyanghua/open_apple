@@ -66,3 +66,25 @@ Caption policy 1.0.1: every source caption must declare origin, review, interval
 - 意图由 shot 的 `narrative_role` / `shot_intent` 派生，不写死 Remotion 组件名；
 - 运营可预览 `recipe_capabilities(runtime)` 里的 recipe 清单并替换；
 - 渲染 runtime 不支持首选 recipe 时自动回退，绝不静默换渲染器。
+
+## 逐镜花字 treatment（应用层，参考 template/参考片）
+
+`caption_recipe_intent` 应取自**自有镜头**语义（`shot_intent`/`narrative_role`）。
+只有无显式意图时，才允许参考/模板的 `caption_treatment` 回退：
+
+```text
+自有 shot_intent/narrative_role → caption_recipe_intent（首选）
+参考/模板 caption_treatment → 仅 fallback 提示（resolver 得出）
+```
+
+用 `lib.caption_treatment.resolve_caption_recipe_intent(own_caption_intent, reference_treatment)`
+解析，并记录 `caption_treatment` / `caption_intent_derived_from` / `caption_fallback_used`。
+`caption_fallback_used=true` 时，不得在验收中声称"与参考花字列一致"即是语义正确。
+参考花字**文本/字体/成片**绝不进入最终字幕或资产（`analysis_only`）。
+
+## template_run_plan（模板驱动，Req 3）
+
+若项目有 `artifacts/template_run_plan.json`（`template_batch` 产物），scene_plan 以它为**结构约束**：
+- 每个 scene 对应模板一个 slot，`metadata.template_slot_ref` 引用 slot_id；
+- 消费 slot 的 `shot_language{shot_size/camera_movement/camera_angle}`（模板镜头语法）+ `caption_treatment`（经需求 1 的 `resolve_caption_recipe_intent` 得出 `caption_recipe_intent`）；
+- 未绑定的 slot（`source=unbound`）不得进入 paid assets；参考 `overlay_text`/`dialogue` 仅 `analysis_only`，绝不复制进最终字幕或台词。

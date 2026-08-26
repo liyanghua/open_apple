@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/template_pack",
+  "title": "Template Pack",
+  "description": "只读、内容寻址的参考模板库（43 条人工逐镜拆解）。source_document 锁定原始 xlsx hash + parser_version；每个 template 有稳定 template_id + slots（含逐镜 caption_treatment）。模板导入是人工数据的事实锁定，不是 video_analyzer 重新猜测。",
+  "type": "object",
+  "required": ["version", "project_id", "created_at", "taxonomy_version", "source_document", "templates"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "project_id": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "taxonomy_version": { "type": "string" },
+    "source_document": {
+      "type": "object",
+      "required": ["path", "sha256", "parser_version"],
+      "properties": {
+        "path": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "parser_version": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "templates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["template_id", "sheet_name", "slots"],
+        "properties": {
+          "template_id": { "type": "string", "minLength": 1 },
+          "sheet_name": { "type": "string" },
+          "archetype": { "type": ["string", "null"] },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["slot_id", "ordinal", "shot_language"],
+              "properties": {
+                "slot_id": { "type": "string", "minLength": 1 },
+                "ordinal": { "type": "integer", "minimum": 1 },
+                "duration_s": { "type": ["number", "null"] },
+                "shot_language": {
+                  "type": "object",
+                  "properties": {
+                    "shot_size": { "type": ["string", "null"] },
+                    "camera_movement": { "type": ["string", "null"] },
+                    "camera_angle": { "type": ["string", "null"] }
+                  },
+                  "additionalProperties": true
+                },
+                "visual_content": { "type": ["string", "null"] },
+                "overlay_text": { "type": ["string", "null"] },
+                "caption_treatment": {
+                  "type": "string",
+                  "enum": ["fade_in", "subtitle", "animated", "static", "fade_out", "none", "unknown"]
+                },
+                "effect_treatment": { "type": ["string", "null"] },
+                "audio_layers": { "type": "array", "items": { "type": "string" } },
+                "music_profile": { "type": ["string", "null"] },
+                "scene": { "type": ["string", "null"] },
+                "dialogue": { "type": ["string", "null"] },
+                "visual_reference_ref": {
+                  "type": ["object", "null"],
+                  "description": "K 列画面参考嵌入图：{evidence_ref, source_cell, image_sha256}",
+                  "properties": {
+                    "evidence_ref": { "type": "string" },
+                    "source_cell": { "type": "string" },
+                    "image_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "normalization_warnings": { "type": "array", "items": { "type": "string" } },
+    "semantic_sha256": { "type": "string" },
+    "artifact_sha256": { "type": "string" }
+  },
+  "additionalProperties": false
+}

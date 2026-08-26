@@ -73,7 +73,29 @@ class ShotGenerationService:
             raise OperatorError.validation_failed("还没有可用的镜头执行单") from exc
         if not isinstance(plan, dict) or plan.get("status") != "approved":
             raise OperatorError.validation_failed("请先锁定镜头执行单，再生成预览")
+        self._assert_template_run_plan_ready()
         return plan
+
+    def _assert_template_run_plan_ready(self) -> None:
+        """P1 代码硬门：若项目带 template_run_plan，付费生成前必须 fail-closed 校验。
+
+        未批准 / 有 unbound slot / 非法绑定 / 复制参考花字 → 直接拒绝付费生成，
+        而非仅靠 markdown 描述。无 template_run_plan（普通项目）不阻塞。
+        """
+        trp_path = self.project_dir / "artifacts" / "template_run_plan.json"
+        if not trp_path.is_file():
+            return
+        try:
+            run_plan = json.loads(trp_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            raise OperatorError.validation_failed("template_run_plan 损坏，禁止付费生成")
+        from lib.template_run_plan import check_template_run_plan_ready
+
+        result = check_template_run_plan_ready(run_plan)
+        if not result["ready"]:
+            raise OperatorError.validation_failed(
+                "template_run_plan 未就绪，禁止付费生成：" + "; ".join(result["blockers"])
+            )
 
     @staticmethod
     def _find(plan: dict[str, Any], shot_id: str, proposal_id: str) -> tuple[dict[str, Any], dict[str, Any]]:

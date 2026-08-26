@@ -64,6 +64,7 @@ stages:
   - name: research
     skill: pipelines/cinematic-fast/research-director
     produces: [research_brief, video_analysis_brief, source_media_review, media_index, reference_fingerprint, research_breakdown, reference_source_matrix, research_synthesis, research_scorecard, caption_style_fingerprint]
+    optional_artifacts_in: [template_pack]
     required_tools: [video_analyzer, scene_detect, frame_sampler]
     tools_available: [video_analyzer, scene_detect, frame_sampler]
     checkpoint_required: true
@@ -101,7 +102,7 @@ stages:
     skill: pipelines/cinematic-fast/scene-director
     approval_group: creative_lock
     required_artifacts_in: [script, creative_control_plan, source_media_review, video_analysis_brief, reference_fingerprint, research_breakdown, reference_source_matrix, research_synthesis]
-    optional_artifacts_in: [proposal_packet, research_synthesis, research_annotations]
+    optional_artifacts_in: [proposal_packet, research_synthesis, research_annotations, template_run_plan]
     produces: [scene_plan]
     tools_available: [frame_sampler, scene_detect]
     optional_tools: [frame_sampler, scene_detect]
@@ -115,6 +116,7 @@ stages:
     approval_group: creative_lock
     approval_group_terminal: true
     required_artifacts_in: [proposal_packet, creative_control_plan, script, scene_plan]
+    optional_artifacts_in: [template_run_plan]
     produces: [shot_execution_plan, asset_plan, production_lock, approval_bundle]
     tools_available: [tts_selector, audio_mixer, subtitle_gen, media_proxy]
     required_tools: []

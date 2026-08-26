@@ -4,33 +4,75 @@
   "title": "Production Script",
   "description": "Timestamped script produced by the Script Writer agent.",
   "type": "object",
-  "required": ["version", "title", "total_duration_seconds", "sections"],
+  "required": [
+    "version",
+    "title",
+    "total_duration_seconds",
+    "sections"
+  ],
   "properties": {
-    "version": { "type": "string", "const": "1.0" },
-    "script_id": { "type": "string", "minLength": 1 },
-    "script_version": { "type": "integer", "minimum": 1 },
-    "status": { "enum": ["draft", "needs_revision", "approved"] },
-    "creative_control_ref": { "$ref": "#/$defs/creative_control_ref" },
-    "title": { "type": "string" },
-    "total_duration_seconds": { "type": "number", "minimum": 1 },
+    "version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "script_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "script_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "needs_revision",
+        "approved"
+      ]
+    },
+    "creative_control_ref": {
+      "$ref": "#/$defs/creative_control_ref"
+    },
+    "title": {
+      "type": "string"
+    },
+    "total_duration_seconds": {
+      "type": "number",
+      "minimum": 1
+    },
     "voice_performance": {
       "type": "object",
       "description": "Narration delivery contract used by TTS asset generation.",
       "properties": {
-        "performance_intent": { "type": "string" },
+        "performance_intent": {
+          "type": "string"
+        },
         "pacing_profile": {
           "type": "string",
-          "enum": ["contemplative", "conversational", "energetic", "technical", "cinematic", "custom"]
+          "enum": [
+            "contemplative",
+            "conversational",
+            "energetic",
+            "technical",
+            "cinematic",
+            "custom"
+          ]
         },
-        "energy_curve": { "type": "string" },
-        "pause_policy": { "type": "string" },
+        "energy_curve": {
+          "type": "string"
+        },
+        "pause_policy": {
+          "type": "string"
+        },
         "sample_section_id": {
           "type": "string",
           "description": "Most performance-sensitive section to use for TTS sample approval."
         },
         "provider_notes": {
           "type": "object",
-          "additionalProperties": { "type": "string" }
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false
@@ -39,48 +81,123 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "text", "start_seconds", "end_seconds"],
+        "required": [
+          "id",
+          "text",
+          "start_seconds",
+          "end_seconds"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "label": { "type": "string" },
-          "text": { "type": "string" },
-          "narration": { "type": "string" },
-          "screen_copy": { "type": "string" },
-          "section_goal": { "type": "string" },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "narration": {
+            "type": "string"
+          },
+          "screen_copy": {
+            "type": "string"
+          },
+          "section_goal": {
+            "type": "string"
+          },
           "beat_role": {
             "type": "string",
-            "enum": ["hook", "problem", "escalation", "reveal", "proof", "payoff", "cta", "other"],
+            "enum": [
+              "hook",
+              "problem",
+              "escalation",
+              "reveal",
+              "proof",
+              "payoff",
+              "cta",
+              "other"
+            ],
             "description": "该段落在 beat map 中的叙事角色"
           },
           "viewer_state": {
             "type": "string",
             "description": "该段落后观众应发生的状态变化（认知/情绪/张力，如 好奇→焦虑→被解答）"
           },
-          "pacing": { "type": "string" },
-          "visual_intent": { "type": "string" },
-          "evidence_requirements": { "type": "array", "items": { "type": "string" } },
-          "control_rule_refs": { "type": "array", "items": { "type": "string" } },
-          "review": { "enum": ["pending", "approved", "needs_adjustment"] },
-          "feedback": { "type": "string" },
-          "start_seconds": { "type": "number", "minimum": 0 },
-          "end_seconds": { "type": "number", "minimum": 0 },
-          "speaker_directions": { "type": "string" },
+          "pacing": {
+            "type": "string"
+          },
+          "visual_intent": {
+            "type": "string"
+          },
+          "evidence_requirements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "control_rule_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "review": {
+            "enum": [
+              "pending",
+              "approved",
+              "needs_adjustment"
+            ]
+          },
+          "feedback": {
+            "type": "string"
+          },
+          "start_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "end_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "speaker_directions": {
+            "type": "string"
+          },
           "delivery_cues": {
             "type": "object",
             "description": "Structured voice-performance cues that TTS generation must apply.",
             "properties": {
               "pace": {
                 "type": "string",
-                "enum": ["slow", "measured", "conversational", "brisk", "fast", "custom"]
+                "enum": [
+                  "slow",
+                  "measured",
+                  "conversational",
+                  "brisk",
+                  "fast",
+                  "custom"
+                ]
               },
-              "energy": { "type": "string" },
+              "energy": {
+                "type": "string"
+              },
               "emphasis_words": {
                 "type": "array",
-                "items": { "type": "string" }
+                "items": {
+                  "type": "string"
+                }
               },
-              "pause_before_seconds": { "type": "number", "minimum": 0 },
-              "pause_after_seconds": { "type": "number", "minimum": 0 },
-              "delivery_note": { "type": "string" },
+              "pause_before_seconds": {
+                "type": "number",
+                "minimum": 0
+              },
+              "pause_after_seconds": {
+                "type": "number",
+                "minimum": 0
+              },
+              "delivery_note": {
+                "type": "string"
+              },
               "provider_text": {
                 "type": "string",
                 "description": "Provider-ready narration text, including purposeful punctuation or SSML break tags when supported."
@@ -93,11 +210,28 @@
             "items": {
               "type": "object",
               "properties": {
-                "type": { "type": "string", "enum": ["overlay", "broll", "diagram", "stat_card", "code_snippet", "animation"] },
-                "description": { "type": "string" },
-                "timestamp_seconds": { "type": "number" }
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "overlay",
+                    "broll",
+                    "diagram",
+                    "stat_card",
+                    "code_snippet",
+                    "animation"
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                },
+                "timestamp_seconds": {
+                  "type": "number"
+                }
               },
-              "required": ["type", "description"]
+              "required": [
+                "type",
+                "description"
+              ]
             }
           },
           "pronunciation_guides": {
@@ -105,33 +239,107 @@
             "items": {
               "type": "object",
               "properties": {
-                "word": { "type": "string" },
-                "phonetic": { "type": "string" }
+                "word": {
+                  "type": "string"
+                },
+                "phonetic": {
+                  "type": "string"
+                }
               },
-              "required": ["word", "phonetic"]
+              "required": [
+                "word",
+                "phonetic"
+              ]
             }
           },
           "source_ref": {
             "type": "string",
             "description": "Reference to the research_brief data point or URL that supports this claim. Every factual claim should be traceable."
+          },
+          "narration_action_key": {
+            "type": "string",
+            "description": "语义对齐审计字段（build_script 填写）"
+          },
+          "bound_material_action": {
+            "type": "string",
+            "description": "语义对齐审计字段（build_script 填写）"
+          },
+          "narration_material_aligned": {
+            "type": "boolean",
+            "description": "语义对齐审计字段（build_script 填写）"
           }
         },
         "additionalProperties": false
       },
       "minItems": 1
     },
-    "approval": { "$ref": "#/$defs/approval" },
-    "metadata": { "type": "object" }
+    "approval": {
+      "$ref": "#/$defs/approval"
+    },
+    "metadata": {
+      "type": "object"
+    }
   },
   "allOf": [
     {
-      "if": { "properties": { "status": { "const": "approved" } }, "required": ["status"] },
-      "then": { "required": ["approval"] }
+      "if": {
+        "properties": {
+          "status": {
+            "const": "approved"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "approval"
+        ]
+      }
     }
   ],
   "additionalProperties": false,
   "$defs": {
-    "creative_control_ref": { "type": "object", "required": ["plan_id", "plan_version", "artifact_sha256"], "properties": { "plan_id": { "type": "string" }, "plan_version": { "type": "integer", "minimum": 1 }, "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }, "additionalProperties": false },
-    "approval": { "type": "object", "required": ["approved_by", "approved_at"], "properties": { "approved_by": { "type": "string", "minLength": 1 }, "approved_at": { "type": "string", "format": "date-time" } }, "additionalProperties": false }
+    "creative_control_ref": {
+      "type": "object",
+      "required": [
+        "plan_id",
+        "plan_version",
+        "artifact_sha256"
+      ],
+      "properties": {
+        "plan_id": {
+          "type": "string"
+        },
+        "plan_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "artifact_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "approval": {
+      "type": "object",
+      "required": [
+        "approved_by",
+        "approved_at"
+      ],
+      "properties": {
+        "approved_by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approved_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    }
   }
 }

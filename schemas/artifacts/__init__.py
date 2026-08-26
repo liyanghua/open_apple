@@ -67,6 +67,10 @@ ARTIFACT_NAMES = [
     "batch_run_report",
     "batch_quality_report",
     "product_facts",
+    "template_pack",
+    "template_run_plan",
+    "template_batch",
+    "human_ab_review",
 ]
 
 
@@ -422,6 +426,87 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
             raise jsonschema.ValidationError(
                 "candidate_variant_plan difference_fingerprint.structural_shot_count 必须等于 structural 证据类别的镜头差异数量"
             )
+    elif name == "template_run_plan":
+        _validate_template_run_plan(data)
+    elif name == "template_pack":
+        _validate_template_pack(data)
+    elif name == "template_batch":
+        _validate_template_batch(data)
+
+
+def _validate_template_run_plan(data: dict[str, Any]) -> None:
+    """template_run_plan 语义硬门（fail-closed，绝不静默放行到 paid assets）。
+
+    与 schema 的 if/then 一致，但作为权威校验，防止付费/版权绕过：
+    - approved/in_progress 不得有 unbound slot；
+    - owned 必须带 source_media_id，generate 必须带 asset_type；
+    - 参考花字绝不复制（copy_reference_caption 必须为 false）。
+    """
+    status = str(data.get("status") or "")
+    bindings = data.get("slot_bindings") or []
+    for binding in bindings:
+        if not isinstance(binding, dict):
+            continue
+        source = str(binding.get("source") or "")
+        if source == "owned" and not str(binding.get("source_media_id") or "").strip():
+            raise jsonschema.ValidationError("template_run_plan: owned slot 必须带 source_media_id")
+        if source == "generate" and not str(binding.get("asset_type") or "").strip():
+            raise jsonschema.ValidationError("template_run_plan: generate slot 必须带 asset_type")
+    if status in {"approved", "in_progress"}:
+        if any(b.get("source") == "unbound" for b in bindings if isinstance(b, dict)):
+            raise jsonschema.ValidationError("template_run_plan: approved/in_progress 不得有 unbound slot")
+    if data.get("caption_policy", {}).get("copy_reference_caption"):
+        raise jsonschema.ValidationError("template_run_plan: 禁止复制参考花字/字幕（copy_reference_caption 必须为 false）")
+
+
+def _validate_template_pack(data: dict[str, Any]) -> None:
+    """模板血缘：非空、template_id/slot_id 唯一、每个模板有 slots。"""
+    templates = data.get("templates") or []
+    if not templates:
+        raise jsonschema.ValidationError("template_pack 至少 1 个模板")
+    seen_ids: set[str] = set()
+    for template in templates:
+        if not isinstance(template, dict):
+            continue
+        tid = str(template.get("template_id") or "")
+        if tid in seen_ids:
+            raise jsonschema.ValidationError(f"template_pack 重复 template_id {tid}")
+        seen_ids.add(tid)
+        slots = template.get("slots") or []
+        if not slots:
+            raise jsonschema.ValidationError(f"模板 {tid} 无 slots")
+        seen_slots: set[str] = set()
+        for slot in slots:
+            sid = str(slot.get("slot_id") or "")
+            if not sid or sid in seen_slots:
+                raise jsonschema.ValidationError(f"模板 {tid} slot_id 为空或重复 {sid!r}")
+            seen_slots.add(sid)
+    if len(seen_ids) != len(templates):
+        raise jsonschema.ValidationError("template_pack 模板数量与去重后不一致")
+
+
+def _validate_template_batch(data: dict[str, Any]) -> None:
+    """批控制面：runs 非空、template_id 唯一、引用的 run-plan hash 是 64 位 hex。"""
+    import re
+
+    runs = data.get("runs") or []
+    if not runs:
+        raise jsonschema.ValidationError("template_batch 至少 1 个 run")
+    seen_ids: set[str] = set()
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        tid = str(run.get("template_id") or "")
+        if tid in seen_ids:
+            raise jsonschema.ValidationError(f"template_batch 重复 template_id {tid}")
+        seen_ids.add(tid)
+        ref = run.get("template_run_plan_ref")
+        if ref is not None and isinstance(ref, dict):
+            sha = str(ref.get("artifact_sha256") or "")
+            if not re.fullmatch(r"[a-f0-9]{64}", sha):
+                raise jsonschema.ValidationError(
+                    f"run {tid} template_run_plan_ref.artifact_sha256 非法（{sha!r}）"
+                )
 
 
 def list_schemas() -> list[str]:

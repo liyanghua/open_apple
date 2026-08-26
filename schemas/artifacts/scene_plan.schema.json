@@ -4,61 +4,216 @@
   "title": "Scene Plan",
   "description": "Ordered scene list produced by the Scene Planner agent.",
   "type": "object",
-  "required": ["version", "scenes"],
+  "required": [
+    "version",
+    "scenes"
+  ],
   "properties": {
-    "version": { "type": "string", "const": "1.0" },
-    "creative_control_ref": { "$ref": "#/$defs/creative_control_ref" },
-    "caption_policy_version": { "type": "string", "const": "1.0" },
-    "style_playbook": { "type": "string", "description": "Name of the active style playbook" },
+    "version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "creative_control_ref": {
+      "$ref": "#/$defs/creative_control_ref"
+    },
+    "caption_policy_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "style_playbook": {
+      "type": "string",
+      "description": "Name of the active style playbook"
+    },
     "scenes": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "type", "description", "start_seconds", "end_seconds"],
+        "required": [
+          "id",
+          "type",
+          "description",
+          "start_seconds",
+          "end_seconds"
+        ],
         "properties": {
-          "id": { "type": "string" },
+          "id": {
+            "type": "string"
+          },
           "type": {
             "type": "string",
-            "enum": ["talking_head", "broll", "animation", "character_scene", "diagram", "text_card", "transition", "generated", "screen_recording"]
+            "enum": [
+              "talking_head",
+              "broll",
+              "animation",
+              "character_scene",
+              "diagram",
+              "text_card",
+              "transition",
+              "generated",
+              "screen_recording"
+            ]
           },
-          "description": { "type": "string" },
-          "start_seconds": { "type": "number", "minimum": 0 },
-          "end_seconds": { "type": "number", "minimum": 0 },
-          "script_section_id": { "type": "string" },
-          "framing": { "type": "string" },
-          "movement": { "type": "string" },
-          "transition_in": { "type": "string" },
-          "transition_out": { "type": "string" },
+          "description": {
+            "type": "string"
+          },
+          "start_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "end_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "script_section_id": {
+            "type": "string"
+          },
+          "framing": {
+            "type": "string"
+          },
+          "movement": {
+            "type": "string"
+          },
+          "transition_in": {
+            "type": "string"
+          },
+          "transition_out": {
+            "type": "string"
+          },
           "transition_recipe_intent": {
             "type": "string",
-            "enum": ["impact", "action_match", "proof", "soft"],
+            "enum": [
+              "impact",
+              "action_match",
+              "proof",
+              "soft"
+            ],
             "description": "语义转场意图，由 lib.recipe_router.route_transition 解析到 recipe"
           },
           "caption_recipe_intent": {
             "type": "string",
-            "enum": ["proof", "label", "hook", "reveal"],
+            "enum": [
+              "proof",
+              "label",
+              "hook",
+              "reveal"
+            ],
             "description": "语义字幕意图，由 lib.recipe_router.route_caption 解析到 recipe"
           },
-          "overlay_notes": { "type": "string" },
+          "caption_treatment": {
+            "type": "string",
+            "enum": [
+              "fade_in",
+              "subtitle",
+              "animated",
+              "static",
+              "fade_out",
+              "none",
+              "unknown"
+            ],
+            "description": "参考/模板花字处理方式（逐镜），作风格提示，不是最终 recipe 意图"
+          },
+          "caption_intent_derived_from": {
+            "type": "string",
+            "enum": [
+              "shot_intent",
+              "template_treatment"
+            ],
+            "description": "caption_recipe_intent 的来源：shot_intent=自有意图优先 / template_treatment=参考 treatment 回退"
+          },
+          "caption_fallback_used": {
+            "type": "boolean",
+            "description": "caption_recipe_intent 是否来自参考 treatment 回退（fallback_used=true 不得声称'与参考花字列一致'即语义正确）"
+          },
+          "overlay_notes": {
+            "type": "string"
+          },
           "shot_language": {
             "type": "object",
             "description": "Structured cinematography vocabulary for this scene",
             "properties": {
               "shot_size": {
                 "type": "string",
-                "enum": ["extreme_wide", "wide", "medium_wide", "medium", "medium_close", "close_up", "extreme_close_up", "over_shoulder", "insert", "establishing"]
+                "enum": [
+                  "extreme_wide",
+                  "wide",
+                  "medium_wide",
+                  "medium",
+                  "medium_close",
+                  "close_up",
+                  "extreme_close_up",
+                  "over_shoulder",
+                  "insert",
+                  "establishing"
+                ]
               },
               "camera_movement": {
                 "type": "string",
-                "enum": ["static", "pan_left", "pan_right", "tilt_up", "tilt_down", "dolly_in", "dolly_out", "tracking_left", "tracking_right", "crane_up", "crane_down", "handheld", "steadicam", "whip_pan", "orbital", "zoom_in", "zoom_out", "rack_focus"]
+                "enum": [
+                  "static",
+                  "pan_left",
+                  "pan_right",
+                  "tilt_up",
+                  "tilt_down",
+                  "dolly_in",
+                  "dolly_out",
+                  "tracking_left",
+                  "tracking_right",
+                  "crane_up",
+                  "crane_down",
+                  "handheld",
+                  "steadicam",
+                  "whip_pan",
+                  "orbital",
+                  "zoom_in",
+                  "zoom_out",
+                  "rack_focus"
+                ]
               },
-              "lens_mm": { "type": "integer", "enum": [14, 24, 35, 50, 85, 135, 200] },
+              "lens_mm": {
+                "type": "integer",
+                "enum": [
+                  14,
+                  24,
+                  35,
+                  50,
+                  85,
+                  135,
+                  200
+                ]
+              },
               "lighting_key": {
                 "type": "string",
-                "enum": ["high_key", "low_key", "natural", "golden_hour", "blue_hour", "tungsten_warm", "neon", "silhouette", "rim_lit", "volumetric", "overcast_soft"]
+                "enum": [
+                  "high_key",
+                  "low_key",
+                  "natural",
+                  "golden_hour",
+                  "blue_hour",
+                  "tungsten_warm",
+                  "neon",
+                  "silhouette",
+                  "rim_lit",
+                  "volumetric",
+                  "overcast_soft"
+                ]
               },
-              "depth_of_field": { "type": "string", "enum": ["shallow", "medium", "deep"] },
-              "color_temperature": { "type": "string", "enum": ["cool", "neutral", "warm", "mixed"] }
+              "depth_of_field": {
+                "type": "string",
+                "enum": [
+                  "shallow",
+                  "medium",
+                  "deep"
+                ]
+              },
+              "color_temperature": {
+                "type": "string",
+                "enum": [
+                  "cool",
+                  "neutral",
+                  "warm",
+                  "mixed"
+                ]
+              }
             },
             "additionalProperties": false
           },
@@ -68,7 +223,18 @@
           },
           "narrative_role": {
             "type": "string",
-            "enum": ["establish_context", "introduce_subject", "build_tension", "deliver_payload", "transition", "emotional_beat", "evidence", "comparison", "resolution", "call_to_action"],
+            "enum": [
+              "establish_context",
+              "introduce_subject",
+              "build_tension",
+              "deliver_payload",
+              "transition",
+              "emotional_beat",
+              "evidence",
+              "comparison",
+              "resolution",
+              "call_to_action"
+            ],
             "description": "What role this scene plays in the narrative structure"
           },
           "information_role": {
@@ -85,25 +251,42 @@
             "description": "Character-specific acting beats for rigged character animation scenes",
             "items": {
               "type": "object",
-              "required": ["character_id", "action_sequence"],
+              "required": [
+                "character_id",
+                "action_sequence"
+              ],
               "properties": {
-                "character_id": { "type": "string" },
-                "emotion": { "type": "string" },
+                "character_id": {
+                  "type": "string"
+                },
+                "emotion": {
+                  "type": "string"
+                },
                 "action_sequence": {
                   "type": "array",
-                  "items": { "type": "string" },
+                  "items": {
+                    "type": "string"
+                  },
                   "minItems": 1
                 },
-                "dialogue": { "type": "string" },
-                "target": { "type": "string" },
-                "notes": { "type": "string" }
+                "dialogue": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string"
+                },
+                "notes": {
+                  "type": "string"
+                }
               },
               "additionalProperties": false
             }
           },
           "texture_keywords": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Visual texture descriptors: grain, clean, anamorphic, gritty, ethereal, etc."
           },
           "required_assets": {
@@ -111,43 +294,195 @@
             "items": {
               "type": "object",
               "properties": {
-                "type": { "type": "string" },
-                "description": { "type": "string" },
-                "source": { "type": "string", "enum": ["generate", "source", "provided", "record"] }
+                "type": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "generate",
+                    "source",
+                    "provided",
+                    "record"
+                  ]
+                }
               },
-              "required": ["type", "description", "source"]
+              "required": [
+                "type",
+                "description",
+                "source"
+              ]
             }
           },
-          "caption_policy_version": {"type": "string", "const": "1.0"},
-          "caption_inventory_refs": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
-          "caption_treatments": {"type": "array", "items": {"$ref": "#/$defs/caption_treatment"}},
-          "overlay_layers": {"type": "array", "items": {"$ref": "#/$defs/overlay_layer"}}
+          "caption_policy_version": {
+            "type": "string",
+            "const": "1.0"
+          },
+          "caption_inventory_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "caption_treatments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/caption_treatment"
+            }
+          },
+          "overlay_layers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/overlay_layer"
+            }
+          },
+          "template_slot_ref": {
+            "type": "string",
+            "description": "键控配对字段：本 scene 的来源 slot（评审 P0-1）"
+          }
         },
         "additionalProperties": false
       },
       "minItems": 1
     },
-    "metadata": { "type": "object" }
+    "metadata": {
+      "type": "object"
+    }
   },
   "additionalProperties": false,
   "$defs": {
-    "creative_control_ref": { "type": "object", "required": ["plan_id", "plan_version", "artifact_sha256"], "properties": { "plan_id": { "type": "string" }, "plan_version": { "type": "integer", "minimum": 1 }, "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }, "additionalProperties": false },
-    "caption_treatment": {
-      "type": "object", "required": ["caption_id", "action", "review", "interval", "reason"], "additionalProperties": false,
+    "creative_control_ref": {
+      "type": "object",
+      "required": [
+        "plan_id",
+        "plan_version",
+        "artifact_sha256"
+      ],
       "properties": {
-        "caption_id": {"type": "string", "minLength": 1},
-        "action": {"enum": ["retain", "crop", "mask", "replace"]},
-        "review": {"enum": ["approved", "pending", "rejected"]},
-        "interval": {"type": "object", "required": ["start_seconds", "end_seconds"], "additionalProperties": false, "properties": {"start_seconds": {"type": "number", "minimum": 0}, "end_seconds": {"type": "number", "exclusiveMinimum": 0}}},
-        "reason": {"type": "string", "minLength": 1},
-        "replacement_overlay_id": {"type": ["string", "null"]}
+        "plan_id": {
+          "type": "string"
+        },
+        "plan_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "artifact_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "caption_treatment": {
+      "type": "object",
+      "required": [
+        "caption_id",
+        "action",
+        "review",
+        "interval",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "caption_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "enum": [
+            "retain",
+            "crop",
+            "mask",
+            "replace"
+          ]
+        },
+        "review": {
+          "enum": [
+            "approved",
+            "pending",
+            "rejected"
+          ]
+        },
+        "interval": {
+          "type": "object",
+          "required": [
+            "start_seconds",
+            "end_seconds"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "start_seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "end_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "replacement_overlay_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "overlay_layer": {
-      "type": "object", "required": ["overlay_id", "source", "text", "start_seconds", "end_seconds", "review"], "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "overlay_id",
+        "source",
+        "text",
+        "start_seconds",
+        "end_seconds",
+        "review"
+      ],
+      "additionalProperties": false,
       "properties": {
-        "overlay_id": {"type": "string", "minLength": 1}, "source": {"enum": ["generated_overlay", "narration_caption"]}, "text": {"type": "string", "minLength": 1},
-        "start_seconds": {"type": "number", "minimum": 0}, "end_seconds": {"type": "number", "exclusiveMinimum": 0}, "review": {"enum": ["approved", "pending", "rejected"]}, "approval_ref": {"type": "string", "minLength": 1}
+        "overlay_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "enum": [
+            "generated_overlay",
+            "narration_caption"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "end_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "review": {
+          "enum": [
+            "approved",
+            "pending",
+            "rejected"
+          ]
+        },
+        "approval_ref": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     }
   }
