@@ -200,3 +200,66 @@ def test_caption_style_passthrough_and_recipe_from_scene_plan() -> None:
     assert payload["captionStyle"]["vertical"] is True
     assert payload["captionStyle"]["strokeWidthPx"] == 8
     assert payload["captionRecipes"]["shot-01"]["recipe_id"] == "keyword-highlight"
+
+
+def test_sample_payload_derives_narration_subtitle_track_from_script() -> None:
+    """两层字幕：script.sections[].narration -> bottom SafeCaptionTrack cues."""
+    result = build_sample_render_payload({
+        "final_props": {
+            "fps": 30,
+            "durationInFrames": 180,
+            "scenes": [
+                {"id": "shot-01", "assetId": "proxy-01", "footageKey": "opening",
+                 "fromFrame": 0, "toFrameExclusive": 60,
+                 "sourceInSeconds": 0.0, "sourceOutSeconds": 2.0},
+            ],
+            "footage": {"opening": "assets/video/opening.mp4"},
+            "audio": {"mix": {"narration": {"path": "assets/audio/mix.mp3"}}},
+        },
+        "asset_manifest": {"assets": [
+            {"id": "proxy-01", "type": "video", "path": "assets/video/opening.mp4",
+             "duration_seconds": 2.0},
+            {"id": "mix", "type": "audio", "path": "assets/audio/mix.mp3"},
+        ]},
+        "render_runtime": "remotion",
+        "renderer_family": "explainer-data",
+        "script": {
+            "sections": [
+                {"id": "sec-001", "narration": "油污，一擦就没了？",
+                 "start_seconds": 0.0, "end_seconds": 2.0},
+                {"id": "sec-002", "narration": "  0 甲醛，检测报告为证。  ",
+                 "start_seconds": 2.0, "end_seconds": 4.0},
+                {"id": "sec-003", "narration": "",
+                 "start_seconds": 4.0, "end_seconds": 6.0},
+                {"id": "sec-004", "narration": None,
+                 "start_seconds": 6.0, "end_seconds": 8.0},
+            ],
+        },
+    })
+    assert result["narrationSubtitles"] == [
+        {"text": "油污，一擦就没了？", "startMs": 0, "endMs": 2000},
+        {"text": "0 甲醛，检测报告为证。", "startMs": 2000, "endMs": 4000},
+    ]
+
+
+def test_sample_payload_omits_narration_track_without_script() -> None:
+    result = build_sample_render_payload({
+        "final_props": {
+            "fps": 30,
+            "durationInFrames": 60,
+            "scenes": [
+                {"id": "shot-01", "assetId": "proxy-01", "footageKey": "opening",
+                 "fromFrame": 0, "toFrameExclusive": 60,
+                 "sourceInSeconds": 0.0, "sourceOutSeconds": 2.0},
+            ],
+            "footage": {"opening": "assets/video/opening.mp4"},
+            "audio": {"mix": {"narration": {"path": "assets/audio/mix.mp3"}}},
+        },
+        "asset_manifest": {"assets": [
+            {"id": "proxy-01", "type": "video", "path": "assets/video/opening.mp4",
+             "duration_seconds": 2.0},
+        ]},
+        "render_runtime": "remotion",
+        "renderer_family": "explainer-data",
+    })
+    assert "narrationSubtitles" not in result

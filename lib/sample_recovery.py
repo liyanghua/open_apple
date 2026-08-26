@@ -144,6 +144,7 @@ def build_reuse_assets_sample_input(project_dir: Path) -> tuple[dict[str, Any], 
 
     scene_plan = _load_json_if_exists("scene_plan.json")
     csf = _load_json_if_exists("caption_style_fingerprint.json")
+    script = _load_json_if_exists("script.json")
     payload = {
         "final_props": repaired_props,
         "asset_manifest": asset_manifest,
@@ -154,6 +155,9 @@ def build_reuse_assets_sample_input(project_dir: Path) -> tuple[dict[str, Any], 
         payload["scene_plan"] = scene_plan
     if isinstance(csf, dict):
         payload["caption_style_fingerprint"] = csf
+    if isinstance(script, dict):
+        # 双层字幕：底部口播字幕轨由 script.narration 逐句派生。
+        payload["script"] = script
     preflight = validate_sample_inputs({
         "shot_execution_plan": json.loads((artifacts / "shot_execution_plan.json").read_text(encoding="utf-8")),
         "final_props": repaired_props,

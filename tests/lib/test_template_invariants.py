@@ -1,0 +1,309 @@
+"""跨阶段不变量测试（评审 P0/P1 回归护栏）。
+
+覆盖五条跨阶段契约：
+1. source_mapping → narration：口播动作 key == 绑定素材动作 key（语义对齐）
+2. TTS 输出 → mix 输入：三位命名契约 + 缺口播文件即阻断
+3. scene recipe → cut id：recipe key 必须与渲染 cut.id 一致
+4. QA/L1a 失败 → 禁止发布：verify_publish_gates 硬门
+5. 输入内容变化 → 禁止复用旧 proxy/mix（内容 hash 幂等 sidecar 校验）
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def _make_run():
+    from lib.template_run_plan import create_template_run
+
+    slots = [
+        {"slot_id": f"s{i}", "ordinal": i, "duration_s": 2.0,
+         "shot_language": {"shot_size": "近景", "camera_movement": "固定"},
+         "visual_content": "KEEP HAPPY HOLIDAY", "overlay_text": "KEEP HAPPY HOLIDAY",
+         "scene": "室内/桌面", "caption_treatment": "subtitle",
+         "dialogue": "透明软玻璃桌垫，贴合桌面，防水防油易清洁"} for i in range(1, 9)
+    ]
+    slots[5] = {**slots[5], "overlay_text": "防水油 克洗易清洁"}
+    slots[6] = {**slots[6], "overlay_text": "防刮耐磨"}
+    template = {"template_id": "sheet-test", "slots": slots}
+    run = create_template_run(template, template_pack_ref={"artifact_sha256": "a" * 64},
+                              product_facts_ref={"artifact_sha256": "b" * 64})
+    return template, run
+
+
+def test_match_run_plan_semantic_alignment_and_hap_false_positive_guard():
+    """不变量 1a：素材动作 == slot 期望动作；"KEEP HAPPY HOLIDAY" 不得被 "HAP" 误命中。"""
+    from lib.template_source_match import _action_from_stem, _best_action, match_run_plan
+
+    template, run = _make_run()
+    assigned = match_run_plan(template["slots"], run)
+    for slot in template["slots"]:
+        expected = _best_action(slot)
+        stem = assigned[slot["slot_id"]]
+        assert _action_from_stem(stem) == expected, f"{slot['slot_id']}: {expected} != {stem}"
+    # 占位英文不产生 无甲醛 误匹配
+    assert assigned["s1"] == "product_透明桌垫-防油易擦拭"
+
+
+def test_build_script_narration_aligns_with_bound_material(tmp_path: Path):
+    """不变量 1b：build_script 按绑定素材动作挑文案（narration_action_key == bound_material_action）。"""
+    from lib.template_mainline import _bound_action, build_script
+    from lib.template_source_match import build_source_mappings, match_run_plan
+
+    template, run = _make_run()
+    assigned = match_run_plan(template["slots"], run)
+    scenes = [
+        {"id": f"scene-{i:03d}", "start_seconds": float((i - 1) * 2.0), "end_seconds": float(i * 2.0)}
+        for i in range(1, 9)
+    ]
+    slot_by_scene = {f"scene-{i:03d}": slot for i, slot in enumerate(template["slots"], start=1)}
+    mapping = build_source_mappings(scenes, slot_by_scene, assigned)
+    sp = {"scenes": scenes, "metadata": {"source_mapping": mapping}}
+    from backlot.project_commit import ProjectCommitStore
+
+    proj = tmp_path / "run-script"
+    from lib.template_mainline import build_script
+
+    with ProjectCommitStore(proj).transaction(action={"action_id": "invariant-script"}) as sink:
+        script_env = build_script(proj, template, sp, {}, {}, approved=True, sink=sink)
+    script = script_env["data"]
+    for sec in script["sections"]:
+        if not str(sec.get("narration") or "").strip():
+            continue
+        assert sec["narration_material_aligned"] is True, f"{sec['id']} 文案与素材动作错位"
+        assert sec["narration_action_key"] == sec["bound_material_action"], sec["id"]
+        assert sec["narration_action_key"] == _bound_action(sp, scenes[int(sec["id"].split("-")[1]) - 1])
+
+
+def test_tts_naming_contract_and_mix_track_resolution():
+    """不变量 2：TTS 三位命名 = mix 使用的命名；缺文件阻断混音（评审 P0-2）。"""
+    from scripts.gen_template_audio import narration_filename, narration_meta_filename
+    from scripts.prep_template_media import _build_mix_tracks
+
+    assert narration_filename("sec-005") == "narration-s005.mp3"
+    assert narration_filename("sec-21") == "narration-s021.mp3"
+    assert narration_meta_filename("sec-005") == "narration-s005.mp3.json"
+
+    audio_dir = Path(__import__("tempfile").mkdtemp())
+    (audio_dir / "narration-s001.mp3").write_bytes(b"x")
+    script = {"sections": [
+        {"id": "sec-001", "narration": "测试口播", "start_seconds": 0.0},
+        {"id": "sec-002", "narration": "第二句必须存在", "start_seconds": 2.0},
+    ]}
+    with pytest.raises(RuntimeError, match="narration-s002"):
+        _build_mix_tracks(audio_dir, script, Path("/tmp/bgm.mp3"))
+
+
+def test_recipe_keys_remapped_to_cut_ids():
+    """不变量 3：scene_plan 的 recipe（scene-NNN）必须重映射到渲染 cut.id（shot-NN）。"""
+    from lib.sample_payload import build_sample_render_payload
+
+    payload_in = {
+        "final_props": {
+            "fps": 30, "durationInFrames": 120,
+            "scenes": [
+                {"id": "shot-01", "assetId": "proxy-01", "footageKey": "k",
+                 "fromFrame": 0, "toFrameExclusive": 60,
+                 "sourceInSeconds": 0.0, "sourceOutSeconds": 2.0},
+                {"id": "shot-02", "assetId": "proxy-02", "footageKey": "k2",
+                 "fromFrame": 60, "toFrameExclusive": 120,
+                 "sourceInSeconds": 0.0, "sourceOutSeconds": 2.0},
+            ],
+            "footage": {"k": "a.mp4", "k2": "b.mp4"},
+            "audio": {"mix": {"narration": {"path": "assets/audio/sample-mix.mp3"}}},
+        },
+        "asset_manifest": {"assets": [
+            {"id": "proxy-01", "path": "a.mp4", "duration_seconds": 2.0},
+            {"id": "proxy-02", "path": "b.mp4", "duration_seconds": 2.0},
+        ]},
+        "render_runtime": "remotion",
+        "renderer_family": "explainer-data",
+        "scene_plan": {"scenes": [
+            {"id": "scene-001", "transition_recipe_intent": "proof",
+             "caption_recipe_intent": "hook"},
+            {"id": "scene-002", "transition_recipe_intent": "action_match",
+             "caption_recipe_intent": "proof"},
+        ]},
+    }
+    result = build_sample_render_payload(payload_in)
+    assert set(result["transitionRecipes"]) == {"shot-01", "shot-02"}
+    assert set(result["captionRecipes"]) == {"shot-01", "shot-02"}
+    assert result["transitionRecipes"]["shot-01"]["type"] == "flash"
+    assert result["transitionRecipes"]["shot-02"]["type"] == "dissolve"
+    # 所有 recipe key 必须命中 cut id（渲染器按 cut.id 查询）
+    cut_ids = {c["id"] for c in result["cuts"]}
+    assert set(result["transitionRecipes"]) <= cut_ids
+
+
+def test_publish_gates_block_failed_l1a(tmp_path: Path):
+    """不变量 4：final_qa/l1a_final 失败或缺失 → verify_publish_gates 阻断发布。"""
+    proj = tmp_path / "run"
+    (proj / "artifacts").mkdir(parents=True)
+    (proj / "artifacts" / "l1a_final.json").write_text(
+        json.dumps({"status": "revise"}), encoding="utf-8")
+    (proj / "artifacts" / "final_qa_full.json").write_text(
+        json.dumps({"status": "pass"}), encoding="utf-8")
+    (proj / "checkpoint_sample.json").write_text(
+        json.dumps({"status": "completed"}), encoding="utf-8")
+    (proj / "checkpoint_compose.json").write_text(
+        json.dumps({"status": "completed"}), encoding="utf-8")
+    from scripts.publish_template_run import verify_publish_gates
+
+    with pytest.raises(SystemExit, match="发布阻断"):
+        verify_publish_gates(proj, "run")
+    (proj / "artifacts" / "l1a_final.json").write_text(
+        json.dumps({"status": "pass"}), encoding="utf-8")
+    # 证书缺失 → 阻断；补齐证书（含媒体/制品 hash）→ 放行；媒体被改 → 阻断（不可变版本绑定）
+    (proj / "renders").mkdir(exist_ok=True)
+    (proj / "renders" / "final.mp4").write_bytes(b"final-bytes")
+    (proj / "renders" / "sample-v1.mp4").write_bytes(b"sample-bytes")
+    for name in ("final_props", "script", "asset_manifest", "scene_plan",
+                 "edit_decisions", "render_plan", "l1a_sample"):
+        (proj / "artifacts" / f"{name}.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+    (proj / "artifacts" / "final_qa_full.json").write_text(
+        json.dumps({"status": "pass"}), encoding="utf-8")
+    (proj / "artifacts" / "l1a_final.json").write_text(
+        json.dumps({"status": "pass"}), encoding="utf-8")
+
+    def _sha(path):
+        import hashlib
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    with pytest.raises(SystemExit, match="delivery_certificate"):
+        verify_publish_gates(proj, "run")
+    (proj / "artifacts" / "delivery_certificate.json").write_text(json.dumps({
+        "version": "1.0", "project_id": "run",
+        "certified_at": "2026-01-01T00:00:00+00:00",
+        "media": {"final_path": "renders/final.mp4",
+                  "final_sha256": _sha(proj / "renders" / "final.mp4"),
+                  "sample_path": "renders/sample-v1.mp4",
+                  "sample_sha256": _sha(proj / "renders" / "sample-v1.mp4")},
+        "source_hashes": {n: _sha(proj / "artifacts" / f"{n}.json")
+                          for n in ("final_props", "script", "asset_manifest", "scene_plan",
+                                    "edit_decisions", "render_plan")},
+        "qa_refs": {n: _sha(proj / "artifacts" / f"{n}.json")
+                    for n in ("final_qa_full", "l1a_final", "l1a_sample")},
+        "gates": {"final_qa": "pass", "l1a_final": "pass", "l1a_sample": "pass"},
+    }), encoding="utf-8")
+    assert verify_publish_gates(proj, "run")["compose"] == "completed"
+    (proj / "renders" / "final.mp4").write_bytes(b"tampered")
+    with pytest.raises(SystemExit, match="hash 不一致"):
+        verify_publish_gates(proj, "run")
+
+
+def test_sidecar_content_hash_invalidates_reuse(tmp_path: Path):
+    """不变量 5：输入内容 hash 变化 → sidecar 失效 → 必须重新生成（评审 P1-5）。"""
+    from scripts.prep_template_media import _sidecar_valid
+
+    sidecar = tmp_path / "out.mp4.prep.json"
+    expected = {"source_sha256": "a" * 64, "src_in": 0.0, "duration": 2.0, "out_sha256": "b" * 64}
+    sidecar.write_text(json.dumps(expected), encoding="utf-8")
+    assert _sidecar_valid(sidecar, expected) is True
+    # 源内容变化（source_sha256 变化）→ 失效
+    changed = dict(expected, source_sha256="c" * 64)
+    assert _sidecar_valid(sidecar, changed) is False
+    # 裁剪时长变化 → 失效
+    changed = dict(expected, duration=3.0)
+    assert _sidecar_valid(sidecar, changed) is False
+
+
+def test_run_plan_not_auto_approved_for_assets(tmp_path: Path, monkeypatch):
+    """不变量 6（评审 P1-8）：advance_to_assets 不允许把未批准 run_plan 自动置为 approved。"""
+    import sys
+
+    sys.path.insert(0, str(ROOT))
+    import lib.template_mainline as tml
+
+    # 令 scene_plan 视为已完成，跳过 advance_run_full，直接命中 run_plan 批准硬门。
+    monkeypatch.setattr("lib.checkpoint.get_completed_stages", lambda *a, **k: ["scene_plan"])
+    proj = tmp_path / "template-run-x"
+    (proj / "artifacts").mkdir(parents=True)
+    (proj / "artifacts" / "template_run_plan.json").write_text(
+        json.dumps({"status": "awaiting_human", "template_id": "sheet-01-video1-aks-zhuodian"}),
+        encoding="utf-8")
+    # 未批准 → 必须阻断，且不得把 status 自动改成 approved
+    with pytest.raises(SystemExit, match="未批准"):
+        tml.advance_to_assets("template-run-x", pipeline_dir=tmp_path)
+    rp = json.loads((proj / "artifacts" / "template_run_plan.json").read_text(encoding="utf-8"))
+    assert rp["status"] == "awaiting_human"
+
+def test_shot_plan_drift_detected_and_edit_decisions_carry_transitions():
+    """不变量 7（评审 P0-1/P1-1）：shot_plan 漂移可检出；edit_decisions 携带非 cut 转场 token。"""
+    from lib.template_assets import shot_plan_drift
+    from lib.template_render import build_edit_decisions
+
+    template, run = _make_run()
+    from lib.template_source_match import build_source_mappings, match_run_plan
+
+    assigned = match_run_plan(template["slots"], run)
+    scenes = [
+        {"id": f"scene-{i:03d}", "start_seconds": float((i - 1) * 2.0),
+         "end_seconds": float(i * 2.0), "template_slot_ref": f"s{i}",
+         "description": f"slot {i} 动作",
+         "transition_recipe_intent": "proof" if i == 2 else None}
+        for i in range(1, 9)
+    ]
+    slot_by_scene = {f"scene-{i:03d}": template["slots"][i - 1] for i in range(1, 9)}
+    mapping = build_source_mappings(scenes, slot_by_scene, assigned)
+    sp = {"scenes": scenes, "metadata": {"source_mapping": mapping}}
+    script = {"sections": [
+        {"id": f"sec-{i:03d}", "narration": f"口播{i}", "screen_copy": f"花字{i}",
+         "start_seconds": float((i - 1) * 2.0), "end_seconds": float(i * 2.0),
+         "beat_role": "proof"} for i in range(1, 9)
+    ]}
+    # 陈旧 shot_plan（旧文案）→ 漂移检出
+    stale_shots = [{"id": f"shot-{i:02d}", "order": i, "scene_id": f"scene-{i:03d}",
+                    "template_slot_ref": f"s{i}", "duration_seconds": 2.0,
+                    "narration": "旧文案", "screen_copy": "",
+                    "setting": "室内/桌面", "purpose": "x"} for i in range(1, 9)]
+    drift = shot_plan_drift(Path("."), template, sp, script, {"shots": stale_shots})
+    assert len(drift) >= 8
+    # 当前 shot_plan（键控一致）→ 无漂移
+    fresh = [dict(stale_shots[i - 1], narration=f"口播{i}", screen_copy=f"花字{i}",
+                  purpose=f"slot {i} 动作") for i in range(1, 9)]
+    assert shot_plan_drift(Path("."), template, sp, script, {"shots": fresh}) == []
+    # edit_decisions 携带非 cut 转场（scene-002 = proof → flash）
+    ed = build_edit_decisions(Path("projects/x"), fresh, scene_plan=sp)
+    tokens = {c["id"]: c["transition_in"] for c in ed["cuts"]}
+    assert tokens["shot-02"] == "flash"
+    assert sum(1 for t in tokens.values() if t != "cut") >= 1
+
+
+def test_tts_lock_binds_voice_and_rate(tmp_path: Path):
+    """不变量 8（评审 P1-2）：TTS 缓存锁定 文案+voice+resource+format+rate，任一变化即失效。"""
+    import json as _json
+
+    from scripts.gen_template_audio import _text_sha, _tts_lock_valid
+
+    sha = _text_sha("测试文案")
+    lock = tmp_path / "narration-s001.mp3.lock.json"
+    lock.write_text(_json.dumps({
+        "text_sha": sha, "speech_rate": 0,
+        "voice_id": "zh_female_vv_uranus_bigtts", "resource_id": "seed-tts-2.0",
+        "format": "mp3"}), encoding="utf-8")
+    assert _tts_lock_valid(lock, "测试文案", speech_rate=0) is True
+    assert _tts_lock_valid(lock, "不同文案", speech_rate=0) is False      # 文案变化
+    assert _tts_lock_valid(lock, "测试文案", speech_rate=10) is False     # rate 变化
+    lock.write_text(_json.dumps({
+        "text_sha": sha, "speech_rate": 0,
+        "voice_id": "其他声线", "resource_id": "seed-tts-2.0",
+        "format": "mp3"}), encoding="utf-8")
+    assert _tts_lock_valid(lock, "测试文案", speech_rate=0) is False      # voice 变化
+
+
+def test_bgm_source_lock_binds_prompt(tmp_path: Path):
+    """不变量 9（评审 P1-2）：BGM 源复用必须绑定 prompt/model/instrumental 锁。"""
+    import json as _json
+
+    from scripts.prep_template_media import _sidecar_valid
+
+    lock = tmp_path / "bgm-source.lock.json"
+    expected = {"prompt_sha256": "p" * 64, "model": "V4_5", "instrumental": True}
+    lock.write_text(_json.dumps(expected), encoding="utf-8")
+    assert _sidecar_valid(lock, expected) is True
+    assert _sidecar_valid(lock, dict(expected, model="V5")) is False
+    assert _sidecar_valid(lock, dict(expected, prompt_sha256="q" * 64)) is False

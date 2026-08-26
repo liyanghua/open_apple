@@ -150,7 +150,13 @@ def build_sample_render_payload(sample_payload: Mapping[str, Any]) -> dict[str, 
         audio = {}
         if narration_src:
             audio["narration"] = {"src": narration_src}
-        if music_src:
+        # 已批准的成品混音（sample-mix 等）本身已含 ducked BGM：
+        # 渲染器不得再叠一条音乐轨（旧实现叠 0.1 音量导致 True-Peak 超标）。
+        # 派生双轨流（narration-mix.mp3 + bgm-ducked.mp3）不受影响：music 指向
+        # 已压好的 bgm-ducked，本身即成品，无需再衰减。
+        mix_product = str(narration_src or "").rsplit("/", 1)[-1] if narration_src else ""
+        mix_includes_music = mix_product == "sample-mix.mp3"
+        if music_src and not mix_includes_music:
             audio["music"] = {"src": music_src}
             # Derived mix products are pre-mixed to the approved level; only
             # attenuate when falling back to a raw generation source.
@@ -188,6 +194,10 @@ def build_sample_render_payload(sample_payload: Mapping[str, Any]) -> dict[str, 
         "subtitles": dict(sample_payload.get("subtitles") or {}),
         "metadata": metadata,
     }
+    # 口播字幕轨：narration 逐句（script sections → 底部 SafeCaptionTrack），与花字双层共存。
+    narration_subs = _narration_subtitles(sample_payload.get("script"))
+    if narration_subs:
+        payload["narrationSubtitles"] = narration_subs
 
     # 花字风格：显式 captionStyle 优先，否则从 caption_style_fingerprint 派生。
     if sample_payload.get("captionStyle"):
@@ -204,14 +214,63 @@ def build_sample_render_payload(sample_payload: Mapping[str, Any]) -> dict[str, 
             payload["captionStyle"] = to_overlay_spec(style)
 
     # P2：scene_plan 的 caption/transition recipe intent → 渲染级规格。
-    # 渲染器按 scene_id 查 captionRecipes/transitionRecipes 落地花字/转场。
+    # 渲染器按 **cut.id（shot-NN）** 查 captionRecipes/transitionRecipes；而 scene_plan 的
+    # recipe 按 scene_id（scene-NNN）索引 —— 这里按时间线顺序做 1:1 重映射（评审 P1-4：
+    # 两组 key 交集原本为空，转场/花字 recipe 从未生效）。
     scene_plan = sample_payload.get("scene_plan")
     if isinstance(scene_plan, Mapping) and scene_plan.get("scenes"):
         from lib.recipe_router import scene_recipe_specs
 
         specs = scene_recipe_specs(scene_plan, runtime)
+        scene_ids = [str(s.get("id") or "") for s in scene_plan["scenes"] if isinstance(s, Mapping)]
+
+        def _remap(by_scene: dict[str, Any]) -> dict[str, Any]:
+            out: dict[str, Any] = {}
+            for idx, cut in enumerate(cuts):
+                if idx >= len(scene_ids):
+                    break
+                value = by_scene.get(scene_ids[idx])
+                if value is not None:
+                    out[str(cut["id"])] = value
+            return out
+
         if specs["caption_recipes"]:
-            payload["captionRecipes"] = specs["caption_recipes"]
+            payload["captionRecipes"] = _remap(specs["caption_recipes"])
         if specs["transition_recipes"]:
-            payload["transitionRecipes"] = specs["transition_recipes"]
+            payload["transitionRecipes"] = _remap(specs["transition_recipes"])
     return payload
+
+
+def _narration_subtitles(script: Any) -> list[dict[str, Any]]:
+    """Derive the bottom narration-subtitle track from the approved script.
+
+    One cue per section with non-empty narration, timed by the section's own
+    timeline window.  Shape matches ``@remotion/captions`` ``Caption``
+    (``{text, startMs, endMs}``) as consumed by the Explainer's
+    ``SafeCaptionTrack`` (bottom safe-zone, 口播字幕轨), which co-exists with
+    the 花字 ``CaptionOverlay`` as the second caption layer.
+    """
+    if not isinstance(script, Mapping):
+        return []
+    sections = script.get("sections")
+    if not isinstance(sections, list):
+        return []
+    cues: list[dict[str, Any]] = []
+    for section in sections:
+        if not isinstance(section, Mapping):
+            continue
+        text = section.get("narration")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        start = section.get("start_seconds")
+        end = section.get("end_seconds")
+        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+            continue
+        if float(end) <= float(start):
+            continue
+        cues.append({
+            "text": text.strip(),
+            "startMs": int(round(float(start) * 1000)),
+            "endMs": int(round(float(end) * 1000)),
+        })
+    return cues

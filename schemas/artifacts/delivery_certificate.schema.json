@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/delivery_certificate",
+  "title": "Delivery Certificate",
+  "description": "Certified delivery version: binds the immutable media snapshot to the exact QA/L1a pass and input artifact hashes that produced it (评审 P0-2).",
+  "type": "object",
+  "required": [
+    "version",
+    "project_id",
+    "certified_at",
+    "media",
+    "source_hashes",
+    "qa_refs",
+    "gates"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "certified_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "media": {
+      "type": "object",
+      "required": [
+        "final_path",
+        "final_sha256",
+        "sample_path",
+        "sample_sha256"
+      ],
+      "properties": {
+        "final_path": {
+          "type": "string"
+        },
+        "final_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sample_path": {
+          "type": "string"
+        },
+        "sample_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "source_hashes": {
+      "type": "object",
+      "required": [
+        "final_props",
+        "script",
+        "asset_manifest",
+        "scene_plan",
+        "edit_decisions",
+        "render_plan"
+      ],
+      "properties": {
+        "final_props": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "script": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "asset_manifest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "scene_plan": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "edit_decisions": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "render_plan": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "qa_refs": {
+      "type": "object",
+      "required": [
+        "final_qa_full",
+        "l1a_final",
+        "l1a_sample"
+      ],
+      "properties": {
+        "final_qa_full": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "l1a_final": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "l1a_sample": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "gates": {
+      "type": "object",
+      "required": [
+        "final_qa",
+        "l1a_final",
+        "l1a_sample"
+      ],
+      "properties": {
+        "final_qa": {
+          "type": "string",
+          "const": "pass"
+        },
+        "l1a_final": {
+          "type": "string",
+          "const": "pass"
+        },
+        "l1a_sample": {
+          "type": "string",
+          "const": "pass"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
