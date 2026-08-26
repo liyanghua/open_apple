@@ -155,6 +155,17 @@ def test_price_conflict_is_fatal(tmp_path: Path, monkeypatch):
     assert next(c for c in report["hard_gate"]["checks"] if c["id"] == "l1a_price")["status"] == "fail"
 
 
+def test_price_whitespace_normalized_is_not_conflict(tmp_path: Path, monkeypatch):
+    # "69 元"（带空格）应与期望 "69元"（无空格）匹配，不得误判价格冲突。
+    _patch_media(monkeypatch)
+    inputs = _base_inputs(tmp_path)
+    inputs["expected_facts"] = {"sku": "TM-8888", "price": "69元", "params": ["0甲醛"]}
+    inputs["text_sources"] = [{"source": "narration", "text": "69 元，让餐桌更省心。", "shot_id": "shot-01"}]
+    report = TechnicalValidator().execute(inputs).data
+    price = next(c for c in report["hard_gate"]["checks"] if c["id"] == "l1a_price")
+    assert price["status"] == "pass"
+
+
 def test_sensitive_word_is_fatal(tmp_path: Path, monkeypatch):
     _patch_media(monkeypatch)
     inputs = _base_inputs(tmp_path)

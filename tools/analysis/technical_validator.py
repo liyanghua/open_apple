@@ -258,8 +258,10 @@ class TechnicalValidator(BaseTool):
 
         expected_price = str(expected_facts.get("price") or "").strip()
         if expected_price:
+            # 归一化空白（去掉所有空格/全角空格），避免 "69 元" 与 "69元" 因空格误判冲突。
+            normalized_expected = re.sub(r"\s+", "", expected_price)
             price_hits = _scan_texts(text_sources, _PRICE_RE)
-            conflicting = [h for h in price_hits if expected_price not in h["text"]]
+            conflicting = [h for h in price_hits if normalized_expected not in re.sub(r"\s+", "", h["text"])]
             if conflicting:
                 checks.append(self._check("l1a_price", "fail",
                     f"画面文字价格与期望价格（{expected_price}）不一致：{', '.join(h['text'] for h in conflicting[:3])}",
