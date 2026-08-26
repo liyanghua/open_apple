@@ -129,5 +129,72 @@
 ## 5. 执行建议（等确认后开工）
 
 1. **只读化**：先列 operator app 的审批白名单视图（phase → 唯一主动作），编辑模块按权限关闭；确认 `board.*` 是否下线；Library 创建入口去留。
-2. **提交代码**：按上述 5 个主题 commit（不含未定稿的 `grok_image_1.jpeg`/`requirements.txt` 需你确认）。
-3. **报告持久化**：本文档同步到 `docs/reports/`。
+2. **提交代码**：已完成（5 主题 commit：`25aea77` template core / `571cd07` human-AB / `a7f4d87` media+certified delivery / `4c09be7` remotion two-layer+dissolve / `4268e91` docs+validator）。
+3. **报告持久化**：本文档已落 `docs/reports/`；后续按第 6 节「可固化资产与代办」推进。
+
+---
+
+## 6. 可固化资产与代办清单（Skills / 代码 / TODO，2026-08-26 汇总）
+
+> 本清单汇集三轮评审 + 批量跑片全过程的历史沉淀：哪些已固化为代码、哪些应固化为 skills、哪些仍是待办。凡标「✅ 已固化」均有对应 commit 锚点。
+
+### 6.1 可固化为 Skills（技能文档——供未来 agent 直接消费，未创建）
+
+| 建议 skill | 内容 / 依据（历史事件） |
+|---|---|
+| `skills/meta/template-run-adaptation.md` | 从 43 模板库做逐镜适配：overlay/ASR → 逐镜文案表 → **显式 slot 动作表**（`SLOT_ACTION_BY_TEMPLATE`，6/43 已标定）→ 素材绑定；含反模式：HAP 误命中文案、故事线泛化、尾闪帧(<1s)只留花字、素材无该动作→显式 gap |
+| `skills/meta/two-layer-captions.md` | 两层字幕渲染契约：calligraphy 指纹（Ma Shan Zheng 104px 左上竖排）+ `narrationSubtitles`（底部安全区）+ **single-mix 音频规则**（成品混音不再叠第二音乐轨→TP 修复）+ recipe key 重映射 scene→cut |
+| `skills/meta/template-media-pipeline.md` | 媒体管线契约：三位命名 `narration_filename()`、内容指纹幂等（`.lock.json`/`.prep.json`）、TTS overflow/error fail-closed、混音 loudnorm -14 + TP -1.5、BGM 源锁（prompt+model+instrumental） |
+| `skills/meta/template-certified-delivery.md` | 交付证书契约：`delivery_certificate` 字段（媒体+输入制品+QA 报告 hash）、publish 门校验、tamper 阻断、「certified delivery version」不可变指针 |
+| `skills/pipelines/cinematic-fast/template-compose-director.md` | 模板十步流水（run_plan 批准→script/scene_plan→assets(漂移自动同步)→prep→render(full+quick)→QA(证书)→门→compose→publish），引用 `scripts/` 全链 |
+| `skills/meta/cross-stage-invariants.md` | 跨阶段不变量：键控配对（`template_slot_id→scene_id→section_id→shot_id→asset_id→delivery_version_id`）、对齐审计字段、漂移自愈 `shot_plan_drift/sync_assets_artifacts`、门禁=0 漂移+0 未对齐 |
+| `skills/meta/remotion-batch-discipline.md` | Remotion 批量纪律：**单并发渲染**（并发→黑帧/超时，实测失败 3+）、超时按帧数缩放（frames×900ms）、full 前先 window 层预检黑帧/转场边界、镜头间 dissolve 桥无暗帧 |
+
+### 6.2 已固化为代码（✅ 完成，含 commit）
+
+- **lib 契约层**：`template_source_match`（语义窗口/精确优先/显式动作表/键控配对）、`template_mainline`（逐模板文案表+对齐 build_script+rebuild_aligned_run+fail-closed advance_to_assets）、`template_assets`（键控 shot plan+漂移检测+同步）、`template_render`（真实资产名+转场 token 派生）、`sample_payload`（两层字幕+recipe 重映射+single-mix）、`recipe_router`（action-match→dissolve）、`sample_recovery`（script 带入）。
+- **scripts 全链**（9 个）：`prep_template_media` / `gen_template_audio` / `render_template_sample` / `qa_template_render` / `finish_template_sample` / `finish_template_compose` / `approve_template_sample` / `publish_template_run` / `run_template_mainchain`（瘦包装）。
+- **schemas**：script/scene_plan/shot_execution_plan 键控+审计字段扩展；`delivery_certificate`（新）。
+- **Remotion**：Explainer Layer4 口播字幕轨、DissolveBridge、默认硬切语义；`types.ts` dissolve 类型。
+- **测试护栏**：`tests/lib/test_template_invariants.py`（12 条：素材动作对齐/HAP 护栏/命名契约/recipe⊆cut/QA→发布门/内容hash失效/run_plan 不自动批准/漂移检出+转场 token/TTS 锁/BGM 锁/证书 tamper…）+ 3 个既有测试文件更新。
+- **提交锚点**：`25aea77` / `571cd07` / `a7f4d87` / `4c09be7` / `4268e91`。
+
+### 6.3 待办（TODO，按里程碑排序）
+
+**M0 收尾（1-2 天）**
+1. ✅ 已完成：5 主题代码提交；`grok_image_1.jpeg` 还原。
+2. ⬜ `.gitignore` 收口：`.superpowers/`、`harness_history.html`（当前仅未跟踪，未入库）。
+3. ⬜ 四片重跑与证书补齐：sheet-01/04 按新链路重跑（约 1.5h/片），使 6 片全有证书+对齐审计字段。
+4. ⬜ 素材池路径配置化：`PRODUCT_VIDEO_DIR` 由环境/配置注入（当前硬编码 `projects/table-mat-mix-v8/...`）。
+
+**M1 只读审批工作台（本次需求本体）**
+5. ⬜ operator app 审批白名单视图（phase→唯一主动作），编辑模块按权限关闭。
+6. ⬜ 决策：`board.*` 下线归档；Library 创建入口去留。
+7. ⬜ 保留项打磨：五项确认、批级通过（revision+participants）、等待通知、成片预览、质量结论。
+
+**M2 Studio Beta（对照 studio-beta plan）**
+8. ⬜ **audio coverage report** 制品：逐 section→TTS 文件→mix 区间→实测时长（T1 余量：`rebuild_template_artifacts.py` 迁移命令+18–24 runs validator 全量）。
+9. ⬜ **transition 边界帧 luma 巡检**（FFmpeg 帧级检查）+ `transition_contract.py`；纳入 full 前 window 预检。
+10. ⬜ **delivery-version 目录 + current pointer**（final.mp4 仅便利导出）+ `delivery_version.schema`；旧版本恢复不可覆盖。
+11. ⬜ **template_batch_runner**：锁/幂等键/断点/失败隔离/批报表（当前为脚本编排）。
+12. ⬜ Operator 5 工作流（Studio 编辑侧）+ `edit` 不再是 no-op。
+13. ⬜ 数据库/API 闭环：coordinator prepare/commit/recovery + stale 回放（spec 5.2 五条）。
+
+**M3 规模化**
+14. ⬜ VLM 语义匹配：自动产出 `SLOT_ACTION_BY_TEMPLATE`（当前人工标定 6/43），覆盖全部 43 模板。
+15. ⬜ 37 张模板的逐镜文案表+显式动作表补齐（内容资产）。
+16. ⬜ sheet-12/34 长模板分段/连播策略（78 镜/155s、44 镜/88s）。
+17. ⬜ 18–24 runs 验收矩阵 + 双运营 5 工作流实测（Beta 门）。
+18. ⬜ 成本记账全量化（reuse 路径 $0 修正为真实计费；批预算看板）。
+19. ⬜ HyperFrames 双 runtime 呈现与锁（proposal 展示权衡）。
+
+**常态维护**
+20. ⬜ 6.1 的 7 个 skills 落地（按本轮经验编写）。
+21. ⬜ 参考库增量：新模板入库 SOP（43 → N sheet），导入+标定+首片试跑模板。
+22. ⬜ QA 基线回归：每次契约变更跑 `tests/lib/test_template_invariants.py` 全量 + `tsc`。
+
+---
+
+## 7. 结论（本轮分析一句话版）
+
+模板主链路已从「agent 临场发挥」收敛为「确定性契约 + 脚本工厂 + 证书化发布」，1500+ 单测与 12 条跨阶段不变量背书；剩余工作 = ① 只读审批工作台（人审闭环）② Studio Beta（编辑闭环）③ 批量 runner（规模化）。历史教训（键控先行、指纹幂等、单并发、先预检后全量、发布绑定证书）均已沉淀为本文档 2.4 节最佳实践，可直接作为后续每轮生产 SOP。
