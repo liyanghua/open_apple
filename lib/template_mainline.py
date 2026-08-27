@@ -542,6 +542,17 @@ def build_script(project: Path, template: dict, sp: dict, ccp: dict, facts: dict
         "metadata": {"template_id": str(template.get("template_id")),
                      "fact_card_ref": {"name": "product_facts", "path": "artifacts/product_facts.json"}},
     }
+    # 语义硬门（仅对已固化显式动作表的模板生效；现有 build_script 阶段内 fail-closed，
+    # 不新增旁支链路）：文案必须能被该镜绑定素材证明，否则剧本阶段直接阻断。
+    if tid in SLOT_ACTION_BY_TEMPLATE:
+        from lib.template_source_match import semantic_mismatches
+
+        findings = semantic_mismatches(sc)
+        if findings:
+            raise SystemExit(
+                f"{project.name}: 剧本语义硬门失败（{len(findings)} 处文案与素材画面不可证）—— "
+                + "; ".join(f"{f['section_id']}:{f['message'][:40]}" for f in findings[:5])
+            )
     if approved:
         sc["approval"] = {"approved_by": "operator", "approved_at": datetime.now(timezone.utc).isoformat()}
     return _write(project, "script", sc, sink=sink)
