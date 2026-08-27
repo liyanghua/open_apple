@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>历史成片总览</title>
+<link rel="stylesheet" href="/ui/overview.css">
+</head>
+<body>
+<div class="ov-shell" id="app">
+  <header class="ov-header">
+    <div class="ov-title">
+      <p class="eyebrow">OpenMontage · 成片评价体系</p>
+      <h1>历史成片总览</h1>
+      <p class="ov-sub" id="ov-sub">正在读取…</p>
+    </div>
+    <div class="ov-actions">
+      <a class="ghost-link" href="/">返回项目列表</a>
+      <button class="primary" id="refresh">刷新</button>
+    </div>
+  </header>
+
+  <section class="ov-methodology" id="methodology-panel">
+    <div class="panel-heading"><p class="eyebrow">数据口径</p><h2>评价口径与限制</h2></div>
+    <div class="method-body" id="methodology-body">…</div>
+  </section>
+
+  <section class="ov-section">
+    <div class="panel-heading"><p class="eyebrow">总览</p><h2>成片排行（TOP N）</h2></div>
+    <div class="table-wrap" id="overview-table"></div>
+  </section>
+
+  <section class="ov-section">
+    <div class="panel-heading"><p class="eyebrow">硬性门槛</p><h2>合规与交付门槛矩阵</h2>
+      <p class="hint">绿=通过 · 黄=部分取证 · 灰=待接入/外部依赖 · 红=不合格（一票否决）</p></div>
+    <div class="table-wrap" id="gates-table"></div>
+  </section>
+
+  <section class="ov-section">
+    <div class="panel-heading"><p class="eyebrow">投放前内容质量</p><h2>L3 VLM 创意八维 + 业务近似</h2>
+      <p class="hint">l3-v1.0（0-10，advisory）；业务近似列带近似度，不做伪精确换算</p></div>
+    <div class="table-wrap" id="quality-table"></div>
+  </section>
+
+  <section class="ov-section">
+    <div class="panel-heading"><p class="eyebrow">原始证据</p><h2>逐片证据与附件</h2></div>
+    <div id="evidence-panel"></div>
+  </section>
+</div>
+<script type="module" src="/ui/overview.js"></script>
+</body>
+</html>

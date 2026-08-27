@@ -364,6 +364,14 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
             if authorize_project(get_auth_store(), session.actor, item["project_id"], "read")
         ]
 
+    @app.get("/api/v2/overview/videos")
+    async def overview_videos(request: Request) -> dict:
+        """历史成片总览（只读聚合；本端点从不触发付费评分，L3 仅读制品）。"""
+        require_access(request)
+        from backlot.overview_state import load_overview
+
+        return await asyncio.to_thread(load_overview)
+
     @app.get("/api/project/{project_id}/state")
     async def project_state(project_id: str, request: Request) -> dict:
         require_access(request, project_id, "diagnostics")
@@ -482,6 +490,13 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
         return FileResponse(target)
 
     # ---- UI ------------------------------------------------------------
+
+    @app.get("/overview/")
+    async def overview_page(request: Request) -> Response:
+        redirect = page_login_redirect(request)
+        if redirect is not None:
+            return redirect
+        return _ui_html("overview.html", ("overview.css", "overview.js"))
 
     @app.get("/login")
     async def login_page() -> HTMLResponse:
