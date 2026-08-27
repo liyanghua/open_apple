@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/material_gaps",
+  "title": "Material Gaps",
+  "description": "窗口级素材缺口账单（设计 §5 / 附录 A3）：供业务按容量依据补素材，缺口头 before COMPRESS/MARK_GAP 阻断。",
+  "type": "object",
+  "required": ["version", "policy_ref", "generated_at", "gaps"],
+  "properties": {
+    "version": { "type": "string", "const": "1.1" },
+    "policy_ref": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["domain", "affected_templates", "needed_shots", "capacity_shots", "deficit", "capacity_basis"],
+        "properties": {
+          "domain": { "type": "string" },
+          "affected_templates": { "type": "array", "items": { "type": "string" } },
+          "needed_shots": { "type": "integer", "minimum": 0 },
+          "capacity_shots": { "type": "integer", "minimum": 0 },
+          "deficit": { "type": "integer", "minimum": 0 },
+          "capacity_basis": { "type": "object" },
+          "suggested_shots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scene": { "type": "string" },
+                "duration_s": { "type": "number", "minimum": 0 },
+                "framing": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "priority": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

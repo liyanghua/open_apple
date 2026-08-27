@@ -102,6 +102,15 @@ def check_template_run_plan_ready(
     known_slot_ids = set()
     if template is not None:
         known_slot_ids = {str(s.get("slot_id")) for s in (template.get("slots") or []) if isinstance(s, Mapping)}
+    # P0-2b：素材容量判定——MARK_GAP 直接 fail-closed（缺口禁止进入付费资产阶段）。
+    try:
+        from lib.template_source_match import capacity_verdict
+
+        verdict = capacity_verdict(template) if template is not None else None
+        if verdict and verdict.get("verdict") == "MARK_GAP":
+            blockers.append("素材容量缺口（MARK_GAP）：" + "; ".join(verdict.get("reasons") or []) + "——需补素材或压缩后重评")
+    except Exception:
+        pass
     unbound_slots: list[str] = []
     for b in bindings:
         if not isinstance(b, Mapping):

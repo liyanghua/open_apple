@@ -277,7 +277,11 @@ def build_source_mappings(
         if slot is None:
             raise ValueError(f"scene {scene_id} 缺少 slot 映射（键控配对失败，禁止位置兜底）")
         slot_id = str(slot.get("slot_id") or scene_id)
-        stem = assigned.get(slot_id) or _DEFAULT_ACTION
+        stem = assigned.get(slot_id)
+        if not stem:
+            # P0-2：缺口/未绑定 slot 禁止回退默认动作素材（必须由 readiness 门阻断，
+            # 或走 COMPRESS/MARK_GAP 流程——确保"无证据素材不顶替"）。
+            raise ValueError(f"slot {slot_id} 未绑定素材（缺口或未批准），禁止静默回退默认动作素材")
         start = round(cursor[stem], 3)
         dur = scene["end_seconds"] - scene["start_seconds"]
         clip_dur = durations.get(stem, dur)
@@ -620,4 +624,148 @@ def material_reuse_report(scene_plan: Mapping[str, Any]) -> dict[str, Any]:
         "single_ratio": single_ratio, "adjacent_same": adjacent_same,
         "identical_windows": identical_windows, "min_window_gaps": min_window_gaps,
         "hard_pass": hard_pass, "findings": findings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# P0-1：窗口级容量 / slot_semantics / 容量判定（设计文档 §3.1-3.5 + 附录 A2/A3）
+# ---------------------------------------------------------------------------
+WINDOW_STEP = 0.25          # 窗口候选步长（秒）
+WINDOW_GAP = 0.75           # H4：同素材相邻窗口起点差
+DIVERSIFY_MIN_ASSETS_PER_DOMAIN = 2
+CAPACITY_SOLVER = "greedy-capacity-v1"
+ROLE_UTILITY = {"hook": 10, "cta": 10, "reveal": 7, "payoff": 8, "proof": 6,
+                "problem": 5, "escalation": 5, "other": 4}
+
+
+def window_capacity(action: str, slot_s: float, *, step: float = WINDOW_STEP,
+                    gap: float = WINDOW_GAP) -> dict[str, Any]:
+    """窗口容量 C(a,l,δ)：证据窗口 ∩ 素材时长 内、步长步进的合法起点集 + δ 间隔最大独立集。"""
+    win = SEMANTIC_EVIDENCE_WINDOWS.get(action)
+    if not win or not isinstance(win.get("window"), (tuple, list)):
+        return {"capacity": 0, "candidates": [], "basis": {"error": "无证据窗口"}}
+    lo, hi = float(win["window"][0]), float(win["window"][1])
+    dur = _clip_durations().get(f"product_透明桌垫-{action}", hi)
+    legal_max = min(hi, dur)
+    candidates = []
+    s = lo
+    while s + slot_s <= legal_max + 1e-9:
+        candidates.append(round(s, 3))
+        s += step
+    picked: list[float] = []
+    for cand in candidates:
+        if not picked or cand - picked[-1] >= gap:
+            picked.append(cand)
+    return {
+        "capacity": len(picked),
+        "candidates": candidates[:80],
+        "basis": {"evidence_window": [float(win["window"][0]), float(win["window"][1])],
+                  "source_duration": round(dur, 3),
+                  "slot_s": slot_s, "step": step, "gap": gap},
+    }
+
+
+def slot_semantics(template: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """标准化 slot 语义（附录 A1 效用规则 + §3.1 字段契约）。"""
+    from lib.template_mainline import _NARRATION_BY_TEMPLATE, _NARRATION_DEFAULT
+
+    tid = str(template.get("template_id") or "")
+    actions = SLOT_ACTION_BY_TEMPLATE.get(tid, [])
+    rows = _NARRATION_BY_TEMPLATE.get(tid, _NARRATION_DEFAULT)
+    semantics = []
+    for i, slot in enumerate(template.get("slots") or [], start=1):
+        slot_s = float(slot.get("duration_s") or 2.0)
+        role = rows[i - 1][2] if i - 1 < len(rows) else "proof"
+        domain = actions[i - 1] if i - 1 < len(actions) else _best_action(slot)
+        semantics.append({
+            "slot_id": str(slot.get("slot_id") or f"slot-{i:03d}"),
+            "ordinal": i, "duration_s": slot_s, "action_domain": domain,
+            "beat_role": role, "source_section_ref": f"sec-{i:03d}",
+            "utility": ROLE_UTILITY.get(role, 4),
+            "required_group": role if role in ("hook", "cta") or role == "payoff" else
+                              (f"evidence:{domain}" if role == "proof" else ""),
+            "predecessor_refs": [f"slot-{i - 1:03d}"] if i > 1 else [],
+            "candidate_assets": [f"product_透明桌垫-{domain}"],
+        })
+    return semantics
+
+
+def capacity_verdict(template: Mapping[str, Any], *, allow_compress: bool = True) -> dict[str, Any]:
+    """§3.5 三步判定（P0-1 版：贪心容量检查；精确子集求解 = P1-1 CP-SAT）。
+
+    DIVERSIFY / DIVERSIFY_LIMITED / COMPRESS / MARK_GAP。
+    """
+    import hashlib
+
+    tid = str(template.get("template_id") or "")
+    slots = template.get("slots") or []
+    sem = slot_semantics(template)
+    counts: dict[str, int] = {}
+    seconds_by_domain: dict[str, float] = {}
+    dur_by_slot: dict[str, float] = {}
+    for s in sem:
+        d = s["action_domain"]
+        counts[d] = counts.get(d, 0) + 1
+        seconds_by_domain[d] = seconds_by_domain.get(d, 0.0) + s["duration_s"]
+        dur_by_slot[s["slot_id"]] = s["duration_s"]
+    D = sum(seconds_by_domain.values())
+    caps = {d: window_capacity(d, dur_by_slot.get(next(
+        (s["slot_id"] for s in sem if s["action_domain"] == d), ""), 2.0))["capacity"]
+        for d in counts}
+    deficits = {d: max(0, counts[d] - caps[d]) for d in counts}
+    h2_limit = D / 3.0 if D > 0 else 0.0
+    h2_worst = max(seconds_by_domain.values()) if seconds_by_domain else 0.0
+    full_ok = all(v <= 0 for v in deficits.values()) and h2_worst <= h2_limit + 1e-9
+    diversify_ok = all(
+        _clip_stems().count(f"product_透明桌垫-{d}") + (1 if f"product_透明桌垫-{d}" in _clip_stems() else 0) >= 1
+        for d in counts)  # 池每域当前 1 支 → 以下用 2 支阈值判定受限
+    diversify_ok = all(
+        sum(1 for stem in _clip_stems() if _action_from_stem(stem) == d) >= DIVERSIFY_MIN_ASSETS_PER_DOMAIN
+        for d in counts)
+    reasons: list[str] = []
+    for d, cnt in deficits.items():
+        if cnt > 0:
+            reasons.append(f"{d}: 需 {cnt} 镜 容量 {counts[d]}→{caps[d]}")
+    if h2_worst > h2_limit + 1e-9:
+        reasons.append(f"H2: 单素材 {h2_worst:.1f}s > D/3 {h2_limit:.1f}s")
+
+    if full_ok:
+        verdict = "DIVERSIFY" if diversify_ok else "DIVERSIFY_LIMITED"
+        comp_ok = True
+    else:
+        # F_comp（P0-1 贪心·瓶颈二分）：骨架保留（每域 ≥1 + hook/cta），
+        # 对瓶颈域 k 从容量向下二分，找满足「k×dur_b ≤ D(k)/3」的最小保留量。
+        def _D(k_b: int) -> float:
+            total = 0.0
+            kept = 0
+            for d, cnt in counts.items():
+                keep = k_b if d == bottle else min(cnt, caps[d])
+                kept += keep
+                total += keep * (dur_by_slot.get(
+                    next((s["slot_id"] for s in sem if s["action_domain"] == d), ""), 2.0))
+            return total
+
+        bottle = max(counts, key=counts.get)
+        k_hi = min(counts[bottle], caps[bottle])
+        comp_ok = False
+        if k_hi >= 1:
+            for k in range(k_hi, 0, -1):
+                if k * (dur_by_slot.get(next((s["slot_id"] for s in sem
+                                              if s["action_domain"] == bottle), ""), 2.0)) <= _D(k) / 3.0 + 1e-9:
+                    comp_ok = True
+                    break
+        verdict = "COMPRESS" if (allow_compress and comp_ok) else "MARK_GAP"
+        if not comp_ok:
+            reasons.append("压缩分量仍违反 H2（需补素材）")
+    input_hash = hashlib.sha256(
+        json.dumps({"tid": tid, "counts": counts, "caps": caps, "solver": CAPACITY_SOLVER},
+                   sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {
+        "template_id": tid, "verdict": verdict, "solver": CAPACITY_SOLVER,
+        "slot_count": len(slots), "total_seconds": round(D, 2),
+        "domain_counts": counts, "window_capacities": caps, "deficits": deficits,
+        "h2_worst_material_seconds": round(h2_worst, 2), "h2_limit_seconds": round(h2_limit, 2),
+        "full_solvable": full_ok, "compress_solvable": comp_ok,
+        "diversify_solvable": diversify_ok, "reasons": reasons,
+        "input_hash": input_hash,
     }

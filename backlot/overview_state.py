@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+
 import yaml
 
 from scripts.export_top_videos import (
@@ -20,7 +22,8 @@ from scripts.export_top_videos import (
     rule_verdict,
     tier_of,
 )
-from lib.template_source_match import material_reuse_report, semantic_mismatches
+from lib.template_source_match import (capacity_verdict, material_reuse_report,
+                          semantic_mismatches)
 from scripts.gen_template_audio import narration_filename
 
 
@@ -47,6 +50,23 @@ def _audio_coverage(project: Path, script: dict) -> dict:
     mix_ok = (audio_dir / "sample-mix.mp3").is_file()
     return {"narrated": narrated, "missing": missing, "mix_ok": mix_ok,
             "coverage_ok": not missing and mix_ok}
+
+
+_PACK_CACHE: dict = {}
+
+
+def _capacity_verdict(project: Path, template_id: str) -> dict:
+    """素材容量判定（P0-4）：只读计算，输出 verdict + reasons。"""
+    global _PACK_CACHE
+    if not _PACK_CACHE:
+        pack = _load_any(ROOT / "projects" / "template-pack-library" / "artifacts" / "template_pack.json") or {}
+        _PACK_CACHE.update(pack)
+    template = next((t for t in _PACK_CACHE.get("templates", [])
+                     if t.get("template_id") == template_id), None)
+    if not template:
+        return {"verdict": "UNKNOWN", "reasons": ["模板不在库中"]}
+    v = capacity_verdict(template)
+    return {"verdict": v["verdict"], "reasons": v["reasons"], "solver": v["solver"]}
 
 
 def _slim_run(run: dict) -> dict:
@@ -84,6 +104,7 @@ def _slim_run(run: dict) -> dict:
         "semantic": {"findings": semantic_mismatches(run["script"])},
         "reuse": material_reuse_report(_load_any(run["project"] / "artifacts" / "scene_plan.json") or {}),
         "audio": _audio_coverage(run["project"], run["script"]),
+        "capacity": _capacity_verdict(run["project"], run["template_id"]),
         "checks": {
             "sensitive": (run["l1a_checks"].get("l1a_sensitive") or {}).get("status"),
             "subtitle_bounds": (run["l1a_checks"].get("l1a_subtitle_bounds") or {}).get("status"),

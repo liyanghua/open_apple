@@ -379,3 +379,46 @@ def test_material_reuse_standard_detects_duplicate_shots():
     # H4：同素材相邻窗口起点差 < 0.75s
     bad3 = plan(["防刮", "无甲醛检测", "防刮"], [(0.0, 2.0), (0.0, 2.0), (0.3, 2.3)])
     assert any("H4" in f for f in material_reuse_report(bad3)["findings"])
+
+
+def test_capacity_verdict_three_branches():
+    """不变量 12：素材容量判定（设计 §3.5 / 附录 A2-A3）。
+
+    DIVERSIFY_LIMITED（全量可行但池每域单支）/ COMPRESS（可删镜达标）/ MARK_GAP（删镜仍不可行）。
+    """
+    from lib.template_source_match import capacity_verdict
+
+    def tmpl(domains):
+        return {"template_id": "sheet-test", "slots": [
+            {"slot_id": f"s{i}", "ordinal": i, "duration_s": 2.0, "scene": "室内/桌面",
+             "shot_language": {"shot_size": "近景", "camera_movement": "固定"},
+             "dialogue": "透明软玻璃桌垫", "caption_treatment": "subtitle"}
+            for i in range(1, len(domains) + 1)],
+        "__domains": domains}
+
+    def run(t, domain_override):
+        return t
+
+    # 自定义 domains：直接构造带 __domains 并在调用前打补丁太重——用真实 SLOT_ACTION 打表最小模板。
+    from lib.template_source_match import SLOT_ACTION_BY_TEMPLATE
+
+    # 6 域各 1：全量可行（每域 ≤ 容量、单素材 2s ≤ 12/3）→ 池每域 1 支 → LIMITED
+    t_limited = tmpl(["防油易擦拭", "无甲醛检测", "桌角对齐-挤压不变形",
+                      "防刮", "自动铺开对齐", "餐桌场景"])
+    SLOT_ACTION_BY_TEMPLATE["sheet-test"] = t_limited["__domains"]
+    v = capacity_verdict(t_limited)
+    assert v["verdict"] == "DIVERSIFY_LIMITED" and v["full_solvable"] is True
+
+    # 瓶颈域 2 镜 + 另一域 2 镜：H2 失败（4 > 8/3），压缩到 1 镜（2 ≤ (2+4)/3）→ COMPRESS
+    t_compress = tmpl(["防油易擦拭", "防油易擦拭", "无甲醛检测", "无甲醛检测"])
+    SLOT_ACTION_BY_TEMPLATE["sheet-test"] = t_compress["__domains"]
+    v = capacity_verdict(t_compress)
+    assert v["verdict"] == "COMPRESS", v
+
+    # 餐桌 2 镜 + 无甲醛 1：压缩到 1 镜仍 2s > (2+2)/3 → MARK_GAP
+    t_gap = tmpl(["餐桌场景", "餐桌场景", "无甲醛检测"])
+    SLOT_ACTION_BY_TEMPLATE["sheet-test"] = t_gap["__domains"]
+    v = capacity_verdict(t_gap)
+    assert v["verdict"] == "MARK_GAP", v
+
+    del SLOT_ACTION_BY_TEMPLATE["sheet-test"]
