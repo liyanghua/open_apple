@@ -131,3 +131,117 @@ def compress_candidate(template: Mapping[str, Any], *, target_s: float | None = 
         "all_hard_ok": not final["h1"] and not final["h2_bad"] and not final["capacity_bad"],
         "dropped": dropped, "infeasible_target": infeasible_target, "input_hash": input_hash,
     }
+
+
+def compress_candidate_bottomup(template: Mapping[str, Any], *, target_s: float | None = None) -> dict | None:
+    """自底向上压缩（替代纯贪心收缩）：按效用降序加入 slot，满足容量/H2/H1 且有目标时长。
+
+    解决 09 类「多域需对称收缩」场景（top-down 收缩会把 D 缩到 6s 以下产生 H2 边际冲突）。
+    """
+    from lib.template_source_match import window_capacity
+
+    sem = slot_semantics(template)
+    ordinals = [s["ordinal"] for s in sem]
+    seen = {s["action_domain"] for s in sem}
+    caps = {d: window_capacity(d, 2.0)["capacity"] for d in seen}
+
+    def check(kept_set: set[int]) -> tuple[bool, dict]:
+        kept = [s for s in sem if s["ordinal"] in kept_set]
+        order = [s["ordinal"] for s in kept]
+        counts: dict[str, int] = {}
+        secs: dict[str, float] = {}
+        for s in kept:
+            counts[s["action_domain"]] = counts.get(s["action_domain"], 0) + 1
+            secs[s["action_domain"]] = secs.get(s["action_domain"], 0.0) + s["duration_s"]
+        D = sum(secs.values())
+        h1 = [(a, b) for a, b in zip(order, order[1:])
+              if sem[a - 1]["action_domain"] == sem[b - 1]["action_domain"]]
+        ok = (not h1 and all(counts.get(d, 0) <= caps.get(d, 0) for d in counts)
+              and all(D <= 0 or secs[d] <= D / 3.0 + 1e-9 for d in secs))
+        return ok, {"D": D, "counts": counts, "secs": secs}
+
+    # 两阶段：grow（仅校验容量）+ repair（H2 删超载域 → H1 断相邻冲突）
+    skeleton = {ordinals[0], ordinals[-1]} | {
+        next(s["ordinal"] for s in sem if s["action_domain"] == d) for d in seen}
+    kept = set(skeleton)
+    ordered = sorted(sem, key=lambda s: (s["utility"], s["ordinal"]), reverse=True)
+    for s in ordered:
+        if s["ordinal"] in kept:
+            continue
+        cand = kept | {s["ordinal"]}
+        _, info = check(cand)
+        counts = info["counts"]
+        if all(counts.get(d, 0) <= caps.get(d, 0) for d in counts) and                 (target_s is None or info["D"] <= target_s + 1e-9):
+            kept = cand
+    # 阶段2：时长下限增长（D < 15s 或目标）——只加容量允许的最低占比域（临时容忍 H2 超标）
+    floor_s = max(15.0, target_s or 0.0)
+    for _ in range(len(sem) + 2):
+        _, info = check(kept)
+        if info["D"] >= floor_s - 1e-9:
+            break
+        low = sorted(seen, key=lambda d: info["counts"].get(d, 0))
+        added = False
+        for d in low:
+            cands = [s for s in sem if s["ordinal"] not in kept and s["action_domain"] == d]
+            if not cands:
+                continue
+            _, info2 = check(kept | {cands[0]["ordinal"]})
+            if info2["counts"].get(d, 0) <= caps.get(d, 0):
+                kept.add(cands[0]["ordinal"]); added = True
+                break
+        if not added:
+            break
+    # 阶段3：平衡修复（H2 超标 → 从最重域删一镜 + 从最轻域补一镜；可加尽止）
+    for _ in range(len(sem) + 4):
+        ok, info = check(kept)
+        if ok or info["D"] <= 0:
+            break
+        secs = info["secs"]
+        if all(secs[d] <= info["D"] / 3.0 + 1e-9 for d in secs):
+            break
+        worst = max(secs, key=lambda d: secs[d])
+        best = min(seen, key=lambda d: secs.get(d, 0.0))
+        drop = [s["ordinal"] for s in sem if s["ordinal"] in kept
+                and s["action_domain"] == worst and s["ordinal"] not in skeleton]
+        add = [s["ordinal"] for s in sem if s["ordinal"] not in kept and s["action_domain"] == best]
+        if drop and add:
+            _, info_add = check(kept - {drop[0]} | {add[0]})
+            if info_add["counts"].get(best, 0) <= caps.get(best, 0):
+                kept.discard(drop[0]); kept.add(add[0])
+                continue
+        # 无交换余地 → 只删（否则保持现状退出）
+        if drop:
+            kept.discard(drop[0])
+            continue
+        break
+    # repair：H1 断相邻（删后镜，域首镜保留）+ 容量兜底
+    for _ in range(len(sem) + 2):
+        ok, info = check(kept)
+        if ok:
+            break
+        kept_in_order = [s["ordinal"] for s in sem if s["ordinal"] in kept]
+        drop = None
+        for a, b in zip(kept_in_order, kept_in_order[1:]):
+            if sem[a - 1]["action_domain"] == sem[b - 1]["action_domain"]:
+                cands = [s for s in sem if s["ordinal"] == b and s["ordinal"] not in skeleton]
+                if cands:
+                    drop = b
+                else:
+                    cands = [s for s in sem if s["ordinal"] == a and s["ordinal"] not in skeleton]
+                    drop = cands[0]["ordinal"] if cands else None
+                if drop:
+                    break
+        if drop is None:
+            break
+        kept.discard(drop)
+    ok, info = check(kept)
+    kept_dur = [s["duration_s"] for s in sem if s["ordinal"] in kept]
+    dropped = [{"slot_id": s["slot_id"], "ordinal": s["ordinal"]} for s in sem if s["ordinal"] not in kept]
+    return {
+        "solver_version": SOLVER + "-bottomup", "template_id": str(template.get("template_id") or ""),
+        "kept_ordinals": sorted(kept), "kept_durations": kept_dur,
+        "total_s": round(sum(kept_dur), 2), "domain_counts_kept": info["counts"],
+        "h1_ok": ok, "h2_max_material_s": round(max(info["secs"].values()) if info["secs"] else 0, 2),
+        "h2_limit_s": round(info["D"] / 3.0, 2), "capacity_ok": True,
+        "all_hard_ok": ok, "dropped": dropped,
+    }
