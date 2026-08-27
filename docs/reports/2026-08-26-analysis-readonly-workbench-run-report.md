@@ -193,6 +193,19 @@
 21. ⬜ 参考库增量：新模板入库 SOP（43 → N sheet），导入+标定+首片试跑模板。
 22. ⬜ QA 基线回归：每次契约变更跑 `tests/lib/test_template_invariants.py` 全量 + `tsc`。
 
+#### 待办增量（2026-08-27 · 三强校验与画面重复）
+
+**P0（标准落地前置）**
+23. ⬜ 素材池扩容：6 → 12+（6 动作域 × 2 镜：餐桌生活×2 / 检测×2 / 边角×2 / 刮擦×2 / 擦拭×2 / 铺开×2）——当前 6 片仅 sheet-01 满足 H1-H4，其余全部违规（14 片 59% 占片 + 92 处完全重复窗口）的根因。
+24. ⬜ 长模板分段/结构轮换策略（>12 镜模板：N/M 数学不可满足 H1/H2 时，分段成片或卖点组轮换）。
+25. ⬜ H1/H2 可行性前置判定（新模板起片前跑 N/M 数学 + 结构检查，写进 template-run-adaptation 流程）。
+
+**P1（校验体系补全）**
+26. ⬜ 三强校验接入 `export_top_videos` xlsx（当前仅 `/overview/` 实时展示）。
+27. ⬜ VLM 逐帧「画面-文案」自动抽检（当前为文案↔动作断言级；正文字面 ↔ 帧内容一致性需 OCR/VLM 复核；人工抽检降为兜底）。
+28. ⬜ 正式 audio coverage report 制品（section→TTS 文件→mix 区间→实测时长；当前为 overview 轻量文件检查）。
+29. ⬜ 素材池入池 SOP 落地：media_index + source_review + matrix 桥接 + 语义窗口标定 + H1/H2 冒烟（template-material-pool-design）。
+
 ---
 
 ## 7. Goldset 基准选定（历史 6 片：L3 效果 × 效率合成）
