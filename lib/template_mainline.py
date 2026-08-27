@@ -178,12 +178,28 @@ _NARRATION_SHEET_19 = [
     ("这张桌，配得上。", "配得上", "payoff"),
     ("", "直播间见", "cta"),
 ]
+# sheet-14 压缩变体 c1（10 镜/18.2s）：从 14 保留镜按序取行（compressed_from 见设计 §6）。
+_NARRATION_SHEET_14C1 = [
+    ("二十年三十年，做好一件事。", "20年30年 · 一件事", "hook"),
+    ("手按边角，每一处都贴合。", "边角都贴合", "proof"),
+    ("拆开就测，没有异味。", "无异味", "proof"),
+    ("我家餐桌上，就是它。", "我家在用", "payoff"),
+    ("材质安不安全，测了知道。", "健康材质", "reveal"),
+    ("耐磨防刮，久用如新。", "耐磨耐用", "proof"),
+    ("防水防油，一抹就净。", "防水防油", "proof"),
+    ("用了半年，还是光滑。", "半年如新", "proof"),
+    ("脏了一擦就净。", "一擦就净", "proof"),
+    ("", "直播间见", "cta"),
+]
+
+
 _NARRATION_BY_TEMPLATE: dict[str, list[tuple[str, str, str]]] = {
     "sheet-04-video4-zhuodian": _NARRATION_SHEET_04,
     "sheet-05-video5-aks-zhuodian": _NARRATION_SHEET_05,
     "sheet-09-video9-aks-zhuodian": _NARRATION_SHEET_09,
     "sheet-14-video15-aks-zhuodian": _NARRATION_SHEET_14,
-    "sheet-19-video22-aks-zhuodian": _NARRATION_SHEET_19,
+"sheet-19-video22-aks-zhuodian": _NARRATION_SHEET_19,
+    "sheet-14-video15-aks-zhuodian-c1": _NARRATION_SHEET_14C1,
 }
 
 # 逐镜转场意图（按 template 参考片语法：动作匹配切为主，硬切开场/收尾）。
