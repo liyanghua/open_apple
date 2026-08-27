@@ -71,7 +71,7 @@ def compress_candidate(template: Mapping[str, Any], *, target_s: float | None = 
         """按 容量 → H2 → H1 分组的单调优先级删减（避免各违规组互相干扰导致过度删减）。"""
         v = _violations(sem, kept_set, {}, caps)
         eligible = [s for s in sem if s["ordinal"] in kept_set
-                    and s["ordinal"] not in (ordinals[0], ordinals[-1])]
+                    and s["ordinal"] not in skeleton]  # P1-5：排除完整骨架（每域首镜+payoff 首）
         groups: list[list] = []
         if v["capacity_bad"]:
             groups.append([s for s in eligible if s["action_domain"] in set(v["capacity_bad"])])
@@ -113,6 +113,7 @@ def compress_candidate(template: Mapping[str, Any], *, target_s: float | None = 
 
     final = _violations(sem, kept, {}, caps)
     infeasible_target = bool(target_s is not None and final["D"] > target_s + 1e-9)
+    dur_ok = 15.0 - 1e-9 <= final["D"] <= 60.0 + 1e-9  # P1-7：业务时长硬门 [15,60]
     kept_dur = [s["duration_s"] for s in sem if s["ordinal"] in kept]
     dropped = [{"slot_id": s["slot_id"], "ordinal": s["ordinal"], "reason": "压缩删除",
                 "utility": s["utility"]} for s in sem if s["ordinal"] not in kept]
@@ -122,15 +123,35 @@ def compress_candidate(template: Mapping[str, Any], *, target_s: float | None = 
     return {
         "solver_version": SOLVER, "template_id": str(template.get("template_id") or ""),
         "base_ref": f"template:{template.get('template_id')}",
-        "kept_slot_ids": [f"slot-{i:03d}" for i in sorted(kept)],
+        "kept_slot_ids": [s["slot_id"] for s in sem if s["ordinal"] in kept],  # P0-2a：真实 slot id
         "kept_ordinals": sorted(kept), "kept_durations": kept_dur,
         "total_s": round(sum(kept_dur), 2),
         "domain_counts_kept": final["counts"], "secs_kept": {k: round(v, 2) for k, v in final["secs"].items()},
         "h1_ok": not final["h1"], "h2_max_material_s": round(max(final["secs"].values()) if final["secs"] else 0, 2),
         "h2_limit_s": round(final["D"] / 3.0, 2), "capacity_ok": not final["capacity_bad"],
-        "all_hard_ok": not final["h1"] and not final["h2_bad"] and not final["capacity_bad"],
+        "dur_ok": dur_ok,
+        "all_hard_ok": not final["h1"] and not final["h2_bad"] and not final["capacity_bad"] and dur_ok
+                      and not infeasible_target,
         "dropped": dropped, "infeasible_target": infeasible_target, "input_hash": input_hash,
     }
+
+
+
+def _honest_flags(sem, kept, caps):
+    """P1-7：h1/capacity/duration 分别独立判定（不再把域计数误报成 H1 通过）。"""
+    kept_s = [s for s in sem if s["ordinal"] in kept]
+    order = [s["ordinal"] for s in kept_s]
+    counts, secs = {}, {}
+    for s in kept_s:
+        counts[s["action_domain"]] = counts.get(s["action_domain"], 0) + 1
+        secs[s["action_domain"]] = secs.get(s["action_domain"], 0.0) + s["duration_s"]
+    D = sum(secs.values())
+    h1 = all(sem[a - 1]["action_domain"] != sem[b - 1]["action_domain"]
+             for a, b in zip(order, order[1:]))
+    cap = all(counts.get(d, 0) <= caps.get(d, 0) for d in counts)
+    h2 = all(D <= 0 or secs[d] <= D / 3.0 + 1e-9 for d in secs)
+    dur = 15.0 - 1e-9 <= D <= 60.0 + 1e-9
+    return h1, (h1 and cap and h2 and dur), cap, dur
 
 
 def compress_candidate_bottomup(template: Mapping[str, Any], *, target_s: float | None = None) -> dict | None:
@@ -237,11 +258,12 @@ def compress_candidate_bottomup(template: Mapping[str, Any], *, target_s: float 
     ok, info = check(kept)
     kept_dur = [s["duration_s"] for s in sem if s["ordinal"] in kept]
     dropped = [{"slot_id": s["slot_id"], "ordinal": s["ordinal"]} for s in sem if s["ordinal"] not in kept]
+    (h1_ok, _h2_ok, cap_ok, dur_ok) = _honest_flags(sem, kept, caps)
     return {
         "solver_version": SOLVER + "-bottomup", "template_id": str(template.get("template_id") or ""),
         "kept_ordinals": sorted(kept), "kept_durations": kept_dur,
         "total_s": round(sum(kept_dur), 2), "domain_counts_kept": info["counts"],
-        "h1_ok": ok, "h2_max_material_s": round(max(info["secs"].values()) if info["secs"] else 0, 2),
-        "h2_limit_s": round(info["D"] / 3.0, 2), "capacity_ok": True,
-        "all_hard_ok": ok, "dropped": dropped,
+        "h1_ok": h1_ok, "h2_max_material_s": round(max(info["secs"].values()) if info["secs"] else 0, 2),
+        "h2_limit_s": round(info["D"] / 3.0, 2), "capacity_ok": cap_ok, "dur_ok": dur_ok,
+        "all_hard_ok": h1_ok and cap_ok and dur_ok and _h2_ok, "dropped": dropped,
     }

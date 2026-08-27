@@ -330,13 +330,22 @@ def build_source_mappings(
             "mapping_reason": f"镜头意图匹配 {action} 素材，去重且 in-point 不重叠",
             "originality_note": "主体、字幕与剪辑均为本项目表达；参考仅用于分析",
         }
+        # 语义窗口差异化分配（P1-6）：不依赖 matrix_row_id，无条件计算可用区间。
+        # （无 grounding 素材若走旧 cursor 会产出完全相同窗口 —— H3 违规根因）
+        sem = _semantic_window(stem)
+        tr = (grounding or {}).get(stem, {}).get("source_time_range") or {}
+        lo, hi = tr.get("start_seconds"), tr.get("end_seconds_exclusive")
+        m_lo = float(lo) if isinstance(lo, (int, float)) else 0.0
+        m_hi = float(hi) if isinstance(hi, (int, float)) else clip_dur
         # 研究链 grounding：若该素材能桥接到已解析 matrix row，则挂 row ref（满足 scene_plan 硬门）。
         g = (grounding or {}).get(stem) or {}
-        if g.get("matrix_row_id"):
-            item["matrix_row_id"] = g["matrix_row_id"]
-            item["matrix_resolution_id"] = g["matrix_resolution_id"]
-            if research_direction:
-                item["research_direction_ref"] = research_direction
+        if True:  # 评审 P1-6：窗口差异化分配无条件执行（matrix 只是可用区间的信息来源之一）；
+            # 无 grounding 素材同样必须走差异化窗口（否则 cursor 复用 → H3 完全重复）。
+            if g.get("matrix_row_id"):
+                item["matrix_row_id"] = g["matrix_row_id"]
+                item["matrix_resolution_id"] = g.get("matrix_resolution_id")
+                if research_direction:
+                    item["research_direction_ref"] = research_direction
             # 硬门：source_interval 必须落在 matrix row 的 approved source_time_range 内，
             # **且长度 == timeline span**（2s 场景取 2s 素材窗，绝不拉成整段 matrix 区间）。
             # 关键：优先锚定到该素材的**语义证据窗口**（人在哪一秒发生证据动作），
@@ -746,9 +755,13 @@ def capacity_verdict(template: Mapping[str, Any], *, allow_compress: bool = True
     diversify_ok = all(
         _clip_stems().count(f"product_透明桌垫-{d}") + (1 if f"product_透明桌垫-{d}" in _clip_stems() else 0) >= 1
         for d in counts)  # 池每域当前 1 支 → 以下用 2 支阈值判定受限
-    diversify_ok = all(
-        sum(1 for stem in _clip_stems() if _action_from_stem(stem) == d) >= DIVERSIFY_MIN_ASSETS_PER_DOMAIN
-        for d in counts)
+    # P1-4：多样化判定按**物理素材数**（同动作域多支素材视作多素材；域≠素材）
+    media_by_domain: dict[str, int] = {}
+    for stem in _clip_stems():
+        act = _action_from_stem(stem)
+        media_by_domain[act] = media_by_domain.get(act, 0) + 1
+    diversify_ok = all(media_by_domain.get(d, 0) >= DIVERSIFY_MIN_ASSETS_PER_DOMAIN
+                       for d in counts)
     reasons: list[str] = []
     for d, cnt in deficits.items():
         if cnt > 0:
@@ -801,6 +814,6 @@ def capacity_verdict(template: Mapping[str, Any], *, allow_compress: bool = True
         "domain_counts": counts, "window_capacities": caps, "deficits": deficits,
         "h2_worst_material_seconds": round(h2_worst, 2), "h2_limit_seconds": round(h2_limit, 2),
         "full_solvable": full_ok, "compress_solvable": comp_ok,
-        "diversify_solvable": diversify_ok, "reasons": reasons,
+        "diversify_solvable": diversify_ok, "media_by_domain": media_by_domain, "reasons": reasons,
         "input_hash": input_hash,
     }

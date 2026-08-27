@@ -422,3 +422,71 @@ def test_capacity_verdict_three_branches():
     assert v["verdict"] == "MARK_GAP", v
 
     del SLOT_ACTION_BY_TEMPLATE["sheet-test"]
+
+
+def test_capacity_readiness_failclosed_and_compress_blocks_original():
+    """不变量 13（评审 P0-1）：容量门 fail-closed——判定器异常 blocker；COMPRESS 阻断原始模板、放行 -c1。"""
+    from lib.template_run_plan import check_template_run_plan_ready
+    import json as _json
+
+    pack = _json.loads((ROOT / "projects/template-pack-library/artifacts/template_pack.json").read_text())
+    t14 = next(t for t in pack["templates"] if t["template_id"] == "sheet-14-video15-aks-zhuodian")
+    t14c1 = next(t for t in pack["templates"] if t["template_id"] == "sheet-14-video15-aks-zhuodian-c1")
+    base = {"status": "approved", "slot_bindings": [
+        {"slot_id": s["slot_id"], "source": "owned", "source_media_id": "x"} for s in t14["slots"]]}
+
+    r_orig = check_template_run_plan_ready(dict(base), template=t14)
+    assert any("COMPRESS" in b for b in r_orig["blockers"]), f"原始模板应被 COMPRESS 阻断: {r_orig['blockers'][:2]}"
+    # -c1 压缩变体放行（无容量 blocker）
+    r_c1 = check_template_run_plan_ready({**base, "template_id": t14c1["template_id"]}, template=t14c1)
+    assert not any("COMPRESS" in b or "MARK_GAP" in b for b in r_c1["blockers"])
+    # 判定器异常 → fail-closed blocker
+    import lib.template_run_plan as rpmod
+
+    orig = rpmod.check_template_run_plan_ready
+    def boom(*a, **k):
+        raise RuntimeError("capacity crash")
+    import lib.template_source_match as sm
+    cap_orig = sm.capacity_verdict
+    sm.capacity_verdict = boom
+    try:
+        r = check_template_run_plan_ready(dict(base), template=t14)
+    finally:
+        sm.capacity_verdict = cap_orig
+    assert any("异常" in b for b in r["blockers"])
+
+
+def test_compressor_skeleton_protected_and_real_slot_ids():
+    """不变量 14（评审 P0-2a/P1-5）：骨架（每域首镜）不可删；kept_slot_ids 使用真实 slot id。"""
+    from lib.template_compression import compress_candidate
+    from lib.template_source_match import SLOT_ACTION_BY_TEMPLATE
+
+    def tmpl(domains):
+        return {"template_id": "sheet-test-x", "slots": [
+            {"slot_id": f"sheet-test-x-slot-{i:03d}", "ordinal": i, "duration_s": 2.0,
+             "shot_language": {"shot_size": "近景"}, "scene": "室内/桌面",
+             "dialogue": "x", "caption_treatment": "subtitle"} for i in range(1, len(domains) + 1)]}
+
+    t = tmpl(["防油易擦拭", "防油易擦拭", "防油易擦拭"])
+    SLOT_ACTION_BY_TEMPLATE["sheet-test-x"] = ["防油易擦拭"] * 3
+    from lib.template_mainline import _NARRATION_BY_TEMPLATE
+    _NARRATION_BY_TEMPLATE["sheet-test-x"] = [
+        ("a", "a", "hook"), ("b", "b", "proof"), ("c", "c", "cta")]
+    c = compress_candidate(t)
+    SLOT_ACTION_BY_TEMPLATE.pop("sheet-test-x", None)
+    _NARRATION_BY_TEMPLATE.pop("sheet-test-x", None)
+    assert c["kept_slot_ids"][0] == "sheet-test-x-slot-001"  # 真实 id，非 slot-001 伪造
+    assert 1 in c["kept_ordinals"] and 3 in c["kept_ordinals"]  # 首/尾骨架保留
+
+
+def test_no_grounding_still_distinct_windows():
+    """不变量 15（评审 P1-6）：无 grounding 时窗口分配仍差异化（不得 H3 重复）。"""
+    from lib.template_source_match import build_source_mappings
+
+    scenes = [{"id": f"scene-{i:03d}", "start_seconds": 2.0 * (i - 1), "end_seconds": 2.0 * i,
+               "template_slot_ref": f"s{i}"} for i in range(1, 4)]
+    slot_by_scene = {f"scene-{i:03d}": {"slot_id": f"s{i}"} for i in range(1, 4)}
+    assigned = {f"s{i}": "product_透明桌垫-自动铺开对齐" for i in range(1, 4)}
+    m = build_source_mappings(scenes, slot_by_scene, assigned, grounding={})
+    starts = [x["source_interval"]["start_seconds"] for x in m]
+    assert len(set(round(s, 2) for s in starts)) == len(starts), f"无 grounding 仍出现重复窗口: {starts}"

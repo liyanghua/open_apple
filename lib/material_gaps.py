@@ -14,7 +14,8 @@ from typing import Mapping
 from lib.template_source_match import capacity_verdict, window_capacity
 
 ROOT = Path(__file__).resolve().parents[1]
-PACK_ARTIFACTS = ROOT / "projects" / "template-pack-library" / "artifacts"
+PACK_DIR = ROOT / "projects" / "template-pack-library"
+PACK_ARTIFACTS = PACK_DIR / "artifacts"
 POLICY_REF = "docs/rules/business-policy.yaml"
 
 _SUGGESTED = {
@@ -40,22 +41,29 @@ def build_document(pack: dict | None = None, *, policy_path: Path | None = None)
     for template in pack.get("templates", []):
         v = capacity_verdict(template)
         verdicts.append((template, v))
+    # 评审 P1-8：capacity_shots 使用每域**规范容量**（window_capacity 一次计算，所有模板同口径）；
+    # needed 与 deficit 按模板逐项求和，并保留 per_template 明细（避免混合口径）。
     gaps: dict[str, dict] = {}
     for template, v in verdicts:
         for domain, deficit in v["deficits"].items():
             if deficit <= 0:
                 continue
+            tid = str(template.get("template_id") or "")
             entry = gaps.setdefault(domain, {
                 "domain": domain, "affected_templates": [],
-                "needed_shots": 0, "capacity_shots": v["window_capacities"].get(domain, 0),
+                "needed_shots": 0,
+                "capacity_shots": window_capacity(domain, 2.0)["capacity"],
                 "deficit": 0,
                 "capacity_basis": window_capacity(domain, 2.0)["basis"],
                 "suggested_shots": _SUGGESTED.get(domain, []),
-                "priority": "P0",
+                "priority": "P0", "per_template": [],
             })
-            entry["affected_templates"].append(str(template.get("template_id") or ""))
+            entry["affected_templates"].append(tid)
             entry["needed_shots"] += v["domain_counts"].get(domain, 0)
             entry["deficit"] += deficit
+            entry["per_template"].append({"template_id": tid,
+                                          "needed": v["domain_counts"].get(domain, 0),
+                                          "deficit": deficit})
     return {
         "version": "1.1",
         "policy_ref": {"path": POLICY_REF,
@@ -65,7 +73,8 @@ def build_document(pack: dict | None = None, *, policy_path: Path | None = None)
     }
 
 
-def write_document(project: Path = PACK_ARTIFACTS, *, sink=None) -> dict:
+def write_document(project: Path = PACK_DIR, *, sink=None) -> dict:
+    """评审 P1-8：project 默认 = 模板库根（relative path 落 artifacts/ 不再双层嵌套）。"""
     from lib.artifact_io import write_artifact_atomic
 
     doc = build_document()

@@ -102,15 +102,23 @@ def check_template_run_plan_ready(
     known_slot_ids = set()
     if template is not None:
         known_slot_ids = {str(s.get("slot_id")) for s in (template.get("slots") or []) if isinstance(s, Mapping)}
-    # P0-2b：素材容量判定——MARK_GAP 直接 fail-closed（缺口禁止进入付费资产阶段）。
+    # P0-2b：素材容量判定 fail-closed（评审 P0-1）——
+    #   · 判定器异常 → blocker（不得静默放行进入付费资产阶段）；
+    #   · MARK_GAP → blocker（缺口禁止付费）；
+    #   · COMPRESS → 原始模板 blocker（必须改用压缩变体 -c1/已批准压缩计划，否则禁止继续生成）。
     try:
         from lib.template_source_match import capacity_verdict
 
         verdict = capacity_verdict(template) if template is not None else None
-        if verdict and verdict.get("verdict") == "MARK_GAP":
-            blockers.append("素材容量缺口（MARK_GAP）：" + "; ".join(verdict.get("reasons") or []) + "——需补素材或压缩后重评")
-    except Exception:
-        pass
+        if verdict:
+            tid = str(template.get("template_id") or "")
+            if verdict.get("verdict") == "MARK_GAP":
+                blockers.append("素材容量缺口（MARK_GAP）：" + "; ".join(verdict.get("reasons") or []) + "——需补素材或压缩后重评")
+            elif verdict.get("verdict") == "COMPRESS" and not tid.endswith("-c1"):
+                blockers.append("素材容量不足（COMPRESS）：" + "; ".join(verdict.get("reasons") or []) +
+                                "——必须以压缩变体（-c1）或已批准压缩计划运行，禁止原始计划继续生成")
+    except Exception as exc:
+        blockers.append(f"素材容量判定器异常（fail-closed，禁止付费生成）：{exc}")
     unbound_slots: list[str] = []
     for b in bindings:
         if not isinstance(b, Mapping):

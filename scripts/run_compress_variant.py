@@ -131,7 +131,12 @@ def main() -> int:
     with ProjectCommitStore(run_dir).transaction(action={"action_id": f"seed-assets-{run}"}) as sink:
         artifacts_map = {}
         for name in ASSET_BOARD:
-            data = attach_hashes(dict(_load(src_run / "artifacts" / name) or {}))
+            data = dict(_load(src_run / "artifacts" / name) or {})
+            # P0-3：跨 run 锁定制品重基——project_id/input_hashes 归属子 run（否则审批包不能证明本版本）
+            data["project_id"] = run_dir.name
+            data["input_hashes"] = {"base_run": src_run.name}
+            data.pop("artifact_sha256", None); data.pop("semantic_sha256", None)
+            data = attach_hashes(data)
             write_artifact_atomic(f"artifacts/{name}", name.split(".")[0], data, project_dir=run_dir, sink=sink)
             artifacts_map[name.split(".")[0]] = _envelope(f"artifacts/{name}", name.split(".")[0], data)
         sep = _load(run_dir / "artifacts/shot_execution_plan.json") or {}
