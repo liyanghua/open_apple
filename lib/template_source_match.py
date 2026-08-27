@@ -357,9 +357,17 @@ def build_source_mappings(
                             chosen_start = cand
                             break
                     if chosen_start is None:
-                        # 实在没有无重叠位置：错开复用（尽量远处），但仍标注
-                        chosen_start = max(float(lo), float(hi) - span) if not used else max(
-                            float(lo), float(hi) - span)
+                        # 实在没有无重叠位置：回退到「窗口差异化」——在同一素材的候选起点集合里
+                        # 选一个与已用窗口起点距离最远的起点（保证起始差 ≥ 0.75s；窗口允许部分重叠，
+                        # 但绝不允许与已用窗口完全相同 → 画面不会逐帧重复）。
+                        candidates = [c for c in _candidates()]
+                        if candidates:
+                            def _min_gap(cand):
+                                gaps = [abs(cand - s) for s, _ in used] if used else [1.0]
+                                return min(gaps)
+                            chosen_start = max(candidates, key=_min_gap)
+                        else:
+                            chosen_start = max(float(lo), float(hi) - span)
                     item["source_interval"]["start_seconds"] = round(chosen_start, 3)
                     item["source_interval"]["end_seconds_exclusive"] = round(chosen_start + span, 3)
                     _used_windows[stem].append((item["source_interval"]["start_seconds"], item["source_interval"]["end_seconds_exclusive"]))
@@ -517,3 +525,99 @@ def semantic_mismatches(script: Mapping[str, Any]) -> list[dict[str, str]]:
                     continue
                 break
     return findings
+
+
+# ---------------------------------------------------------------------------
+# 画面重合度标准（评审：成片内不能“同一镜头用多次”）
+# ---------------------------------------------------------------------------
+# 硬标准：
+#   H1 相邻镜头不得使用同一素材（同素材连播 = 视觉重复）
+#   H2 单一素材占全片时长 ≤ 1/3（30 镜模板配 6 素材的理论下限 ≈ 29%）
+#   H3 同一素材的 in-point 窗口不得重叠（既有分配器约束，报告复核）
+# 软指标（展示）：
+#   S1 单素材复用次数（上限 = ceil(镜数/素材数)；超限 → 建议换动作句/补素材素材）
+#   S2 同素材两次使用间至少相隔 2 镜（diff≥3；降低“同一镜头反复出现”的感知）
+REUSE_HARD = {"adjacent_same": 0, "single_ratio_max": 1 / 3}
+REUSE_SOFT = {"min_use_gap_scenes": 3, "min_window_start_gap": 0.75}
+
+
+def material_reuse_report(scene_plan: Mapping[str, Any]) -> dict[str, Any]:
+    """基于 scene_plan.source_mapping 的素材复用/重合度报告。
+
+    返回：{counts, max_stem, max_reuse, single_ratio, adjacent_same, overlap_violations,
+          min_gap_violations, hard_pass, findings[]}
+    """
+    import os
+
+    mapping = (scene_plan or {}).get("metadata", {}).get("source_mapping") or []
+    stems: list[str] = []
+    durations: dict[str, float] = {}
+    index_by_stem: dict[str, list[int]] = {}
+    windows: dict[str, list[tuple[float, float]]] = {}
+    total = 0.0
+    for scene in (scene_plan or {}).get("scenes", []) if isinstance(scene_plan, Mapping) else []:
+        total += float(scene.get("end_seconds", 0)) - float(scene.get("start_seconds", 0))
+    for idx, m in enumerate(mapping):
+        stem = os.path.splitext(os.path.basename(str(m.get("source_path") or "")))[0]
+        stems.append(stem)
+        dur = float(m["timeline_interval"]["end_seconds_exclusive"]) - float(m["timeline_interval"]["start_seconds"])
+        durations[stem] = durations.get(stem, 0.0) + dur
+        index_by_stem.setdefault(stem, []).append(idx)
+        w = (float(m["source_interval"]["start_seconds"]), float(m["source_interval"]["end_seconds_exclusive"]))
+        windows.setdefault(stem, []).append(w)
+    n_materials = len({s.replace("product_透明桌垫-", "") for s in stems}) if stems else 1
+    adjacent_same = sum(1 for i in range(1, len(stems)) if stems[i] == stems[i - 1])
+    ratio = {stem: round(d / max(total, 0.01), 3) for stem, d in durations.items()}
+    max_stem = max(durations, key=durations.get) if durations else ""
+    max_reuse = len(index_by_stem.get(max_stem, [])) if max_stem else 0
+    single_ratio = ratio.get(max_stem, 0.0)
+
+    identical_windows = []
+    for stem, ws in windows.items():
+        for i in range(len(ws)):
+            for j in range(i + 1, len(ws)):
+                a, b = ws[i], ws[j]
+                if abs(a[0] - b[0]) < 1e-6 and abs(a[1] - b[1]) < 1e-6:
+                    identical_windows.append(f"{stem}: window{i}==window{j}")
+    # 相邻（同素材先后两次使用）窗口起点差 ≥ min_window_start_gap：保证“微变化”，
+    # 即使窗口部分重叠也不是同一帧画面。
+    min_window_gaps = []
+    for stem in index_by_stem:
+        idxs = index_by_stem[stem]
+        for i in range(1, len(idxs)):
+            a, b = windows[stem][idxs.index(idxs[i]) - 1], windows[stem][idxs.index(idxs[i])]
+            gap = abs(b[0] - a[0])
+            if gap < REUSE_SOFT["min_window_start_gap"]:
+                min_window_gaps.append(f"{stem}: 第{idxs[i-1]+1}与第{idxs[i]+1}镜起点差{gap:.2f}s")
+    min_gap_violations = []
+    for stem, idxs in index_by_stem.items():
+        for i in range(1, len(idxs)):
+            if idxs[i] - idxs[i - 1] < REUSE_SOFT["min_use_gap_scenes"]:
+                min_gap_violations.append(f"{stem}: 第{idxs[i-1]+1}与第{idxs[i]+1}镜间隔{idxs[i]-idxs[i-1]-1}镜")
+    hard_pass = (
+        adjacent_same <= REUSE_HARD["adjacent_same"]
+        and single_ratio <= REUSE_HARD["single_ratio_max"]
+        and not identical_windows
+        and not min_window_gaps
+    )
+    findings = []
+    if adjacent_same > REUSE_HARD["adjacent_same"]:
+        findings.append(f"H1 相邻镜头同素材 ×{adjacent_same}")
+    if single_ratio > REUSE_HARD["single_ratio_max"]:
+        findings.append(f"H2 「{max_stem}」占片 {single_ratio:.0%}（标准 ≤33%）")
+    if identical_windows:
+        findings.append("H3 完全重复窗口: " + "; ".join(identical_windows[:3]))
+    if min_window_gaps:
+        findings.append("H4 同素材相邻窗口起点差不足: " + "; ".join(min_window_gaps[:3]))
+    if min_gap_violations:
+        findings.append("S2 复用间隔不足: " + "; ".join(min_gap_violations[:3]))
+    if n_materials and max_reuse > max(2, -(-len(stems) // n_materials)):
+        findings.append(
+            f"S1 复用次数 {max_reuse} 次 > 理论下限 {max(2, -(-len(stems) // n_materials))}（{len(stems)}镜/{n_materials}素材）")
+    return {
+        "counts": {k.replace("product_透明桌垫-", ""): len(v) for k, v in index_by_stem.items()},
+        "max_stem": max_stem.replace("product_透明桌垫-", ""), "max_reuse": max_reuse,
+        "single_ratio": single_ratio, "adjacent_same": adjacent_same,
+        "identical_windows": identical_windows, "min_window_gaps": min_window_gaps,
+        "hard_pass": hard_pass, "findings": findings,
+    }

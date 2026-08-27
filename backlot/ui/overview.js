@@ -70,7 +70,8 @@ function renderMethodology(m) {
 function renderOverview(runs) {
   const t = el("table");
   const head = el("thead", {}, el("tr", {},
-    ...["#", "视频名称", "时长", "定档", "L3 均分", "单维最低", "短板", "L1a", "证书", "转场", "成片/看板"].map(
+    ...["#", "视频名称", "时长", "定档", "L3 均分", "单维最低", "短板", "L1a", "证书", "转场",
+       "语义一致", "画面重复", "口播覆盖", "成片/看板"].map(
       (h, i) => el("th", { class: i >= 2 ? "num" : "" }, h))));
   const body = el("tbody");
   runs.forEach((r, i) => {
@@ -87,6 +88,14 @@ function renderOverview(runs) {
       el("td", { class: "num" }, chip(r.l1a_status, r.l1a_status === "pass" ? "pass" : "fail")),
       el("td", {}, r.certificate ? chip("✅ 绑定", "pass") : chip("无", "pending")),
       el("td", { class: "num" }, `${r.noncut}/${r.cuts}`),
+      el("td", {},
+        chip(r.semantic.findings.length ? `⚠ ${r.semantic.findings.length}处文案不可证` : "✅ 文案=画面",
+             r.semantic.findings.length ? "fail" : "pass")),
+      el("td", {},
+        chip(r.reuse.hard_pass ? "✅ 无重复" : `⚠ ${r.reuse.max_reuse}次/${(r.reuse.single_ratio * 100).toFixed(0)}%占片`,
+             r.reuse.hard_pass ? "pass" : "fail")),
+      el("td", {}, chip(r.audio.coverage_ok ? "✅ 全段齐" : "⚠ 缺口播",
+                        r.audio.coverage_ok ? "pass" : "fail")),
       el("td", {},
         el("a", { class: "media-link", href: `/media/${r.run}/renders/final.mp4`, target: "_blank" }, "成片"),
         " · ",
@@ -170,6 +179,9 @@ function renderEvidence(data) {
   for (const r of data.slim_runs) {
     const items = [
       `L3 摘要：${r.l3.summary || "未评分（运行 export_top_videos 后刷新）"}`,
+      `语义一致：${r.semantic.findings.length ? r.semantic.findings.slice(0, 2).join("；") : "文案可证（0 处）"}`,
+      `画面重复：${r.reuse.hard_pass ? "通过" : (r.reuse.findings || []).slice(0, 2).join("；")}（${r.reuse.counts ? Object.entries(r.reuse.counts).map(([k, v]) => `${k}×${v}`).join(" ") : ""}）`,
+      `口播覆盖：${r.audio.narrated} 段${r.audio.missing.length ? "，缺 " + r.audio.missing.join(",") : "，全齐"}；混音${r.audio.mix_ok ? "存在" : "缺失"}`,
       `硬门核验：${verifyCells(r) || "—"}`,
       `分辨率/音频：${r.probe_resolution || "—"} · 时长 ${r.probe_duration ?? "—"}s · 音轨 ${r.probe_audio ? "有" : "无"}`,
       `发布时间：${r.published_at || "—"} · 人工确认：${r.human_approved ? "已批准（批量授权口径）" : "未批准"}`,

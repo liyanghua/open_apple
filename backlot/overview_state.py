@@ -20,6 +20,8 @@ from scripts.export_top_videos import (
     rule_verdict,
     tier_of,
 )
+from lib.template_source_match import material_reuse_report, semantic_mismatches
+from scripts.gen_template_audio import narration_filename
 
 
 def _load_any(path: Path):
@@ -29,6 +31,22 @@ def _load_any(path: Path):
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def _audio_coverage(project: Path, script: dict) -> dict:
+    """口播覆盖强校验：每个有声 section 必须存在 TTS 文件 + 成品混音存在。"""
+    audio_dir = project / "assets" / "audio"
+    missing = []
+    narrated = 0
+    for sec in (script.get("sections") or []):
+        if not str(sec.get("narration") or "").strip():
+            continue
+        narrated += 1
+        if not (audio_dir / narration_filename(str(sec.get("id") or ""))).is_file():
+            missing.append(str(sec.get("id")))
+    mix_ok = (audio_dir / "sample-mix.mp3").is_file()
+    return {"narrated": narrated, "missing": missing, "mix_ok": mix_ok,
+            "coverage_ok": not missing and mix_ok}
 
 
 def _slim_run(run: dict) -> dict:
@@ -63,6 +81,9 @@ def _slim_run(run: dict) -> dict:
             "seeds": (run["advisory"] or {}).get("seeds", []),
             "model": (run["advisory"] or {}).get("model", ""),
         },
+        "semantic": {"findings": semantic_mismatches(run["script"])},
+        "reuse": material_reuse_report(_load_any(run["project"] / "artifacts" / "scene_plan.json") or {}),
+        "audio": _audio_coverage(run["project"], run["script"]),
         "checks": {
             "sensitive": (run["l1a_checks"].get("l1a_sensitive") or {}).get("status"),
             "subtitle_bounds": (run["l1a_checks"].get("l1a_subtitle_bounds") or {}).get("status"),

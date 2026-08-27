@@ -45,8 +45,15 @@ def _make_fake_run(root: Path, run: str, *, with_cert: bool = True, with_l3: boo
         "version": "1.0", "entries": [{"timestamp": "2026-08-26T00:00:00+00:00"}]})
     _write(proj / "checkpoint_publish.json", {"status": "completed"})
     _write(proj / "checkpoint_sample.json", {"status": "completed", "human_approved": True})
-    if with_cert:
-        _write(proj / "artifacts" / "delivery_certificate.json", {"version": "1.0"})
+    (proj / "assets" / "audio").mkdir(parents=True)
+    (proj / "assets" / "audio" / "narration-s001.mp3").write_bytes(b"x")
+    (proj / "assets" / "audio" / "sample-mix.mp3").write_bytes(b"x")
+    _write(proj / "artifacts" / "scene_plan.json", {"version": "1.0", "metadata": {"source_mapping": [
+        {"scene_id": "scene-001", "template_slot_ref": "s1", "source_path": "projects/x/product.MP4",
+         "source_interval": {"start_seconds": 0.0, "end_seconds_exclusive": 2.0},
+         "timeline_interval": {"start_seconds": 0.0, "end_seconds_exclusive": 2.0}}],
+        "template_slot_ref": {}}})
+    _write(proj / "artifacts" / "delivery_certificate.json", {"version": "1.0"})
     if with_l3:
         _write(proj / "artifacts" / "l3_advisory.json", {
             "media_sha256": "x" * 64, "rubric_version": "l3-v1.0", "model": "qwen-vl-max",
@@ -69,6 +76,11 @@ def test_overview_api_readonly(backlot_client, projects_root, monkeypatch):
     data = res.json()
     assert data["total_runs"] == 2
     assert data["scored_count"] == 1
+    # 强校验字段（语义一致 / 画面重复 / 口播覆盖）
+    top = data["slim_runs"][0]
+    assert "semantic" in top and "reuse" in top and "audio" in top
+    assert top["audio"]["coverage_ok"] is True
+    assert isinstance(top["reuse"]["hard_pass"], bool)
     assert len(data["slim_runs"]) == 2
     assert len(data["gates"]) >= 5
     ranked = [r["run"] for r in data["slim_runs"]]

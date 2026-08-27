@@ -339,3 +339,43 @@ def test_semantic_validator_catches_cross_claims_and_all_template_tables_clean()
             })
         findings = semantic_mismatches({"sections": sections})
         assert not findings, f"{tid} 语义不一致: {findings[:3]}"
+
+
+def test_material_reuse_standard_detects_duplicate_shots():
+    """不变量 11：画面重合度标准（评审——成片不能“同一镜头用多次”）。
+
+    H1 相邻同素材 / H2 单素材占比 / H3 完全重复窗口 / H4 同素材相邻窗口起点差，
+    任一违反 → hard_pass=False；标准与判定函数同时锁定。
+    """
+    from lib.template_source_match import REUSE_HARD, material_reuse_report
+
+    assert REUSE_HARD["adjacent_same"] == 0 and abs(REUSE_HARD["single_ratio_max"] - 1 / 3) < 1e-9
+
+    def plan(seq, windows):
+        scenes = []
+        mapping = []
+        cursor = 0.0
+        for i, stem in enumerate(seq, start=1):
+            scenes.append({"id": f"scene-{i:03d}", "start_seconds": cursor, "end_seconds": cursor + 2.0})
+            mapping.append({
+                "scene_id": f"scene-{i:03d}", "template_slot_ref": f"s{i}",
+                "source_path": f"projects/x/product_透明桌垫-{stem}.MP4",
+                "source_interval": {"start_seconds": windows[i - 1][0],
+                                   "end_seconds_exclusive": windows[i - 1][1]},
+                "timeline_interval": {"start_seconds": cursor, "end_seconds_exclusive": cursor + 2.0},
+            })
+            cursor += 2.0
+        return {"scenes": scenes, "metadata": {"source_mapping": mapping}}
+
+    good = plan(["防油易擦拭", "防刮", "无甲醛检测"], [(0.0, 2.0), (1.9, 3.9), (0.0, 2.0)])
+    assert material_reuse_report(good)["hard_pass"] is True
+    # H1：相邻同素材
+    bad1 = plan(["防刮", "防刮", "无甲醛检测"], [(0.0, 2.0), (2.25, 4.25), (0.0, 2.0)])
+    assert material_reuse_report(bad1)["hard_pass"] is False
+    assert any("H1" in f for f in material_reuse_report(bad1)["findings"])
+    # H3：完全相同窗口
+    bad2 = plan(["防刮", "无甲醛检测", "防刮"], [(0.0, 2.0), (0.0, 2.0), (0.0, 2.0)])
+    assert any("H3" in f for f in material_reuse_report(bad2)["findings"])
+    # H4：同素材相邻窗口起点差 < 0.75s
+    bad3 = plan(["防刮", "无甲醛检测", "防刮"], [(0.0, 2.0), (0.0, 2.0), (0.3, 2.3)])
+    assert any("H4" in f for f in material_reuse_report(bad3)["findings"])
