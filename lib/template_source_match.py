@@ -745,15 +745,23 @@ def capacity_verdict(template: Mapping[str, Any], *, allow_compress: bool = True
                     next((s["slot_id"] for s in sem if s["action_domain"] == d), ""), 2.0))
             return total
 
-        bottle = max(counts, key=counts.get)
-        k_hi = min(counts[bottle], caps[bottle])
-        comp_ok = False
-        if k_hi >= 1:
-            for k in range(k_hi, 0, -1):
-                if k * (dur_by_slot.get(next((s["slot_id"] for s in sem
-                                              if s["action_domain"] == bottle), ""), 2.0)) <= _D(k) / 3.0 + 1e-9:
-                    comp_ok = True
-                    break
+        # 全域 H2 迭代剪枝：所有域同时满足 k_d×dur_d ≤ D/3（而非仅瓶颈域）。
+        ks = {d: min(counts[d], caps[d]) for d in counts}
+        comp_ok = bool(ks)
+        guard = 0
+        while comp_ok and guard < len(counts) * 4 + 4:
+            guard += 1
+            Dk = sum(ks[d] * (dur_by_slot.get(next((s["slot_id"] for s in sem
+                                                    if s["action_domain"] == d), ""), 2.0)) for d in ks)
+            worst = max(ks, key=lambda d: ks[d] * (dur_by_slot.get(next(
+                (s["slot_id"] for s in sem if s["action_domain"] == d), ""), 2.0)))
+            if ks[worst] * (dur_by_slot.get(next((s["slot_id"] for s in sem
+                                                  if s["action_domain"] == worst), ""), 2.0)) <= Dk / 3.0 + 1e-9:
+                break
+            ks[worst] -= 1
+            if ks[worst] < 1:
+                comp_ok = False
+                break
         verdict = "COMPRESS" if (allow_compress and comp_ok) else "MARK_GAP"
         if not comp_ok:
             reasons.append("压缩分量仍违反 H2（需补素材）")

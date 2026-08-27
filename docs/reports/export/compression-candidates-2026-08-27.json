@@ -1,0 +1,1662 @@
+{
+  "sheet-05-video5-aks-zhuodian": [
+    {
+      "solver_version": "greedy-drop-v1",
+      "template_id": "sheet-05-video5-aks-zhuodian",
+      "base_ref": "template:sheet-05-video5-aks-zhuodian",
+      "kept_slot_ids": [
+        "slot-001",
+        "slot-002",
+        "slot-003",
+        "slot-004",
+        "slot-010",
+        "slot-011",
+        "slot-012",
+        "slot-013",
+        "slot-014",
+        "slot-016",
+        "slot-017",
+        "slot-018",
+        "slot-019",
+        "slot-021"
+      ],
+      "kept_ordinals": [
+        1,
+        2,
+        3,
+        4,
+        10,
+        11,
+        12,
+        13,
+        14,
+        16,
+        17,
+        18,
+        19,
+        21
+      ],
+      "kept_durations": [
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        0.29999999999999716
+      ],
+      "total_s": 26.3,
+      "domain_counts_kept": {
+        "餐桌场景": 5,
+        "防油易擦拭": 3,
+        "桌角对齐-挤压不变形": 1,
+        "无甲醛检测": 1,
+        "自动铺开对齐": 3,
+        "防刮": 1
+      },
+      "secs_kept": {
+        "餐桌场景": 8.3,
+        "防油易擦拭": 6.0,
+        "桌角对齐-挤压不变形": 2.0,
+        "无甲醛检测": 2.0,
+        "自动铺开对齐": 6.0,
+        "防刮": 2.0
+      },
+      "h1_ok": true,
+      "h2_max_material_s": 8.3,
+      "h2_limit_s": 8.77,
+      "capacity_ok": true,
+      "all_hard_ok": true,
+      "dropped": [
+        {
+          "slot_id": "sheet-05-video5-aks-zhuodian-slot-005",
+          "ordinal": 5,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-05-video5-aks-zhuodian-slot-006",
+          "ordinal": 6,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-05-video5-aks-zhuodian-slot-007",
+          "ordinal": 7,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-05-video5-aks-zhuodian-slot-008",
+          "ordinal": 8,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-05-video5-aks-zhuodian-slot-009",
+          "ordinal": 9,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-05-video5-aks-zhuodian-slot-015",
+          "ordinal": 15,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-05-video5-aks-zhuodian-slot-020",
+          "ordinal": 20,
+          "reason": "压缩删除",
+          "utility": 6
+        }
+      ],
+      "infeasible_target": false,
+      "input_hash": "8d91022c08f57e0e39438cb638ace3c6f43a6f857a6a89f8cbf0d72017015e51"
+    },
+    {
+      "solver_version": "greedy-drop-v1",
+      "template_id": "sheet-05-video5-aks-zhuodian",
+      "base_ref": "template:sheet-05-video5-aks-zhuodian",
+      "kept_slot_ids": [
+        "slot-001",
+        "slot-002",
+        "slot-003",
+        "slot-004",
+        "slot-010",
+        "slot-011",
+        "slot-012",
+        "slot-013",
+        "slot-014",
+        "slot-016",
+        "slot-017",
+        "slot-018",
+        "slot-019",
+        "slot-021"
+      ],
+      "kept_ordinals": [
+        1,
+        2,
+        3,
+        4,
+        10,
+        11,
+        12,
+        13,
+        14,
+        16,
+        17,
+        18,
+        19,
+        21
+      ],
+      "kept_durations": [
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        0.29999999999999716
+      ],
+      "total_s": 26.3,
+      "domain_counts_kept": {
+        "餐桌场景": 5,
+        "防油易擦拭": 3,
+        "桌角对齐-挤压不变形": 1,
+        "无甲醛检测": 1,
+        "自动铺开对齐": 3,
+        "防刮": 1
+      },
+      "secs_kept": {
+        "餐桌场景": 8.3,
+        "防油易擦拭": 6.0,
+        "桌角对齐-挤压不变形": 2.0,
+        "无甲醛检测": 2.0,
+        "自动铺开对齐": 6.0,
+        "防刮": 2.0
+      },
+      "h1_ok": true,
+      "h2_max_material_s": 8.3,
+      "h2_limit_s": 8.77,
+      "capacity_ok": true,
+      "all_hard_ok": true,
+      "dropped": [
+        {
+          "slot_id": "sheet-05-video5-aks-zhuodian-slot-005",
+          "ordinal": 5,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-05-video5-aks-zhuodian-slot-006",
+          "ordinal": 6,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-05-video5-aks-zhuodian-slot-007",
+          "ordinal": 7,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-05-video5-aks-zhuodian-slot-008",
+          "ordinal": 8,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-05-video5-aks-zhuodian-slot-009",
+          "ordinal": 9,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-05-video5-aks-zhuodian-slot-015",
+          "ordinal": 15,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-05-video5-aks-zhuodian-slot-020",
+          "ordinal": 20,
+          "reason": "压缩删除",
+          "utility": 6
+        }
+      ],
+      "infeasible_target": false,
+      "input_hash": "2de340e5b93440e895973f6db8ea8af7a3355914cab5da0ee7dc4ac5857b0067"
+    }
+  ],
+  "sheet-09-video9-aks-zhuodian": [
+    {
+      "solver_version": "greedy-drop-v1",
+      "template_id": "sheet-09-video9-aks-zhuodian",
+      "base_ref": "template:sheet-09-video9-aks-zhuodian",
+      "kept_slot_ids": [
+        "slot-001",
+        "slot-002",
+        "slot-016",
+        "slot-021"
+      ],
+      "kept_ordinals": [
+        1,
+        2,
+        16,
+        21
+      ],
+      "kept_durations": [
+        2.0,
+        2.0,
+        2.0,
+        0.10000000000000142
+      ],
+      "total_s": 6.1,
+      "domain_counts_kept": {
+        "餐桌场景": 2,
+        "无甲醛检测": 1,
+        "桌角对齐-挤压不变形": 1
+      },
+      "secs_kept": {
+        "餐桌场景": 2.1,
+        "无甲醛检测": 2.0,
+        "桌角对齐-挤压不变形": 2.0
+      },
+      "h1_ok": true,
+      "h2_max_material_s": 2.1,
+      "h2_limit_s": 2.03,
+      "capacity_ok": true,
+      "all_hard_ok": false,
+      "dropped": [
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-003",
+          "ordinal": 3,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-004",
+          "ordinal": 4,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-005",
+          "ordinal": 5,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-006",
+          "ordinal": 6,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-007",
+          "ordinal": 7,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-008",
+          "ordinal": 8,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-009",
+          "ordinal": 9,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-010",
+          "ordinal": 10,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-011",
+          "ordinal": 11,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-012",
+          "ordinal": 12,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-013",
+          "ordinal": 13,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-014",
+          "ordinal": 14,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-015",
+          "ordinal": 15,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-017",
+          "ordinal": 17,
+          "reason": "压缩删除",
+          "utility": 4
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-018",
+          "ordinal": 18,
+          "reason": "压缩删除",
+          "utility": 8
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-019",
+          "ordinal": 19,
+          "reason": "压缩删除",
+          "utility": 8
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-020",
+          "ordinal": 20,
+          "reason": "压缩删除",
+          "utility": 8
+        }
+      ],
+      "infeasible_target": false,
+      "input_hash": "5d2f0c281b1aa6a04aab37612e2b765137b08022afd6f61663f5b7103b3ade55"
+    },
+    {
+      "solver_version": "greedy-drop-v1",
+      "template_id": "sheet-09-video9-aks-zhuodian",
+      "base_ref": "template:sheet-09-video9-aks-zhuodian",
+      "kept_slot_ids": [
+        "slot-001",
+        "slot-002",
+        "slot-016",
+        "slot-021"
+      ],
+      "kept_ordinals": [
+        1,
+        2,
+        16,
+        21
+      ],
+      "kept_durations": [
+        2.0,
+        2.0,
+        2.0,
+        0.10000000000000142
+      ],
+      "total_s": 6.1,
+      "domain_counts_kept": {
+        "餐桌场景": 2,
+        "无甲醛检测": 1,
+        "桌角对齐-挤压不变形": 1
+      },
+      "secs_kept": {
+        "餐桌场景": 2.1,
+        "无甲醛检测": 2.0,
+        "桌角对齐-挤压不变形": 2.0
+      },
+      "h1_ok": true,
+      "h2_max_material_s": 2.1,
+      "h2_limit_s": 2.03,
+      "capacity_ok": true,
+      "all_hard_ok": false,
+      "dropped": [
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-003",
+          "ordinal": 3,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-004",
+          "ordinal": 4,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-005",
+          "ordinal": 5,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-006",
+          "ordinal": 6,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-007",
+          "ordinal": 7,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-008",
+          "ordinal": 8,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-009",
+          "ordinal": 9,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-010",
+          "ordinal": 10,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-011",
+          "ordinal": 11,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-012",
+          "ordinal": 12,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-013",
+          "ordinal": 13,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-014",
+          "ordinal": 14,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-015",
+          "ordinal": 15,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-017",
+          "ordinal": 17,
+          "reason": "压缩删除",
+          "utility": 4
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-018",
+          "ordinal": 18,
+          "reason": "压缩删除",
+          "utility": 8
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-019",
+          "ordinal": 19,
+          "reason": "压缩删除",
+          "utility": 8
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-020",
+          "ordinal": 20,
+          "reason": "压缩删除",
+          "utility": 8
+        }
+      ],
+      "infeasible_target": false,
+      "input_hash": "e6338f3090f89fd08c154e0170c2211c02b19bd0b5802259ac80ab2730e1ecdb"
+    },
+    {
+      "solver_version": "greedy-drop-v1",
+      "template_id": "sheet-09-video9-aks-zhuodian",
+      "base_ref": "template:sheet-09-video9-aks-zhuodian",
+      "kept_slot_ids": [
+        "slot-001",
+        "slot-002",
+        "slot-016",
+        "slot-021"
+      ],
+      "kept_ordinals": [
+        1,
+        2,
+        16,
+        21
+      ],
+      "kept_durations": [
+        2.0,
+        2.0,
+        2.0,
+        0.10000000000000142
+      ],
+      "total_s": 6.1,
+      "domain_counts_kept": {
+        "餐桌场景": 2,
+        "无甲醛检测": 1,
+        "桌角对齐-挤压不变形": 1
+      },
+      "secs_kept": {
+        "餐桌场景": 2.1,
+        "无甲醛检测": 2.0,
+        "桌角对齐-挤压不变形": 2.0
+      },
+      "h1_ok": true,
+      "h2_max_material_s": 2.1,
+      "h2_limit_s": 2.03,
+      "capacity_ok": true,
+      "all_hard_ok": false,
+      "dropped": [
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-003",
+          "ordinal": 3,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-004",
+          "ordinal": 4,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-005",
+          "ordinal": 5,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-006",
+          "ordinal": 6,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-007",
+          "ordinal": 7,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-008",
+          "ordinal": 8,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-009",
+          "ordinal": 9,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-010",
+          "ordinal": 10,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-011",
+          "ordinal": 11,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-012",
+          "ordinal": 12,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-013",
+          "ordinal": 13,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-014",
+          "ordinal": 14,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-015",
+          "ordinal": 15,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-017",
+          "ordinal": 17,
+          "reason": "压缩删除",
+          "utility": 4
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-018",
+          "ordinal": 18,
+          "reason": "压缩删除",
+          "utility": 8
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-019",
+          "ordinal": 19,
+          "reason": "压缩删除",
+          "utility": 8
+        },
+        {
+          "slot_id": "sheet-09-video9-aks-zhuodian-slot-020",
+          "ordinal": 20,
+          "reason": "压缩删除",
+          "utility": 8
+        }
+      ],
+      "infeasible_target": false,
+      "input_hash": "5658a28b6de15c258669d344e8a43054e11332bcdbea3703c664c1e5eb3b5892"
+    }
+  ],
+  "sheet-14-video15-aks-zhuodian": [
+    {
+      "solver_version": "greedy-drop-v1",
+      "template_id": "sheet-14-video15-aks-zhuodian",
+      "base_ref": "template:sheet-14-video15-aks-zhuodian",
+      "kept_slot_ids": [
+        "slot-001",
+        "slot-003",
+        "slot-010",
+        "slot-012",
+        "slot-015",
+        "slot-017",
+        "slot-018",
+        "slot-025",
+        "slot-026",
+        "slot-030"
+      ],
+      "kept_ordinals": [
+        1,
+        3,
+        10,
+        12,
+        15,
+        17,
+        18,
+        25,
+        26,
+        30
+      ],
+      "kept_durations": [
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        0.20000000000000284
+      ],
+      "total_s": 18.2,
+      "domain_counts_kept": {
+        "餐桌场景": 3,
+        "桌角对齐-挤压不变形": 1,
+        "无甲醛检测": 2,
+        "防刮": 2,
+        "防油易擦拭": 2
+      },
+      "secs_kept": {
+        "餐桌场景": 4.2,
+        "桌角对齐-挤压不变形": 2.0,
+        "无甲醛检测": 4.0,
+        "防刮": 4.0,
+        "防油易擦拭": 4.0
+      },
+      "h1_ok": true,
+      "h2_max_material_s": 4.2,
+      "h2_limit_s": 6.07,
+      "capacity_ok": true,
+      "all_hard_ok": true,
+      "dropped": [
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-002",
+          "ordinal": 2,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-004",
+          "ordinal": 4,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-005",
+          "ordinal": 5,
+          "reason": "压缩删除",
+          "utility": 7
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-006",
+          "ordinal": 6,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-007",
+          "ordinal": 7,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-008",
+          "ordinal": 8,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-009",
+          "ordinal": 9,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-011",
+          "ordinal": 11,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-013",
+          "ordinal": 13,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-014",
+          "ordinal": 14,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-016",
+          "ordinal": 16,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-019",
+          "ordinal": 19,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-020",
+          "ordinal": 20,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-021",
+          "ordinal": 21,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-022",
+          "ordinal": 22,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-023",
+          "ordinal": 23,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-024",
+          "ordinal": 24,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-027",
+          "ordinal": 27,
+          "reason": "压缩删除",
+          "utility": 8
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-028",
+          "ordinal": 28,
+          "reason": "压缩删除",
+          "utility": 8
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-029",
+          "ordinal": 29,
+          "reason": "压缩删除",
+          "utility": 8
+        }
+      ],
+      "infeasible_target": false,
+      "input_hash": "1ee600f3e852dbcd62485762616e67940e6442aa97b1170dcd363989b0367cee"
+    },
+    {
+      "solver_version": "greedy-drop-v1",
+      "template_id": "sheet-14-video15-aks-zhuodian",
+      "base_ref": "template:sheet-14-video15-aks-zhuodian",
+      "kept_slot_ids": [
+        "slot-001",
+        "slot-003",
+        "slot-010",
+        "slot-012",
+        "slot-015",
+        "slot-017",
+        "slot-018",
+        "slot-025",
+        "slot-026",
+        "slot-030"
+      ],
+      "kept_ordinals": [
+        1,
+        3,
+        10,
+        12,
+        15,
+        17,
+        18,
+        25,
+        26,
+        30
+      ],
+      "kept_durations": [
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        0.20000000000000284
+      ],
+      "total_s": 18.2,
+      "domain_counts_kept": {
+        "餐桌场景": 3,
+        "桌角对齐-挤压不变形": 1,
+        "无甲醛检测": 2,
+        "防刮": 2,
+        "防油易擦拭": 2
+      },
+      "secs_kept": {
+        "餐桌场景": 4.2,
+        "桌角对齐-挤压不变形": 2.0,
+        "无甲醛检测": 4.0,
+        "防刮": 4.0,
+        "防油易擦拭": 4.0
+      },
+      "h1_ok": true,
+      "h2_max_material_s": 4.2,
+      "h2_limit_s": 6.07,
+      "capacity_ok": true,
+      "all_hard_ok": true,
+      "dropped": [
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-002",
+          "ordinal": 2,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-004",
+          "ordinal": 4,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-005",
+          "ordinal": 5,
+          "reason": "压缩删除",
+          "utility": 7
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-006",
+          "ordinal": 6,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-007",
+          "ordinal": 7,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-008",
+          "ordinal": 8,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-009",
+          "ordinal": 9,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-011",
+          "ordinal": 11,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-013",
+          "ordinal": 13,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-014",
+          "ordinal": 14,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-016",
+          "ordinal": 16,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-019",
+          "ordinal": 19,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-020",
+          "ordinal": 20,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-021",
+          "ordinal": 21,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-022",
+          "ordinal": 22,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-023",
+          "ordinal": 23,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-024",
+          "ordinal": 24,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-027",
+          "ordinal": 27,
+          "reason": "压缩删除",
+          "utility": 8
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-028",
+          "ordinal": 28,
+          "reason": "压缩删除",
+          "utility": 8
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-029",
+          "ordinal": 29,
+          "reason": "压缩删除",
+          "utility": 8
+        }
+      ],
+      "infeasible_target": false,
+      "input_hash": "1d7f8582cf9006f5e652566b0e2fd0152576f5edba9542191a761433393c3d73"
+    },
+    {
+      "solver_version": "greedy-drop-v1",
+      "template_id": "sheet-14-video15-aks-zhuodian",
+      "base_ref": "template:sheet-14-video15-aks-zhuodian",
+      "kept_slot_ids": [
+        "slot-001",
+        "slot-003",
+        "slot-010",
+        "slot-012",
+        "slot-015",
+        "slot-017",
+        "slot-018",
+        "slot-025",
+        "slot-026",
+        "slot-030"
+      ],
+      "kept_ordinals": [
+        1,
+        3,
+        10,
+        12,
+        15,
+        17,
+        18,
+        25,
+        26,
+        30
+      ],
+      "kept_durations": [
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        0.20000000000000284
+      ],
+      "total_s": 18.2,
+      "domain_counts_kept": {
+        "餐桌场景": 3,
+        "桌角对齐-挤压不变形": 1,
+        "无甲醛检测": 2,
+        "防刮": 2,
+        "防油易擦拭": 2
+      },
+      "secs_kept": {
+        "餐桌场景": 4.2,
+        "桌角对齐-挤压不变形": 2.0,
+        "无甲醛检测": 4.0,
+        "防刮": 4.0,
+        "防油易擦拭": 4.0
+      },
+      "h1_ok": true,
+      "h2_max_material_s": 4.2,
+      "h2_limit_s": 6.07,
+      "capacity_ok": true,
+      "all_hard_ok": true,
+      "dropped": [
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-002",
+          "ordinal": 2,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-004",
+          "ordinal": 4,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-005",
+          "ordinal": 5,
+          "reason": "压缩删除",
+          "utility": 7
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-006",
+          "ordinal": 6,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-007",
+          "ordinal": 7,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-008",
+          "ordinal": 8,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-009",
+          "ordinal": 9,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-011",
+          "ordinal": 11,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-013",
+          "ordinal": 13,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-014",
+          "ordinal": 14,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-016",
+          "ordinal": 16,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-019",
+          "ordinal": 19,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-020",
+          "ordinal": 20,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-021",
+          "ordinal": 21,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-022",
+          "ordinal": 22,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-023",
+          "ordinal": 23,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-024",
+          "ordinal": 24,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-027",
+          "ordinal": 27,
+          "reason": "压缩删除",
+          "utility": 8
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-028",
+          "ordinal": 28,
+          "reason": "压缩删除",
+          "utility": 8
+        },
+        {
+          "slot_id": "sheet-14-video15-aks-zhuodian-slot-029",
+          "ordinal": 29,
+          "reason": "压缩删除",
+          "utility": 8
+        }
+      ],
+      "infeasible_target": false,
+      "input_hash": "046b907bba487d75bb5715b673077df48483a43254c413e22753f2d835fcc410"
+    }
+  ],
+  "sheet-19-video22-aks-zhuodian": [
+    {
+      "solver_version": "greedy-drop-v1",
+      "template_id": "sheet-19-video22-aks-zhuodian",
+      "base_ref": "template:sheet-19-video22-aks-zhuodian",
+      "kept_slot_ids": [
+        "slot-001",
+        "slot-004",
+        "slot-007",
+        "slot-008",
+        "slot-010",
+        "slot-012",
+        "slot-016",
+        "slot-017",
+        "slot-022"
+      ],
+      "kept_ordinals": [
+        1,
+        4,
+        7,
+        8,
+        10,
+        12,
+        16,
+        17,
+        22
+      ],
+      "kept_durations": [
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        0.7000000000000028
+      ],
+      "total_s": 16.7,
+      "domain_counts_kept": {
+        "餐桌场景": 3,
+        "无甲醛检测": 2,
+        "防刮": 2,
+        "防油易擦拭": 1,
+        "桌角对齐-挤压不变形": 1
+      },
+      "secs_kept": {
+        "餐桌场景": 4.7,
+        "无甲醛检测": 4.0,
+        "防刮": 4.0,
+        "防油易擦拭": 2.0,
+        "桌角对齐-挤压不变形": 2.0
+      },
+      "h1_ok": true,
+      "h2_max_material_s": 4.7,
+      "h2_limit_s": 5.57,
+      "capacity_ok": true,
+      "all_hard_ok": true,
+      "dropped": [
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-002",
+          "ordinal": 2,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-003",
+          "ordinal": 3,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-005",
+          "ordinal": 5,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-006",
+          "ordinal": 6,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-009",
+          "ordinal": 9,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-011",
+          "ordinal": 11,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-013",
+          "ordinal": 13,
+          "reason": "压缩删除",
+          "utility": 4
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-014",
+          "ordinal": 14,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-015",
+          "ordinal": 15,
+          "reason": "压缩删除",
+          "utility": 4
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-018",
+          "ordinal": 18,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-019",
+          "ordinal": 19,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-020",
+          "ordinal": 20,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-021",
+          "ordinal": 21,
+          "reason": "压缩删除",
+          "utility": 8
+        }
+      ],
+      "infeasible_target": false,
+      "input_hash": "bbba4aa5813b2ba08644f10972110d4bc9f6d85ebc24dcd2899b2c12b1812480"
+    },
+    {
+      "solver_version": "greedy-drop-v1",
+      "template_id": "sheet-19-video22-aks-zhuodian",
+      "base_ref": "template:sheet-19-video22-aks-zhuodian",
+      "kept_slot_ids": [
+        "slot-001",
+        "slot-004",
+        "slot-007",
+        "slot-008",
+        "slot-010",
+        "slot-012",
+        "slot-016",
+        "slot-017",
+        "slot-022"
+      ],
+      "kept_ordinals": [
+        1,
+        4,
+        7,
+        8,
+        10,
+        12,
+        16,
+        17,
+        22
+      ],
+      "kept_durations": [
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        0.7000000000000028
+      ],
+      "total_s": 16.7,
+      "domain_counts_kept": {
+        "餐桌场景": 3,
+        "无甲醛检测": 2,
+        "防刮": 2,
+        "防油易擦拭": 1,
+        "桌角对齐-挤压不变形": 1
+      },
+      "secs_kept": {
+        "餐桌场景": 4.7,
+        "无甲醛检测": 4.0,
+        "防刮": 4.0,
+        "防油易擦拭": 2.0,
+        "桌角对齐-挤压不变形": 2.0
+      },
+      "h1_ok": true,
+      "h2_max_material_s": 4.7,
+      "h2_limit_s": 5.57,
+      "capacity_ok": true,
+      "all_hard_ok": true,
+      "dropped": [
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-002",
+          "ordinal": 2,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-003",
+          "ordinal": 3,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-005",
+          "ordinal": 5,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-006",
+          "ordinal": 6,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-009",
+          "ordinal": 9,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-011",
+          "ordinal": 11,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-013",
+          "ordinal": 13,
+          "reason": "压缩删除",
+          "utility": 4
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-014",
+          "ordinal": 14,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-015",
+          "ordinal": 15,
+          "reason": "压缩删除",
+          "utility": 4
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-018",
+          "ordinal": 18,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-019",
+          "ordinal": 19,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-020",
+          "ordinal": 20,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-021",
+          "ordinal": 21,
+          "reason": "压缩删除",
+          "utility": 8
+        }
+      ],
+      "infeasible_target": false,
+      "input_hash": "292643d27df728229984cf4499e7aac3d5688de7fc254457289e19566cd6f8b5"
+    },
+    {
+      "solver_version": "greedy-drop-v1",
+      "template_id": "sheet-19-video22-aks-zhuodian",
+      "base_ref": "template:sheet-19-video22-aks-zhuodian",
+      "kept_slot_ids": [
+        "slot-001",
+        "slot-004",
+        "slot-007",
+        "slot-008",
+        "slot-010",
+        "slot-012",
+        "slot-016",
+        "slot-017",
+        "slot-022"
+      ],
+      "kept_ordinals": [
+        1,
+        4,
+        7,
+        8,
+        10,
+        12,
+        16,
+        17,
+        22
+      ],
+      "kept_durations": [
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        0.7000000000000028
+      ],
+      "total_s": 16.7,
+      "domain_counts_kept": {
+        "餐桌场景": 3,
+        "无甲醛检测": 2,
+        "防刮": 2,
+        "防油易擦拭": 1,
+        "桌角对齐-挤压不变形": 1
+      },
+      "secs_kept": {
+        "餐桌场景": 4.7,
+        "无甲醛检测": 4.0,
+        "防刮": 4.0,
+        "防油易擦拭": 2.0,
+        "桌角对齐-挤压不变形": 2.0
+      },
+      "h1_ok": true,
+      "h2_max_material_s": 4.7,
+      "h2_limit_s": 5.57,
+      "capacity_ok": true,
+      "all_hard_ok": true,
+      "dropped": [
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-002",
+          "ordinal": 2,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-003",
+          "ordinal": 3,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-005",
+          "ordinal": 5,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-006",
+          "ordinal": 6,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-009",
+          "ordinal": 9,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-011",
+          "ordinal": 11,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-013",
+          "ordinal": 13,
+          "reason": "压缩删除",
+          "utility": 4
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-014",
+          "ordinal": 14,
+          "reason": "压缩删除",
+          "utility": 5
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-015",
+          "ordinal": 15,
+          "reason": "压缩删除",
+          "utility": 4
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-018",
+          "ordinal": 18,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-019",
+          "ordinal": 19,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-020",
+          "ordinal": 20,
+          "reason": "压缩删除",
+          "utility": 6
+        },
+        {
+          "slot_id": "sheet-19-video22-aks-zhuodian-slot-021",
+          "ordinal": 21,
+          "reason": "压缩删除",
+          "utility": 8
+        }
+      ],
+      "infeasible_target": false,
+      "input_hash": "78146ccfe7d07e2b6f089b551fc9a49c8d44754a7bdf24ba703264e0e5d2fc16"
+    }
+  ]
+}

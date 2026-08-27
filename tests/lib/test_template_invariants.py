@@ -409,8 +409,8 @@ def test_capacity_verdict_three_branches():
     v = capacity_verdict(t_limited)
     assert v["verdict"] == "DIVERSIFY_LIMITED" and v["full_solvable"] is True
 
-    # 瓶颈域 2 镜 + 另一域 2 镜：H2 失败（4 > 8/3），压缩到 1 镜（2 ≤ (2+4)/3）→ COMPRESS
-    t_compress = tmpl(["防油易擦拭", "防油易擦拭", "无甲醛检测", "无甲醛检测"])
+    # 三域各减至 1 时全域 H2 可过（D=6：2 ≤ 6/3）→ COMPRESS（全域剪枝：防油/无甲醛各减 1）
+    t_compress = tmpl(["防油易擦拭", "防油易擦拭", "无甲醛检测", "桌角对齐-挤压不变形"])
     SLOT_ACTION_BY_TEMPLATE["sheet-test"] = t_compress["__domains"]
     v = capacity_verdict(t_compress)
     assert v["verdict"] == "COMPRESS", v
