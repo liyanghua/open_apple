@@ -307,3 +307,35 @@ def test_bgm_source_lock_binds_prompt(tmp_path: Path):
     assert _sidecar_valid(lock, expected) is True
     assert _sidecar_valid(lock, dict(expected, model="V5")) is False
     assert _sidecar_valid(lock, dict(expected, prompt_sha256="q" * 64)) is False
+
+
+def test_semantic_validator_catches_cross_claims_and_all_template_tables_clean():
+    """不变量 10：文案↔素材语义真值校验。
+
+    a) 语义校验器必须能抓到「画面无法证明」的跨动作 claim 与无锚点文案；
+    b) 六张模板文案表 × 显式动作表 合成校验 = 0 findings（防手改再错）。
+    """
+    from lib.template_mainline import _NARRATION_BY_TEMPLATE, _NARRATION_DEFAULT
+    from lib.template_source_match import SLOT_ACTION_BY_TEMPLATE, semantic_mismatches
+
+    # a) 反例：餐桌场景画面配「刮擦/耐磨」→ 必被抓
+    bad = {"sections": [
+        {"id": "sec-001", "narration": "耐磨防刮，久用如新。", "screen_copy": "耐磨",
+         "bound_material_action": "餐桌场景"},
+        {"id": "sec-002", "narration": "检测仪归零，材料干净。", "screen_copy": "检测",
+         "bound_material_action": "餐桌场景"},
+    ]}
+    assert len(semantic_mismatches(bad)) >= 2
+
+    # b) 全部 6 张表：合成 sections 校验
+    for tid, rows in list(_NARRATION_BY_TEMPLATE.items()) + [("sheet-01-video1-aks-zhuodian", _NARRATION_DEFAULT)]:
+        actions = SLOT_ACTION_BY_TEMPLATE.get(tid, [])
+        assert len(rows) == len(actions), f"{tid} 表行数与动作表不一致"
+        sections = []
+        for i, row in enumerate(rows, start=1):
+            sections.append({
+                "id": f"sec-{i:03d}", "narration": row[0] or "", "screen_copy": row[1],
+                "bound_material_action": actions[i - 1],
+            })
+        findings = semantic_mismatches({"sections": sections})
+        assert not findings, f"{tid} 语义不一致: {findings[:3]}"

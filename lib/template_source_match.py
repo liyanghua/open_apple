@@ -95,8 +95,8 @@ SLOT_ACTION_BY_TEMPLATE: dict[str, list[str]] = {
         "防刮", "餐桌场景", "防刮", "餐桌场景",
     ],
     "sheet-04-video4-zhuodian": [
-        "餐桌场景", "无甲醛检测", "桌角对齐-挤压不变形", "自动铺开对齐",
-        "防油易擦拭", "防刮", "餐桌场景", "防刮",
+        "餐桌场景", "餐桌场景", "桌角对齐-挤压不变形", "桌角对齐-挤压不变形",
+        "防油易擦拭", "防刮", "防油易擦拭", "防刮",
         "无甲醛检测", "无甲醛检测", "餐桌场景", "餐桌场景", "餐桌场景", "餐桌场景",
     ],
     "sheet-05-video5-aks-zhuodian": [
@@ -109,21 +109,21 @@ SLOT_ACTION_BY_TEMPLATE: dict[str, list[str]] = {
         "餐桌场景", "无甲醛检测", "餐桌场景", "无甲醛检测", "无甲醛检测",
         "无甲醛检测", "无甲醛检测", "无甲醛检测", "餐桌场景", "桌角对齐-挤压不变形",
         "桌角对齐-挤压不变形", "桌角对齐-挤压不变形", "餐桌场景", "餐桌场景",
-        "餐桌场景", "桌角对齐-挤压不变形", "餐桌场景", "餐桌场景", "餐桌场景",
-        "无甲醛检测", "餐桌场景",
+        "桌角对齐-挤压不变形", "桌角对齐-挤压不变形", "餐桌场景", "餐桌场景",
+        "无甲醛检测", "无甲醛检测", "餐桌场景",
     ],
     "sheet-14-video15-aks-zhuodian": [
         "餐桌场景", "餐桌场景", "桌角对齐-挤压不变形", "餐桌场景", "餐桌场景",
         "餐桌场景", "桌角对齐-挤压不变形", "餐桌场景", "餐桌场景", "无甲醛检测",
         "无甲醛检测", "餐桌场景", "餐桌场景", "餐桌场景", "无甲醛检测",
         "无甲醛检测", "防刮", "防油易擦拭", "餐桌场景", "桌角对齐-挤压不变形",
-        "餐桌场景", "餐桌场景", "餐桌场景", "餐桌场景", "防刮", "防油易擦拭",
+        "餐桌场景", "餐桌场景", "餐桌场景", "防油易擦拭", "防刮", "防油易擦拭",
         "餐桌场景", "餐桌场景", "餐桌场景", "餐桌场景",
     ],
     "sheet-19-video22-aks-zhuodian": [
         "餐桌场景", "餐桌场景", "无甲醛检测", "无甲醛检测", "无甲醛检测",
         "餐桌场景", "防刮", "防油易擦拭", "防油易擦拭", "桌角对齐-挤压不变形",
-        "餐桌场景", "防刮", "餐桌场景", "餐桌场景", "餐桌场景", "餐桌场景",
+        "桌角对齐-挤压不变形", "防刮", "餐桌场景", "餐桌场景", "餐桌场景", "餐桌场景",
         "无甲醛检测", "餐桌场景", "餐桌场景", "餐桌场景", "餐桌场景", "餐桌场景",
     ],
 }
@@ -428,3 +428,89 @@ def resolve_matrix_grounding(
                 "source_path": path_by_stem.get(stem),
             }
     return grounding
+
+
+# ---------------------------------------------------------------------------
+# 文案↔素材 语义一致性校验器（V2：显式动作表自洽不够，需「可证关键词」真值校验）
+# ---------------------------------------------------------------------------
+
+# 每动作素材的「可证关键词」：文案至少命中 1 个（画面能证明的说法）。
+PROOF_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "餐桌场景": ("家", "桌", "饭", "菜", "茶", "干净", "省心", "质感", "木纹", "家人",
+                "孩子", "清爽", "生活", "舒服", "适合", "吃", "放心", "食物",
+                "缝隙", "脏", "藏", "挑", "光泽", "热", "桌面", "磨砂", "情况"),
+    "无甲醛检测": ("检测", "测", "读数", "合格", "安全", "健康", "材质", "软玻璃",
+                  "异味", "母婴", "用料", "验", "归零"),
+    "桌角对齐-挤压不变形": ("边角", "圆角", "边缘", "贴合", "毛刺", "挤压", "复原",
+                          "变形", "对齐", "服帖", "刮手", "平整"),
+    "防刮": ("刮", "划", "耐磨", "抗造", "扒拉", "光滑", "如新", "硬物"),
+    "防油易擦拭": ("油", "水", "擦", "污", "净", "撒", "酒水"),
+    "自动铺开对齐": ("铺", "平", "对齐", "尺寸"),
+}
+
+# 事实卡/服务/价格类通用语境词：任何画面都允许的「事实引述」口径（与参考片 01/04/05 一致）。
+FACT_CITATION_WORDS: tuple[str, ...] = (
+    "价格", "价钱", "贵", "便宜", "元", "20", "30", "年", "SGS", "报告", "免费", "定制",
+    "尺寸", "直播", "买", "选", "一份", "份钱", "做工", "品质", "好物", "值得", "配得",
+)
+
+# 跨动作 claim 判定用「强动作词」：只对无法化妆成生活语境的证据动作词敏感
+# （去掉 干净/光滑/质感/软玻璃/尺寸 等上下文泛词，避免误报）。
+STRONG_ACTION_TERMS: dict[str, tuple[str, ...]] = {
+    "无甲醛检测": ("检测", "测", "读数", "合格", "归零", "验"),
+    "桌角对齐-挤压不变形": ("边角", "圆角", "毛刺", "挤压", "复原", "贴合", "服帖", "边缘"),
+    "防刮": ("刮", "划", "耐磨", "扒拉", "硬物"),
+    "防油易擦拭": ("擦", "油", "水", "污", "撒"),
+    "自动铺开对齐": ("铺",),
+    "餐桌场景": (),
+}
+
+_NEGATION_PREFIX = ("不", "无", "没", "别", "莫")
+
+
+def semantic_mismatches(script: Mapping[str, Any]) -> list[dict[str, str]]:
+    """逐镜校验：文案必须给出该镜绑定素材的「可证说法」，且不得claim其他素材的能力。
+
+    返回 [{section_id, message, narrated, bound_action}]；空 = 通过。
+    """
+    findings: list[dict[str, str]] = []
+    for section in (script.get("sections") or []):
+        if not isinstance(section, Mapping):
+            continue
+        narr = str(section.get("narration") or "").strip()
+        if not narr:
+            continue
+        bound = str(section.get("bound_material_action") or "")
+        if bound not in PROOF_KEYWORDS:
+            continue
+        text = narr + " " + str(section.get("screen_copy") or "")
+        anchored = any(kw in text for kw in PROOF_KEYWORDS[bound])
+        fact = any(kw in text for kw in FACT_CITATION_WORDS)
+        if not (anchored or fact):
+            findings.append({
+                "section_id": str(section.get("id") or ""),
+                "message": f"文案无「{bound}」动作的可证锚点（{PROOF_KEYWORDS[bound][:3]}…）",
+                "narrated": narr, "bound_action": bound,
+            })
+            continue
+        # 跨动作 claim：文案主张了其他素材才能证明的动作（强动作词判定；否定句豁免，
+        # 如「不翘边/毛刺不存在/不刮手」属于边界安全类可证表达）
+        for other, kws in STRONG_ACTION_TERMS.items():
+            if other == bound:
+                continue
+            for kw in kws:
+                idx = text.find(kw)
+                while idx >= 0:
+                    prefix = text[max(0, idx - 2):idx]
+                    if not any(prefix.endswith(neg) for neg in _NEGATION_PREFIX):
+                        findings.append({
+                            "section_id": str(section.get("id") or ""),
+                            "message": f"文案含「{other}」专属证明词「{kw}」（画面为{bound}，无法证明）",
+                            "narrated": narr, "bound_action": bound,
+                        })
+                        break
+                    idx = text.find(kw, idx + 1)
+                else:
+                    continue
+                break
+    return findings
