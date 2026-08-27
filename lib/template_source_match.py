@@ -120,6 +120,17 @@ SLOT_ACTION_BY_TEMPLATE: dict[str, list[str]] = {
         "餐桌场景", "餐桌场景", "餐桌场景", "防油易擦拭", "防刮", "防油易擦拭",
         "餐桌场景", "餐桌场景", "餐桌场景", "餐桌场景",
     ],
+    "sheet-05-video5-aks-zhuodian-c1": [
+        "餐桌场景", "防油易擦拭", "桌角对齐-挤压不变形", "无甲醛检测",
+        "自动铺开对齐", "防油易擦拭", "自动铺开对齐", "餐桌场景",
+        "防油易擦拭", "餐桌场景", "防刮", "餐桌场景",
+        "自动铺开对齐", "餐桌场景",
+    ],
+    "sheet-19-video22-aks-zhuodian-c1": [
+        "餐桌场景", "无甲醛检测", "防刮", "防油易擦拭",
+        "桌角对齐-挤压不变形", "防刮", "餐桌场景", "无甲醛检测",
+        "餐桌场景",
+    ],
     "sheet-14-video15-aks-zhuodian-c1": [
         "餐桌场景", "桌角对齐-挤压不变形", "无甲醛检测", "餐桌场景", "无甲醛检测",
         "防刮", "防油易擦拭", "防刮", "防油易擦拭", "餐桌场景",
@@ -325,19 +336,19 @@ def build_source_mappings(
             # **且长度 == timeline span**（2s 场景取 2s 素材窗，绝不拉成整段 matrix 区间）。
             # 关键：优先锚定到该素材的**语义证据窗口**（人在哪一秒发生证据动作），
             # 而不是粗估 matrix 源区间——否则会切到"已擦干净/无动作"的误导段。
+            # 关键修复（评审 P0）：窗口分配只依赖语义证据窗口存在，不依赖 matrix_row_id ——
+            # 无 grounding 的素材走 cursor 复用会产出完全相同窗口（H3 违规，05c1 自动铺开×3）。
+            sem = _semantic_window(stem)
             tr = g.get("source_time_range") or {}
             lo = tr.get("start_seconds")
             hi = tr.get("end_seconds_exclusive")
-            if isinstance(lo, (int, float)) and isinstance(hi, (int, float)):
+            m_lo = float(lo) if isinstance(lo, (int, float)) else 0.0
+            m_hi = float(hi) if isinstance(hi, (int, float)) else clip_dur
+            if sem and isinstance(sem.get("window"), (tuple, list)) and len(sem["window"]) == 2:
                 span = max(dur, 0.1)
-                sem = _semantic_window(stem)
-                # 可用区间 = 语义证据窗口 ∩ matrix 源区间；无语义窗口则用 matrix 区间。
-                if sem and isinstance(sem.get("window"), (tuple, list)) and len(sem["window"]) == 2:
-                    s_lo, s_hi = float(sem["window"][0]), float(sem["window"][1])
-                    avail_lo = max(float(lo), s_lo)
-                    avail_hi = min(float(hi), s_hi)
-                else:
-                    avail_lo, avail_hi = float(lo), float(hi)
+                s_lo, s_hi = float(sem["window"][0]), float(sem["window"][1])
+                avail_lo = max(m_lo, s_lo)
+                avail_hi = min(m_hi, s_hi)
                 if avail_hi > avail_lo:
                     # 从语义窗口起点开始，避免落到尾部"动作已结束"段。
                     used = _used_windows[stem]
@@ -352,14 +363,19 @@ def build_source_mappings(
                             yield s
                             s += span + 0.25
                         # 语义窗口之外（matrix 区间内），从尾部向前取，避免占用语义段
-                        s2 = max(float(lo), float(hi) - span)
-                        while s2 >= float(lo):
+                        s2 = max(m_lo, m_hi - span)
+                        while s2 >= m_lo:
                             yield s2
                             s2 -= span + 0.25
+                    def _fine_grid(lo_, hi_, span_):
+                        s = lo_
+                        while s + span_ <= hi_ + 1e-9:
+                            yield round(s, 3)
+                            s += 0.25
                     chosen_start = None
                     for cand in _candidates():
                         win = (cand, cand + span)
-                        if (cand + span) <= float(hi) and not any(
+                        if (cand + span) <= m_hi and not any(
                             win[0] < used_end and used_start < win[1] for used_start, used_end in used
                         ):
                             chosen_start = cand
@@ -368,14 +384,16 @@ def build_source_mappings(
                         # 实在没有无重叠位置：回退到「窗口差异化」——在同一素材的候选起点集合里
                         # 选一个与已用窗口起点距离最远的起点（保证起始差 ≥ 0.75s；窗口允许部分重叠，
                         # 但绝不允许与已用窗口完全相同 → 画面不会逐帧重复）。
-                        candidates = [c for c in _candidates()]
-                        if candidates:
+                        fine = [c for c in _fine_grid(avail_lo, avail_hi, span)
+                                 if all(abs(c - s) >= 0.75 for s, _ in used)
+                                 and all(abs(c - s) > 1e-6 for s, _ in used)]
+                        if fine:
                             def _min_gap(cand):
                                 gaps = [abs(cand - s) for s, _ in used] if used else [1.0]
                                 return min(gaps)
-                            chosen_start = max(candidates, key=_min_gap)
+                            chosen_start = max(fine, key=_min_gap)
                         else:
-                            chosen_start = max(float(lo), float(hi) - span)
+                            chosen_start = max(m_lo, m_hi - span)
                     item["source_interval"]["start_seconds"] = round(chosen_start, 3)
                     item["source_interval"]["end_seconds_exclusive"] = round(chosen_start + span, 3)
                     _used_windows[stem].append((item["source_interval"]["start_seconds"], item["source_interval"]["end_seconds_exclusive"]))

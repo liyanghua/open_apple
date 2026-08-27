@@ -193,6 +193,38 @@ _NARRATION_SHEET_14C1 = [
 ]
 
 
+
+# sheet-05-video5-aks-zhuodian-c1 压缩变体（14 镜）
+_NARRATION_SHEET_05C1 = [
+    ("像这种实木桌子，缝隙难清理。", "实木桌 · 缝隙难清理", "hook"),
+    ("污渍一擦就净，真的吗？", "污渍 · 一擦就净？", "problem"),
+    ("软玻璃贴合桌面，不翘边。", "贴合 · 不翘边", "proof"),
+    ("0 甲醛，检测报告为证。", "0 甲醛 · 报告可查", "proof"),
+    ("只需要铺上软玻璃桌垫。", "铺上软玻璃桌垫", "reveal"),
+    ("防水防油的，一擦就净。", "防水防油 · 一擦净", "proof"),
+    ("铺上，缝隙就护住了。", "铺上保护缝隙", "proof"),
+    ("不让脏东西进去。", "脏东西进不去", "proof"),
+    ("轻轻一擦就干净。", "一擦就干净", "proof"),
+    ("热盘子，直接放上去。", "热盘直接放", "proof"),
+    ("防刮耐磨，效果很好。", "防刮耐磨", "proof"),
+    ("而且它很有光泽。", "很有光泽", "proof"),
+    ("轻轻铺在上面。", "轻轻铺上", "proof"),
+    ("", "直播间见", "cta"),
+]
+
+# sheet-19-video22-aks-zhuodian-c1 压缩变体（9 镜）
+_NARRATION_SHEET_19C1 = [
+    ("选桌垫，别只图便宜。", "别只图便宜", "hook"),
+    ("软玻璃，材质看得见。", "PVC软玻璃", "reveal"),
+    ("硬物刮，也不怕。", "真的抗造", "proof"),
+    ("饮料酒水撒上去。", "饮料撒桌面", "proof"),
+    ("边角圆滑，不扎手。", "边角圆滑", "proof"),
+    ("怎么扒拉怎么划。", "怎么划都不怕", "proof"),
+    ("一张垫，全家都喜欢。", "全家喜欢", "payoff"),
+    ("每一批，都测过。", "每批检测", "proof"),
+    ("", "直播间见", "cta"),
+]
+
 _NARRATION_BY_TEMPLATE: dict[str, list[tuple[str, str, str]]] = {
     "sheet-04-video4-zhuodian": _NARRATION_SHEET_04,
     "sheet-05-video5-aks-zhuodian": _NARRATION_SHEET_05,
@@ -200,6 +232,8 @@ _NARRATION_BY_TEMPLATE: dict[str, list[tuple[str, str, str]]] = {
     "sheet-14-video15-aks-zhuodian": _NARRATION_SHEET_14,
 "sheet-19-video22-aks-zhuodian": _NARRATION_SHEET_19,
     "sheet-14-video15-aks-zhuodian-c1": _NARRATION_SHEET_14C1,
+    "sheet-05-video5-aks-zhuodian-c1": _NARRATION_SHEET_05C1,
+    "sheet-19-video22-aks-zhuodian-c1": _NARRATION_SHEET_19C1,
 }
 
 # 逐镜转场意图（按 template 参考片语法：动作匹配切为主，硬切开场/收尾）。
