@@ -1,0 +1,331 @@
+# 电商短视频 业务规则策略包（business-policy v1）
+#
+# source_ref: docs/insight_source/AI短视频规范监控_规则量化指标对照_表格.csv
+# 依据: docs/EVALUATION_SYSTEM.md §13（业务册规范接入评估）
+# 约定: CSV 是业务事实来源（source_ref）；本包固化 rule_id/layer/impl_status/
+#       evidence_source/checks。脚本只消费本包，不得把 CSV 阈值散落进代码。
+#
+# layer: hard_gate（硬性门槛）| prelaunch（投放前内容质量/发布准备度）|
+#        external（外部依赖——本期不评估）
+# impl_status: 已核验 | 部分取证 | 待接入 | 外部依赖
+# checks: 我方制品检查项（l1a_* / final_qa probe / l3_* 维度）；空 = 暂无对应取证
+
+policy_id: business-short-video-baseline
+policy_version: "1.0"
+platform: douyin
+category: 家居日百
+effective_at: "2026-08-26"
+source_ref: docs/insight_source/AI短视频规范监控_规则量化指标对照_表格.csv
+
+rules:
+  - rule_id: R01
+    rule_name: 内容合规标准
+    rule_category: 合规检查
+    metric_type: 硬性指标
+    metric: 虚假宣传检测、违规营销检测、低俗擦边识别、站外引流检测、夸张承诺检测、无资质宣传
+    thresholds: 任一命中=一票否决；合规分=0
+    severity: veto
+    layer: hard_gate
+    impl_status: 部分取证
+    evidence_source: L1a 敏感词 + SKU/价格/参数事实冲突
+    checks: [l1a_sensitive, l1a_sku, l1a_price, l1a_params]
+    biz_note: 缺 CV 多标签/OCR 像素文字/虚假夸大语义分类（待接入）
+
+  - rule_id: R02
+    rule_name: 封面合规标准
+    rule_category: 合规检查
+    metric_type: 硬性指标
+    metric: 封面违规元素检测（材质虚假/功效虚假/禁限售商品/危险不适画面/低质量图片）
+    thresholds: 命中=一票否决；疑似扣10分
+    severity: veto
+    layer: hard_gate
+    impl_status: 待接入
+    evidence_source: 无封面独立取证
+    checks: []
+    biz_note: final_qa/L1a 不能对封面独立取证
+
+  - rule_id: R03
+    rule_name: 违规检查
+    rule_category: 合规检查
+    metric_type: 硬性指标
+    metric: 违禁词命中数 / 敏感词命中数 / 虚假承诺标记
+    thresholds: 任一命中=一票否决；0容忍
+    severity: veto
+    layer: hard_gate
+    impl_status: 已核验
+    evidence_source: L1a 敏感词（默认词表 + 文本来源 OCR/字幕/口播文本）
+    checks: [l1a_sensitive]
+    biz_note: 默认敏感词表为系统内置；业务词表可经参数扩展
+
+  - rule_id: R04
+    rule_name: 家居日百高频避坑
+    rule_category: 合规检查
+    metric_type: 可标注指标
+    metric: 功效夸大标记 / 前后对比过猛标记 / 封面大字报标记 / 低质搬运检测
+    thresholds: 任一命中=扣20分；4项全触发=一票否决
+    severity: veto
+    layer: hard_gate
+    impl_status: 待接入
+    evidence_source: 无对比强度/搬运指纹取证
+    checks: []
+    biz_note: 需视觉对比度分析 + 视频指纹查重
+
+  - rule_id: R05
+    rule_name: 诱导第三方处置细则
+    rule_category: 合规检查
+    metric_type: 硬性指标
+    metric: 站外联系方式数量 / 口令检测
+    thresholds: 命中=一票否决
+    severity: veto
+    layer: hard_gate
+    impl_status: 待接入
+    evidence_source: 文本正则（手机号/微信/QQ/链接）+ 视觉OCR（未接入）
+    checks: []
+    biz_note: technical_validator 尚无手机号/微信/链接正则
+
+  - rule_id: R06
+    rule_name: 抖音电商创作者违规管理规则
+    rule_category: 合规检查
+    metric_type: 可计算指标
+    metric: 账号健康分
+    thresholds: 健康分<80=一票否决
+    severity: veto
+    layer: external
+    impl_status: 外部依赖
+    evidence_source: 平台接口（账号健康分/违规记录）
+    checks: []
+    biz_note: 生产前读取平台账号状态；不能从视频质量推断
+
+  - rule_id: R07
+    rule_name: 前3秒强开场
+    rule_category: 内容质量
+    metric_type: 可计算指标
+    metric: 3秒留存率 / 3秒跳出率
+    thresholds: ≥70%=优(20分)；50-70%=良(12分)；<50%=差(5分)
+    severity: score
+    layer: prelaunch
+    impl_status: 部分取证
+    evidence_source: L3 hook_clarity（近似，无平台留存数据）
+    checks: [l3_hook_clarity]
+    biz_note: 近似度：强（钩子创意）；3 秒留存为平台数据需外部
+
+  - rule_id: R08
+    rule_name: 内容要有信息量
+    rule_category: 内容质量
+    metric_type: 可标注指标
+    metric: 信息密度评分（卖点/方法/数据点 个/分钟）
+    thresholds: ≥5个/分钟=优(20分)；2-5=良(12分)；<2=差(5分)
+    severity: score
+    layer: prelaunch
+    impl_status: 部分取证
+    evidence_source: L3 rhythm/story_coherence（近似）+ 口播文本密度（未统计）
+    checks: [l3_rhythm, l3_story_coherence]
+    biz_note: 近似度：中；干货词密度统计待接入 ASR 实体提取
+
+  - rule_id: R09
+    rule_name: 内容质量标准（画面侧）
+    rule_category: 内容质量
+    metric_type: 硬性指标
+    metric: 画面分辨率、主体占比、亮度、BGM合规
+    thresholds: ≥720p且主体占比≥40%且亮度正常=优(20分)；缺一项=扣7分
+    severity: score
+    layer: hard_gate
+    impl_status: 部分取证
+    evidence_source: final_qa probe（分辨率/黑帧）+ L1a（响度）
+    checks: [resolution, duration, l1a_black_frames, l1a_loudness]
+    biz_note: 主体占比/亮度/水印/BGM版权未统一接入
+
+  - rule_id: R10
+    rule_name: 优质内容五大标准
+    rule_category: 内容质量
+    metric_type: 可标注指标
+    metric: ①真实可信②信息价值③专业有趣④声画体验⑤合规
+    thresholds: 100分制；≥80=优(20分)；60-80=良(13分)；<60=差(6分)
+    severity: score
+    layer: prelaunch
+    impl_status: 部分取证
+    evidence_source: L3 八维均分（弱近似）+ L1a 事实项
+    checks: [l3_avg]
+    biz_note: 近似度：弱；不做伪精确换算
+
+  - rule_id: R11
+    rule_name: 推荐流量五大重点
+    rule_category: 内容质量
+    metric_type: 可标注指标
+    metric: ①信息密度②封面标题吸引力③实景/演示/对比占比④完播率/点击率
+    thresholds: 每项20分；≥80=优(20分)；60-80=良(13分)；<60=差(6分)
+    severity: score
+    layer: external
+    impl_status: 外部依赖
+    evidence_source: 平台数据（完播/点击）+ CV 场景分类（封面标题未接入）
+    checks: []
+    biz_note: 平台侧指标需投放后读取
+
+  - rule_id: R12
+    rule_name: 家居日百出量方向
+    rule_category: 内容质量
+    metric_type: 可标注指标
+    metric: 痛点开场标记/实景演示占比/基础信息完整度（材质尺寸价格场景）/营销话术占比
+    thresholds: 痛点+实景+基础信息齐全=优(20分)；缺1项=扣7分
+    severity: score
+    layer: prelaunch
+    impl_status: 部分取证
+    evidence_source: L3 hook/story/product_presence（近似）
+    checks: [l3_hook_clarity, l3_story_coherence, l3_product_presence]
+    biz_note: 近似度：中；产品事实卡（product_facts）可辅助材质/尺寸/价格校验
+
+  - rule_id: R13
+    rule_name: 千川素材三优标准（声画/互动/跑量）
+    rule_category: 内容质量
+    metric_type: 可标注指标
+    metric: 声画优/互动优/跑量优
+    thresholds: 三项各33分；总分≥80=优(20分)；60-80=良(13分)；<60=差(6分)
+    severity: score
+    layer: external
+    impl_status: 外部依赖
+    evidence_source: 平台数据（完播/点击/互动/CTR/转化）
+    checks: []
+    biz_note: 声画可本地近似（L3 audio/shot），互动跑量为平台数据
+
+  - rule_id: R14
+    rule_name: 抖音电商好内容标准解读
+    rule_category: 内容质量
+    metric_type: 可标注指标
+    metric: 好内容评价分（真实可信/信息价值/专业有趣/声画体验/合规）
+    thresholds: ≥80=优(20分)；60-80=良(13分)；<60=差(6分)
+    severity: score
+    layer: prelaunch
+    impl_status: 部分取证
+    evidence_source: L3 八维均分（弱近似）+ L1a 合规
+    checks: [l3_avg]
+    biz_note: 近似度：弱
+
+  - rule_id: R15
+    rule_name: 过基础门槛
+    rule_category: 基础门槛
+    metric_type: 硬性指标
+    metric: 画质(≥720p)、水印检测、时长(15-60s)、封面标题规范
+    thresholds: 任一不达标=0分；画质低+水印+时长不合规=一票否决
+    severity: veto
+    layer: hard_gate
+    impl_status: 部分取证
+    evidence_source: final_qa probe（分辨率/时长/黑帧）+ L1a duration/resolution
+    checks: [resolution, duration, l1a_black_frames]
+    biz_note: 水印/封面标题规范待接入
+
+  - rule_id: R16
+    rule_name: 基础数据门槛
+    rule_category: 基础门槛
+    metric_type: 可计算指标
+    metric: 播放量 / 完播率
+    thresholds: 播放量>400且完播率>10%=通过(20分)；不达标=不入推荐池(0分)
+    severity: score
+    layer: external
+    impl_status: 外部依赖
+    evidence_source: 平台数据接口
+    checks: []
+    biz_note: 平台结果，不是成片技术失败
+
+  - rule_id: R17
+    rule_name: 可投放内容标准
+    rule_category: 基础门槛
+    metric_type: 硬性指标
+    metric: 产品外观完整度、画面文案一致度、排版美观度
+    thresholds: CV评分≥80=可投千川(20分)；60-80=需优化(10分)；<60=不可投
+    severity: score
+    layer: hard_gate
+    impl_status: 待接入
+    evidence_source: CV 检测（外观完整/文案对齐/排版评分）未接入
+    checks: []
+    biz_note: 需 CV 模型；L3 视觉层级/文字可读可作弱近似参考
+
+  - rule_id: R18
+    rule_name: 投放标准（事实一致性）
+    rule_category: 基础门槛
+    metric_type: 可标注指标
+    metric: 商品描述一致度 / 品牌调性匹配度
+    thresholds: 偏差<10%=通过(20分)；10-20%=扣10分；>20%=0分
+    severity: score
+    layer: hard_gate
+    impl_status: 已核验（近似）
+    evidence_source: L1a params/sku（产品事实卡比对）
+    checks: [l1a_params, l1a_sku, l1a_price]
+    biz_note: 近似实现：事实冲突/参数不一致检测；品牌调性语义比对待接入
+
+  - rule_id: R19
+    rule_name: 蹭热点和活动
+    rule_category: 运营策略
+    metric_type: 硬性指标
+    metric: 命中热点话题数 / 命中官方活动数
+    thresholds: ≥2个=+3分；≥1个=+2分；0个=0分（上限+5）
+    severity: bonus
+    layer: external
+    impl_status: 外部依赖
+    evidence_source: 平台热榜/活动数据 + NLP 热点匹配
+    checks: []
+    biz_note: 无热榜数据源接入
+
+  - rule_id: R20
+    rule_name: 付费加热
+    rule_category: 运营策略
+    metric_type: 硬性指标
+    metric: DOU+投放计划完整度（定向/出价/创意）
+    thresholds: 完整=+1分；不完整=0分（上限+5）
+    severity: bonus
+    layer: external
+    impl_status: 外部依赖
+    evidence_source: 投放计划检查
+    checks: []
+    biz_note: 投放侧数据
+
+  - rule_id: R21
+    rule_name: 千川素材三优(跑量)
+    rule_category: 运营策略
+    metric_type: 可计算指标
+    metric: 消耗能力 / 转化效果
+    thresholds: 跑量优=+1分（上限+5）
+    severity: bonus
+    layer: external
+    impl_status: 外部依赖
+    evidence_source: 平台广告数据
+    checks: []
+    biz_note: 投放侧数据
+
+  - rule_id: R22
+    rule_name: 持续投放评判标准
+    rule_category: 运营策略
+    metric_type: 可计算指标
+    metric: 点击率 / 3天曝光 / 消耗
+    thresholds: 点击率≥4%且3天曝光>400且消耗≥100=+1分（上限+5）
+    severity: bonus
+    layer: external
+    impl_status: 外部依赖
+    evidence_source: 平台广告数据
+    checks: []
+    biz_note: 投放侧数据
+
+  - rule_id: R23
+    rule_name: 商品入池资格
+    rule_category: 商品入池
+    metric_type: 可计算指标
+    metric: 商品评分、精选联盟状态、违规记录
+    thresholds: 评分≥4.5且无违规=通过(5分)；评分<4.0或有违规=0分
+    severity: score
+    layer: external
+    impl_status: 外部依赖
+    evidence_source: 平台接口
+    checks: []
+    biz_note: 商品侧数据
+
+  - rule_id: R24
+    rule_name: 商品侧入池标准
+    rule_category: 商品入池
+    metric_type: 硬性指标
+    metric: 信息完整度 / 重复铺货 / 混淆信息
+    thresholds: 完整度≥90%且无重复=通过(5分)；任一不达标=0分
+    severity: score
+    layer: external
+    impl_status: 外部依赖
+    evidence_source: 平台接口
+    checks: []
+    biz_note: 商品侧数据
