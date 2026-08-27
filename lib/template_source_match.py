@@ -95,8 +95,8 @@ SLOT_ACTION_BY_TEMPLATE: dict[str, list[str]] = {
         "防刮", "餐桌场景", "防刮", "餐桌场景",
     ],
     "sheet-04-video4-zhuodian": [
-        "餐桌场景", "餐桌场景", "桌角对齐-挤压不变形", "桌角对齐-挤压不变形",
-        "防油易擦拭", "防刮", "防油易擦拭", "防刮",
+        "餐桌场景", "无甲醛检测", "桌角对齐-挤压不变形", "自动铺开对齐",
+        "防油易擦拭", "防刮", "餐桌场景", "防刮",
         "无甲醛检测", "无甲醛检测", "餐桌场景", "餐桌场景", "餐桌场景", "餐桌场景",
     ],
     "sheet-05-video5-aks-zhuodian": [
@@ -484,6 +484,9 @@ def semantic_mismatches(script: Mapping[str, Any]) -> list[dict[str, str]]:
         if bound not in PROOF_KEYWORDS:
             continue
         text = narr + " " + str(section.get("screen_copy") or "")
+        # 参考片式反问句（“…行不行？”）：提问而非断言，豁免证明词要求（与已批准 01/04/05 口径一致）。
+        if narr.rstrip().endswith(("？", "?")):
+            continue
         anchored = any(kw in text for kw in PROOF_KEYWORDS[bound])
         fact = any(kw in text for kw in FACT_CITATION_WORDS)
         if not (anchored or fact):
