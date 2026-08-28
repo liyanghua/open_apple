@@ -39,6 +39,7 @@ const CAPACITY_STYLE = { DIVERSIFY: "pass", DIVERSIFY_LIMITED: "partial", COMPRE
 const CAPACITY_LABEL = { DIVERSIFY: "✅ 池充足", DIVERSIFY_LIMITED: "⚠ 受限(DIVERSIFY)", COMPRESS: "⚠ 需压缩", MARK_GAP: "⛔ 素材缺口" };
 function capacityChip(c) {
   if (!c) return chip("—", "pending");
+  if (c.verdict === "COMPRESS" && c.compressed_variant) return chip("✅ 已压缩→压缩版", "pass");
   return chip(CAPACITY_LABEL[c.verdict] || c.verdict, CAPACITY_STYLE[c.verdict] || "pending");
 }
 

@@ -239,6 +239,19 @@ _NARRATION_SHEET_09C1 = [
     ("", "永远第一位", "cta"),
 ]
 
+
+# sheet-04 c1 压缩变体（8 镜/16.0s，bottomup 全绿解）。
+_NARRATION_SHEET_04C1 = [
+    ("这个桌垫，给你行不行？", "软玻璃桌垫 · 更安全", "hook"),
+    ("透明磨砂，行不行？", "透明 · 磨砂质感", "problem"),
+    ("翘边发黄，可不行。", "贴合不翘边", "escalation"),
+    ("这个桌垫给你，行不行？", "给你一块贴合不翘边", "reveal"),
+    ("撒上油污？一擦就净。", "油污一擦就净", "proof"),
+    ("随便你造，不怕刮。", "耐刮耐用", "proof"),
+    ("材质有醛？可不行。", "0甲醛", "proof"),
+    ("直播间看看，行不行？", "直播间见", "cta"),
+]
+
 _NARRATION_BY_TEMPLATE: dict[str, list[tuple[str, str, str]]] = {
     "sheet-04-video4-zhuodian": _NARRATION_SHEET_04,
     "sheet-05-video5-aks-zhuodian": _NARRATION_SHEET_05,
@@ -246,6 +259,7 @@ _NARRATION_BY_TEMPLATE: dict[str, list[tuple[str, str, str]]] = {
     "sheet-14-video15-aks-zhuodian": _NARRATION_SHEET_14,
 "sheet-19-video22-aks-zhuodian": _NARRATION_SHEET_19,
     "sheet-14-video15-aks-zhuodian-c1": _NARRATION_SHEET_14C1,
+    "sheet-04-video4-zhuodian-c1": _NARRATION_SHEET_04C1,
     "sheet-05-video5-aks-zhuodian-c1": _NARRATION_SHEET_05C1,
     "sheet-09-video9-aks-zhuodian-c1": _NARRATION_SHEET_09C1,
     "sheet-19-video22-aks-zhuodian-c1": _NARRATION_SHEET_19C1,
@@ -840,22 +854,46 @@ def rebuild_aligned_run(run: str, *, pipeline_dir: Path | None = None) -> None:
     rp = _load(project / "artifacts" / "template_run_plan.json")
     facts = _load(project / "artifacts" / "product_facts.json") or {}
     ccp = _load(project / "artifacts" / "creative_control_plan.json")
+    # P0-2b：同模板压缩消费（rp.compression.kept_ordinals）——运行时按序取行/动作并过滤槽位，
+    # 保持原始 ordinal/slot_id 键控；重建结束后恢复原表（无全局污染）。
+    _overlay = None
+    kept = (rp or {}).get("compression") or {}
+    kept_ordinals = [int(o) for o in kept.get("kept_ordinals", []) if str(o).isdigit()]
+    # A child -c1 template already contains the filtered rows.  Only overlay
+    # an explicit subset when the run still executes the base template.
+    if kept_ordinals and str(kept.get("base_template_id") or template_id) == template_id:
+        from lib.template_mainline import _NARRATION_BY_TEMPLATE, _NARRATION_DEFAULT
+        from lib.template_source_match import SLOT_ACTION_BY_TEMPLATE
+        full_rows = list(_NARRATION_BY_TEMPLATE.get(template_id, _NARRATION_DEFAULT))
+        full_acts = list(SLOT_ACTION_BY_TEMPLATE.get(template_id, []))
+        _overlay = (template_id, full_rows, full_acts)
+        _NARRATION_BY_TEMPLATE[template_id] = [full_rows[o - 1] for o in kept_ordinals if o <= len(full_rows)]
+        SLOT_ACTION_BY_TEMPLATE[template_id] = [full_acts[o - 1] for o in kept_ordinals if o <= len(full_acts)]
+        template = {**template, "slots": [s for s in (template.get("slots") or [])
+                                          if int(str(s.get("ordinal") or 0)) in kept_ordinals]}
     from backlot.project_commit import ProjectCommitStore
     # 分两事务：先 script（approved + checkpoint），再 scene_plan（依赖 script 完成）。
     store = ProjectCommitStore(project)
-    with store.transaction(action={"action_id": f"rebuild-script-{run}"}) as sink:
-        rp2 = json.loads(json.dumps(rp))
-        match_run_plan(template.get("slots") or [], rp2)
-        write_artifact_atomic("artifacts/template_run_plan.json", "template_run_plan", rp2, project_dir=project, sink=sink)
-        sp = scene_plan_data(project, template, rp2, ccp, facts)
-        sc_env = build_script(project, template, sp, ccp, facts, approved=True, sink=sink)
-        write_checkpoint(PDIR, run, "script", "completed", {"script": sc_env}, pipeline_type=PIPELINE,
-                         next_action=None, human_approved=True, sink=sink)
-    with store.transaction(action={"action_id": f"rebuild-sp-{run}"}) as sink:
-        sp = scene_plan_data(project, template, rp2, ccp, facts)
-        sp_env = write_artifact_atomic("artifacts/scene_plan.json", "scene_plan", sp, project_dir=project, sink=sink)
-        write_checkpoint(PDIR, run, "scene_plan", "completed", {"scene_plan": sp_env}, pipeline_type=PIPELINE,
-                         next_action=None, sink=sink)
+    try:
+        with store.transaction(action={"action_id": f"rebuild-script-{run}"}) as sink:
+            rp2 = json.loads(json.dumps(rp))
+            match_run_plan(template.get("slots") or [], rp2)
+            write_artifact_atomic("artifacts/template_run_plan.json", "template_run_plan", rp2, project_dir=project, sink=sink)
+            sp = scene_plan_data(project, template, rp2, ccp, facts)
+            sc_env = build_script(project, template, sp, ccp, facts, approved=True, sink=sink)
+            write_checkpoint(PDIR, run, "script", "completed", {"script": sc_env}, pipeline_type=PIPELINE,
+                             next_action=None, human_approved=True, sink=sink)
+        with store.transaction(action={"action_id": f"rebuild-sp-{run}"}) as sink:
+            sp = scene_plan_data(project, template, rp2, ccp, facts)
+            sp_env = write_artifact_atomic("artifacts/scene_plan.json", "scene_plan", sp, project_dir=project, sink=sink)
+            write_checkpoint(PDIR, run, "scene_plan", "completed", {"scene_plan": sp_env}, pipeline_type=PIPELINE,
+                             next_action=None, sink=sink)
+    finally:
+        if _overlay is not None:
+            _tid, _rows, _acts = _overlay
+            from lib.template_source_match import SLOT_ACTION_BY_TEMPLATE
+            _NARRATION_BY_TEMPLATE[_tid] = _rows
+            SLOT_ACTION_BY_TEMPLATE[_tid] = _acts
 
 
 def advance_edit(run: str, *, pipeline_dir: Path | None = None) -> str:

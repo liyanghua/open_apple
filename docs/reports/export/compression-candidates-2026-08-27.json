@@ -1247,5 +1247,32 @@
       "infeasible_target": false,
       "input_hash": "78146ccfe7d07e2b6f089b551fc9a49c8d44754a7bdf24ba703264e0e5d2fc16"
     }
+  ],
+  "sheet-04-video4-zhuodian": [
+    {
+      "solver_version": "greedy-drop-v1-bottomup",
+      "template_id": "sheet-04-video4-zhuodian",
+      "kept_ordinals": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        9,
+        14
+      ],
+      "total_s": 16.0,
+      "domain_counts_kept": {
+        "餐桌场景": 2,
+        "无甲醛检测": 2,
+        "桌角对齐-挤压不变形": 1,
+        "自动铺开对齐": 1,
+        "防油易擦拭": 1,
+        "防刮": 1
+      },
+      "h1_ok": true,
+      "all_hard_ok": true
+    }
   ]
 }

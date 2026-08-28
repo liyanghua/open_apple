@@ -53,6 +53,7 @@ def _audio_coverage(project: Path, script: dict) -> dict:
 
 
 _PACK_CACHE: dict = {}
+_PUBLISHED_C1: set[str] | None = None
 
 
 def _capacity_verdict(project: Path, template_id: str) -> dict:
@@ -69,7 +70,15 @@ def _capacity_verdict(project: Path, template_id: str) -> dict:
     return {"verdict": v["verdict"], "reasons": v["reasons"], "solver": v["solver"]}
 
 
-def _slim_run(run: dict) -> dict:
+def _compressed_sibling(run: dict, *, known: set[str] | None = None) -> str:
+    """原片行：若存在已发布的 {template_id}-c1 变体 run → 返回其 run 名（页面联动显示）。"""
+    if str(run.get("template_id") or "").endswith("-c1"):
+        return ""
+    sibling = f"template-run-{run.get('template_id')}-c1"
+    return sibling if (known is None or sibling in known) else ""
+
+
+def _slim_run(run: dict, *, known: set[str] | None = None) -> dict:
     """只暴露页面需要的字段（避免把整份制品 JSON 发给前端）。"""
     dims = (run["advisory"] or {}).get("dimensions", {}) or {}
     loud = next((c.get("evidence", {}) for c in run["l1a"].get("hard_gate", {}).get("checks", [])
@@ -105,6 +114,7 @@ def _slim_run(run: dict) -> dict:
         "reuse": material_reuse_report(_load_any(run["project"] / "artifacts" / "scene_plan.json") or {}),
         "audio": _audio_coverage(run["project"], run["script"]),
         "capacity": _capacity_verdict(run["project"], run["template_id"]),
+        "compressed_variant": _compressed_sibling(run),
         "checks": {
             "sensitive": (run["l1a_checks"].get("l1a_sensitive") or {}).get("status"),
             "subtitle_bounds": (run["l1a_checks"].get("l1a_subtitle_bounds") or {}).get("status"),
@@ -118,6 +128,9 @@ def _slim_run(run: dict) -> dict:
 
 
 def load_overview(*, limit: int = 10) -> dict:
+    global _PUBLISHED_C1
+    if _PUBLISHED_C1 is None:
+        _PUBLISHED_C1 = {str(run) for run in discover_runs() if str(run).endswith("-c1")}
     """只读总览数据：{policy, methodology, runs[], gates[]}。"""
     policy = yaml.safe_load(DEFAULT_POLICY.read_text(encoding="utf-8"))
     runs = discover_runs()
@@ -169,7 +182,7 @@ def load_overview(*, limit: int = 10) -> dict:
             ],
         },
         "runs": ordered,
-        "slim_runs": [_slim_run(r) for r in ordered],
+        "slim_runs": [_slim_run(r, known=_PUBLISHED_C1 or set()) for r in ordered],
         "gates": gates,
         "prelaunch_rules": prelaunch,
         "scored_count": sum(1 for r in collected if r["advisory"]),

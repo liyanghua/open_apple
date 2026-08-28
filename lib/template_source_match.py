@@ -82,7 +82,18 @@ def _clip_stems() -> list[str]:
 
 
 def _action_from_stem(stem: str) -> str:
-    return stem.replace("product_透明桌垫-", "")
+    raw = stem.replace("product_透明桌垫-", "", 1)
+    # A physical clip may carry a camera/angle suffix; keep it in the same
+    # action domain for capacity and matching decisions.
+    for action in sorted(_ACTION_DOMAIN_NAMES, key=len, reverse=True):
+        if raw == action or raw.startswith(action + "-"):
+            return action
+    return raw
+
+
+_ACTION_DOMAIN_NAMES = (
+    "桌角对齐-挤压不变形", "自动铺开对齐", "防油易擦拭", "无甲醛检测", "餐桌场景", "防刮",
+)
 
 
 # 逐模板、逐 slot 的**显式**产品动作表（人工按模板 slot 语义标定；双端消费：
@@ -124,6 +135,10 @@ SLOT_ACTION_BY_TEMPLATE: dict[str, list[str]] = {
         "无甲醛检测", "餐桌场景", "无甲醛检测", "餐桌场景",
         "桌角对齐-挤压不变形", "餐桌场景", "桌角对齐-挤压不变形", "无甲醛检测",
         "桌角对齐-挤压不变形",
+    ],
+"sheet-04-video4-zhuodian-c1": [
+        "餐桌场景", "无甲醛检测", "桌角对齐-挤压不变形", "自动铺开对齐",
+        "防油易擦拭", "防刮", "无甲醛检测", "餐桌场景",
     ],
     "sheet-05-video5-aks-zhuodian-c1": [
         "餐桌场景", "防油易擦拭", "桌角对齐-挤压不变形", "无甲醛检测",
@@ -192,6 +207,7 @@ def match_run_plan(
         desired.append((i, action))
 
     used_stems: set[str] = set()
+    use_count: dict[str, int] = {stem: 0 for stem in stems}
     assigned: dict[str, str] = {}
     # 记录每个 stem 第一次分配到的 slot（用于复用标注"跨景别强调"）。
     first_slot_by_stem: dict[str, tuple[int, Mapping[str, Any]]] = {}
@@ -207,7 +223,7 @@ def match_run_plan(
         unused_exact = [s for s in unused if _action_from_stem(s) == action]
         if unused_exact:
             # 1) 未用且动作精确匹配：首次分配（语义优先，绝不拿错动作素材顶替）。
-            chosen = min(unused_exact)
+            chosen = min(unused_exact, key=lambda stem: (use_count[stem], stem))
             is_reuse = False
             reason_by_slot[slot_id] = f"自有素材「{chosen}」匹配该 slot 产品动作（首次分配）"
             first_slot_by_stem[chosen] = (i, slot)
@@ -215,7 +231,9 @@ def match_run_plan(
             used_exact = [s for s in used_stems if _action_from_stem(s) == action]
             if used_exact:
                 # 2) 未用无精确匹配：复用已用过的**同动作**素材（跨景别强调，显式标注）。
-                chosen = min(used_exact)
+                # Balance repeated use across physical clips in one action
+                # domain before falling back to stable lexical ordering.
+                chosen = min(used_exact, key=lambda stem: (use_count[stem], stem))
                 is_reuse = True
                 prev_idx, prev_slot = first_slot_by_stem.get(chosen, (i, slot))
                 reason_by_slot[slot_id] = (
@@ -235,6 +253,7 @@ def match_run_plan(
                 assigned[slot_id] = ""
                 continue
         used_stems.add(chosen)
+        use_count[chosen] += 1
         assigned[slot_id] = chosen
 
     # 就地更新绑定（run 后续会被重新 hash/落盘，in-place 与 bind_slot 语义一致）。
@@ -407,7 +426,9 @@ def build_source_mappings(
                                 return min(gaps)
                             chosen_start = max(fine, key=_min_gap)
                         else:
-                            chosen_start = max(m_lo, m_hi - span)
+                            raise ValueError(
+                                f"素材 {stem} 的合法窗口已耗尽，无法满足 H3/H4（窗口容量不足）"
+                            )
                     item["source_interval"]["start_seconds"] = round(chosen_start, 3)
                     item["source_interval"]["end_seconds_exclusive"] = round(chosen_start + span, 3)
                     _used_windows[stem].append((item["source_interval"]["start_seconds"], item["source_interval"]["end_seconds_exclusive"]))
@@ -674,14 +695,21 @@ ROLE_UTILITY = {"hook": 10, "cta": 10, "reveal": 7, "payoff": 8, "proof": 6,
                 "problem": 5, "escalation": 5, "other": 4}
 
 
-def window_capacity(action: str, slot_s: float, *, step: float = WINDOW_STEP,
-                    gap: float = WINDOW_GAP) -> dict[str, Any]:
-    """窗口容量 C(a,l,δ)：证据窗口 ∩ 素材时长 内、步长步进的合法起点集 + δ 间隔最大独立集。"""
+def _media_stems_by_domain(stems: list[str] | None = None) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for stem in stems if stems is not None else _clip_stems():
+        grouped.setdefault(_action_from_stem(stem), []).append(stem)
+    return {domain: sorted(media) for domain, media in grouped.items()}
+
+
+def _window_capacity_for_media(action: str, stem: str, slot_s: float, *, step: float,
+                               gap: float) -> dict[str, Any]:
     win = SEMANTIC_EVIDENCE_WINDOWS.get(action)
     if not win or not isinstance(win.get("window"), (tuple, list)):
         return {"capacity": 0, "candidates": [], "basis": {"error": "无证据窗口"}}
     lo, hi = float(win["window"][0]), float(win["window"][1])
-    dur = _clip_durations().get(f"product_透明桌垫-{action}", hi)
+    durations = _clip_durations()
+    dur = durations.get(stem, durations.get(f"product_透明桌垫-{action}", hi))
     legal_max = min(hi, dur)
     candidates = []
     s = lo
@@ -696,7 +724,30 @@ def window_capacity(action: str, slot_s: float, *, step: float = WINDOW_STEP,
         "capacity": len(picked),
         "candidates": candidates[:80],
         "basis": {"evidence_window": [float(win["window"][0]), float(win["window"][1])],
-                  "source_duration": round(dur, 3),
+                  "source_media_id": stem, "source_duration": round(dur, 3),
+                  "slot_s": slot_s, "step": step, "gap": gap},
+    }
+
+
+def window_capacity(action: str, slot_s: float, *, step: float = WINDOW_STEP,
+                    gap: float = WINDOW_GAP) -> dict[str, Any]:
+    """Aggregate C(a,l,delta) over physical media in one action domain."""
+    media = _media_stems_by_domain().get(action, [])
+    if not media:
+        return {"capacity": 0, "candidates": [],
+                "basis": {"error": "动作域无物理素材", "action_domain": action}}
+    per_media = {
+        stem: _window_capacity_for_media(action, stem, slot_s, step=step, gap=gap)
+        for stem in media
+    }
+    return {
+        "capacity": sum(item["capacity"] for item in per_media.values()),
+        "candidates": [
+            {"source_media_id": stem, "start_seconds": start}
+            for stem, item in per_media.items() for start in item["candidates"]
+        ][:80],
+        "basis": {"action_domain": action, "physical_media_count": len(media),
+                  "per_media": {stem: item["basis"] for stem, item in per_media.items()},
                   "slot_s": slot_s, "step": step, "gap": gap},
     }
 
@@ -745,21 +796,23 @@ def capacity_verdict(template: Mapping[str, Any], *, allow_compress: bool = True
         seconds_by_domain[d] = seconds_by_domain.get(d, 0.0) + s["duration_s"]
         dur_by_slot[s["slot_id"]] = s["duration_s"]
     D = sum(seconds_by_domain.values())
-    caps = {d: window_capacity(d, dur_by_slot.get(next(
-        (s["slot_id"] for s in sem if s["action_domain"] == d), ""), 2.0))["capacity"]
-        for d in counts}
+    caps = {d: window_capacity(d, 2.0)["capacity"] for d in counts}
     deficits = {d: max(0, counts[d] - caps[d]) for d in counts}
+    media = _media_stems_by_domain()
+    seconds_by_media: dict[str, float] = {}
+    for domain in counts:
+        domain_media = media.get(domain, [])
+        for item in sorted((s for s in sem if s["action_domain"] == domain),
+                           key=lambda s: (-s["duration_s"], s["ordinal"])):
+            if not domain_media:
+                continue
+            stem = min(domain_media, key=lambda candidate: (seconds_by_media.get(candidate, 0.0), candidate))
+            seconds_by_media[stem] = seconds_by_media.get(stem, 0.0) + item["duration_s"]
     h2_limit = D / 3.0 if D > 0 else 0.0
-    h2_worst = max(seconds_by_domain.values()) if seconds_by_domain else 0.0
+    h2_worst = max(seconds_by_media.values()) if seconds_by_media else 0.0
     full_ok = all(v <= 0 for v in deficits.values()) and h2_worst <= h2_limit + 1e-9
-    diversify_ok = all(
-        _clip_stems().count(f"product_透明桌垫-{d}") + (1 if f"product_透明桌垫-{d}" in _clip_stems() else 0) >= 1
-        for d in counts)  # 池每域当前 1 支 → 以下用 2 支阈值判定受限
     # P1-4：多样化判定按**物理素材数**（同动作域多支素材视作多素材；域≠素材）
-    media_by_domain: dict[str, int] = {}
-    for stem in _clip_stems():
-        act = _action_from_stem(stem)
-        media_by_domain[act] = media_by_domain.get(act, 0) + 1
+    media_by_domain = {domain: len(stems) for domain, stems in media.items()}
     diversify_ok = all(media_by_domain.get(d, 0) >= DIVERSIFY_MIN_ASSETS_PER_DOMAIN
                        for d in counts)
     reasons: list[str] = []
@@ -767,7 +820,8 @@ def capacity_verdict(template: Mapping[str, Any], *, allow_compress: bool = True
         if cnt > 0:
             reasons.append(f"{d}: 需 {cnt} 镜 容量 {counts[d]}→{caps[d]}")
     if h2_worst > h2_limit + 1e-9:
-        reasons.append(f"H2: 单素材 {h2_worst:.1f}s > D/3 {h2_limit:.1f}s")
+        worst_media = max(seconds_by_media, key=seconds_by_media.get) if seconds_by_media else "未知素材"
+        reasons.append(f"H2: 单素材 {worst_media} {h2_worst:.1f}s > D/3 {h2_limit:.1f}s")
 
     if full_ok:
         verdict = "DIVERSIFY" if diversify_ok else "DIVERSIFY_LIMITED"
@@ -775,28 +829,30 @@ def capacity_verdict(template: Mapping[str, Any], *, allow_compress: bool = True
     else:
         # F_comp（P0-1 贪心·瓶颈二分）：骨架保留（每域 ≥1 + hook/cta），
         # 对瓶颈域 k 从容量向下二分，找满足「k×dur_b ≤ D(k)/3」的最小保留量。
-        def _D(k_b: int) -> float:
-            total = 0.0
-            kept = 0
-            for d, cnt in counts.items():
-                keep = k_b if d == bottle else min(cnt, caps[d])
-                kept += keep
-                total += keep * (dur_by_slot.get(
-                    next((s["slot_id"] for s in sem if s["action_domain"] == d), ""), 2.0))
-            return total
-
         # 全域 H2 迭代剪枝：所有域同时满足 k_d×dur_d ≤ D/3（而非仅瓶颈域）。
         ks = {d: min(counts[d], caps[d]) for d in counts}
-        comp_ok = bool(ks)
+        # Every represented action domain must retain at least one physical
+        # source; dropping a whole domain would violate the evidence skeleton.
+        comp_ok = bool(ks) and all(caps[d] >= 1 for d in counts)
         guard = 0
         while comp_ok and guard < len(counts) * 4 + 4:
             guard += 1
             Dk = sum(ks[d] * (dur_by_slot.get(next((s["slot_id"] for s in sem
                                                     if s["action_domain"] == d), ""), 2.0)) for d in ks)
-            worst = max(ks, key=lambda d: ks[d] * (dur_by_slot.get(next(
-                (s["slot_id"] for s in sem if s["action_domain"] == d), ""), 2.0)))
-            if ks[worst] * (dur_by_slot.get(next((s["slot_id"] for s in sem
-                                                  if s["action_domain"] == worst), ""), 2.0)) <= Dk / 3.0 + 1e-9:
+            physical_loads: dict[str, tuple[str, float]] = {}
+            for domain, keep in ks.items():
+                domain_media = media.get(domain, [])
+                duration = dur_by_slot.get(next(
+                    (s["slot_id"] for s in sem if s["action_domain"] == domain), ""), 2.0)
+                for index in range(keep):
+                    if not domain_media:
+                        continue
+                    stem = domain_media[index % len(domain_media)]
+                    _, load = physical_loads.get(stem, (domain, 0.0))
+                    physical_loads[stem] = (domain, load + duration)
+            worst_stem = max(physical_loads, key=lambda stem: physical_loads[stem][1]) if physical_loads else ""
+            worst = physical_loads.get(worst_stem, ("", 0.0))[0]
+            if not worst or physical_loads[worst_stem][1] <= Dk / 3.0 + 1e-9:
                 break
             ks[worst] -= 1
             if ks[worst] < 1:
@@ -806,13 +862,15 @@ def capacity_verdict(template: Mapping[str, Any], *, allow_compress: bool = True
         if not comp_ok:
             reasons.append("压缩分量仍违反 H2（需补素材）")
     input_hash = hashlib.sha256(
-        json.dumps({"tid": tid, "counts": counts, "caps": caps, "solver": CAPACITY_SOLVER},
+        json.dumps({"tid": tid, "counts": counts, "caps": caps, "media": media,
+                    "solver": CAPACITY_SOLVER},
                    sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
     return {
         "template_id": tid, "verdict": verdict, "solver": CAPACITY_SOLVER,
         "slot_count": len(slots), "total_seconds": round(D, 2),
         "domain_counts": counts, "window_capacities": caps, "deficits": deficits,
         "h2_worst_material_seconds": round(h2_worst, 2), "h2_limit_seconds": round(h2_limit, 2),
+        "seconds_by_media": {stem: round(seconds, 2) for stem, seconds in seconds_by_media.items()},
         "full_solvable": full_ok, "compress_solvable": comp_ok,
         "diversify_solvable": diversify_ok, "media_by_domain": media_by_domain, "reasons": reasons,
         "input_hash": input_hash,
