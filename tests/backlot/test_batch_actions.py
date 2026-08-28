@@ -261,6 +261,10 @@ def test_script_gate_derives_review_from_checkpoint(tmp_path: Path):
     })
     service = _service(tmp_path, batch_dir)
     revision, _ = service._current_revision()
+    # Phase 3：prepare 只校验不创建——先经显式写路径（迁移）补建 review
+    from backlot.operator_reviews import ReviewService
+
+    ReviewService(child).ensure_script_review_for_checkpoint()
     result = service.approve_gate(
         actor_id="owner", idempotency_key="k6", aggregate_revision=revision,
         gate="script", reason="批级一键通过",
@@ -439,3 +443,56 @@ def test_sample_gate_hard_gate_rejects_missing_variant_plan(tmp_path: Path):
             }],
         )
     assert "差异度硬门" in str(excinfo.value)
+
+def test_script_gate_prepare_validates_without_creating(tmp_path: Path):
+    """Phase 3：缺 review 时批 prepare 只校验不创建——「审批信息需要更新」且不落任何 review。"""
+    batch_dir = _batch_project(tmp_path, n=1)
+    child = tmp_path / "cand-01"
+    _write(child / "project.json", {"project_id": "cand-01", "title": "cand-01",
+                                    "pipeline_type": "cinematic-fast"})
+    _write(child / "checkpoint_script.json", {"version": "1.0", "project_id": "cand-01",
+                                              "pipeline_type": "cinematic-fast", "stage": "script",
+                                              "status": "awaiting_human"})
+    service = _service(tmp_path, batch_dir)
+    revision, _ = service._current_revision()
+    with pytest.raises(OperatorError) as exc:
+        service.approve_gate(actor_id="owner", idempotency_key="k6b", aggregate_revision=revision,
+                             gate="script", reason="x",
+                             participants=[{"candidate_id": "cand-01", "project_id": "cand-01",
+                                            "review_id": "", "subject_version": 0, "subject_hash": ""}])
+    assert exc.value.code == "validation_failed"
+    from backlot.operator_reviews import ReviewService
+
+    assert ReviewService(child).pending() is None
+    reviews_dir = child / "operator" / "reviews"
+    assert not (reviews_dir.exists() and list(reviews_dir.glob("*.json")))
+
+
+def test_select_participants_with_evaluation_hash(tmp_path: Path):
+    """Phase 3：participants 模式——服务端重读评价报告校验 hash/绑定/完整性；
+    hash 不匹配 → validation_failed，不产生选择记录。"""
+    batch_dir = _batch_project(tmp_path)
+    for cid in ("cand-01", "cand-02"):
+        _child_with_review(tmp_path, cid)
+    service = _service(tmp_path, batch_dir)
+    revision, _ = service._current_revision()
+    report_path = tmp_path / "cand-01" / "artifacts" / "evaluation_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["artifact_sha256"] = "c" * 64
+    report.setdefault("scope", "sample")
+    report["project_id"] = "cand-01"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    good_p = {"candidate_id": "cand-01", "project_id": "cand-01", "subject_hash": "a" * 64,
+              "workflow_revision": 1, "evaluation_hash": "c" * 64}
+    result = service.select_for_edit(actor_id="owner", idempotency_key="kp1",
+                                     aggregate_revision=revision,
+                                     participants=[good_p], reason="钩子最抓人")
+    assert result["status"] == "committed"
+    assert result["selected_candidate_ids"] == ["cand-01"]
+    # hash 不匹配 → 拒绝；且无新记录（幂等键避免误重放）
+    bad_p = {**good_p, "evaluation_hash": "b" * 64}
+    with pytest.raises(OperatorError) as exc:
+        service.select_for_edit(actor_id="owner", idempotency_key="kp2",
+                                aggregate_revision=revision, participants=[bad_p], reason="x")
+    assert exc.value.code == "validation_failed"
+    assert "评价报告" in str(exc.value)

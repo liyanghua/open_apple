@@ -605,11 +605,13 @@ def create_operator_router(
             return authorize_project(auth_store(), session.actor, child_id, "review")
 
         candidate_ids = [str(item) for item in (payload.get("candidate_ids") or [])]
+        participants = payload.get("participants")
         return BatchActionService(project(project_id), authorizer=authorizer).select_for_edit(
             actor_id=session.actor.user_id,
             idempotency_key=key,
             aggregate_revision=str(payload.get("aggregate_revision") or ""),
             candidate_ids=candidate_ids,
+            participants=participants if isinstance(participants, list) else None,
             reason=str(payload.get("reason") or ""),
         )
 

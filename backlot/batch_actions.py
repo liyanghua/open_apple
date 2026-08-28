@@ -373,18 +373,30 @@ class BatchActionService:
         actor_id: str,
         idempotency_key: str,
         aggregate_revision: str,
-        candidate_ids: list[str],
+        candidate_ids: list[str] | None = None,
+        participants: list[Mapping[str, Any]] | None = None,
         reason: str,
     ) -> dict[str, Any]:
+        """Phase 3：participants（candidate_id/project_id/subject_hash/workflow_revision/
+        evaluation_hash）+ 服务端重读评价报告校验；candidate_ids 保留兼容（缺字段级防护）。"""
+        if participants:
+            for item in participants:
+                if not isinstance(item, Mapping) or not str(item.get("candidate_id") or "").strip():
+                    raise OperatorError.validation_failed("participants 缺少 candidate_id")
+            candidate_ids = [str(item["candidate_id"]) for item in participants]
+        candidate_ids = list(dict.fromkeys(candidate_ids or []))
         if not candidate_ids or len(candidate_ids) > 2:
             raise OperatorError.validation_failed("请选择 1-2 个候选进入精剪")
-        digest_pre = semantic_sha256({
+        _digest_inputs = {
             "action_type": "batch_select_for_edit",
             "aggregate_revision": aggregate_revision,
             "candidate_ids": sorted(candidate_ids),
             "reason": reason,
             "actor_id": actor_id,
-        })
+        }
+        if participants:
+            _digest_inputs["participants"] = participants  # 仅 participants 模式参与防护
+        digest_pre = semantic_sha256(_digest_inputs)
         replay_pre = self._find_replay(idempotency_key, digest_pre)
         if replay_pre is not None:
             return replay_pre
@@ -407,6 +419,14 @@ class BatchActionService:
                 raise OperatorError.validation_failed(
                     f"候选 {candidate_id} 未通过质量门：" + "；".join(q_failures)
                 )
+            # Phase 3：participants 模式→ 重读评价报告并校验 hash/scope/绑定/完整性
+            if participants:
+                p_item = next((p for p in participants
+                               if str(p.get("candidate_id")) == str(candidate_id)), None) or {}
+                expected = str(p_item.get("evaluation_hash") or "")
+                ok, why = _validate_evaluation_report(child_dir, expected)
+                if not ok:
+                    raise OperatorError.validation_failed(f"候选 {candidate_id} {why}")
 
         batch_action_id = f"batch-action-{uuid.uuid4().hex}"
         digest = semantic_sha256({
@@ -566,12 +586,12 @@ class BatchActionService:
                 self._reject(batch_action_id, record, f"候选项目路径不合法：{project_id}", "validation_failed", 422)
             service = ReviewService(child_dir)
             pending = service.pending()
-            if pending is None and gate == "script":
-                # 检查点式 script 门：确保 formal script_lock review 存在
-                pending = service.ensure_script_review_for_checkpoint()
-            if pending is None and gate == "assets":
-                # 检查点式 assets 门：确保 formal creative_lock review 存在
-                pending = service.ensure_assets_review_for_checkpoint()
+            if pending is None and gate in {"script", "assets"}:
+                # Phase 3（评审修正 3）：prepare **只校验不创建**——
+                # 缺 review → 显式提示（须先经写路径/迁移补建），不得在读取路径静默补建。
+                self._reject(batch_action_id, record,
+                             f"候选 {candidate_id} 审批信息需要更新（可运行 scripts/backfill_gate_reviews.py）",
+                             "validation_failed", 422)
             if pending is None:
                 self._reject(
                     batch_action_id, record, f"候选 {candidate_id} 没有待确认内容",
@@ -905,3 +925,30 @@ def recover_batch_action(batch_dir: Path, batch_action_id: str) -> dict[str, Any
     current["result"] = result
     _save_record(Path(batch_dir), current)
     return result
+
+
+def _validate_evaluation_report(child_dir: Path, expected_sha: str) -> tuple[bool, str]:
+    """服务端重读 evaluation_report 校验（Phase 3）：
+    artifact_sha256 匹配 / scope 合法 / project_id 绑定候选 / 报告完整性（status+hard_gate 存在）。"""
+    report_path = child_dir / "artifacts" / "evaluation_report.json"
+    if not report_path.is_file():
+        return False, "评价报告缺失"
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, "评价报告不可读"
+    if not isinstance(report, Mapping):
+        return False, "评价报告损坏"
+    actual = str(report.get("artifact_sha256") or "")
+    if not actual:
+        _compat = report.get("hash") or report.get("_sha256") or ""
+        actual = str(_compat or "")
+    if expected_sha and actual != expected_sha:
+        return False, "评价报告与选择快照不匹配（hash 不一致）"
+    if str(report.get("scope") or "sample") not in {"sample", "final"}:
+        return False, f"评价报告 scope 异常: {report.get('scope')}"
+    if str(report.get("project_id") or "") and str(report.get("project_id")) != child_dir.name:
+        return False, "评价报告未绑定候选项目"
+    if not report.get("status") or report.get("hard_gate") is None:
+        return False, "评价报告不完整（缺 status/hard_gate）"
+    return True, ""
