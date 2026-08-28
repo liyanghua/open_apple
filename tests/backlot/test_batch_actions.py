@@ -484,15 +484,16 @@ def test_select_participants_with_evaluation_hash(tmp_path: Path):
     report_path.write_text(json.dumps(report), encoding="utf-8")
     good_p = {"candidate_id": "cand-01", "project_id": "cand-01", "subject_hash": "a" * 64,
               "workflow_revision": 1, "evaluation_hash": "c" * 64}
-    result = service.select_for_edit(actor_id="owner", idempotency_key="kp1",
-                                     aggregate_revision=revision,
-                                     participants=[good_p], reason="钩子最抓人")
-    assert result["status"] == "committed"
-    assert result["selected_candidate_ids"] == ["cand-01"]
-    # hash 不匹配 → 拒绝；且无新记录（幂等键避免误重放）
+    # hash 不匹配 → validation_failed（先于任何提交；使用当前 revision 避免 stale 干扰）
     bad_p = {**good_p, "evaluation_hash": "b" * 64}
     with pytest.raises(OperatorError) as exc:
         service.select_for_edit(actor_id="owner", idempotency_key="kp2",
                                 aggregate_revision=revision, participants=[bad_p], reason="x")
     assert exc.value.code == "validation_failed"
     assert "评价报告" in str(exc.value)
+    # 合法 participants → committed
+    result = service.select_for_edit(actor_id="owner", idempotency_key="kp1",
+                                     aggregate_revision=revision,
+                                     participants=[good_p], reason="钩子最抓人")
+    assert result["status"] == "committed"
+    assert result["selected_candidate_ids"] == ["cand-01"]
