@@ -73,10 +73,28 @@ def verify_publish_gates(project: Path, run: str) -> dict:
         if cert.get("gates", {}).get("final_qa") != "pass" \
                 or cert.get("gates", {}).get("l1a_final") != "pass":
             problems.append("交付证书 gate 非 pass")
+    # 正式版准入（严格档）：指认账本 strict_required=true 的正式版必须通过 strict_pass，
+    # 否则禁止发布（历史已发布版本不受追溯影响；重发布视为新准入）。
+    from lib.template_source_match import material_reuse_report
+
+    sp = _load(project, "scene_plan") or {}
+    reuse = material_reuse_report(sp)
+    ledger = _load(ROOT / "projects/template-pack-library", "release_designations")
+    strict_required = False
+    strict_reason = ""
+    for dg in (ledger or {}).get("designations", []):
+        if str(dg.get("official_run")) == run:
+            strict_required = bool(dg.get("strict_required", True))
+            strict_reason = str(dg.get("reason") or "")
+            break
+    if strict_required and not reuse.get("strict_pass"):
+        problems.append("严格档准入未通过（画面重复 S1\'-S5\'）" + (f"：{strict_reason}" if strict_reason else "") +
+                        "—— 正式版须严格档全绿（见 overview 画面重复列）")
     if problems:
         raise SystemExit(f"{run}: 发布阻断（评审 P0-2/P0-3）——" + "; ".join(problems))
     return {"final_qa": qa.get("status"), "l1a_final": l1a.get("status"),
             "compose": compose_status, "sample": sample_status,
+            "strict_gate": "pass" if (not strict_required or reuse.get("strict_pass")) else "fail",
             "certified_media_sha256": cert["media"]["final_sha256"]}
 
 

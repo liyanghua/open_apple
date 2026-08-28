@@ -35,6 +35,11 @@ function chip(text, style) {
   return el("span", { class: `chip ${STYLE_CLASS[style] || "chip-pending"}` }, text);
 }
 
+function commitChip(r) {
+  if (r.release === "official" && !r.reuse.strict_pass) return chip("⚠ 需严格重压缩", "partial");
+  return chip("—", "pending");
+}
+
 const RELEASE_STYLE = { official: "gold", superseded: "pending", baseline: "" };
 const RELEASE_LABEL = { official: "★ 正式版", superseded: "已取代", baseline: "基准" };
 function releaseChip(s) {
@@ -85,7 +90,7 @@ function renderOverview(runs) {
   const t = el("table");
   const head = el("thead", {}, el("tr", {},
     ...["#", "视频名称", "时长", "定档", "L3 均分", "单维最低", "短板", "L1a", "证书", "转场",
-       "版本", "语义一致", "画面重复", "口播覆盖", "容量判定", "成片/看板"].map(
+       "版本", "语义一致", "画面重复", "严格档", "口播覆盖", "容量判定", "成片/看板"].map(
       (h, i) => el("th", { class: i >= 2 ? "num" : "" }, h))));
   const body = el("tbody");
   runs.forEach((r, i) => {
@@ -111,6 +116,7 @@ function renderOverview(runs) {
       el("td", {}, chip(r.audio.coverage_ok ? "✅ 全段齐" : "⚠ 缺口播",
                         r.audio.coverage_ok ? "pass" : "fail")),
       el("td", {}, releaseChip(r.release)),
+      el("td", {}, commitChip(r)),
       el("td", {}, capacityChip(r.capacity)),
       el("td", {},
         el("a", { class: "media-link", href: `/media/${r.run}/renders/final.mp4`, target: "_blank" }, "成片"),
