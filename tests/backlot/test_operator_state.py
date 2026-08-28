@@ -8,14 +8,14 @@ import pytest
 
 
 NINE_STAGES = [
-    ("research", "参考解析与素材体检"),
-    ("proposal", "创意方案"),
-    ("script", "剧本生成"),
-    ("scene_plan", "分镜"),
-    ("assets", "制作准备"),
-    ("sample", "样片确认"),
-    ("edit", "修改与精剪"),
-    ("compose", "成片生成"),
+    ("research", "了解任务"),
+    ("proposal", "看创意方案"),
+    ("script", "确认脚本"),
+    ("scene_plan", "看分镜"),
+    ("assets", "确认制作准备"),
+    ("sample", "查看样片"),
+    ("edit", "完成剪辑"),
+    ("compose", "检查成片"),
     ("publish", "交付下载"),
 ]
 
@@ -222,7 +222,7 @@ def test_fastline_project_projects_business_state() -> None:
     state = project_operator_state(_board_state())
 
     assert state["summary"] == {
-        "current_stage": "样片确认",
+        "current_stage": "查看样片",
         "current_task": "样片已准备好，等待确认效果",
         "progress_percent": 56,
         "next_action": "请回到任务中确认样片效果",
