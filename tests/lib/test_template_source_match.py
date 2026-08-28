@@ -142,6 +142,55 @@ def test_material_reuse_records_explicit_shot_size_reason():
         assert "景别" in r and "复用" in r
 
 
+def test_action_alias_keeps_physical_media_in_same_domain():
+    from lib.template_source_match import _action_from_stem
+
+    assert _action_from_stem("product_透明桌垫-防油易擦拭-俯拍") == "防油易擦拭"
+
+
+def test_same_domain_media_are_load_balanced(monkeypatch):
+    import lib.template_source_match as source_match
+
+    stems = ["product_透明桌垫-防油易擦拭", "product_透明桌垫-防油易擦拭-俯拍"]
+    monkeypatch.setattr(source_match, "_clip_stems", lambda: stems)
+    slots = [{"slot_id": f"s{i}", "visual_content": "防油易擦拭"} for i in range(4)]
+    run = {"template_id": "custom", "slot_bindings": [
+        {"slot_id": s["slot_id"], "source": "unbound", "reason": "pending"} for s in slots
+    ]}
+    assigned = source_match.match_run_plan(slots, run)
+    counts = {stem: list(assigned.values()).count(stem) for stem in stems}
+    assert counts == {stems[0]: 2, stems[1]: 2}
+
+
+def test_capacity_and_h2_scale_per_physical_media(monkeypatch):
+    import json
+    from pathlib import Path
+    import lib.template_source_match as source_match
+
+    base_stems = source_match._clip_stems()
+    dining = "product_透明桌垫-餐桌场景"
+    expanded = base_stems + [dining + "-俯拍", dining + "-侧拍"]
+    monkeypatch.setattr(source_match, "_clip_stems", lambda: expanded)
+    pack = json.loads((Path(__file__).resolve().parents[2] /
+                       "projects/template-pack-library/artifacts/template_pack.json").read_text())
+    template = next(t for t in pack["templates"] if t["template_id"] == "sheet-14-video15-aks-zhuodian")
+    verdict = source_match.capacity_verdict(template)
+    assert verdict["window_capacities"]["餐桌场景"] >= 18
+    assert verdict["full_solvable"] is True
+
+
+def test_window_capacity_exhaustion_is_fail_closed():
+    import pytest
+    from lib.template_source_match import build_source_mappings
+
+    scenes = [{"id": f"scene-{i}", "start_seconds": 2.0 * i,
+               "end_seconds": 2.0 * (i + 1), "template_slot_ref": f"s{i}"} for i in range(5)]
+    slots = {f"scene-{i}": {"slot_id": f"s{i}"} for i in range(5)}
+    assigned = {f"s{i}": "product_透明桌垫-自动铺开对齐" for i in range(5)}
+    with pytest.raises(ValueError, match="H3/H4|窗口"):
+        build_source_mappings(scenes, slots, assigned, grounding={})
+
+
 def test_matcher_still_resolves_best_action_by_overlay():
     # 槽位 7 的 overlay 是"耐磨"，应优先 → 防刮
     action = best_action(_SLOTS[6])

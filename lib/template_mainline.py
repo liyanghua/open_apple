@@ -251,6 +251,33 @@ _NARRATION_SHEET_04C1 = [
     ("直播间看看，行不行？", "直播间见", "cta"),
 ]
 
+
+# sheet-14-video15-aks-zhuodian-c3 换序改写变体（严格预检全绿）。
+_NARRATION_SHEET_14C3 = [
+    ("二十年三十年，做好一件事。", "20年30年 · 一件事", "hook"),
+    ("拆开就测，没有异味。", "无异味", "proof"),
+    ("耐磨防刮，久用如新。", "耐磨耐用", "proof"),
+    ("防水防油，一抹就净。", "防水防油", "proof"),
+    ("手按边角，每一处都贴合。", "边角都贴合", "proof"),
+    ("我家餐桌上，就是它。", "我家在用", "payoff"),
+    ("材质安不安全，测了知道。", "健康材质", "reveal"),
+    ("用了半年，还是光滑。", "半年如新", "proof"),
+    ("脏了一擦就净。", "直播间见", "cta"),
+]
+
+
+# sheet-19-video22-aks-zhuodian-c4 换序改写变体（严格预检全绿）。
+_NARRATION_SHEET_19C4 = [
+    ("软玻璃，材质看得见。", "PVC软玻璃", "reveal"),
+    ("硬物刮，也不怕。", "真的抗造", "proof"),
+    ("选桌垫，别只图便宜。", "别只图便宜", "hook"),
+    ("饮料酒水撒上去。", "饮料撒桌面", "proof"),
+    ("边角圆滑，不扎手。", "边角圆滑", "proof"),
+    ("每一批，都测过。", "每批检测", "proof"),
+    ("怎么扒拉怎么划。", "怎么划都不怕", "proof"),
+    ("脏了一擦就净。", "直播间见", "cta"),
+]
+
 _NARRATION_BY_TEMPLATE: dict[str, list[tuple[str, str, str]]] = {
     "sheet-04-video4-zhuodian": _NARRATION_SHEET_04,
     "sheet-05-video5-aks-zhuodian": _NARRATION_SHEET_05,
@@ -261,6 +288,8 @@ _NARRATION_BY_TEMPLATE: dict[str, list[tuple[str, str, str]]] = {
     "sheet-04-video4-zhuodian-c1": _NARRATION_SHEET_04C1,
     "sheet-05-video5-aks-zhuodian-c1": _NARRATION_SHEET_05C1,
     "sheet-09-video9-aks-zhuodian-c2": _NARRATION_SHEET_09C2,
+    "sheet-19-video22-aks-zhuodian-c4": _NARRATION_SHEET_19C4,
+    "sheet-14-video15-aks-zhuodian-c3": _NARRATION_SHEET_14C3,
     "sheet-19-video22-aks-zhuodian-c1": _NARRATION_SHEET_19C1,
 }
 

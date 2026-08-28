@@ -1,4 +1,5 @@
-"""模板 slot → 自有素材的匹配（复用 research 链原则：不重复 + 一致性）。
+"""
+slot → 自有素材的匹配（复用 research 链原则：不重复 + 一致性）。
 
 与 `init_template_pilot._match_source` 的关键词 hack 不同，这里：
 - **不重复（no-dup）**：每个 slot 拿到一个*不同*的素材 + *不同*的 in-point 窗口；
@@ -134,6 +135,15 @@ SLOT_ACTION_BY_TEMPLATE: dict[str, list[str]] = {
 "sheet-09-video9-aks-zhuodian-c2": [
         "无甲醛检测", "餐桌场景", "桌角对齐-挤压不变形", "防刮",
         "无甲醛检测", "餐桌场景", "桌角对齐-挤压不变形", "防刮",
+    ],
+    "sheet-14-video15-aks-zhuodian-c3": [
+        "餐桌场景", "无甲醛检测", "防刮", "防油易擦拭",
+        "桌角对齐-挤压不变形", "餐桌场景", "无甲醛检测", "防刮",
+        "防油易擦拭",
+    ],
+    "sheet-19-video22-aks-zhuodian-c4": [
+        "无甲醛检测", "防刮", "餐桌场景", "防油易擦拭",
+        "桌角对齐-挤压不变形", "无甲醛检测", "防刮", "防油易擦拭",
     ],
 "sheet-04-video4-zhuodian-c1": [
         "餐桌场景", "无甲醛检测", "桌角对齐-挤压不变形", "自动铺开对齐",
@@ -908,3 +918,4 @@ def capacity_verdict(template: Mapping[str, Any], *, allow_compress: bool = True
         "diversify_solvable": diversify_ok, "media_by_domain": media_by_domain, "reasons": reasons,
         "input_hash": input_hash,
     }
+

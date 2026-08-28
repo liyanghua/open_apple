@@ -132,3 +132,48 @@ def test_check_template_run_plan_ready_fail_closed():
         "status": "approved", "slot_bindings": [{"slot_id": "x", "source": "nope", "reason": "r"}]})["ready"] is False
     assert check_template_run_plan_ready({
         "status": "approved", "slot_bindings": [{"slot_id": "o", "source": "owned", "reason": "r"}]})["ready"] is False
+
+
+def test_readiness_requires_complete_unique_template_slot_coverage():
+    from lib.template_run_plan import check_template_run_plan_ready
+
+    template = {"template_id": "custom-template", "slots": [{"slot_id": "s1"}, {"slot_id": "s2"}]}
+    plan = {"status": "approved", "template_id": template["template_id"],
+            "slot_bindings": [{"slot_id": "s1", "source": "owned",
+                               "source_media_id": "m", "reason": "r"}]}
+    result = check_template_run_plan_ready(plan, template=template)
+    assert result["ready"] is False
+    assert any("缺少" in blocker or "覆盖" in blocker for blocker in result["blockers"])
+
+
+def test_readiness_rejects_unregistered_c1_template():
+    from lib.template_run_plan import check_template_run_plan_ready
+
+    template = {"template_id": "not-in-pack-c1", "slots": [{"slot_id": "s1"}]}
+    plan = {"status": "approved", "template_id": template["template_id"],
+            "slot_bindings": [{"slot_id": "s1", "source": "owned",
+                               "source_media_id": "m", "reason": "r"}]}
+    result = check_template_run_plan_ready(plan, template=template)
+    assert result["ready"] is False
+    assert any("压缩" in blocker or "模板" in blocker for blocker in result["blockers"])
+
+
+def test_template_run_plan_schema_accepts_compression_contract():
+    from schemas.artifacts import validate_artifact
+
+    plan = {
+        "version": "1.0", "run_id": "r", "template_id": "t",
+        "template_pack_ref": {"artifact_sha256": "a" * 64, "version": "1.0"},
+        "product_facts_ref": {"artifact_sha256": "b" * 64},
+        "adaptation_policy": "proof-first", "status": "approved",
+        "slot_bindings": [{"slot_id": "s1", "source": "owned",
+                           "source_media_id": "m", "reason": "r"}],
+        "caption_policy": {"reference_text": "analysis_only", "copy_reference_caption": False},
+        "compression": {
+            "base_template_id": "t", "base_ref": "template:t", "kept_slot_ids": ["s1"],
+            "kept_ordinals": [1], "base_section_refs": ["sec-001"], "total_s": 15.0,
+            "h1_ok": True, "h2_ok": True, "h3_ok": True, "h4_ok": True,
+            "capacity_ok": True, "dur_ok": True, "all_hard_ok": True, "input_hash": "c" * 64,
+        },
+    }
+    validate_artifact("template_run_plan", plan)
