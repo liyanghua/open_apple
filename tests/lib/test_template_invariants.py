@@ -437,8 +437,11 @@ def test_capacity_readiness_failclosed_and_compress_blocks_original():
 
     r_orig = check_template_run_plan_ready(dict(base), template=t14)
     assert any("COMPRESS" in b for b in r_orig["blockers"]), f"原始模板应被 COMPRESS 阻断: {r_orig['blockers'][:2]}"
-    # -c1 压缩变体放行（无容量 blocker）
-    r_c1 = check_template_run_plan_ready({**base, "template_id": t14c1["template_id"]}, template=t14c1)
+    # -c1 压缩变体必须携带可回溯的压缩契约后放行
+    from lib.template_compression import compression_plan_for_subset
+    kept = json.loads((ROOT / "docs/reports/export/compression-candidates-2026-08-27.json").read_text())["sheet-14-video15-aks-zhuodian"][0]["kept_ordinals"]
+    compression = compression_plan_for_subset(t14, kept)
+    r_c1 = check_template_run_plan_ready({**base, "template_id": t14c1["template_id"], "compression": compression}, template=t14c1)
     assert not any("COMPRESS" in b or "MARK_GAP" in b for b in r_c1["blockers"])
     # 判定器异常 → fail-closed blocker
     import lib.template_run_plan as rpmod
@@ -477,6 +480,29 @@ def test_compressor_skeleton_protected_and_real_slot_ids():
     _NARRATION_BY_TEMPLATE.pop("sheet-test-x", None)
     assert c["kept_slot_ids"][0] == "sheet-test-x-slot-001"  # 真实 id，非 slot-001 伪造
     assert 1 in c["kept_ordinals"] and 3 in c["kept_ordinals"]  # 首/尾骨架保留
+    assert c["base_template_id"] == "sheet-test-x"
+    assert len(c["base_section_refs"]) == len(c["kept_slot_ids"])
+    assert c["h3_ok"] is True and c["h4_ok"] is True
+
+
+def test_compressor_h1_uses_physical_media_not_action_domain(monkeypatch):
+    import lib.template_source_match as source_match
+    from lib.template_compression import compress_candidate
+    from lib.template_source_match import SLOT_ACTION_BY_TEMPLATE
+
+    template = {"template_id": "sheet-test-physical", "slots": [
+        {"slot_id": f"physical-slot-{i}", "ordinal": i, "duration_s": 2.0,
+         "visual_content": "防油易擦拭"} for i in range(1, 4)
+    ]}
+    SLOT_ACTION_BY_TEMPLATE[template["template_id"]] = ["防油易擦拭"] * 3
+    monkeypatch.setattr(source_match, "_clip_stems", lambda: [
+        "product_透明桌垫-防油易擦拭", "product_透明桌垫-防油易擦拭-俯拍",
+    ])
+    try:
+        result = compress_candidate(template)
+    finally:
+        SLOT_ACTION_BY_TEMPLATE.pop(template["template_id"], None)
+    assert result["h1_ok"] is True
 
 
 def test_no_grounding_still_distinct_windows():
@@ -490,3 +516,30 @@ def test_no_grounding_still_distinct_windows():
     m = build_source_mappings(scenes, slot_by_scene, assigned, grounding={})
     starts = [x["source_interval"]["start_seconds"] for x in m]
     assert len(set(round(s, 2) for s in starts)) == len(starts), f"无 grounding 仍出现重复窗口: {starts}"
+
+
+def test_strict_planner_subset_and_capacity():
+    """不变量 16：严格档子集规划器（固化的枚举器）——非重叠容量 + 最优子集 + 无解归因。
+
+    复现已验证事实：05c1 子集 [1,2,3,4,5,6,8,11]/16.0s；15c1/19c1 在 S5'=4 下无解（换序阻塞）；
+    S3' 非重叠容量：自动铺开=1（3.7s 窗口容不下两个 2s 非重叠窗）。
+    """
+    import json as _json
+    from lib.strict_planner import plan_strict_subset, strict_capacity
+
+    assert strict_capacity("自动铺开对齐") == 1
+    assert strict_capacity("桌角对齐-挤压不变形") == 2
+    pack = _json.loads((ROOT / "projects/template-pack-library/artifacts/template_pack.json").read_text())
+
+    t05 = next(t for t in pack["templates"] if t["template_id"] == "sheet-05-video5-aks-zhuodian-c1")
+    p = plan_strict_subset(t05)
+    assert p and p["kept_ordinals"] == [1, 2, 3, 4, 5, 6, 8, 11]
+    assert p["all_hard_ok"] and p["h2_ok"] and p["capacity_ok"]
+    assert abs(p["total_s"] - 16.0) < 1e-6
+
+    t15 = next(t for t in pack["templates"] if t["template_id"] == "sheet-14-video15-aks-zhuodian-c1")
+    assert plan_strict_subset(t15) is None  # S5'=4 + 原始顺序聚簇 → 换序阻塞（已归档）
+
+    t09c2 = next(t for t in pack["templates"] if t["template_id"] == "sheet-09-video9-aks-zhuodian-c2")
+    p2 = plan_strict_subset(t09c2)
+    assert p2 and len(p2["kept_ordinals"]) == 8
