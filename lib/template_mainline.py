@@ -226,17 +226,16 @@ _NARRATION_SHEET_19C1 = [
 ]
 
 
-# sheet-09 c1 压缩变体（9 镜/18.1s，3/3/3 平衡解）。
-_NARRATION_SHEET_09C1 = [
+# sheet-09 c1/v2 压缩变体（8 镜/16.0s：4 域×2，严格档全绿 — S2' 25% 需 ≥4 域）。
+_NARRATION_SHEET_09C2 = [
     ("安全和健康最重要。", "安全健康最重要", "hook"),
     ("凭什么你家桌垫更贵？", "为什么贵一点？", "problem"),
+    ("边缘光滑，圆角不扎手。", "圆角光滑 · 不扎手", "proof"),
+    ("硬物刮，也不怕。", "真的抗造", "proof"),
     ("用料敢测，玻璃是母婴级。", "母婴级软玻璃", "proof"),
     ("孩子都能放心用。", "孩子放心用", "proof"),
-    ("边缘光滑，圆角不扎手。", "圆角光滑 · 不扎手", "proof"),
-    ("刚出锅的热菜，直接放。", "热菜直接放", "proof"),
     ("挤压复原，不怕变形。", "不怕变形", "proof"),
-    ("材料检测，全部合格。", "检测合格", "payoff"),
-    ("", "永远第一位", "cta"),
+    ("怎么扒拉怎么划。", "永远第一位", "cta"),
 ]
 
 
@@ -261,7 +260,7 @@ _NARRATION_BY_TEMPLATE: dict[str, list[tuple[str, str, str]]] = {
     "sheet-14-video15-aks-zhuodian-c1": _NARRATION_SHEET_14C1,
     "sheet-04-video4-zhuodian-c1": _NARRATION_SHEET_04C1,
     "sheet-05-video5-aks-zhuodian-c1": _NARRATION_SHEET_05C1,
-    "sheet-09-video9-aks-zhuodian-c1": _NARRATION_SHEET_09C1,
+    "sheet-09-video9-aks-zhuodian-c2": _NARRATION_SHEET_09C2,
     "sheet-19-video22-aks-zhuodian-c1": _NARRATION_SHEET_19C1,
 }
 

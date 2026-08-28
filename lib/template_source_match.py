@@ -131,10 +131,9 @@ SLOT_ACTION_BY_TEMPLATE: dict[str, list[str]] = {
         "餐桌场景", "餐桌场景", "餐桌场景", "防油易擦拭", "防刮", "防油易擦拭",
         "餐桌场景", "餐桌场景", "餐桌场景", "餐桌场景",
     ],
-"sheet-09-video9-aks-zhuodian-c1": [
-        "无甲醛检测", "餐桌场景", "无甲醛检测", "餐桌场景",
-        "桌角对齐-挤压不变形", "餐桌场景", "桌角对齐-挤压不变形", "无甲醛检测",
-        "桌角对齐-挤压不变形",
+"sheet-09-video9-aks-zhuodian-c2": [
+        "无甲醛检测", "餐桌场景", "桌角对齐-挤压不变形", "防刮",
+        "无甲醛检测", "餐桌场景", "桌角对齐-挤压不变形", "防刮",
     ],
 "sheet-04-video4-zhuodian-c1": [
         "餐桌场景", "无甲醛检测", "桌角对齐-挤压不变形", "自动铺开对齐",
@@ -675,7 +674,41 @@ def material_reuse_report(scene_plan: Mapping[str, Any]) -> dict[str, Any]:
     if n_materials and max_reuse > max(2, -(-len(stems) // n_materials)):
         findings.append(
             f"S1 复用次数 {max_reuse} 次 > 理论下限 {max(2, -(-len(stems) // n_materials))}（{len(stems)}镜/{n_materials}素材）")
+    # ---- 严格档（评审：用户要求"高严格"画面重复判定）----
+    # S-H2' 单素材占比 ≤ 1/4；S-H3' 同素材窗口**完全不重叠**；S-H4' 起点差 ≥ 1.5s；
+    # S-S1' 复用次数 ≤ ceil(N/M) 硬门；S-S2' 任意两次使用间隔 ≥ 4 镜。
+    n_materials_actual = max(len({s.replace("product_透明桌垫-", "") for s in stems}), 1) if stems else 1
+    use_cap = max(2, -(-len(stems) // n_materials_actual)) if stems else 0
+    strict_uses = [s for s, ms in index_by_stem.items()
+                   if len(ms) > use_cap and s.replace("product_透明桌垫-", "") != max_stem.replace("product_透明桌垫-", "")]
+    strict_findings = []
+    if any(len(v) > use_cap for v in index_by_stem.values()):
+        strict_findings.append(f"S1' 复用超限（上限 {use_cap}/素材）")
+    if any(r > 0.25 for r in ratio.values()):
+        strict_findings.append("S2' 单素材占比 > 25%")
+    # 完全非重叠 + 起点差 1.5s
+    overlap_pairs = []
+    small_gaps = []
+    for stem, ws in windows.items():
+        for i in range(len(ws)):
+            for j in range(i + 1, len(ws)):
+                a, b = sorted((ws[i], ws[j]))
+                if b[0] < a[1]:
+                    overlap_pairs.append(f"{stem}: w{i}∩w{j}")
+                elif abs(b[0] - a[0]) < 1.5:
+                    small_gaps.append(f"{stem}: w{i}/w{j} 起点差 {abs(b[0]-a[0]):.2f}s")
+    if overlap_pairs:
+        strict_findings.append("S3' 同素材窗口重叠 " + "; ".join(overlap_pairs[:3]))
+    if small_gaps:
+        strict_findings.append("S4' 起点差 < 1.5s " + "; ".join(small_gaps[:3]))
+    min_gap_strict = [f"{stem}" for stem, idxs in index_by_stem.items()
+                      for i in range(1, len(idxs)) if idxs[i] - idxs[i - 1] < 4][:3]
+    if min_gap_strict:
+        strict_findings.append("S5' 复用间隔 < 4 镜: " + ", ".join(min_gap_strict))
+    strict_pass = not strict_findings
     return {
+        "strict_pass": strict_pass, "strict_findings": strict_findings,
+        "use_capacity": use_cap,
         "counts": {k.replace("product_透明桌垫-", ""): len(v) for k, v in index_by_stem.items()},
         "max_stem": max_stem.replace("product_透明桌垫-", ""), "max_reuse": max_reuse,
         "single_ratio": single_ratio, "adjacent_same": adjacent_same,

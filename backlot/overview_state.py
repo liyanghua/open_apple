@@ -85,9 +85,13 @@ def _capacity_verdict(project: Path, template_id: str) -> dict:
 
 
 def _compressed_sibling(run: dict, *, known: set[str] | None = None) -> str:
-    """原片行：若存在已发布的 {template_id}-c1 变体 run → 返回其 run 名（页面联动显示）。"""
-    if str(run.get("template_id") or "").endswith("-c1"):
+    """原片行：先取 ledger 指认的 official_run；否则回退 {template_id}-c1 变体。"""
+    if str(run.get("template_id") or "").endswith("-c1") or str(run.get("template_id") or "").endswith("-c2"):
         return ""
+    _release_status("", str(run.get("run") or ""))  # 确保 ledger 加载
+    for d in (_RELEASES or {}).get("designations", []):
+        if str(d.get("superseded_run")) == str(run.get("run") or ""):
+            return str(d.get("official_run") or "")
     sibling = f"template-run-{run.get('template_id')}-c1"
     return sibling if (known is None or sibling in known) else ""
 
