@@ -1,0 +1,516 @@
+[
+  {
+    "template_id": "sheet-01-video1-aks-zhuodian",
+    "slots": 8,
+    "calibrated": true,
+    "verdict": "DIVERSIFY_LIMITED",
+    "reasons": [],
+    "full": true
+  },
+  {
+    "template_id": "sheet-02-video2-aks-zhuodian",
+    "slots": 8,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-防油易擦拭 13.0s > D/3 5.0s",
+      "压缩分量仍违反 H2（需补素材）"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-03-video3-aks-zhuodian",
+    "slots": 15,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "餐桌场景: 需 2 镜 容量 10→8",
+      "H2: 单素材 product_透明桌垫-餐桌场景 19.7s > D/3 9.9s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-04-video4-zhuodian",
+    "slots": 14,
+    "calibrated": true,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-餐桌场景 12.0s > D/3 9.3s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-05-video5-aks-zhuodian",
+    "slots": 21,
+    "calibrated": true,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "餐桌场景: 需 3 镜 容量 11→8",
+      "H2: 单素材 product_透明桌垫-餐桌场景 20.3s > D/3 13.4s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-06-video6-aks-zhuodian",
+    "slots": 9,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "桌角对齐-挤压不变形: 需 1 镜 容量 4→3",
+      "H2: 单素材 product_透明桌垫-桌角对齐-挤压不变形 8.0s > D/3 6.0s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-07-video7-aks-zhuodian",
+    "slots": 9,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-餐桌场景 11.0s > D/3 5.7s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-08-video8-aks-zhuodian",
+    "slots": 7,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-防油易擦拭 13.4s > D/3 4.5s",
+      "压缩分量仍违反 H2（需补素材）"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-09-video9-aks-zhuodian",
+    "slots": 21,
+    "calibrated": true,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "桌角对齐-挤压不变形: 需 3 镜 容量 6→3",
+      "H2: 单素材 product_透明桌垫-无甲醛检测 16.0s > D/3 13.4s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-10-video10-aks-zhuodian",
+    "slots": 9,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "餐桌场景: 需 1 镜 容量 9→8",
+      "H2: 单素材 product_透明桌垫-餐桌场景 16.6s > D/3 5.5s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-11-video12-zhuodian",
+    "slots": 10,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "防油易擦拭: 需 2 镜 容量 10→8",
+      "H2: 单素材 product_透明桌垫-防油易擦拭 18.8s > D/3 6.3s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-12-video13-aks-zhuodian",
+    "slots": 78,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "防油易擦拭: 需 58 镜 容量 66→8",
+      "餐桌场景: 需 2 镜 容量 10→8"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-13-video14-aks-zhuodian",
+    "slots": 8,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-餐桌场景 10.4s > D/3 4.8s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-14-video15-aks-zhuodian",
+    "slots": 30,
+    "calibrated": true,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "餐桌场景: 需 10 镜 容量 18→8",
+      "H2: 单素材 product_透明桌垫-餐桌场景 34.2s > D/3 19.4s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-15-video17-aks-zhuodian",
+    "slots": 9,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-餐桌场景 12.0s > D/3 6.0s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-16-video18-aks-zhuodian",
+    "slots": 8,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "桌角对齐-挤压不变形: 需 1 镜 容量 4→3",
+      "H2: 单素材 product_透明桌垫-桌角对齐-挤压不变形 8.0s > D/3 5.0s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-17-video19-aks-zhuodian",
+    "slots": 8,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-餐桌场景 7.0s > D/3 5.0s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-18-video20-aks-zhuodian",
+    "slots": 9,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "桌角对齐-挤压不变形: 需 1 镜 容量 4→3",
+      "H2: 单素材 product_透明桌垫-桌角对齐-挤压不变形 8.0s > D/3 6.0s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-19-video22-aks-zhuodian",
+    "slots": 22,
+    "calibrated": true,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "餐桌场景: 需 4 镜 容量 12→8",
+      "H2: 单素材 product_透明桌垫-餐桌场景 22.7s > D/3 14.2s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-20-video23-aks-zhuodian",
+    "slots": 10,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "防油易擦拭: 需 2 镜 容量 10→8",
+      "H2: 单素材 product_透明桌垫-防油易擦拭 20.0s > D/3 6.7s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-21-video25-aks-zhuodian",
+    "slots": 8,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-防油易擦拭 13.0s > D/3 5.0s",
+      "压缩分量仍违反 H2（需补素材）"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-22-video27-aks-zhuodian",
+    "slots": 8,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-餐桌场景 7.0s > D/3 5.0s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-23-video28-aks-zhuodian",
+    "slots": 9,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-防刮 6.1s > D/3 5.4s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-24-video30-aks-zhuodian",
+    "slots": 9,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "桌角对齐-挤压不变形: 需 2 镜 容量 5→3",
+      "H2: 单素材 product_透明桌垫-桌角对齐-挤压不变形 10.0s > D/3 5.6s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-25-video31-aks-zhuodian",
+    "slots": 9,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "防刮: 需 3 镜 容量 8→5",
+      "H2: 单素材 product_透明桌垫-防刮 14.5s > D/3 5.5s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-26-video32-aks-zhuodian",
+    "slots": 8,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "桌角对齐-挤压不变形: 需 2 镜 容量 5→3",
+      "H2: 单素材 product_透明桌垫-桌角对齐-挤压不变形 10.0s > D/3 5.0s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-27-video33-aks-zhuodian",
+    "slots": 8,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-防油易擦拭 15.0s > D/3 5.0s",
+      "压缩分量仍违反 H2（需补素材）"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-28-video34-aks-zhuodian",
+    "slots": 20,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "防刮: 需 6 镜 容量 11→5",
+      "H2: 单素材 product_透明桌垫-防刮 20.8s > D/3 12.9s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-29-video35-aks-zhuodian",
+    "slots": 8,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-防油易擦拭 15.0s > D/3 5.0s",
+      "压缩分量仍违反 H2（需补素材）"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-30-video36-aks-zhuodian",
+    "slots": 9,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-餐桌场景 10.1s > D/3 5.4s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-31-video37-aks-zhuodian",
+    "slots": 10,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-餐桌场景 13.9s > D/3 6.6s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-32-video38-aks-zhuodian",
+    "slots": 8,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-餐桌场景 7.8s > D/3 5.3s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-33-video39-aks-zhuodian",
+    "slots": 8,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-桌角对齐-挤压不变形 6.0s > D/3 5.3s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-34-video40-aks-zhuodian",
+    "slots": 44,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "餐桌场景: 需 36 镜 容量 44→8",
+      "H2: 单素材 product_透明桌垫-餐桌场景 87.7s > D/3 29.2s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-35-video41-aks-zhuodian",
+    "slots": 11,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "餐桌场景: 需 2 镜 容量 10→8",
+      "H2: 单素材 product_透明桌垫-餐桌场景 19.4s > D/3 7.1s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-36-video42-aks-zhuodian",
+    "slots": 9,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-餐桌场景 12.5s > D/3 5.5s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-37-video43-aks-zhuodian",
+    "slots": 12,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "桌角对齐-挤压不变形: 需 5 镜 容量 8→3",
+      "H2: 单素材 product_透明桌垫-桌角对齐-挤压不变形 16.0s > D/3 7.5s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-38-video44-aks-zhuodian",
+    "slots": 7,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-防油易擦拭 8.0s > D/3 4.4s",
+      "压缩分量仍违反 H2（需补素材）"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-39-video45-aks-zhuodian",
+    "slots": 8,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "防刮: 需 3 镜 容量 8→5",
+      "H2: 单素材 product_透明桌垫-防刮 15.4s > D/3 5.1s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-40-video46-aks-zhuodian",
+    "slots": 9,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "桌角对齐-挤压不变形: 需 2 镜 容量 5→3",
+      "H2: 单素材 product_透明桌垫-桌角对齐-挤压不变形 8.4s > D/3 5.5s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-41-video47-aks-zhuodian",
+    "slots": 10,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "桌角对齐-挤压不变形: 需 5 镜 容量 8→3",
+      "H2: 单素材 product_透明桌垫-桌角对齐-挤压不变形 14.8s > D/3 6.3s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-42-video48-yanban-zhuojia",
+    "slots": 13,
+    "calibrated": false,
+    "verdict": "COMPRESS",
+    "reasons": [
+      "防油易擦拭: 需 2 镜 容量 10→8",
+      "H2: 单素材 product_透明桌垫-防油易擦拭 18.5s > D/3 8.2s"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-43-video49-aks-zhuodian",
+    "slots": 7,
+    "calibrated": false,
+    "verdict": "MARK_GAP",
+    "reasons": [
+      "H2: 单素材 product_透明桌垫-防油易擦拭 14.0s > D/3 4.7s",
+      "压缩分量仍违反 H2（需补素材）"
+    ],
+    "full": false
+  },
+  {
+    "template_id": "sheet-14-video15-aks-zhuodian-c1",
+    "slots": 10,
+    "calibrated": true,
+    "verdict": "DIVERSIFY_LIMITED",
+    "reasons": [],
+    "full": true
+  },
+  {
+    "template_id": "sheet-05-video5-aks-zhuodian-c1",
+    "slots": 14,
+    "calibrated": true,
+    "verdict": "DIVERSIFY_LIMITED",
+    "reasons": [],
+    "full": true
+  },
+  {
+    "template_id": "sheet-19-video22-aks-zhuodian-c1",
+    "slots": 9,
+    "calibrated": true,
+    "verdict": "DIVERSIFY_LIMITED",
+    "reasons": [],
+    "full": true
+  },
+  {
+    "template_id": "sheet-09-video9-aks-zhuodian-c2",
+    "slots": 8,
+    "calibrated": true,
+    "verdict": "DIVERSIFY_LIMITED",
+    "reasons": [],
+    "full": true
+  },
+  {
+    "template_id": "sheet-04-video4-zhuodian-c1",
+    "slots": 8,
+    "calibrated": true,
+    "verdict": "DIVERSIFY_LIMITED",
+    "reasons": [],
+    "full": true
+  },
+  {
+    "template_id": "sheet-14-video15-aks-zhuodian-c3",
+    "slots": 9,
+    "calibrated": true,
+    "verdict": "DIVERSIFY_LIMITED",
+    "reasons": [],
+    "full": true
+  },
+  {
+    "template_id": "sheet-19-video22-aks-zhuodian-c4",
+    "slots": 8,
+    "calibrated": true,
+    "verdict": "DIVERSIFY_LIMITED",
+    "reasons": [],
+    "full": true
+  }
+]
