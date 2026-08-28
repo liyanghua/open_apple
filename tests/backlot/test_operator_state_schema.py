@@ -155,7 +155,7 @@ def minimal_operator_state(editor_type: str = "research_review") -> dict:
         "pipeline": "cinematic-fast",
         "skill": None,
         "summary": {
-            "current_stage": "参考解析与素材体检",
+            "current_stage": "了解任务",
             "current_task": "正在检查参考视频和自有素材",
             "progress_percent": 10,
             "next_action": "等待素材检查完成",
@@ -165,7 +165,7 @@ def minimal_operator_state(editor_type: str = "research_review") -> dict:
         },
         "stages": [{
             "id": "research",
-            "label": "参考解析与素材体检",
+            "label": "了解任务",
             "status": "制作中",
             "version": 1,
             "updated_at": None,
@@ -263,14 +263,14 @@ def test_operator_language_uses_the_canonical_nine_stage_vocabulary() -> None:
     from backlot.operator_language import STAGE_LABELS, STATUS_LABELS
 
     assert list(STAGE_LABELS.items()) == [
-        ("research", "参考解析与素材体检"),
-        ("proposal", "创意方案"),
-        ("script", "剧本生成"),
-        ("scene_plan", "分镜"),
-        ("assets", "制作准备"),
-        ("sample", "样片确认"),
-        ("edit", "修改与精剪"),
-        ("compose", "成片生成"),
-        ("publish", "交付下载"),
+        ("research", "了解任务"),
+        ("proposal", "看创意方案"),
+        ("script", "确认脚本"),
+        ("scene_plan", "看分镜"),
+        ("assets", "确认制作准备"),
+        ("sample", "查看样片"),
+        ("edit", "完成剪辑"),
+        ("compose", "检查成片"),
+        ("publish", "确认交付"),
     ]
     assert STATUS_LABELS["awaiting_human"] == "等待确认"

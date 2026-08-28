@@ -184,11 +184,11 @@ def test_operator_projection_backfills_sample_review_for_legacy_checkpoint(tmp_p
 
     state = load_operator_state(project, permissions=("view", "review"))
 
+    # 修正 3：读取路径不再补建 review（遗留 checkpoint 读取后仍无 review）；
+    # 补建只属于显式迁移路径 scripts/backfill_gate_reviews.py。
     review = ReviewService(project).pending()
-    assert review is not None
-    assert review["kind"] == "sample"
-    assert review["subject_id"] == "sample-v1"
-    assert review["subject_version"] == 1
-    assert review["subject_hash"] == "b" * 64
-    assert state["pending_review"]["review_id"] == review["review_id"]
-    assert state["pending_review"]["subject_hash"] == "b" * 64
+    assert review is None, "读取路径不得创建 review"
+    assert state is not None
+    # 显式迁移路径仍可用（写路径）
+    migrated = ReviewService(project).ensure_sample_review_for_checkpoint()
+    assert migrated is not None and migrated["subject_hash"] == "b" * 64
