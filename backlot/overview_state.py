@@ -79,7 +79,7 @@ def _capacity_verdict(project: Path, template_id: str) -> dict:
     template = next((t for t in _PACK_CACHE.get("templates", [])
                      if t.get("template_id") == template_id), None)
     if not template:
-        return {"verdict": "UNKNOWN", "reasons": ["模板不在库中"]}
+        return {"verdict": "UNKNOWN", "reasons": ["模板已更名/下线（历史草稿）"]}
     v = capacity_verdict(template)
     return {"verdict": v["verdict"], "reasons": v["reasons"], "solver": v["solver"]}
 
@@ -146,7 +146,7 @@ def _slim_run(run: dict, *, known: set[str] | None = None) -> dict:
     }
 
 
-def load_overview(*, limit: int = 10) -> dict:
+def load_overview(*, limit: int = 20) -> dict:
     global _PUBLISHED_C1
     if _PUBLISHED_C1 is None:
         _PUBLISHED_C1 = {str(run) for run in discover_runs() if str(run).endswith("-c1")}
