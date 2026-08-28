@@ -1990,17 +1990,14 @@ def load_operator_state(
             execution["generation_tasks"] = tasks
     state["summary"]["performance"] = _performance_summary(project_dir)
     if (project_dir / "operator" / "operator-managed").exists():
+        # 纯读取（修正 3）：读取路径一律不创建 review/写 checkpoint/补事件。
+        # ensure_*_review_for_checkpoint 只允许出现在：
+        #  - 新项目产生 awaiting_human checkpoint 的写事务（同事务创建）
+        #  - 显式迁移脚本 scripts/backfill_gate_reviews.py
+        # 缺 review 时由上层（batch prepare / 单条审批）以「审批信息需要更新」反馈。
         from backlot.operator_reviews import ReviewService
 
         review_service = ReviewService(project_dir)
-        if state["workspace"]["stage_id"] == "sample":
-            review_service.ensure_sample_review_for_checkpoint()
-        elif state["workspace"]["stage_id"] == "script":
-            # 契约 B：script 门必须引用 script_lock review。
-            review_service.ensure_script_review_for_checkpoint()
-        elif state["workspace"]["stage_id"] == "assets":
-            # 契约 B：assets 门必须引用 creative_lock review（绑定 approval_bundle）。
-            review_service.ensure_assets_review_for_checkpoint()
         review = review_service.pending()
         if review is None:
             state["pending_review"] = None

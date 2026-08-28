@@ -4,15 +4,30 @@ from types import MappingProxyType
 
 
 STAGE_LABELS = MappingProxyType({
-    "research": "参考解析与素材体检",
-    "proposal": "创意方案",
-    "script": "剧本生成",
-    "scene_plan": "分镜",
-    "assets": "制作准备",
-    "sample": "样片确认",
-    "edit": "修改与精剪",
-    "compose": "成片生成",
-    "publish": "交付下载",
+    "research": "了解任务",
+    "proposal": "看创意方案",
+    "script": "确认脚本",
+    "scene_plan": "看分镜",
+    "assets": "确认制作准备",
+    "sample": "查看样片",
+    "edit": "完成剪辑",
+    "compose": "检查成片",
+    "publish": "确认交付",
+})
+
+# 样片五项确认（契约 §4.3；readability 内部枚举保留，业务文案=“字幕”）
+EFFECT_CONFIRMATION_LABELS = MappingProxyType({
+    "creative_direction": "创意方向是否正确",
+    "hook": "开头是否马上抓住人",
+    "proof": "产品/主题证明是否清楚",
+    "pacing": "节奏和画面是否顺",
+    "readability": "字幕是否看得清",
+})
+
+CONFIRMATION_VALUE_LABELS = MappingProxyType({
+    "pass": "通过",
+    "adjust": "需要修改",
+    "redirect": "不通过",
 })
 
 STATUS_LABELS = MappingProxyType({

@@ -463,6 +463,30 @@ class ReviewService:
         active = [item for item in self.list() if item.get("status") == "awaiting_human"]
         return active[-1] if active else None
 
+    def subject_hash_for_gate(self) -> str | None:
+        """纯读取（修正 1）：当前门的内容快照 hash。
+
+        优先级：awaiting_human（pending，取最近）→ 最近已决（approved/rejected，
+        排除 superseded，按 decided_at → created_at → review_id 确定性排序）→ None。
+        不写文件、不创建 review、不改 checkpoint。
+        """
+        items = self.list()
+        pending = [i for i in items if i.get("status") == "awaiting_human"]
+        for item in pending[-1:]:
+            h = item.get("subject_hash")
+            if isinstance(h, str) and re.fullmatch(r"[a-fA-F0-9]{64}", h):
+                return h
+        decided = [i for i in items
+                   if i.get("status") in {"approved", "rejected"}
+                   and not i.get("superseded")
+                   and isinstance(i.get("subject_hash"), str)
+                   and re.fullmatch(r"[a-fA-F0-9]{64}", i["subject_hash"])]
+        decided.sort(key=lambda i: (str(i.get("decided_at") or ""),
+                                    str(i.get("created_at") or ""),
+                                    str(i.get("review_id") or "")))
+        h = decided[-1].get("subject_hash") if decided else None
+        return h
+
     def review_state(self, review_id: str) -> dict[str, Any] | None:
         """Read a review's persisted final state (or None if missing).
 
