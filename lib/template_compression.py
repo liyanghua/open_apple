@@ -17,7 +17,12 @@ import hashlib
 import json
 from typing import Any, Mapping
 
-from lib.template_source_match import SLOT_ACTION_BY_TEMPLATE, slot_semantics, window_capacity
+from lib.template_source_match import (
+    _clip_durations,
+    _semantic_window,
+    slot_semantics,
+    window_capacity,
+)
 
 SOLVER = "greedy-drop-v1"
 
@@ -26,10 +31,31 @@ def _h1_pairs(order: list[int]) -> list[tuple[int, int]]:
     return [(order[i], order[i - 1]) for i in range(1, len(order))]
 
 
+def _physical_assignment(sem: list[dict], kept_idx: set[int]) -> dict[int, str]:
+    """Assign selected slots to physical clips, balancing each action domain."""
+    from lib.template_source_match import _media_stems_by_domain
+    media = _media_stems_by_domain()
+    loads: dict[str, float] = {}
+    assigned: dict[int, str] = {}
+    previous = ""
+    for slot in (s for s in sem if s["ordinal"] in kept_idx):
+        candidates = media.get(slot["action_domain"], [])
+        if not candidates:
+            continue
+        non_adjacent = [stem for stem in candidates if stem != previous]
+        pool = non_adjacent or candidates
+        stem = min(pool, key=lambda value: (loads.get(value, 0.0), value))
+        assigned[slot["ordinal"]] = stem
+        loads[stem] = loads.get(stem, 0.0) + slot["duration_s"]
+        previous = stem
+    return assigned
+
+
 def _violations(sem: list[dict], kept_idx: set[int], chars: dict[str, float], caps: dict[str, int]) -> dict:
     """返回违规项：容量缺口域 / H2 超限域 / H1 相邻对。"""
     kept = [s for s in sem if s["ordinal"] in kept_idx]
     order = [s["ordinal"] for s in kept]
+    physical = _physical_assignment(sem, kept_idx)
     counts: dict[str, int] = {}
     secs: dict[str, float] = {}
     for s in kept:
@@ -37,16 +63,110 @@ def _violations(sem: list[dict], kept_idx: set[int], chars: dict[str, float], ca
         secs[s["action_domain"]] = secs.get(s["action_domain"], 0.0) + s["duration_s"]
     D = sum(secs.values())
     h1 = [(a, b) for a, b in _h1_pairs(order)
-          if sem[a - 1]["action_domain"] == sem[b - 1]["action_domain"]]
+          if physical.get(a) and physical.get(a) == physical.get(b)]
+    physical_secs: dict[str, float] = {}
+    for slot in kept:
+        stem = physical.get(slot["ordinal"])
+        if stem:
+            physical_secs[stem] = physical_secs.get(stem, 0.0) + slot["duration_s"]
     capacity_bad = [d for d in counts if counts[d] > caps.get(d, 0)]
-    h2_bad = [d for d in secs if D > 0 and secs[d] > D / 3.0 + 1e-9]
-    return {"counts": counts, "secs": secs, "D": D, "h1": h1,
-            "capacity_bad": capacity_bad, "h2_bad": h2_bad}
+    h2_bad = [stem for stem, seconds in physical_secs.items()
+              if D > 0 and seconds > D / 3.0 + 1e-9]
+    h2_bad_domains = sorted({sem[ordinal - 1]["action_domain"] for ordinal, stem in physical.items()
+                             if stem in h2_bad})
+    return {"counts": counts, "secs": physical_secs, "domain_secs": secs, "D": D, "h1": h1,
+            "capacity_bad": capacity_bad, "h2_bad": h2_bad,
+            "h2_bad_domains": h2_bad_domains, "physical": physical}
+
+
+def _window_flags(sem: list[dict], kept_idx: set[int]) -> tuple[bool, bool]:
+    """Re-run physical source window checks for the candidate's actual slot durations."""
+    by_domain: dict[str, list[str]] = {}
+    from lib.template_source_match import _media_stems_by_domain
+    media = _media_stems_by_domain()
+    for s in sem:
+        if s["ordinal"] in kept_idx:
+            by_domain.setdefault(s["action_domain"], []).append(s["slot_id"])
+    used: dict[str, list[tuple[float, float]]] = {}
+    h3_ok = True
+    h4_ok = True
+    for domain, slot_ids in by_domain.items():
+        stems = media.get(domain, [])
+        if not stems:
+            return False, False
+        durations = {s["slot_id"]: s["duration_s"] for s in sem if s["slot_id"] in slot_ids}
+        for slot_id in slot_ids:
+            stem = min(stems, key=lambda item: (len(used.get(item, [])), item))
+            duration = durations[slot_id]
+            evidence = _semantic_window(stem) or {"window": (0.0, _clip_durations().get(stem, duration))}
+            lo, hi = map(float, evidence["window"])
+            clip_dur = _clip_durations().get(stem, hi)
+            hi = min(hi, clip_dur)
+            candidates = []
+            point = lo
+            while point + duration <= hi + 1e-9:
+                candidates.append(point)
+                point += 0.25
+            chosen = next((point for point in candidates if all(
+                point + duration <= start or end <= point for start, end in used.get(stem, []))), None)
+            if chosen is None:
+                h3_ok = False
+                h4_ok = False
+                continue
+            if any(abs(chosen - start) < 0.75 for start, _ in used.get(stem, [])):
+                h4_ok = False
+            used.setdefault(stem, []).append((chosen, chosen + duration))
+    return h3_ok, h4_ok
+
+
+def _result(template: Mapping[str, Any], sem: list[dict], kept: set[int], *, target_s: float | None,
+            dropped: list[dict], final: dict, infeasible_target: bool, caps: dict[str, int]) -> dict:
+    kept_dur = [s["duration_s"] for s in sem if s["ordinal"] in kept]
+    dur_ok = 15.0 - 1e-9 <= final["D"] <= 60.0 + 1e-9
+    h3_ok, h4_ok = _window_flags(sem, kept)
+    h2_ok = not final["h2_bad"]
+    input_hash = hashlib.sha256(json.dumps({
+        "template": template.get("template_id"), "slot_ids": [s["slot_id"] for s in sem],
+        "kept": sorted(kept), "target": target_s, "solver": SOLVER,
+    }, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    return {
+        "solver_version": SOLVER, "template_id": str(template.get("template_id") or ""),
+        "base_template_id": str(template.get("template_id") or ""),
+        "base_ref": f"template:{template.get('template_id')}",
+        "kept_slot_ids": [s["slot_id"] for s in sem if s["ordinal"] in kept],
+        "kept_ordinals": sorted(kept), "base_section_refs": [s["source_section_ref"] for s in sem if s["ordinal"] in kept],
+        "kept_durations": kept_dur, "total_s": round(sum(kept_dur), 2),
+        "domain_counts_kept": final["counts"], "secs_kept": {k: round(v, 2) for k, v in final["domain_secs"].items()},
+        "h1_ok": not final["h1"], "h2_ok": h2_ok,
+        "h2_max_material_s": round(max(final["secs"].values()) if final["secs"] else 0, 2),
+        "h2_limit_s": round(final["D"] / 3.0, 2), "capacity_ok": not final["capacity_bad"],
+        "h3_ok": h3_ok, "h4_ok": h4_ok, "dur_ok": dur_ok,
+        "all_hard_ok": not final["h1"] and h2_ok and not final["capacity_bad"]
+                      and h3_ok and h4_ok and dur_ok and not infeasible_target,
+        "dropped": dropped, "infeasible_target": infeasible_target, "input_hash": input_hash,
+    }
+
+
+def compression_plan_for_subset(template: Mapping[str, Any], kept_ordinals: list[int],
+                                *, target_s: float | None = None) -> dict:
+    """Build a complete, freshly evaluated contract for an explicit slot subset."""
+    sem = slot_semantics(template)
+    known = {s["ordinal"] for s in sem}
+    kept = {int(value) for value in kept_ordinals}
+    if not kept or not kept <= known:
+        raise ValueError("kept_ordinals must be a non-empty subset of the base template")
+    domains = {s["action_domain"] for s in sem}
+    caps = {domain: window_capacity(domain, 2.0)["capacity"] for domain in domains}
+    final = _violations(sem, kept, {}, caps)
+    dropped = [{"slot_id": s["slot_id"], "ordinal": s["ordinal"], "reason": "压缩删除",
+                "utility": s["utility"]} for s in sem if s["ordinal"] not in kept]
+    infeasible_target = bool(target_s is not None and final["D"] > target_s + 1e-9)
+    return _result(template, sem, kept, target_s=target_s, dropped=dropped,
+                   final=final, infeasible_target=infeasible_target, caps=caps)
 
 
 def compress_candidate(template: Mapping[str, Any], *, target_s: float | None = None) -> dict | None:
     sem = slot_semantics(template)
-    slots = sem
     ordinals = [s["ordinal"] for s in sem]
     # 骨架：首/尾 + 每域首镜 + payoff 域首镜
     skeleton: set[int] = set()
@@ -76,7 +196,7 @@ def compress_candidate(template: Mapping[str, Any], *, target_s: float | None = 
         if v["capacity_bad"]:
             groups.append([s for s in eligible if s["action_domain"] in set(v["capacity_bad"])])
         if v["h2_bad"]:
-            h2doms = set(v["h2_bad"])
+            h2doms = set(v["h2_bad_domains"])
             groups.append([s for s in eligible if s["action_domain"] in h2doms])
         if v["h1"]:
             pairs = {i for pair in v["h1"] for i in pair}
@@ -113,27 +233,10 @@ def compress_candidate(template: Mapping[str, Any], *, target_s: float | None = 
 
     final = _violations(sem, kept, {}, caps)
     infeasible_target = bool(target_s is not None and final["D"] > target_s + 1e-9)
-    dur_ok = 15.0 - 1e-9 <= final["D"] <= 60.0 + 1e-9  # P1-7：业务时长硬门 [15,60]
-    kept_dur = [s["duration_s"] for s in sem if s["ordinal"] in kept]
     dropped = [{"slot_id": s["slot_id"], "ordinal": s["ordinal"], "reason": "压缩删除",
                 "utility": s["utility"]} for s in sem if s["ordinal"] not in kept]
-    input_hash = hashlib.sha256(json.dumps(
-        {"tid": template.get("template_id"), "kept": sorted(kept), "target": target_s,
-         "solver": SOLVER}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-    return {
-        "solver_version": SOLVER, "template_id": str(template.get("template_id") or ""),
-        "base_ref": f"template:{template.get('template_id')}",
-        "kept_slot_ids": [s["slot_id"] for s in sem if s["ordinal"] in kept],  # P0-2a：真实 slot id
-        "kept_ordinals": sorted(kept), "kept_durations": kept_dur,
-        "total_s": round(sum(kept_dur), 2),
-        "domain_counts_kept": final["counts"], "secs_kept": {k: round(v, 2) for k, v in final["secs"].items()},
-        "h1_ok": not final["h1"], "h2_max_material_s": round(max(final["secs"].values()) if final["secs"] else 0, 2),
-        "h2_limit_s": round(final["D"] / 3.0, 2), "capacity_ok": not final["capacity_bad"],
-        "dur_ok": dur_ok,
-        "all_hard_ok": not final["h1"] and not final["h2_bad"] and not final["capacity_bad"] and dur_ok
-                      and not infeasible_target,
-        "dropped": dropped, "infeasible_target": infeasible_target, "input_hash": input_hash,
-    }
+    return _result(template, sem, kept, target_s=target_s, dropped=dropped, final=final,
+                   infeasible_target=infeasible_target, caps=caps)
 
 
 
@@ -255,15 +358,9 @@ def compress_candidate_bottomup(template: Mapping[str, Any], *, target_s: float 
         if drop is None:
             break
         kept.discard(drop)
-    ok, info = check(kept)
-    kept_dur = [s["duration_s"] for s in sem if s["ordinal"] in kept]
     dropped = [{"slot_id": s["slot_id"], "ordinal": s["ordinal"]} for s in sem if s["ordinal"] not in kept]
-    (h1_ok, _h2_ok, cap_ok, dur_ok) = _honest_flags(sem, kept, caps)
-    return {
-        "solver_version": SOLVER + "-bottomup", "template_id": str(template.get("template_id") or ""),
-        "kept_ordinals": sorted(kept), "kept_durations": kept_dur,
-        "total_s": round(sum(kept_dur), 2), "domain_counts_kept": info["counts"],
-        "h1_ok": h1_ok, "h2_max_material_s": round(max(info["secs"].values()) if info["secs"] else 0, 2),
-        "h2_limit_s": round(info["D"] / 3.0, 2), "capacity_ok": cap_ok, "dur_ok": dur_ok,
-        "all_hard_ok": h1_ok and cap_ok and dur_ok and _h2_ok, "dropped": dropped,
-    }
+    final = _violations(sem, kept, {}, caps)
+    result = _result(template, sem, kept, target_s=target_s, dropped=dropped,
+                     final=final, infeasible_target=False, caps=caps)
+    result["solver_version"] = SOLVER + "-bottomup"
+    return result

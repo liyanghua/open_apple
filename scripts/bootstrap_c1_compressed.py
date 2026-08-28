@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 from lib.artifact_hashing import attach_hashes
 from lib.artifact_io import write_artifact_atomic
 from lib.template_fork import fork_template_run
+from lib.template_compression import compression_plan_for_subset
 from lib.template_mainline import _NARRATION_BY_TEMPLATE
 from lib.template_run_plan import create_template_run
 from lib.template_source_match import SLOT_ACTION_BY_TEMPLATE, match_run_plan
@@ -30,11 +31,11 @@ C1 = "sheet-14-video15-aks-zhuodian-c1"
 RUN = f"template-run-{C1}"
 
 pack = json.loads(PACK_PATH.read_text(encoding="utf-8"))
+kept = json.loads(CANDS.read_text(encoding="utf-8"))["sheet-14-video15-aks-zhuodian"][0]["kept_ordinals"]
 if any(t["template_id"] == C1 for t in pack["templates"]):
     print("c1 已存在，跳过 pack 追加")
     c1 = next(t for t in pack["templates"] if t["template_id"] == C1)
 else:
-    kept = json.loads(CANDS.read_text(encoding="utf-8"))["sheet-14-video15-aks-zhuodian"][0]["kept_ordinals"]
     parent = next(t for t in pack["templates"] if t["template_id"] == "sheet-14-video15-aks-zhuodian")
     kept_slots = [parent["slots"][o - 1].copy() for o in kept]
     for i, s in enumerate(kept_slots, start=1):
@@ -57,6 +58,19 @@ else:
 run_dir = ROOT / "projects" / RUN
 if (run_dir / "artifacts/template_run_plan.json").exists():
     print("run 已存在，跳过引导")
+    existing = json.loads((run_dir / "artifacts/template_run_plan.json").read_text(encoding="utf-8"))
+    compression = compression_plan_for_subset(
+        next(t for t in pack["templates"] if t["template_id"] == "sheet-14-video15-aks-zhuodian"), kept,
+    )
+    if existing.get("compression") != compression:
+        existing["compression"] = compression
+        existing.pop("semantic_sha256", None)
+        existing.pop("artifact_sha256", None)
+        sealed_existing = attach_hashes(existing)
+        validate_artifact("template_run_plan", sealed_existing)
+        write_artifact_atomic("artifacts/template_run_plan.json", "template_run_plan", sealed_existing,
+                              project_dir=run_dir)
+        print("run compression 契约已回填")
 else:
     facts = json.loads(FACTS_SRC.read_text(encoding="utf-8"))
     facts_ref = {"artifact_sha256": facts.get("artifact_sha256") or attach_hashes(dict(facts))["artifact_sha256"]}
@@ -64,6 +78,10 @@ else:
     run = create_template_run(c1, template_pack_ref={"artifact_sha256": pack_hash, "version": "1.0"},
                               product_facts_ref=facts_ref,
                               adaptation_policy=str(c1.get("archetype") or "proof-first"))
+    run["compression"] = compression_plan_for_subset(
+        next(t for t in pack["templates"] if t["template_id"] == "sheet-14-video15-aks-zhuodian"),
+        kept,
+    )
     match_run_plan(c1.get("slots") or [], run)
     sealed_run = attach_hashes(dict(run))
     validate_artifact("template_run_plan", sealed_run)

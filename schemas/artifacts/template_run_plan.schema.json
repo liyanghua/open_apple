@@ -63,6 +63,29 @@
       "type": "string",
       "enum": ["awaiting_human", "approved", "in_progress", "completed", "failed", "skipped"]
     },
+    "compression": {
+      "type": "object",
+      "required": ["base_template_id", "base_ref", "kept_slot_ids", "kept_ordinals", "base_section_refs", "total_s", "h1_ok", "h2_ok", "h3_ok", "h4_ok", "capacity_ok", "dur_ok", "all_hard_ok", "input_hash"],
+      "properties": {
+        "base_template_id": { "type": "string", "minLength": 1 },
+        "base_ref": { "type": "string", "minLength": 1 },
+        "kept_slot_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "kept_ordinals": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } },
+        "base_section_refs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "total_s": { "type": "number", "minimum": 0 },
+        "h1_ok": { "type": "boolean" },
+        "h2_ok": { "type": "boolean" },
+        "h3_ok": { "type": "boolean" },
+        "h4_ok": { "type": "boolean" },
+        "capacity_ok": { "type": "boolean" },
+        "dur_ok": { "type": "boolean" },
+        "all_hard_ok": { "type": "boolean", "const": true },
+        "input_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "solver_version": { "type": "string" },
+        "kept_durations": { "type": "array", "items": { "type": "number", "minimum": 0 } }
+      },
+      "additionalProperties": true
+    },
     "semantic_sha256": { "type": "string" },
     "artifact_sha256": { "type": "string" }
   },

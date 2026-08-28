@@ -89,9 +89,9 @@ class ShotGenerationService:
             run_plan = json.loads(trp_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             raise OperatorError.validation_failed("template_run_plan 损坏，禁止付费生成")
-        from lib.template_run_plan import check_template_run_plan_ready
+        from lib.template_run_plan import check_template_run_plan_ready, load_template_for_run_plan
 
-        result = check_template_run_plan_ready(run_plan)
+        result = check_template_run_plan_ready(run_plan, template=load_template_for_run_plan(run_plan))
         if not result["ready"]:
             raise OperatorError.validation_failed(
                 "template_run_plan 未就绪，禁止付费生成：" + "; ".join(result["blockers"])
