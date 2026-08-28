@@ -20,6 +20,7 @@ from lib.artifact_io import write_artifact_atomic
 from lib.checkpoint import write_checkpoint
 from lib.template_fork import fork_template_run
 from lib.template_mainline import _NARRATION_BY_TEMPLATE
+from lib.template_compression import compression_plan_for_subset
 from lib.template_run_plan import create_template_run
 from lib.template_source_match import SLOT_ACTION_BY_TEMPLATE, match_run_plan
 from schemas.artifacts import validate_artifact
@@ -60,11 +61,16 @@ def main() -> int:
     kept = solutions[0]["kept_ordinals"]
     src_run = ROOT / "projects" / f"template-run-{base}"
     run_dir = ROOT / "projects" / run
+    parent = next(t for t in pack["templates"] if t["template_id"] == base)
+    compression = compression_plan_for_subset(parent, kept)
+    if not compression["all_hard_ok"]:
+        failed = [name for name in ("h1_ok", "h2_ok", "h3_ok", "h4_ok", "capacity_ok", "dur_ok")
+                  if not compression.get(name)]
+        raise SystemExit(f"{base}: 压缩候选未通过当前素材池硬门: {', '.join(failed)}")
 
     # 1) pack 追加变体 + 表注册
     with ProjectCommitStore(pack_dir).transaction(action={"action_id": f"pack-{tid}"}) as sink:
         if not any(t["template_id"] == tid for t in pack.get("templates", [])):
-            parent = next(t for t in pack["templates"] if t["template_id"] == base)
             slots = [parent["slots"][o - 1].copy() for o in kept]
             for i, s in enumerate(slots, start=1):
                 s["ordinal"] = i
@@ -88,6 +94,7 @@ def main() -> int:
         rp = create_template_run(template, template_pack_ref={"artifact_sha256": pack_hash, "version": "1.0"},
                                  product_facts_ref=facts_ref,
                                  adaptation_policy=str(template.get("archetype") or "proof-first"))
+        rp["compression"] = compression
         match_run_plan(template.get("slots") or [], rp)
         sealed = attach_hashes(dict(rp))
         validate_artifact("template_run_plan", sealed)
@@ -98,6 +105,18 @@ def main() -> int:
             write_artifact_atomic("artifacts/template_run_plan.json", "template_run_plan", sealed,
                                   project_dir=run_dir, sink=sink)
         print(f"[2] run 引导: {run}")
+    else:
+        existing = _load(run_dir / "artifacts/template_run_plan.json") or {}
+        if existing.get("compression") != compression:
+            existing["compression"] = compression
+            existing.pop("semantic_sha256", None)
+            existing.pop("artifact_sha256", None)
+            sealed = attach_hashes(existing)
+            validate_artifact("template_run_plan", sealed)
+            with ProjectCommitStore(run_dir).transaction(action={"action_id": f"backfill-compression-{run}"}) as sink:
+                write_artifact_atomic("artifacts/template_run_plan.json", "template_run_plan", sealed,
+                                      project_dir=run_dir, sink=sink)
+            print(f"[2] run 引导：已回填 compression 契约 {run}")
 
     # 3) 提案种子（复制 4 件 + 提案 checkpoint）
     with ProjectCommitStore(run_dir).transaction(action={"action_id": f"seed-proposal-{run}"}) as sink:
@@ -130,14 +149,11 @@ def main() -> int:
     # 5) 资产门 checkpoint（awaiting → approve）
     with ProjectCommitStore(run_dir).transaction(action={"action_id": f"seed-assets-{run}"}) as sink:
         artifacts_map = {}
+        # sync_assets_artifacts above already generated these for the child run.
+        # Never copy the parent's plans after compression: that restores the
+        # parent's shot count/duration and leaves approval refs stale.
         for name in ASSET_BOARD:
-            data = dict(_load(src_run / "artifacts" / name) or {})
-            # P0-3：跨 run 锁定制品重基——project_id/input_hashes 归属子 run（否则审批包不能证明本版本）
-            data["project_id"] = run_dir.name
-            data["input_hashes"] = {"base_run": src_run.name}
-            data.pop("artifact_sha256", None); data.pop("semantic_sha256", None)
-            data = attach_hashes(data)
-            write_artifact_atomic(f"artifacts/{name}", name.split(".")[0], data, project_dir=run_dir, sink=sink)
+            data = _load(run_dir / "artifacts" / name) or {}
             artifacts_map[name.split(".")[0]] = _envelope(f"artifacts/{name}", name.split(".")[0], data)
         sep = _load(run_dir / "artifacts/shot_execution_plan.json") or {}
         artifacts_map["shot_execution_plan"] = _envelope("artifacts/shot_execution_plan.json",

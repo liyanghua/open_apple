@@ -297,16 +297,16 @@ def _post_normalize(out: Path) -> None:
 def prep(run: str) -> dict:
     project = ROOT / "projects" / run
     rp = _load(project / "artifacts" / "template_run_plan.json") or {}
-    readiness = check_template_run_plan_ready(rp)
-    if not readiness.get("ready"):
-        raise SystemExit(f"template_run_plan 未就绪，禁止付费媒体管线: {readiness.get('blockers')}")
-    script = _load(project / "artifacts" / "script.json")
-    sp = _load(project / "artifacts" / "scene_plan.json")
     template_id = str(rp.get("template_id") or "")
     pack = _load(ROOT / "projects/template-pack-library/artifacts/template_pack.json")
     template = next((t for t in pack.get("templates", []) if t.get("template_id") == template_id), None)
     if template is None:
         raise SystemExit(f"template {template_id} not in pack")
+    readiness = check_template_run_plan_ready(rp, template=template)
+    if not readiness.get("ready"):
+        raise SystemExit(f"template_run_plan 未就绪，禁止付费媒体管线: {readiness.get('blockers')}")
+    script = _load(project / "artifacts" / "script.json")
+    sp = _load(project / "artifacts" / "scene_plan.json")
     total_s = float(script["total_duration_seconds"])
     shot_plan = _load(project / "artifacts" / "shot_execution_plan.json") or {}
     # 跨阶段一致性（评审 P0-1）：shot_plan 必须与当前 script/scene_plan 键控一致；
