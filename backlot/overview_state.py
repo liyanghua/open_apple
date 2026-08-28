@@ -54,6 +54,20 @@ def _audio_coverage(project: Path, script: dict) -> dict:
 
 _PACK_CACHE: dict = {}
 _PUBLISHED_C1: set[str] | None = None
+_RELEASES: dict | None = None
+
+
+def _release_status(template_id: str, run: str) -> str:
+    """发布版本标记：official（正式入口）/ superseded（已被压缩版取代）/ baseline（未指认）。"""
+    global _RELEASES
+    if _RELEASES is None:
+        _RELEASES = _load_any(ROOT / "projects/template-pack-library/artifacts/release_designations.json") or {}
+    for d in _RELEASES.get("designations", []):
+        if str(d.get("official_run")) == run:
+            return "official"
+        if str(d.get("superseded_run")) == run:
+            return "superseded"
+    return "baseline"
 
 
 def _capacity_verdict(project: Path, template_id: str) -> dict:
@@ -115,6 +129,7 @@ def _slim_run(run: dict, *, known: set[str] | None = None) -> dict:
         "audio": _audio_coverage(run["project"], run["script"]),
         "capacity": _capacity_verdict(run["project"], run["template_id"]),
         "compressed_variant": _compressed_sibling(run, known=known),
+        "release": _release_status(str(run.get("template_id") or ""), str(run.get("run") or "")),
         "checks": {
             "sensitive": (run["l1a_checks"].get("l1a_sensitive") or {}).get("status"),
             "subtitle_bounds": (run["l1a_checks"].get("l1a_subtitle_bounds") or {}).get("status"),

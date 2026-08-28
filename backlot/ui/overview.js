@@ -35,6 +35,12 @@ function chip(text, style) {
   return el("span", { class: `chip ${STYLE_CLASS[style] || "chip-pending"}` }, text);
 }
 
+const RELEASE_STYLE = { official: "gold", superseded: "pending", baseline: "" };
+const RELEASE_LABEL = { official: "★ 正式版", superseded: "已取代", baseline: "基准" };
+function releaseChip(s) {
+  return chip(RELEASE_LABEL[s] || s, RELEASE_STYLE[s] || "pending");
+}
+
 const CAPACITY_STYLE = { DIVERSIFY: "pass", DIVERSIFY_LIMITED: "partial", COMPRESS: "partial", MARK_GAP: "fail" };
 const CAPACITY_LABEL = { DIVERSIFY: "✅ 池充足", DIVERSIFY_LIMITED: "⚠ 受限(DIVERSIFY)", COMPRESS: "⚠ 需压缩", MARK_GAP: "⛔ 素材缺口" };
 function capacityChip(c) {
@@ -79,7 +85,7 @@ function renderOverview(runs) {
   const t = el("table");
   const head = el("thead", {}, el("tr", {},
     ...["#", "视频名称", "时长", "定档", "L3 均分", "单维最低", "短板", "L1a", "证书", "转场",
-       "语义一致", "画面重复", "口播覆盖", "容量判定", "成片/看板"].map(
+       "版本", "语义一致", "画面重复", "口播覆盖", "容量判定", "成片/看板"].map(
       (h, i) => el("th", { class: i >= 2 ? "num" : "" }, h))));
   const body = el("tbody");
   runs.forEach((r, i) => {
@@ -104,6 +110,7 @@ function renderOverview(runs) {
              r.reuse.hard_pass ? "pass" : "fail")),
       el("td", {}, chip(r.audio.coverage_ok ? "✅ 全段齐" : "⚠ 缺口播",
                         r.audio.coverage_ok ? "pass" : "fail")),
+      el("td", {}, releaseChip(r.release)),
       el("td", {}, capacityChip(r.capacity)),
       el("td", {},
         el("a", { class: "media-link", href: `/media/${r.run}/renders/final.mp4`, target: "_blank" }, "成片"),

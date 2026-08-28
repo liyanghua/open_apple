@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/release_designations",
+  "title": "Release Designations",
+  "description": "模板正式发布指认：COMPRESS 模板以压缩变体（-c1）为正式入口；原片标记 superseded（保留对照，不参与新发布）。",
+  "type": "object",
+  "required": ["version", "decided_at", "policy", "designations"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "decided_at": { "type": "string", "format": "date-time" },
+    "policy": { "type": "string" },
+    "designations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["base_tid", "official_tid", "official_run"],
+        "properties": {
+          "base_tid": { "type": "string" },
+          "official_tid": { "type": "string" },
+          "official_run": { "type": "string" },
+          "superseded_run": { "type": ["string", "null"] },
+          "reason": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

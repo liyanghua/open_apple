@@ -79,6 +79,7 @@ def test_overview_api_readonly(backlot_client, projects_root, monkeypatch):
     # 强校验字段（语义一致 / 画面重复 / 口播覆盖）
     top = data["slim_runs"][0]
     assert "semantic" in top and "reuse" in top and "audio" in top
+    assert top.get("release") in {"official", "superseded", "baseline"}
     assert top["audio"]["coverage_ok"] is True
     assert isinstance(top["reuse"]["hard_pass"], bool)
     assert len(data["slim_runs"]) == 2
