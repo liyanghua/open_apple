@@ -130,6 +130,14 @@ def check_template_run_plan_ready(
             blockers.append(f"template_run_plan 缺少 {len(missing)} 个模板 slot 的绑定（{', '.join(missing[:3])}...），禁止付费生成")
         if str(run_plan.get("template_id") or "") != str(template.get("template_id") or ""):
             blockers.append("template_run_plan.template_id 与加载模板不一致，禁止付费生成")
+    # 标定策略 C：未标定模板直接阻断（关键词回退判定不可信，禁止付费生成）。
+    try:
+        from lib.template_source_match import is_template_calibrated
+
+        if template is not None and not is_template_calibrated(str(template.get("template_id") or "")):
+            blockers.append("模板动作域未标定，禁止付费生成——请先运行 scripts/calibrate_template.py 完成标定（VLM/人工）后再起片")
+    except Exception as exc:
+        blockers.append(f"标定状态判定异常（fail-closed）：{exc}")
     # P0-2b：素材容量判定 fail-closed（评审 P0-1）——
     #   · 判定器异常 → blocker（不得静默放行进入付费资产阶段）；
     #   · MARK_GAP → blocker（缺口禁止付费）；

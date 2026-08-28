@@ -919,3 +919,39 @@ def capacity_verdict(template: Mapping[str, Any], *, allow_compress: bool = True
         "input_hash": input_hash,
     }
 
+
+
+# ---- 标定合并（策略 C）：calibrations 产物并入主要事实源，并入即"标定" ----
+from lib.template_calibrations import _CALIBRATIONS as _CAL
+
+for _tid, _acts in _CAL.items():
+    SLOT_ACTION_BY_TEMPLATE.setdefault(_tid, _acts)
+
+_CALIBRATED_VIA_META = {
+    "sheet-01-video1-aks-zhuodian": {"source": "manual", "version": "1.0", "calibrated_at": "2026-08-26", "reviewer": "agent"},
+    "sheet-04-video4-zhuodian": {"source": "manual", "version": "1.0", "calibrated_at": "2026-08-26", "reviewer": "agent"},
+    "sheet-05-video5-aks-zhuodian": {"source": "manual", "version": "1.0", "calibrated_at": "2026-08-26", "reviewer": "agent"},
+    "sheet-09-video9-aks-zhuodian": {"source": "manual", "version": "1.0", "calibrated_at": "2026-08-26", "reviewer": "agent"},
+    "sheet-14-video15-aks-zhuodian": {"source": "manual", "version": "1.0", "calibrated_at": "2026-08-26", "reviewer": "agent"},
+    "sheet-19-video22-aks-zhuodian": {"source": "manual", "version": "1.0", "calibrated_at": "2026-08-26", "reviewer": "agent"},
+    "sheet-14-video15-aks-zhuodian-c1": {"source": "manual", "version": "1.0", "calibrated_at": "2026-08-28", "reviewer": "agent"},
+    "sheet-05-video5-aks-zhuodian-c1": {"source": "manual", "version": "1.0", "calibrated_at": "2026-08-28", "reviewer": "agent"},
+    "sheet-19-video22-aks-zhuodian-c1": {"source": "manual", "version": "1.0", "calibrated_at": "2026-08-28", "reviewer": "agent"},
+    "sheet-04-video4-zhuodian-c1": {"source": "manual", "version": "1.0", "calibrated_at": "2026-08-28", "reviewer": "agent"},
+    "sheet-09-video9-aks-zhuodian-c2": {"source": "manual", "version": "1.0", "calibrated_at": "2026-08-28", "reviewer": "agent"},
+    "sheet-14-video15-aks-zhuodian-c3": {"source": "manual", "version": "1.0", "calibrated_at": "2026-08-28", "reviewer": "agent"},
+    "sheet-19-video22-aks-zhuodian-c4": {"source": "manual", "version": "1.0", "calibrated_at": "2026-08-28", "reviewer": "agent"},
+}
+
+
+def calibration_meta() -> dict:
+    """标定审计元数据（含产物 meta 合并与模块内置来源）。"""
+    from lib.template_calibrations import _CALIBRATION_META
+
+    merged = dict(_CALIBRATED_VIA_META)
+    merged.update(_CALIBRATION_META or {})
+    return merged
+
+
+def is_template_calibrated(template_id: str) -> bool:
+    return template_id in SLOT_ACTION_BY_TEMPLATE

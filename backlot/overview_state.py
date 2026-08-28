@@ -80,6 +80,10 @@ def _capacity_verdict(project: Path, template_id: str) -> dict:
                      if t.get("template_id") == template_id), None)
     if not template:
         return {"verdict": "UNKNOWN", "reasons": ["模板已更名/下线（历史草稿）"]}
+    from lib.template_source_match import is_template_calibrated
+
+    if not is_template_calibrated(template_id):
+        return {"verdict": "UNCALIBRATED", "reasons": ["动作域未标定（VLM/人工标定后可判级）"]}
     v = capacity_verdict(template)
     return {"verdict": v["verdict"], "reasons": v["reasons"], "solver": v["solver"]}
 

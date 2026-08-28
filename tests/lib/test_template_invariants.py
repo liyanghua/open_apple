@@ -543,3 +543,27 @@ def test_strict_planner_subset_and_capacity():
     t09c2 = next(t for t in pack["templates"] if t["template_id"] == "sheet-09-video9-aks-zhuodian-c2")
     p2 = plan_strict_subset(t09c2)
     assert p2 and len(p2["kept_ordinals"]) == 8
+
+
+def test_calibration_gate_strategy_c():
+    """不变量 17（策略 C）：未标定模板 readiness 阻断（含标定路径提示）；标定后解锁判定阻断。
+
+    sheet-03 未标定 → 阻断信息含「未标定」；sheet-02（已标定，8 槽）→ 无未标定阻断
+    （其容量 MARK_GAP 为真判——防油 13s 超 D/3，属素材/换序问题而非判定问题）。
+    """
+    import json as _json
+    from lib.template_run_plan import check_template_run_plan_ready
+    from lib.template_source_match import is_template_calibrated
+
+    pack = _json.loads((ROOT / "projects/template-pack-library/artifacts/template_pack.json").read_text())
+    t03 = next(t for t in pack["templates"] if t["template_id"] == "sheet-03-video3-aks-zhuodian")
+    base = {"status": "approved", "slot_bindings": [
+        {"slot_id": s["slot_id"], "source": "owned", "source_media_id": "x"} for s in t03["slots"]]}
+    r = check_template_run_plan_ready(dict(base), template=t03)
+    assert any("未标定" in b for b in r["blockers"]), r["blockers"][:2]
+
+    assert is_template_calibrated("sheet-02-video2-aks-zhuodian") is True
+    t02 = next(t for t in pack["templates"] if t["template_id"] == "sheet-02-video2-aks-zhuodian")
+    r2 = check_template_run_plan_ready({"status": "approved", "slot_bindings": [
+        {"slot_id": s["slot_id"], "source": "owned", "source_media_id": "x"} for s in t02["slots"]]}, template=t02)
+    assert not any("未标定" in b for b in r2["blockers"])

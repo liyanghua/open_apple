@@ -47,7 +47,9 @@ function releaseChip(s) {
 }
 
 const CAPACITY_STYLE = { DIVERSIFY: "pass", DIVERSIFY_LIMITED: "partial", COMPRESS: "partial", MARK_GAP: "fail" };
-const CAPACITY_LABEL = { DIVERSIFY: "✅ 池充足", DIVERSIFY_LIMITED: "⚠ 受限(DIVERSIFY)", COMPRESS: "⚠ 需压缩", MARK_GAP: "⛔ 素材缺口" };
+const CAPACITY_LABEL = { DIVERSIFY: "✅ 池充足", DIVERSIFY_LIMITED: "⚠ 受限(DIVERSIFY)", COMPRESS: "⚠ 需压缩", MARK_GAP: "⛔ 素材缺口", UNCALIBRATED: "⏳ 未标定" };
+const CAPACITY_STYLE_EXTRA = { UNCALIBRATED: "pending" };
+Object.assign(CAPACITY_STYLE, CAPACITY_STYLE_EXTRA);
 function capacityChip(c) {
   if (!c) return chip("—", "pending");
   if (c.verdict === "COMPRESS" && c.compressed_variant) return chip("✅ 已压缩→压缩版", "pass");
