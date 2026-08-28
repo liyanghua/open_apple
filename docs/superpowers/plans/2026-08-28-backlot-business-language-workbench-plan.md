@@ -210,7 +210,7 @@ Run: `pytest -q tests/backlot/test_batch_actions.py tests/backlot/test_operator_
 Expected: PASS。
 
 ```bash
-git add backlot/ui/operator/app.js backlot/ui/operator/api.js backlot/batch_actions.py backlot/operator_routes.py tests/backlot/test_batch_actions.py tests/backlot/test_operator_ui_contract.py
+git add backlot/ui/operator/app.js backlot/ui/operator/api.js backlot/batch_actions.py backlot/batch_state.py backlot/project_commit.py backlot/operator_routes.py tests/backlot/test_batch_actions.py tests/backlot/test_project_commit.py tests/backlot/test_operator_ui_contract.py
 git commit -m "feat(backlot): clarify batch approval actions and outcomes"
 ```
 

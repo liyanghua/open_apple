@@ -280,12 +280,20 @@
 
 ### 5.2 批量动作合同
 
-批量确认和批量选择都必须提交：
+批量确认必须提交：
 
 - 批次 `aggregate_revision`；
 - 每个候选的 `candidate_id`、`project_id`、`review_id`、`workflow_revision`、`subject_hash`；
 - 样片门的五项确认（仅样片门）；
-- 幂等键和用户原因。
+- 用户原因。
+
+批量选择必须提交：
+
+- 批次 `aggregate_revision`；
+- 每个候选的 `candidate_id`、`project_id`、`workflow_revision`、`subject_hash`、`evaluation_hash`；
+- 用户选择理由。
+
+两种动作都必须携带请求头 `Idempotency-Key`，不在 body 中重复传递。
 
 服务端先执行 prepare：核对权限、候选归属、内容 `subject_hash`、流程 `workflow_revision`、确认项和报告完整性；全部通过后再 commit。跨项目不能依赖一个数据库事务，因此协调器按稳定的 `project_id` 顺序加锁，把每个候选的 review、checkpoint、approval bundle、decision log 和 outbox 事件写入 prepared generation，再统一提交 current pointer。批量投影有 `visibility_fence`：只要 coordinator 不是 `committed/replayed`，批根和候选投影都继续读取旧 current pointer，并隐藏 prepared generation；事件 outbox 也只在 fence 放行后发布。任一候选在 prepare 失败，清理所有 prepared generation 并返回 `stale`、`forbidden` 或 `validation_failed`，不产生用户可见批准。
 
