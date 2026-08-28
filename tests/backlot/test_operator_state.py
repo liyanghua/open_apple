@@ -16,7 +16,7 @@ NINE_STAGES = [
     ("sample", "查看样片"),
     ("edit", "完成剪辑"),
     ("compose", "检查成片"),
-    ("publish", "交付下载"),
+    ("publish", "确认交付"),
 ]
 
 
