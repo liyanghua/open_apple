@@ -160,7 +160,11 @@ class ProjectCommitStore:
         fault_injector: Callable[[str], None] | None = None,
         outbox_materializer: Callable[[str, dict[str, Any]], None] | None = None,
         publish: Callable[[str], None] | None = None,
+        defer_release: bool = False,
     ) -> None:
+        # Phase 2 fence：批量路径 defer_release=True → 写 pointer/标注 committed-held，
+        # 不立即 drain outbox / publish；由批量协调器全部 marker 就绪后统一 release_generation。
+        self.defer_release = defer_release
         raw = Path(project_dir)
         if raw.is_symlink():
             raise OperatorError("invalid_write_context", "项目目录无效", 409)
@@ -383,10 +387,11 @@ class ProjectCommitStore:
         }
         _atomic_write(self.pointer_path, _json_bytes(pointer))
         self._fault("after_pointer")
-        _write_status(generation_dir, "committed")
-        self._drain_outbox(generation_dir, manifest)
-        if self._publish is not None:
-            self._publish(self.project_id)
+        _write_status(generation_dir, "committed-held" if self.defer_release else "committed")
+        if not self.defer_release:
+            self._drain_outbox(generation_dir, manifest)
+            if self._publish is not None:
+                self._publish(self.project_id)
 
     def _apply_images(
         self, generation_dir: Path, manifest: dict[str, Any], *, after: bool
@@ -475,3 +480,47 @@ class ProjectCommitStore:
                     self._drain_outbox(generation_dir, manifest)
                     changed = True
         return changed
+
+def release_generation(project_dir: Path, generation_id: str) -> None:
+    """fence 放行：为 held generation 统一 drain outbox + publish（幂等）。"""
+    store = ProjectCommitStore(project_dir)
+    generation_dir = store.generations_dir / generation_id
+    manifest_path = generation_dir / "manifest.json"
+    if not manifest_path.is_file():
+        raise OperatorError("recovery_conflict", f"generation {generation_id} 无 manifest", 409,
+                            details={"project_id": store.project_id, "generation_id": generation_id})
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if (generation_dir / "outbox-drained").exists():
+        return
+    store._drain_outbox(generation_dir, manifest)
+    if store._publish is not None:
+        store._publish(store.project_id)
+
+
+def rollback_generation(project_dir: Path, generation_id: str) -> bool:
+    """补偿回滚：仅当 pointer 仍指向该 generation 时，恢复 before 镜像并回退 pointer。
+    成功返回 True；pointer 已变（外部并发事实）返回 False（转 needs_recovery，不覆盖）。"""
+    store = ProjectCommitStore(project_dir)
+    generation_dir = store.generations_dir / generation_id
+    pointer_path = store.pointer_path
+    if not pointer_path.exists() or not generation_dir.is_dir():
+        return False
+    pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+    if pointer.get("generation_id") != generation_id:
+        return False
+    manifest_path = generation_dir / "manifest.json"
+    if not manifest_path.is_file():
+        return False
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for item in manifest.get("write_set", []):
+        source = generation_dir / "before" / Path(*PurePosixPath(item["relative_path"]).parts)
+        target = store._canonical_path(item["relative_path"])
+        if source.exists():
+            import shutil as _sh
+
+            _sh.copyfile(source, target)
+        else:
+            with contextlib.suppress(FileNotFoundError):
+                target.unlink()
+    _write_status(generation_dir, "rolled-back")
+    return True

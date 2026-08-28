@@ -359,7 +359,9 @@ def test_commit_mid_failure_needs_recovery_then_recovers(tmp_path: Path, monkeyp
     assert excinfo.value.code == "needs_recovery"
     record = _load_record(batch_dir, excinfo.value.details["batch_action_id"])
     assert record["status"] == "needs_recovery"
-    assert [p["state"] for p in record["participants"]] == ["committed", "committing"]
+    # Phase 2 fence 契约：中途失败 → 已 held 候选**补偿回滚**（仅 pointer 匹配者），
+    # 读取方仍见动作前事实；恢复时重新提交。
+    assert [p["state"] for p in record["participants"]] == ["rolled_back", "committing"]
 
     # 恢复：续跑完成剩余提交
     monkeypatch.setattr(actions_module.ReviewService, "decide", original_decide)

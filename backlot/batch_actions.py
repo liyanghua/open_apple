@@ -771,7 +771,11 @@ class BatchActionService:
             if gate == "sample":
                 confirmations = {key: "pass" for key in EFFECT_CONFIRMATION_KEYS}
             try:
-                service.decide(
+                from backlot.project_commit import ProjectCommitStore, release_generation
+
+                held_service = ReviewService(
+                    child_dir, store=ProjectCommitStore(child_dir, defer_release=True))
+                held_service.decide(
                     review_id=participant["review_id"],
                     decision="approved",
                     actor_id=actor_id,
@@ -781,10 +785,31 @@ class BatchActionService:
                     effect_confirmations=confirmations,
                     batch_decision=batch_decision,
                 )
-            except OperatorError as exc:
-                # 审批内容已更新（review_stale/stale）——不能把协调记录留在 committing：
-                # 显式落 rejected + 参与者 failed，让前端提示刷新重试。
-                if getattr(exc, "code", None) in {"review_stale", "stale"}:
+                import json as _json
+                _pointer_path = child_dir / "operator" / "current-generation.json"
+                if _pointer_path.exists():
+                    try:
+                        participant["held_generation"] = _json.loads(
+                            _pointer_path.read_text(encoding="utf-8")).get("generation_id")
+                    except Exception:
+                        participant["held_generation"] = None
+            except Exception as exc:
+                # Phase 2 fence：任意失败 → 补偿回滚本次已 held 的候选（仅当 pointer 仍匹配；
+                # 否则保持 needs_recovery 等待恢复，不覆盖外部新事实）。
+                from backlot.project_commit import rollback_generation
+
+                for p2 in record["participants"]:
+                    held = p2.get("held_generation")
+                    if not held or p2.get("state") != "committed":
+                        continue
+                    try:
+                        if rollback_generation(self.batch_dir.parent / p2["project_id"], held):
+                            p2["state"] = "rolled_back"
+                    except Exception:
+                        pass
+                record["updated_at"] = _now()
+                _save_record(self.batch_dir, record)
+                if isinstance(exc, OperatorError) and getattr(exc, "code", None) in {"review_stale", "stale"}:
                     participant["state"] = "failed"
                     participant["error"] = str(exc)
                     record["updated_at"] = _now()
@@ -799,6 +824,18 @@ class BatchActionService:
             participant["commit_marker"] = _now()
             record["updated_at"] = _now()
             _save_record(self.batch_dir, record)
+        # Phase 2 fence：全部候选 marker 齐全后统一放行（drain outbox + publish）。
+        from backlot.project_commit import release_generation
+
+        for participant in record["participants"]:
+            held = participant.get("held_generation")
+            if held and participant.get("state") == "committed":
+                try:
+                    release_generation(self.batch_dir.parent / participant["project_id"], held)
+                except Exception as _rel_err:
+                    print(f"  [fence] {participant.get('candidate_id')} release 失败: {_rel_err}")
+                    continue
+                participant.setdefault("released", []).append(held)
         record["status"] = "committed"
         record["updated_at"] = _now()
         _save_record(self.batch_dir, record)
