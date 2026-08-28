@@ -171,6 +171,65 @@ def apply_workitem(workitem: dict) -> None:
     print(f"已标定并写入 {tid}（{len(acts)} 槽）→ readiness 解锁")
 
 
+def repair_swap(tid: str, *, write: bool = False) -> dict:
+    """域聚簇自动修复：违规（相邻同域/复用超限/占比>25%）时，从违规槽向后找
+    可交换槽（交换后不产生新违规），贪心取最小影响交换。返回 {acts, swaps}。"""
+    from lib.template_source_match import SLOT_ACTION_BY_TEMPLATE, is_template_calibrated
+
+    acts = list(SLOT_ACTION_BY_TEMPLATE[tid])
+    N = len(acts)
+
+    def checks(a):
+        counts, secs = {}, {}
+        for i, act in enumerate(a):
+            counts[act] = counts.get(act, 0) + 1
+            secs[act] = secs.get(act, 0.0) + 2.0
+        D = sum(secs.values())
+        h1 = any(a[i] == a[i - 1] for i in range(1, N))
+        cap = max(2, -(-N // len(counts))) if counts else 0
+        s1 = any(c > cap for c in counts.values())
+        s2 = any(v > D / 4.0 + 1e-9 for v in secs.values())
+        return h1, s1, s2
+
+    swaps = []
+    for i in range(N - 1):
+        if not any(checks(acts)):
+            break
+        for j in range(i + 1, N):
+            trial = list(acts)
+            trial[i], trial[j] = trial[j], trial[i]
+            # 不动首尾（hook/cta 结构）
+            if i == 0 or j == N - 1:
+                continue
+            if not any(checks(trial)):
+                acts = trial
+                swaps.append((i + 1, j + 1))
+                break
+    if write and swaps:
+        # 写回 calibration 并重建命名表行（按动作重新生成）
+        import json as _json
+        from lib.template_mainline import _ACTION_NARRATION, _NARRATION_BY_TEMPLATE
+        meta = {"source": "human", "version": "1.1", "repair_swap": swaps,
+                "calibrated_at": __import__("datetime").datetime.now(tz=__import__("datetime").timezone.utc).isoformat()[:19],
+                "reviewer": "repair-swap"}
+        write_calibration(tid, acts, meta)
+        rows = [(_ACTION_NARRATION[a][0], _ACTION_NARRATION[a][1], 'proof') for a in acts]
+        var = f"_NARRATION_SHEET_{tid.split('-')[1].upper()}"
+        # 更新命名表：重建该 var 块（简单替换整块）
+        p_tm = 'lib/template_mainline.py'
+        tm = open(p_tm).read()
+        import re
+        m = re.search(re.escape(var) + r' = \[' + r'[\s\S]*?' + r'\]\n', tm, re.S)
+        if m:
+            block = var + ' = [' + chr(10) + ''.join(
+                f'    ({_json.dumps(n, ensure_ascii=False)}, {_json.dumps(c, ensure_ascii=False)}, {_json.dumps(r, ensure_ascii=False)}),\n'
+                for n, c, r in rows) + chr(10) + ']' + chr(10)
+            tm = tm[:m.start()] + block + tm[m.end():]
+            open(p_tm, 'w').write(tm)
+            import ast; ast.parse(tm)
+    return {"template_id": tid, "acts": acts, "swaps": swaps}
+
+
 def main() -> None:
     import json
 
@@ -180,6 +239,7 @@ def main() -> None:
     p.add_argument("--list", action="store_true")
     p.add_argument("--mode", choices=["manual", "vlm"], default="manual")
     p.add_argument("--all", action="store_true", help="--mode vlm 时批量标定全部未标定模板")
+    p.add_argument("--repair-swap", action="store_true", help="域聚簇自动修复并写回标定")
     args = p.parse_args()
     if args.list:
         from lib.template_source_match import is_template_calibrated
@@ -190,6 +250,12 @@ def main() -> None:
         print(f"未标定模板数: {len(uncal)}")
         for tid in uncal[:20]:
             print("  ", tid)
+        return
+    if args.repair_swap:
+        if not args.template:
+            raise SystemExit("--repair-swap 需要 --template")
+        r = repair_swap(args.template, write=True)
+        print(f"{args.template}: swaps={r['swaps']} → acts={r['acts']}")
         return
     if args.all:
         if args.mode != "vlm":

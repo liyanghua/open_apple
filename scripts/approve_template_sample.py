@@ -153,6 +153,15 @@ def main() -> None:
         if args.stage == "sample":
             log_two_layer_captions(args.run, project)
         approve_stage(args.run, project, args.stage)
+    # 固化（本轮 P0）：审批写决策日志/制品后自动刷新 checkpoint 信封，终结每片手补刷新。
+    try:
+        from backlot.project_commit import ProjectCommitStore
+        from lib.checkpoint import refresh_checkpoint_envelopes
+
+        with ProjectCommitStore(project).transaction(action={"action_id": f"refresh-env-{args.run}"}) as sink:
+            refresh_checkpoint_envelopes(ROOT / "projects", args.run, pipeline_type=PIPELINE, sink=sink)
+    except Exception as _env_err:
+        print(f"  [warn] 信封自动刷新失败（请手补）: {_env_err}")
     print(f"{args.stage} approved for {args.run}")
 
 

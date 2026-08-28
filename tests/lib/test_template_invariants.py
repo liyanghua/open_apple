@@ -576,3 +576,49 @@ def test_calibration_gate_strategy_c():
     r2 = check_template_run_plan_ready({"status": "approved", "slot_bindings": [
         {"slot_id": s["slot_id"], "source": "owned", "source_media_id": "x"} for s in t02["slots"]]}, template=t02)
     assert not any("未标定" in b for b in r2["blockers"])
+
+
+def test_all_calibrated_tables_semantic_consistent():
+    """不变量 18（本轮 ②）：全部标定模板（含 VLM 命名表）口播行↔动作域一致（接线回归）。
+
+    对每个在 SLOT_ACTION 的模板：合成 sections（narration/copy=表行, bound=对应动作）
+    → semantic_mismatches 必须为 0；行数必须等于槽数（防接线错位）。
+    """
+    import json as _json
+    from lib.template_mainline import rows_for_template
+    from lib.template_source_match import SLOT_ACTION_BY_TEMPLATE, semantic_mismatches
+
+    pack = _json.loads((ROOT / "projects/template-pack-library/artifacts/template_pack.json").read_text())
+    checked = 0
+    for t in pack["templates"]:
+        tid = t["template_id"]
+        acts = SLOT_ACTION_BY_TEMPLATE.get(tid)
+        rows = rows_for_template(tid) if acts else None
+        if not acts or not rows:
+            continue
+        assert len(rows) == len(acts), f"{tid}: 口播行 {len(rows)} ≠ 槽 {len(acts)}"
+        sections = [{"id": f"sec-{i:03d}", "narration": rows[i][0], "screen_copy": rows[i][1],
+                     "bound_material_action": acts[i]} for i in range(len(acts))]
+        findings = semantic_mismatches({"sections": sections})
+        assert not findings, f"{tid} 接线不一致: {findings[:2]}"
+        checked += 1
+    assert checked >= 30, f"标定表覆盖不足: {checked}"
+
+
+def test_repair_swap_fixes_h1_class_only():
+    """不变量 19（本轮 ③）：域聚簇修复器——H1 类（邻域同）可自动换槽修复；
+    S2' 类（占比超限）换槽不可修（返回 swaps=[]，提示走 planner/backlog）。"""
+    from scripts.calibrate_template import repair_swap
+    import lib.template_source_match as sm
+
+    acts = ['餐桌场景', '餐桌场景', '桌角对齐-挤压不变形', '防刮', '防油易擦拭', '防油易擦拭', '桌角对齐-挤压不变形', '餐桌场景']
+    sm.SLOT_ACTION_BY_TEMPLATE['sheet-test-swap'] = acts
+    r = repair_swap('sheet-test-swap', write=False)
+    # 含 S2' 类（餐桌 3×2=6 > 16/4）→ 无解（换槽不能改计数）
+    assert r['swaps'] == [], r['swaps']
+    # H1 类：4 域各 2，仅邻域重复 → 可换槽修复
+    sm.SLOT_ACTION_BY_TEMPLATE['sheet-test-swap'] = ['防刮', '防刮', '防油易擦拭', '桌角对齐-挤压不变形',
+                                                     '无甲醛检测', '餐桌场景', '自动铺开对齐', '餐桌场景']
+    r2 = repair_swap('sheet-test-swap', write=False)
+    assert r2['swaps'], "H1-类应可修复"
+    sm.SLOT_ACTION_BY_TEMPLATE.pop('sheet-test-swap', None)

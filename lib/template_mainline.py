@@ -589,6 +589,26 @@ def build_decision_log(project: Path, template: dict, facts: dict, *, sink=None)
 
 # ---------- script ----------
 
+def rows_for_template(template_id: str) -> list[tuple[str, str, str]]:
+    """口播行解析（本轮② 接线统一）：优先命名表 → 无表时按标定动作域生成（VLM 模板零接线）。"""
+    rows = _NARRATION_BY_TEMPLATE.get(template_id)
+    if rows:
+        return list(rows)
+    from lib.template_source_match import SLOT_ACTION_BY_TEMPLATE
+
+    acts = SLOT_ACTION_BY_TEMPLATE.get(template_id)
+    if not acts:
+        return list(_NARRATION_DEFAULT)
+    generated = []
+    for action in acts:
+        if action in _ACTION_NARRATION:
+            narr, copy = _ACTION_NARRATION[action]
+        else:
+            narr, copy = "", " "
+        generated.append((narr, copy, "proof"))
+    return generated
+
+
 def _text_action_key(narr: str, copy: str) -> str:
     """从口播/花字文本推断产品动作 key（与 template_source_match._RULES 同一词汇表）。
 
@@ -636,7 +656,7 @@ def build_script(project: Path, template: dict, sp: dict, ccp: dict, facts: dict
     # 关键：**narration 由素材动作派生**，不同模板 archetype 用各自的逐镜文案表，
     # 绝不套用 video1 的 8 镜（导致长模板 9+ 镜空口播）。
     tid = str(template.get("template_id") or "")
-    our = _NARRATION_BY_TEMPLATE.get(tid, _NARRATION_DEFAULT)
+    rows = rows_for_template(tid)
     sections = []
     from lib.template_source_match import SLOT_ACTION_BY_TEMPLATE
 
@@ -649,10 +669,10 @@ def build_script(project: Path, template: dict, sp: dict, ccp: dict, facts: dict
 
     def _pick_row(bound: str):
         # 1) 未用且动作精确匹配的表格行（行动作 = 逐模板显式表；与绑定同源，故事线不垮）
-        for pos in range(len(our)):
+        for pos in range(len(rows)):
             if pos in used_rows:
                 continue
-            narr, copy, role = our[pos] if len(our[pos]) >= 3 else ("", "", "proof")
+            narr, copy, role = rows[pos] if len(rows[pos]) >= 3 else ("", "", "proof")
             if bound and _row_action(pos, narr, copy) == bound and narr.strip():
                 used_rows.add(pos)
                 return pos, narr, copy, role, _row_action(pos, narr, copy)
