@@ -304,3 +304,37 @@ git commit -m "docs(backlot): record business-language workbench rollout"
 - [ ] 失败、缺失、过期和降级状态均有中文原因和下一步。
 - [ ] 页面不出现 OPENMONTAGE 等品牌词或内部技术词。
 - [ ] 既有批量、单条、审批一致性和前端构建回归全部通过。
+
+---
+
+## 修订附录（2026-08-28 评审定案，覆盖/修正正文对应任务）
+
+### A1. 五个问题的定案
+
+| 问题 | 定案 |
+|---|---|
+| `subject_hash` | **不采用五类拼接总哈希**。复用现有 review 规范 hash：当前有待确认内容→pending review 的 hash；无待确认→最近一次**已决** review 的 hash；尚无可审内容→`null`+`not_ready`。脚本/制作准备/样片各自绑定对应门的内容（现 `operator_reviews.py:188` 的机制继续沿用），不新造算法。 |
+| `evaluation_hash` | = `evaluation_report.artifact_sha256`（报告本身的 hash，不与报告内被评媒体的 subject_hash 混用）。批量选择时服务端**重新读取报告**并校验 artifact_sha256 / scope / 候选绑定 / 报告完整性；旧报告缺字段→只读展示，不得参与写操作。 |
+| `batch_actions.py` | **不重构，补强**。现有已有 coordinator、prepare 校验、参与者状态、幂等重放、commit marker、needs_recovery（事务/恢复测试 19 passed）。缺口=每个候选**单独提交 pointer + 立即 drain outbox**（`project_commit.py:350`），第二候选提交前读取方可见第一候选已通过。→ 新增 **visibility_fence**：fence 未放行前，批量投影与候选单条页**读取旧事实**；全部 marker 齐全后才切 fence、统一放行 outbox。 |
+| 单条页编辑控件 | **保留代码不删除**；审批视图中不渲染、不授权。`renderTypedEditor`/draft/revision/restore 留后续编辑工作室。审批页使用**独立 approval/只读模式**（不能只依赖 `canEdit` 权限判断——有编辑权限用户仍会看到修改控件）。 |
+| Playwright | **不可用静态断言替代**；补齐 `requirements-dev.txt` 依赖 + 浏览器安装步骤；**缺依赖时明确失败**（不得 skipped 当通过）；静态断言仅作补充。 |
+
+### A2. 两个落库前的既有差异（纳入 Task1/Task2 前置）
+
+1. **样片五项最后一项**：规格文案「字幕」，代码内部最后一项是 `readability`（`operator_reviews.py:27`）。兼容映射：UI 显示「字幕」，内部暂用旧枚举，待后续正式改字段；文档与契约测试锁定「五项=方向/开场/证明/节奏/字幕」，代码侧 `readability` 作为兼容别名。
+2. **`load_operator_state()` 的写副作用**：读取时会 `ensure_*_review_for_checkpoint()`（`operator_state.py:1992`）可能创建 review——与「投影只读」冲突。→ 把补建动作**限制在明确的迁移/写路径**（批量事实准备期/显式数据修复脚本），读取路径不落任何 write。
+
+### A3. 修订后执行顺序（覆盖原文「实施顺序和停止条件」）
+
+```
+Phase 0  契约审计（哈希与五项）：subject_hash 沿用 review 规范 的确认性审计
+        + evaluation_hash 读取/校验路径审计 + readability↔字幕 兼容映射落文档与契约测试
+Phase 1  业务语言映射 + 候选投影业务字段（schema 1.1；读取路径去写副作用）
+Phase 2  visibility_fence + 审批独副本模式（单条只读+通过/退回；不渲染编辑控件）
+        + 批量投影/单条页在 fence 未放行前读旧事实 + outbox 统一放行
+Phase 3  批量两步（确认当前门 → 选择 1–2 条）+ 原子协调补强测试（故障注入/幂等/并发）
+Phase 4  Playwright 浏览器套件（设为必需验收门：依赖缺失=失败；桌面+移动 A–G 场景）
+Phase 5  全量回归 + 文案扫描 + 报告 §6.6 记录
+```
+
+停止条件不变：任一一致性测试失败→保留只读+重新拉取，不显示「已通过」；Phase 3 前不开放批量写；编辑工作室另立计划。
