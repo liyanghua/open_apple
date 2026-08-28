@@ -1,5 +1,5 @@
 import { fetchProjectState, fetchDraft, watchProject, saveDraft, previewDraft, commitDraft, fetchVersions, restoreVersion, quoteShotGeneration, createShotGeneration, adoptShotGeneration, decideReview, batchSelectForEdit, batchApproveGate, batchRecover } from "./api.js";
-import { createOperatorStore, parseBatchContext } from "./store.js";
+import { createOperatorStore } from "./store.js";
 import { STATUS_MARKS, VIEW_STATES, formatDuration, formatTimeRange } from "./language.js";
 import { renderTypedEditor } from "./editors.js";
 import { renderImpact } from "./impact.js";
