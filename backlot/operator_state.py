@@ -2019,6 +2019,15 @@ def load_operator_state(
     state["permissions"] = [
         item for item in ("view", "edit", "review", "manage") if item in permissions
     ]
+    # Phase 2 审批只读模式：三确认门有 pending review → view_mode=approval
+    # （前端据此进入只读审批布局；不依赖 canEdit 判断，编辑视图由 view_mode 独立决定）。
+    pending_review = state.get("pending_review")
+    stage_id = ((state.get("workspace") or {}).get("stage_id") or "")
+    if isinstance(pending_review, Mapping) and pending_review.get("review_id") \
+            and stage_id in {"script", "assets", "sample"}:
+        state["workspace"]["view_mode"] = "approval"
+    else:
+        state["workspace"]["view_mode"] = "workbench"
     state["revision"] = operator_revision(state)
     validate_operator_state(state)
     return state

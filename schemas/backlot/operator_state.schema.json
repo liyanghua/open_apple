@@ -295,6 +295,12 @@
         },
         "upgrade_action": {
           "$ref": "#/$defs/nullable_string"
+        },
+        "view_mode": {
+          "enum": [
+            "workbench",
+            "approval"
+          ]
         }
       },
       "additionalProperties": false

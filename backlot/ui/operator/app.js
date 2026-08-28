@@ -1551,6 +1551,8 @@ function renderEditor(container, stage, editor, project, snapshot) {
   container.replaceChildren();
   const data = editor?.data || {};
   const canEdit = (project.permissions || []).includes("edit");
+  // Phase 2 审批只读模式：view_mode=approval → 不渲染 typed editor / 编辑控件（独立于权限）
+  const approvalMode = (snapshot?.workspace?.view_mode === "approval");
   const mutationStage = editor?.type === "delivery_review" ? "delivery_review" : stage.id;
   const message = node("span", "editor-message");
   let changes = [...(snapshot.drafts?.[mutationStage]?.changes || [])];
@@ -1621,10 +1623,10 @@ function renderEditor(container, stage, editor, project, snapshot) {
   const editPanel = node("div", "typed-editor-panel");
   const editorBody = node("div", "typed-editor-body");
   const controls = node("div", "editor-controls");
-  if (!["research_review", "script_editor", "asset_review", "delivery_review"].includes(editor?.type)) {
+  if (!approvalMode && !["research_review", "script_editor", "asset_review", "delivery_review"].includes(editor?.type)) {
     renderTypedEditor(editorBody, stage, editor, { editable: canEdit, onOperation });
   }
-  if (canEdit) {
+  if (canEdit && !approvalMode) {
     if (editor?.type === "delivery_review") {
       const save = node("button", "quiet-button", "暂存修改"); save.type = "button";
       save.addEventListener("click", () => flushSave().then(() => { message.textContent = "修改已暂存"; }).catch((error) => { message.textContent = error.message; }));

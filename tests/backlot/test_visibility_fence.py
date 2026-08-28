@@ -126,3 +126,37 @@ def test_fence_holds_reads_until_all_committed(tmp_path: Path, monkeypatch):
                     if (sub / "outbox-drained").exists():
                         released += 1
     assert released >= 2, "恢复后应统一放行全部 held generation"
+
+
+def test_projection_carries_fence_while_committing(tmp_path: Path, monkeypatch):
+    """展示层栅栏：提交中/待恢复 → 候选投影携带 fence 信息；恢复后消失。"""
+    from backlot.batch_state import child_snapshot
+
+    batch_dir = _batch_project(tmp_path)
+    for cid in ("cand-01", "cand-02"):
+        _child_with_review(tmp_path, cid)
+
+    original = ReviewService.decide
+    calls = {"n": 0}
+
+    def flaky_decide(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("injected")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(ReviewService, "decide", flaky_decide)
+    try:
+        _approve(batch_dir, tmp_path)
+    except Exception:
+        pass
+    monkeypatch.setattr(ReviewService, "decide", original)
+
+    snap = child_snapshot(tmp_path, tmp_path / "cand-01")
+    assert snap.get("fence") and snap["fence"]["status"] in {"prepared", "committing", "needs_recovery"}
+    # 恢复后 fence 消失
+    records = list((_actions_dir(batch_dir)).glob("*.json"))
+    record = json.loads(records[-1].read_text(encoding="utf-8"))
+    recover_batch_action(batch_dir, record["batch_action_id"])
+    snap2 = child_snapshot(tmp_path, tmp_path / "cand-01")
+    assert snap2.get("fence") is None

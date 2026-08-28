@@ -278,6 +278,10 @@ def child_snapshot(project_dir: Path, child_dir: Path) -> dict[str, Any]:
     snapshot.update(derive_candidate_business(
         snapshot, reviews_by_kind=_by_kind, evaluate=_eval,
         media_ready=bool((snapshot.get("media") or {}).get("sample_url"))))
+    # Phase 2 展示层栅栏：提交中/待恢复 → 前端显示「批量提交进行中」，抑制中间态结论
+    from backlot.fence import active_fence_for
+
+    snapshot["fence"] = active_fence_for(project_dir, child_dir.name)
 
     return snapshot
 
