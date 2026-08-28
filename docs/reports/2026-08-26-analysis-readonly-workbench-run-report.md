@@ -297,3 +297,16 @@
 **坑与修复（归档）**：write_calibration 三节文件丢节（已重构）；VLM 模板行错位（rows_for_template）；for-else 提前退出（swap）；正则/转义污染（两处）；`DASHSCOPE_API_KEY` 子 shell 环境（source ~/.zshrc）；信封刷新时机（4 例 → 自动化）。
 
 **backlog 更新**：15/20 严格微调（换槽/子集）→ 计 1 轮；22 = S2'-类（需素材/换序）；素材池扩容（桌角×2 等，解锁 09 原结构与更多 LIMITED）；hook 优化（新片 weakest 仍为 hook，8.47/8.44/8.23 均受此限）；43 模板抽检制品化 + VLM 逐帧（P2）；治理（重发工单/Goldset 白名单复核周期）。
+
+### 6.6 本轮（2026-08-28）：批量审批工作台收尾验收
+
+Phase 0–3 已完成：批量与单条复用同一审批事实；批量提交有 visibility fence、统一 outbox 放行与恢复；批量选择会重读评价报告并校验 `evaluation_hash`；prepare 路径只校验、不在读取时补建审批记录。
+
+Phase 4/5 收尾项：
+
+- 批量候选入口携带批次上下文，单条复核提供返回批量总览；快速查看为只读，不提供审批动作。
+- 候选卡、批量主动作、选择区、错误提示均提供稳定 `data-testid`，桌面/移动端场景覆盖混合阶段、媒体失效、报告降级、批次与候选不匹配、权限变化和刷新超时。
+- 一线可见页面清理产品品牌词和内部枚举；技术字段仍只保留在 API/schema 或制作记录折叠区。
+- 本轮不纳入自动化浏览器验收；按桌面 1180px、平板 900px、移动 390px 手动检查批量总览、快速查看、单条复核、返回批量、媒体失败、报告降级和权限变化。
+
+验证记录：`PYTHONPATH=. .venv/bin/pytest -q tests/backlot` → **309 passed, 1 skipped**；`node --check` 覆盖 operator 前端模块。完整 `tests/lib` 需要仓库外部的 gitignored `projects/` 运行数据，缺失时属于环境前置条件，不计入本轮回归结论。
