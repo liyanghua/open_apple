@@ -555,14 +555,23 @@ def test_calibration_gate_strategy_c():
     from lib.template_run_plan import check_template_run_plan_ready
     from lib.template_source_match import is_template_calibrated
 
+    import lib.template_source_match as sm
+
     pack = _json.loads((ROOT / "projects/template-pack-library/artifacts/template_pack.json").read_text())
+    # 机制性覆盖：强制某模板视为未标定（VLM 量产已全部标定，用 monkeypatch 测 blocker）
     t03 = next(t for t in pack["templates"] if t["template_id"] == "sheet-03-video3-aks-zhuodian")
     base = {"status": "approved", "slot_bindings": [
         {"slot_id": s["slot_id"], "source": "owned", "source_media_id": "x"} for s in t03["slots"]]}
-    r = check_template_run_plan_ready(dict(base), template=t03)
+    orig = sm.is_template_calibrated
+    sm.is_template_calibrated = lambda tid: False
+    try:
+        r = check_template_run_plan_ready(dict(base), template=t03)
+    finally:
+        sm.is_template_calibrated = orig
     assert any("未标定" in b for b in r["blockers"]), r["blockers"][:2]
 
     assert is_template_calibrated("sheet-02-video2-aks-zhuodian") is True
+    assert is_template_calibrated("sheet-42-video48-yanban-zhuojia") is True  # VLM 量产
     t02 = next(t for t in pack["templates"] if t["template_id"] == "sheet-02-video2-aks-zhuodian")
     r2 = check_template_run_plan_ready({"status": "approved", "slot_bindings": [
         {"slot_id": s["slot_id"], "source": "owned", "source_media_id": "x"} for s in t02["slots"]]}, template=t02)
