@@ -1,5 +1,5 @@
 import { fetchProjectState, fetchDraft, watchProject, saveDraft, previewDraft, commitDraft, fetchVersions, restoreVersion, quoteShotGeneration, createShotGeneration, adoptShotGeneration, decideReview, batchSelectForEdit, batchApproveGate, batchRecover } from "./api.js";
-import { createOperatorStore } from "./store.js";
+import { createOperatorStore, parseBatchContext } from "./store.js";
 import { STATUS_MARKS, VIEW_STATES, formatDuration, formatTimeRange } from "./language.js";
 import { renderTypedEditor } from "./editors.js";
 import { renderImpact } from "./impact.js";
@@ -10,6 +10,38 @@ const projectId = decodeURIComponent(window.location.pathname.split("/").filter(
 const store = createOperatorStore();
 const snapshotStore = store;
 let activeResearchSubstage = "reference";
+
+function setTestId(element, testId) {
+  if (testId) element.dataset.testid = testId;
+  return element;
+}
+
+function batchProjectUrl(candidateId, batchId = projectId) {
+  return `/p/${encodeURIComponent(candidateId)}?from=batch&batch_id=${encodeURIComponent(batchId)}`;
+}
+
+function businessErrorMessage(error) {
+  if (!error) return "操作暂时无法完成";
+  if (error.code === "stale" || error.code === "candidate_mismatch") return "批次与候选不匹配，请返回批量总览";
+  if (error.code === "forbidden") return "审批权限已变化，请重新拉取";
+  if (error.code === "timeout") return "刷新超时，请重新拉取最新结果";
+  return error.message || "操作暂时无法完成";
+}
+
+const CANDIDATE_STATUS_LABELS = {
+  planned: "未开始", forking: "准备中", sampling: "生成样片", evaluating: "检查中",
+  awaiting_review: "等待确认", evaluated: "已完成检查", editing: "等待精剪",
+  approved: "已通过", needs_revision: "需要调整", failed: "处理失败",
+  missing: "资料缺失", corrupt: "资料异常", excluded: "不参与本批",
+};
+const STAGE_STATUS_LABELS = {
+  script: "确认脚本", assets: "确认制作准备", sample: "查看样片",
+  edit: "完成剪辑", compose: "检查成片", publish: "确认交付",
+};
+function candidateStatusLabel(status) { return CANDIDATE_STATUS_LABELS[status] || "处理中"; }
+function stageStateLabel(stageId, status) {
+  return `${STAGE_STATUS_LABELS[stageId] || "制作步骤"}：${candidateStatusLabel(status)}`;
+}
 
 function node(tag, className, text) {
   const element = document.createElement(tag);
@@ -856,6 +888,7 @@ function renderAssets(container, data, { editable = false, onOperation = () => {
 }
 
 function renderSample(container, data, { project } = {}) {
+  const canReview = (project?.permissions || []).includes("review");
   const workbench = node("div", "sample-review-workbench");
   const playerPanel = node("section", "sample-player-panel");
   playerPanel.append(detailRow("检查结果", data.qa_status));
@@ -942,15 +975,16 @@ function renderSample(container, data, { project } = {}) {
   const selections = {};
   const cards = node("div", "sample-effect-list");
   const submit = node("button", "primary-button", "确认样片并进入下一步");
-  submit.type = "button"; submit.disabled = true;
+  submit.type = "button"; submit.disabled = !canReview;
   const message = node("p", "editor-message");
   const updateSubmit = () => {
     const complete = checks.every(([key]) => selections[key]);
     const allPass = checks.every(([key]) => selections[key] === "pass");
-    submit.disabled = !complete;
+    submit.disabled = !canReview || !complete;
     submit.textContent = allPass ? "确认样片并进入下一步" : "提交调整意见";
-    message.textContent = complete && !allPass ? "有项目需要调整，暂不能直接进入下一步。" : complete ? "五项效果已确认，可以进入下一步。" : "请完成五项效果确认。";
+    message.textContent = !canReview ? "审批权限已变化，请重新拉取" : complete && !allPass ? "有项目需要调整，暂不能直接进入下一步。" : complete ? "五项效果已确认，可以进入下一步。" : "请完成五项效果确认。";
   };
+  if (!canReview) message.textContent = "审批权限已变化，请重新拉取";
   checks.forEach(([key, title, prompt]) => {
     const card = node("div", "sample-effect-card");
     card.append(node("strong", "sample-effect-title", title), node("p", "sample-effect-prompt", prompt));
@@ -1066,7 +1100,24 @@ function renderEvaluationCard(evaluation) {
 }
 
 function renderBatch(container, data, { project } = {}) {
-  const workbench = node("div", "batch-cockpit");
+  const workbench = setTestId(node("div", "batch-cockpit"), "batch-workbench");
+  let primaryAction = null;
+  let mediaFailure = false;
+  const quickView = (candidate) => {
+    const drawer = setTestId(node("aside", "candidate-quick-view"), "candidate-quick-view");
+    drawer.append(node("h3", "section-title", candidate.label || "候选视频"));
+    drawer.append(node("p", "row-copy", candidate.current_artifact || "当前产物"));
+    if (candidate.media?.sample_url) {
+      const video = document.createElement("video");
+      video.controls = true; video.playsInline = true; video.preload = "metadata";
+      video.src = candidate.media.sample_url; video.setAttribute("aria-label", "候选视频预览");
+      drawer.append(video);
+    }
+    drawer.append(node("p", "row-copy", candidate.selection_block_reason || "仅用于快速查看，不在这里提交审批"));
+    const close = setTestId(node("button", "quiet-button", "关闭"), "close-quick-view");
+    close.type = "button"; close.addEventListener("click", () => drawer.remove());
+    drawer.append(close); workbench.append(drawer);
+  };
 
   // 一致性 + 预算 / 并发面板
   const consistencyLabel = { stable: "稳定", unstable: "候选读取期间发生变化", degraded: "存在降级候选或预算不一致" };
@@ -1119,8 +1170,7 @@ function renderBatch(container, data, { project } = {}) {
             ? "一键全部通过" : `通过已勾选（${included.size}/${gate.candidates.length}）`;
         });
         summary.append(checkbox, document.createTextNode(` ${view.label || entry.candidate_id}`));
-        const stageLine = (view.stage_states || []).map((state) => `${state.stage_id}:${state.status}`).join(" · ");
-        summary.append(node("span", "row-meta", ` ${stageLine}`));
+        summary.append(node("span", "row-meta", ` ${(view.stage_states || []).map((state) => stageStateLabel(state.stage_id, state.status)).join(" · ")}`));
         item.append(summary);
         const body = node("div", "batch-gate-candidate-body");
         if (gate.gate === "script" && material.sections?.length) {
@@ -1219,26 +1269,38 @@ function renderBatch(container, data, { project } = {}) {
   matrix.append(node("h3", "section-title", "候选矩阵"));
   const table = node("div", "batch-matrix-table");
   for (const candidate of data.candidates || []) {
-    const cell = node("article", `batch-candidate-card status-${candidate.candidate_phase || candidate.status || "planned"}`);
+    const cell = setTestId(node("article", `batch-candidate-card status-${candidate.candidate_phase || candidate.status || "planned"}`), `candidate-card-${candidate.candidate_id}`);
     const heading = node("div", "batch-candidate-heading");
     heading.append(node("strong", "batch-candidate-label", candidate.label || candidate.candidate_id));
-    heading.append(node("span", "status-chip", candidate.candidate_phase || candidate.status || "planned"));
+    heading.append(node("span", "status-chip", candidateStatusLabel(candidate.candidate_phase || candidate.status || "planned")));
     cell.append(heading);
     const direction = Object.values(candidate.direction || {}).join(" / ");
     if (direction) cell.append(node("p", "batch-candidate-direction", direction));
-    const stageLine = (candidate.stage_states || []).map((state) => `${state.stage_id}:${state.status}`).join(" · ");
+    const stageLine = (candidate.stage_states || []).map((state) => stageStateLabel(state.stage_id, state.status)).join(" · ");
     if (stageLine) cell.append(node("p", "batch-candidate-stages", stageLine));
     if (candidate.links?.project_page) {
-      const pageLink = node("a", "batch-candidate-link", "打开候选工作台");
-      pageLink.href = candidate.links.project_page;
+      const pageLink = setTestId(node("a", "batch-candidate-link", "打开单条复核"), `open-single-${candidate.candidate_id}`);
+      pageLink.href = batchProjectUrl(candidate.project_id || candidate.candidate_id, data.batch_id || project?.project_id || projectId);
       cell.append(pageLink);
+      const quick = setTestId(node("button", "batch-candidate-link", "快速查看"), `quick-view-${candidate.candidate_id}`);
+      quick.type = "button";
+      quick.addEventListener("click", () => quickView(candidate));
+      cell.append(quick);
     }
     cell.append(node("p", "batch-candidate-cost", `成本 $${(candidate.cost?.cost_usd ?? 0).toFixed(2)} · 尝试 ${candidate.cost?.attempts ?? 0}${candidate.failure?.failure ? ` · 失败：${candidate.failure.failure}` : ""}`));
     if (candidate.media?.sample_url) {
-      const link = node("a", "batch-candidate-link", "查看样片");
-      link.href = candidate.media.sample_url;
-      link.target = "_blank";
-      cell.append(link);
+      const video = document.createElement("video");
+      video.className = "batch-candidate-preview";
+      video.controls = true; video.playsInline = true; video.preload = "metadata";
+      video.src = candidate.media.sample_url;
+      video.setAttribute("aria-label", `${candidate.label || "候选"}样片预览`);
+      video.addEventListener("error", () => {
+        mediaFailure = true;
+        if (primaryAction) primaryAction.disabled = true;
+        const error = setTestId(node("p", "batch-media-error", "样片无法播放，请检查文件后重新拉取"), `media-error-${candidate.candidate_id}`);
+        cell.append(error);
+      }, { once: true });
+      cell.append(video);
     }
     const tracks = candidate.media?.audio_tracks || [];
     if (tracks.length) {
@@ -1254,7 +1316,7 @@ function renderBatch(container, data, { project } = {}) {
   // 人工选择区
   const reports = data.reports || {};
   const selectionDisabled = (reports.disabled_actions || []).includes("select");
-  const selectPanel = node("section", "batch-select");
+  const selectPanel = setTestId(node("section", "batch-select"), "batch-selection");
   selectPanel.append(node("h3", "section-title", "人工选择：选 1–2 条进入精剪"));
   const selected = data.selection?.selected_candidate_ids || [];
   if (selected.length) {
@@ -1283,7 +1345,11 @@ function renderBatch(container, data, { project } = {}) {
     const submit = node("button", "primary-button", "进入精剪");
     submit.type = "button";
     submit.disabled = selectionDisabled;
-    if (selectionDisabled) submit.textContent = "请先重建批次报告";
+    // 旧版契约仍检查“请先重建批次报告”；实际操作改为一线可读的“重新拉取最新结果”。
+    if (selectionDisabled) submit.textContent = "重新拉取最新结果";
+    setTestId(submit, "batch-primary-action");
+    primaryAction = submit;
+    if (mediaFailure) submit.disabled = true;
     submit.addEventListener("click", async () => {
       const ids = [...picks];
       if (!ids.length || ids.length > 2) { submit.textContent = "请选择 1–2 个候选"; return; }
@@ -1293,10 +1359,13 @@ function renderBatch(container, data, { project } = {}) {
         window.location.reload();
       } catch (error) {
         submit.disabled = false;
-        submit.textContent = `失败：${error.message}`;
+        submit.textContent = businessErrorMessage(error);
       }
     });
     selectPanel.append(reason, submit);
+  }
+  if (!selected.length && !(data.selection?.eligible_candidate_ids || []).length) {
+    selectPanel.append(setTestId(node("p", "batch-issue-summary", "本批没有可用视频"), "batch-issue-summary"));
   }
   workbench.append(selectPanel);
 
@@ -1675,6 +1744,18 @@ function render(snapshot) {
   if (!snapshot.project) return;
 
   const project = snapshot.project;
+  const returnLink = byId("return-to-batch");
+  const navigation = snapshot.navigation;
+  if (returnLink) {
+    returnLink.hidden = !navigation;
+    if (navigation) {
+      returnLink.href = navigation.returnUrl;
+      returnLink.onclick = () => {
+        navigation.scrollTop = window.scrollY;
+        try { sessionStorage.setItem(`batch-scroll:${navigation.batchId}`, String(navigation.scrollTop)); } catch { /* no-op */ }
+      };
+    }
+  }
   document.title = `${project.title} · 制作进度`;
   byId("project-title").textContent = project.title;
   byId("progress-value").textContent = `${project.summary.progress_percent}%`;
@@ -1748,8 +1829,8 @@ async function refresh({ showLoading = false } = {}) {
     snapshotStore.setDraft("script", scriptDraft?.status === "active" || scriptDraft?.status === "local" ? scriptDraft : null);
     snapshotStore.setDraft("assets", assetsDraft?.status === "active" || assetsDraft?.status === "local" ? assetsDraft : null);
     snapshotStore.setDraft("delivery_review", deliveryDraft?.status === "active" || deliveryDraft?.status === "local" ? deliveryDraft : null);
-  } catch {
-    store.setError();
+  } catch (error) {
+    store.setError(businessErrorMessage(error));
   }
 }
 

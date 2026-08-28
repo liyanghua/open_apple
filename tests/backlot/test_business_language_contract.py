@@ -2,7 +2,17 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _visible_html_text(path: Path) -> str:
+    source = path.read_text(encoding="utf-8")
+    source = re.sub(r"<(script|style)\b[^>]*>.*?</\1>", "", source, flags=re.I | re.S)
+    return " ".join(part.strip() for part in re.sub(r"<[^>]+>", " ", source).split() if part.strip())
 
 
 def test_nine_step_business_labels():
@@ -104,3 +114,16 @@ def test_read_path_purity(tmp_path: Path):
         load_operator_state(project)
     after = snapshot()
     assert before == after, f"读取产生副作用: {before} -> {after}"
+
+
+def test_frontline_html_has_no_brand_or_internal_vocabulary():
+    """只扫描 HTML 的可见文字；API 字段、schema、实现标识不在此范围。"""
+    visible = "\n".join(_visible_html_text(path) for path in (
+        REPO_ROOT / "backlot" / "ui" / "operator.html",
+        REPO_ROOT / "backlot" / "ui" / "overview.html",
+    ))
+    forbidden = (
+        "OPENMONTAGE", "OpenMontage", "Editorial Gallery", "runtime",
+        "revision", "creative_lock", "script_lock", "undefined",
+    )
+    assert not [word for word in forbidden if word.lower() in visible.lower()], visible

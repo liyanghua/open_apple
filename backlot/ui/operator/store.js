@@ -1,7 +1,22 @@
+export function parseBatchContext(search = window.location.search) {
+  const params = new URLSearchParams(search || "");
+  const batchId = params.get("batch_id");
+  if (params.get("from") !== "batch" || !batchId) return null;
+  return {
+    from: "batch",
+    batchId,
+    returnUrl: `/p/${encodeURIComponent(batchId)}`,
+    candidateId: null,
+    selectedIds: [],
+    scrollTop: 0,
+  };
+}
+
 export function createOperatorStore() {
   let snapshot = {
     viewState: "loading", project: null, selectedStageId: null,
     message: "正在读取项目进度", session: null, drafts: {}, previews: {}, conflict: null,
+    navigation: parseBatchContext(),
   };
   const listeners = new Set();
   const emit = () => listeners.forEach((listener) => listener(snapshot));
@@ -23,5 +38,11 @@ export function createOperatorStore() {
     setConflict(conflict) { snapshot = { ...snapshot, conflict }; emit(); },
     setError(message = "项目进度暂时无法读取，请稍后重试") { snapshot = { ...snapshot, viewState: "error", message }; emit(); },
     selectStage(stageId) { snapshot = { ...snapshot, selectedStageId: stageId }; emit(); },
+    setNavigation(navigation) { snapshot = { ...snapshot, navigation }; emit(); },
+    rememberBatchScroll(scrollTop) {
+      if (!snapshot.navigation) return;
+      snapshot = { ...snapshot, navigation: { ...snapshot.navigation, scrollTop: Number(scrollTop) || 0 } };
+      emit();
+    },
   };
 }

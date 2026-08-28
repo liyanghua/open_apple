@@ -383,3 +383,33 @@ def test_operator_projection_does_not_hardcode_a_project_proxy_library() -> None
     projection = _read(REPO_ROOT / "backlot" / "operator_state.py")
 
     assert "projects/table-mat-mix-v8/assets/video/proxies" not in projection
+
+
+def test_connected_approval_workbench_has_navigation_and_stable_selectors() -> None:
+    html = _read(UI_ROOT / "operator.html")
+    app = _read(OPERATOR_ROOT / "app.js")
+    store = _read(OPERATOR_ROOT / "store.js")
+
+    for test_id in (
+        "workbench-message", "return-to-batch", "batch-workbench",
+        "candidate-quick-view", "batch-selection", "batch-primary-action",
+    ):
+        assert f'data-testid="{test_id}"' in html or f'"{test_id}"' in app
+    for term in (
+        "parseBatchContext", "from=batch", "batch_id", "返回批量总览",
+        "快速查看", "打开单条复核", "candidate-card-", "open-single-",
+    ):
+        assert term in app or term in store
+
+
+def test_approval_workbench_exposes_business_recovery_messages() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    store = _read(OPERATOR_ROOT / "store.js")
+    for message in (
+        "批次与候选不匹配，请返回批量总览",
+        "样片无法播放，请检查文件后重新拉取",
+        "刷新超时，请重新拉取最新结果",
+        "审批权限已变化，请重新拉取",
+        "本批没有可用视频",
+    ):
+        assert message in app or message in store

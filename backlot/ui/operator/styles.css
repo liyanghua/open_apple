@@ -132,6 +132,7 @@ h3 { font-size: 15px; }
   padding-bottom: 18px;
   border-bottom: 1px solid var(--line);
 }
+.workspace-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
 
 .status-line { margin: 0 0 6px; color: var(--accent); font-size: 12px; font-weight: 700; }
 .read-only-mark { flex: 0 0 auto; padding: 5px 8px; color: var(--muted); background: var(--canvas); border-radius: 4px; font-size: 12px; }
@@ -465,6 +466,8 @@ h3 { font-size: 15px; }
   .project-metrics div + div { border-top: 1px solid var(--line); }
   .inline-stats { grid-template-columns: minmax(0, 1fr); }
   .workspace-heading { align-items: center; }
+  .workspace-actions { align-items: stretch; flex-direction: column; }
+  .workspace-actions .quiet-button { white-space: normal; }
   .source-card { grid-template-columns: minmax(0, 1fr); }
   .reference-facts, .reference-scene-list { grid-template-columns: minmax(0, 1fr); }
   .reference-scene { grid-template-columns: 96px minmax(0, 1fr); }
@@ -507,6 +510,10 @@ h3 { font-size: 15px; }
 .batch-candidate-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .batch-candidate-direction, .batch-candidate-stages, .batch-candidate-cost, .batch-candidate-tracks { font-size: 12px; color: #4a5568; margin: 0; }
 .batch-candidate-link { font-size: 12px; }
+.batch-candidate-preview { display: block; width: 100%; max-height: 260px; aspect-ratio: 16 / 9; object-fit: cover; background: #111; border-radius: 6px; }
+.batch-media-error, .batch-issue-summary { margin: 6px 0; color: var(--attention); font-size: 13px; line-height: 1.5; }
+.candidate-quick-view { position: relative; z-index: 2; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 12px 32px rgb(29 37 41 / 18%); }
+.candidate-quick-view video { display: block; width: 100%; max-height: 420px; margin: 10px 0; background: #111; border-radius: 6px; }
 .batch-select-list { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }
 .batch-select-item { font-size: 14px; display: flex; align-items: center; gap: 6px; }
 .batch-select-reason { display: block; width: 100%; max-width: 420px; padding: 8px 10px; border: 1px solid #cbd5e0; border-radius: 6px; margin: 8px 0; }

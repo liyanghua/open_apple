@@ -49,9 +49,12 @@
           <p class="status-line" id="workspace-status">正在读取</p>
           <h2 id="workspace-title">阶段内容</h2>
         </div>
-        <span class="read-only-mark" id="access-mark">可编辑工作台</span>
+        <div class="workspace-actions">
+          <a class="quiet-button return-to-batch" id="return-to-batch" data-testid="return-to-batch" href="#" hidden>返回批量总览</a>
+          <span class="read-only-mark" id="access-mark">可编辑工作台</span>
+        </div>
       </div>
-      <div class="view-message" id="view-message" role="status" aria-live="polite"></div>
+      <div class="view-message" id="view-message" data-testid="workbench-message" role="status" aria-live="polite"></div>
       <div class="workspace-content" id="workspace-content"></div>
     </section>
 
