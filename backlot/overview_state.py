@@ -114,7 +114,7 @@ def _slim_run(run: dict, *, known: set[str] | None = None) -> dict:
         "reuse": material_reuse_report(_load_any(run["project"] / "artifacts" / "scene_plan.json") or {}),
         "audio": _audio_coverage(run["project"], run["script"]),
         "capacity": _capacity_verdict(run["project"], run["template_id"]),
-        "compressed_variant": _compressed_sibling(run),
+        "compressed_variant": _compressed_sibling(run, known=known),
         "checks": {
             "sensitive": (run["l1a_checks"].get("l1a_sensitive") or {}).get("status"),
             "subtitle_bounds": (run["l1a_checks"].get("l1a_subtitle_bounds") or {}).get("status"),
