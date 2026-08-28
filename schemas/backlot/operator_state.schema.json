@@ -480,7 +480,11 @@
       ],
       "properties": {
         "schema_version": {
-          "const": "1.0"
+          "const": "1.0",
+          "enum": [
+            "1.0",
+            "1.1"
+          ]
         },
         "kind": {
           "const": "batch_review"
@@ -770,6 +774,67 @@
                   "type": "string"
                 },
                 "description": "候选质量门失败项（评估/五项确认/字幕/开场/差异度）"
+              },
+              "subject_hash": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                ]
+              },
+              "workflow_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "current_step": {
+                "type": "string"
+              },
+              "current_artifact": {
+                "type": "string"
+              },
+              "review_status": {
+                "enum": [
+                  "not_ready",
+                  "awaiting_review",
+                  "approved",
+                  "needs_revision"
+                ]
+              },
+              "artifact_health": {
+                "enum": [
+                  "ready",
+                  "missing",
+                  "corrupt",
+                  "playback_failed",
+                  "unknown"
+                ]
+              },
+              "preview_url": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "selection_eligible": {
+                "type": "boolean"
+              },
+              "selection_block_reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
               }
             },
             "additionalProperties": false

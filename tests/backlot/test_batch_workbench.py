@@ -264,3 +264,32 @@ def test_unstable_when_child_changes_during_read(tmp_path, monkeypatch):
     board["_project_dir"] = batch_dir
     data = bs.build_batch_review_data(board, board["artifacts"]["candidate_batch"])
     assert data["consistency"] == "unstable"
+
+
+def test_derive_candidate_business_fields(tmp_path):
+    """schema 1.1 业务字段派生（纯函数）：subject_hash 按门 + workflow_revision=review 版本
+    （非 child_revision）+ selection_eligible 服务端规则（样片 approved + 报告存在）。"""
+    from backlot.batch_state import derive_candidate_business
+
+    def rev(review_id, kind, status, subject_hash, version=1, decided_at="2026-08-28T09:00:00+00:00"):
+        return {"review_id": review_id, "kind": kind, "status": status, "subject_hash": subject_hash,
+                "subject_version": version, "decided_at": decided_at, "created_at": decided_at}
+
+    # ① 待确认脚本门：subject_hash=脚本 review hash；workflow_revision=其版本
+    snap = {"stage_states": [{"stage_id": "script", "status": "awaiting_human"}], "phase": "building"}
+    out = derive_candidate_business(snap, reviews_by_kind={
+        "script_lock": [rev("r1", "script_lock", "awaiting_human", "1" * 64, version=3)],
+        "sample": [rev("r2", "sample", "approved", "2" * 64, version=1)]})
+    assert out["subject_hash"] == "1" * 64 and out["workflow_revision"] == 3
+    assert out["current_step"] == "script" and out["current_artifact"] == "script"
+    assert out["review_status"] == "awaiting_review" and out["selection_eligible"] is False
+
+    # ② 样片门 approved + 报告存在 → eligible
+    snap2 = {"stage_states": [{"stage_id": "sample", "status": "awaiting_human"}], "phase": "scoring"}
+    out2 = derive_candidate_business(snap2, reviews_by_kind={
+        "sample": [rev("r3", "sample", "approved", "3" * 64)]}, evaluate={"status": "pass"})
+    assert out2["selection_eligible"] is True and out2["selection_block_reason"] is None
+    # ③ 无评审 → not_ready + block_reason
+    out3 = derive_candidate_business(snap2, reviews_by_kind={}, evaluate=None, media_ready=False)
+    assert out3["review_status"] == "not_ready" and out3["artifact_health"] == "missing"
+    assert "尚未通过样片确认" in (out3["selection_block_reason"] or "")

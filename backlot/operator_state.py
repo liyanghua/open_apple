@@ -2021,27 +2021,34 @@ def load_operator_state(
     ]
     state["revision"] = operator_revision(state)
     validate_operator_state(state)
-    # 批事件流（契约 §5）：批页每次拉取状态即发布 snapshot_published +
-    # 变化候选的 candidate_changed；投递失败不回滚事实提交，客户端可重新拉取。
-    editor = state.get("workspace", {}).get("editor") if isinstance(state.get("workspace"), Mapping) else None
-    if isinstance(editor, Mapping) and editor.get("type") == "batch_review":
-        try:
-            from backlot.batch_events import publish_snapshot
-
-            data = editor.get("data") if isinstance(editor.get("data"), Mapping) else {}
-            publish_snapshot(
-                project_dir,
-                aggregate_revision=str(data.get("aggregate_revision") or ""),
-                phase=str(data.get("phase") or "building"),
-                candidates={
-                    str(view.get("candidate_id") or ""): view.get("child_revision")
-                    for view in (data.get("candidates") or [])
-                    if isinstance(view, Mapping) and view.get("candidate_id")
-                },
-            )
-        except Exception:
-            pass
     return state
+
+
+def publish_batch_snapshot(state: dict, project_dir: Path) -> None:
+    """显式发布路径（契约 §5）：批快照事件由批量写/刷新端点调用，读取路径不触发。
+
+    读取路径（load_operator_state）保持纯读：不写 batch-events.jsonl /
+    batch-last-snapshot.json（评审修正 3）；缺省调用点 = Phase 2/3 批量投影端点。
+    """
+    editor = state.get("workspace", {}).get("editor") if isinstance(state.get("workspace"), Mapping) else None
+    if not (isinstance(editor, Mapping) and editor.get("type") == "batch_review"):
+        return
+    try:
+        from backlot.batch_events import publish_snapshot
+
+        data = editor.get("data") if isinstance(editor.get("data"), Mapping) else {}
+        publish_snapshot(
+            project_dir,
+            aggregate_revision=str(data.get("aggregate_revision") or ""),
+            phase=str(data.get("phase") or "building"),
+            candidates={
+                str(view.get("candidate_id") or ""): view.get("child_revision")
+                for view in (data.get("candidates") or [])
+                if isinstance(view, Mapping) and view.get("candidate_id")
+            },
+        )
+    except Exception:
+        pass
 
 
 def delivery_candidate_ids(project_dir: Path) -> dict[str, set[str]]:

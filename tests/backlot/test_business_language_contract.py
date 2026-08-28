@@ -46,31 +46,34 @@ def test_subject_hash_helper_selection(tmp_path: Path):
     (project / "operator" / "operator-managed").touch()
 
     def _write(review_id: str, status: str, subject_hash: str, *, decided_at=None,
-               created_at=None, superseded=None):
+               created_at=None, kind="sample"):
         data = {"schema_version": "1.0", "review_id": review_id, "project_id": "proj",
-                "kind": "sample", "subject_id": f"sample-v1", "subject_version": 1,
+                "kind": kind, "subject_id": f"{kind}-v1", "subject_version": 1,
                 "subject_hash": subject_hash, "status": status, "submitted_by": "t",
                 "decided_by": None, "reason": None, "created_at": created_at or "2026-08-28T00:00:00+00:00",
                 "decided_at": decided_at}
-        if superseded is not None:
-            data["superseded"] = superseded
         (project / "operator" / "reviews" / f"{review_id}.json").write_text(
             json.dumps(data), encoding="utf-8")
 
     svc = ReviewService(project)
-    # ① pending 优先
-    _write("r-pending", "awaiting_human", "a" * 64)
-    assert svc.subject_hash_for_gate() == "a" * 64
-    # ② 无 pending：approved(较晚) > rejected(较早) > superseded(最晚但排除)
-    (project / "operator" / "reviews" / "r-pending.json").unlink()
-    _write("r-sup", "rejected", "d" * 64, decided_at="2026-08-28T10:00:00+00:00", superseded=True)
-    _write("r-old", "rejected", "b" * 64, decided_at="2026-08-28T08:00:00+00:00")
-    _write("r-new", "approved", "c" * 64, decided_at="2026-08-28T09:00:00+00:00")
-    assert svc.subject_hash_for_gate() == "c" * 64
-    # ③ 全部清空 → None
+    # ① 按门筛选：存在 script_lock + sample 两类，各取各的
+    _write("r-script", "approved", "1" * 64, decided_at="2026-08-28T09:00:00+00:00", kind="script_lock")
+    _write("r-sample", "awaiting_human", "a" * 64, kind="sample")
+    assert svc.subject_hash_for_gate("script_lock") == "1" * 64
+    assert svc.subject_hash_for_gate("sample") == "a" * 64
+    assert svc.subject_hash_for_gate("creative_lock") is None
+    # ② pending 优先（sample 门）
+    assert svc.subject_hash_for_gate("sample") == "a" * 64
+    # ③ 无 pending：approved(较晚) > rejected(较早) > superseded(status，最晚但排除)
+    (project / "operator" / "reviews" / "r-sample.json").unlink()
+    _write("r-sup", "superseded", "d" * 64, decided_at="2026-08-28T10:00:00+00:00", kind="sample")
+    _write("r-old", "rejected", "b" * 64, decided_at="2026-08-28T08:00:00+00:00", kind="sample")
+    _write("r-new", "approved", "c" * 64, decided_at="2026-08-28T09:00:00+00:00", kind="sample")
+    assert svc.subject_hash_for_gate("sample") == "c" * 64
+    # ④ 全部清空 → None
     for f in (project / "operator" / "reviews").glob("*.json"):
         f.unlink()
-    assert svc.subject_hash_for_gate() is None
+    assert svc.subject_hash_for_gate("sample") is None
 
 
 def test_read_path_purity(tmp_path: Path):
@@ -92,7 +95,8 @@ def test_read_path_purity(tmp_path: Path):
         pointer = (project / "generation" / "current.json").read_text() if (project / "generation" / "current.json").exists() else None
         cp = (project / "checkpoint_script.json").read_text()
         events = sorted(p.name for p in (project / "operator" / "events").glob("*")) if (project / "operator" / "events").exists() else []
-        return reviews, pointer, cp, events
+        batch_snapshot = sorted(p.name for p in (project / "operator").glob("batch-*.json*"))
+        return reviews, pointer, cp, events, batch_snapshot
 
     before = snapshot()
     with __import__("contextlib").nullcontext():

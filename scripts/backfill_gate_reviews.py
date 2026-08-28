@@ -16,9 +16,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser(description="补建门 review（显式迁移）")
+    ap.add_argument("--projects-dir", default=str(ROOT / "projects"))
+    args = ap.parse_args()
+    projects_root = Path(args.projects_dir)
     done = skipped = missing_after = 0
-    for proj in sorted((ROOT / "projects").glob("template-run-*")):
-        if not (proj / "operator" / "operator-managed").exists():
+    for proj in sorted(projects_root.iterdir()):
+        if not proj.is_dir() or not (proj / "operator" / "operator-managed").exists():
             continue
         checkpoint = None
         for stage, key in (("script", "checkpoint_script.json"), ("assets", "checkpoint_assets.json"),

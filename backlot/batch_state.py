@@ -203,7 +203,6 @@ def child_snapshot(project_dir: Path, child_dir: Path) -> dict[str, Any]:
         inputs = _child_revision_inputs(project_dir, child_dir)
     except Exception:
         snapshot["corrupt"] = True
-        return snapshot
     if inputs is None:
         return snapshot
     snapshot["exists"] = True
@@ -263,6 +262,23 @@ def child_snapshot(project_dir: Path, child_dir: Path) -> dict[str, Any]:
                 "subject_hash": review.get("subject_hash"),
                 "actions": ["批准", "拒绝"],
             })
+    # schema 1.1 业务字段（纯派生；reviews 只读）
+    from backlot.operator_reviews import ReviewService
+
+    _svc = ReviewService(child_dir)
+    _by_kind: dict[str, list[dict]] = {}
+    for _r in _svc.list():
+        _by_kind.setdefault(str(_r.get("kind") or ""), []).append(_r)
+    _eval = None
+    try:
+        _eval = __import__("json").loads(
+            (child_dir / "artifacts" / "evaluation_report.json").read_text(encoding="utf-8"))
+    except Exception:
+        _eval = None
+    snapshot.update(derive_candidate_business(
+        snapshot, reviews_by_kind=_by_kind, evaluate=_eval,
+        media_ready=bool((snapshot.get("media") or {}).get("sample_url"))))
+
     return snapshot
 
 
@@ -681,4 +697,82 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
         "warnings": warnings,
         "diversity": diversity,
         "reports": reports,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 候选业务字段（schema 1.1，评审修正后定义；Selection 派生规则见 spec §5.1/§3.3）
+# ---------------------------------------------------------------------------
+GATE_KIND_BY_STAGE = {"script": "script_lock", "assets": "creative_lock", "sample": "sample"}
+KIND_ORDER = ("script_lock", "creative_lock", "sample")
+
+
+def derive_candidate_business(
+    snapshot: dict,
+    *,
+    reviews_by_kind: dict[str, list[dict]],
+    evaluate: dict | None = None,
+    media_ready: bool = True,
+) -> dict:
+    """**纯派生**（无 fs/无写）：从已有快照+review 列表计算 schema 1.1 候选业务字段。
+
+    workflow_revision：取「当前门」(script→assets→sample 顺序首个有 review 的门)
+    的 subject_version（审批/内容版本，不是随产物变化的 child_revision）。
+    selection_eligible：仅服务端派生——sample 门 approved 且评价报告存在（evaluate 非空）。
+    """
+    import re as _re
+
+    awaiting = next((s.get("stage_id") for s in snapshot.get("stage_states", [])
+                     if s.get("status") == "awaiting_human"), None)
+    gate_kind = GATE_KIND_BY_STAGE.get(awaiting or "")
+    chosen: dict | None = None
+    chosen_kind: str | None = (gate_kind if gate_kind else None)
+    if chosen_kind:
+        items = [i for i in reviews_by_kind.get(chosen_kind, []) if i.get("status") == "awaiting_human"]
+        chosen = items[-1] if items else None
+    if chosen is None:
+        # 无 pending：按门顺序取最近已决（approved/rejected，排除 status=superseded）
+        for kind in KIND_ORDER:
+            items = [i for i in reviews_by_kind.get(kind, [])
+                     if i.get("status") in {"approved", "rejected"}]
+            if not items:
+                continue
+            items.sort(key=lambda i: (str(i.get("decided_at") or ""), str(i.get("created_at") or ""),
+                                      str(i.get("review_id") or "")))
+            chosen = items[-1]
+            chosen_kind = kind
+            break
+    subject_hash = chosen.get("subject_hash") if chosen else None
+    workflow_revision = int(chosen.get("subject_version") or 0) if chosen else 0
+    review_status = "not_ready"
+    if chosen:
+        review_status = {"awaiting_human": "awaiting_review", "approved": "approved",
+                         "rejected": "needs_revision"}.get(chosen.get("status"), "awaiting_review")
+    current_artifact = "none"
+    if awaiting == "script":
+        current_artifact = "script"
+    elif awaiting == "assets":
+        current_artifact = "production_plan"
+    elif awaiting == "sample":
+        current_artifact = "sample"
+    elif snapshot.get("media"):
+        current_artifact = "sample"
+    eligible, block = False, None
+    sample_review = [i for i in reviews_by_kind.get("sample", []) if i.get("status") == "approved"]
+    if not sample_review:
+        block = "尚未通过样片确认"
+    elif not evaluate:
+        block = "评分报告缺失或未生成"
+    else:
+        eligible = True
+    return {
+        "subject_hash": subject_hash,
+        "workflow_revision": workflow_revision,
+        "current_step": awaiting or str(snapshot.get("phase") or ""),
+        "current_artifact": current_artifact,
+        "review_status": review_status,
+        "artifact_health": "ready" if media_ready else "missing",
+        "preview_url": snapshot.get("preview_url"),
+        "selection_eligible": eligible,
+        "selection_block_reason": block,
     }

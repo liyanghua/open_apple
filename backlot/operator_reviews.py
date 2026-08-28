@@ -463,14 +463,15 @@ class ReviewService:
         active = [item for item in self.list() if item.get("status") == "awaiting_human"]
         return active[-1] if active else None
 
-    def subject_hash_for_gate(self) -> str | None:
-        """纯读取（修正 1）：当前门的内容快照 hash。
+    def subject_hash_for_gate(self, kind: str) -> str | None:
+        """纯读取（修正 1）：**按门（kind）**取内容快照 hash。
 
+        kind ∈ {script_lock, creative_lock, sample}（分别对应 脚本/制作准备/样片 门）。
         优先级：awaiting_human（pending，取最近）→ 最近已决（approved/rejected，
-        排除 superseded，按 decided_at → created_at → review_id 确定性排序）→ None。
+        排除 status=superseded，按 decided_at → created_at → review_id 确定性排序）→ None。
         不写文件、不创建 review、不改 checkpoint。
         """
-        items = self.list()
+        items = [i for i in self.list() if i.get("kind") == kind]
         pending = [i for i in items if i.get("status") == "awaiting_human"]
         for item in pending[-1:]:
             h = item.get("subject_hash")
