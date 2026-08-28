@@ -105,6 +105,7 @@ def vlm_calibrate(template_id: str, *, model: str = "qwen-plus", threshold: floa
         "桌角对齐-挤压不变形（边角/贴合/翘边/圆角/挤压/不刮手）；"
         "自动铺开对齐（铺开/平铺/对齐/自由裁切）；"
         "餐桌场景（家庭餐桌/家人/生活质感/木纹/价格/品牌/直播间等事实语境）。"
+        "约束：同一动作域最多 2 个 slot；相邻 slot 不得同域；优先真实语义，其次分布均衡（首尾镜头优先真实语义）。"
         "只输出 JSON：{\"slots\":[{\"ordinal\":N,\"domain\":\"...\",\"confidence\":0.0-1.0,\"reason\":\"一句话\"}]}\n"
         f"slots={json.dumps(slots_desc, ensure_ascii=False)}"
     )
