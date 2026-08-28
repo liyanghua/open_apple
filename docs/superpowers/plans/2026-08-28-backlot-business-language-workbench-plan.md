@@ -71,7 +71,7 @@ Expected: FAIL，当前候选只有技术字段和项目链接，没有可直接
 
 - [ ] **Step 3: 实现只读派生。**
 
-在 `batch_state.py` 根据现有 checkpoint、sample report、evaluation 和 pending review 派生业务字段；增加 `subject_hash`（内容快照）、`workflow_revision`（审批/checkpoint 版本）、`current_step`、`current_artifact`、`review_status`、`selection_eligible` 和 `selection_block_reason`。缺失或损坏时返回明确状态，不在读取函数内创建 review、写事件或修改 checkpoint。`operator_state.py` 将批级上下文投影到 operator state，并保持 revision 计算稳定；批展示 schema 升为 1.1，旧客户端只读兼容。
+在 `batch_state.py` 根据现有 checkpoint、sample report、evaluation 和 pending review 派生业务字段；增加 `subject_hash`（当前或最近一次可审内容快照）、`workflow_revision`（审批/checkpoint 版本）、`current_step`、`current_artifact`、`review_status`、`artifact_health`、`selection_eligible` 和 `selection_block_reason`。缺失或损坏时返回明确状态，不在读取函数内创建 review、写事件或修改 checkpoint。`operator_state.py` 将批级上下文投影到 operator state，并保持 revision 计算稳定；批展示 schema 升为 1.1，旧客户端只读兼容。
 
 - [ ] **Step 4: 更新 schema 并运行测试。**
 
@@ -178,8 +178,11 @@ git commit -m "feat(backlot): present single review artifacts in business order"
 - Modify: `backlot/ui/operator/app.js`
 - Modify: `backlot/ui/operator/api.js`
 - Modify: `backlot/batch_actions.py`
+- Modify: `backlot/batch_state.py`
+- Modify: `backlot/project_commit.py`
 - Modify: `backlot/operator_routes.py`
 - Test: `tests/backlot/test_batch_actions.py`
+- Test: `tests/backlot/test_project_commit.py`
 - Test: `tests/backlot/test_operator_ui_contract.py`
 
 - [ ] **Step 1: 写失败测试。**
@@ -194,7 +197,7 @@ Expected: FAIL，现有按钮和错误文案仍以技术动作表达，测试需
 
 - [ ] **Step 3: 固化 prepare/commit 文案和状态。**
 
-保留现有 `aggregate_revision`、participants、幂等键和 recovery 合同；验证并补齐 staged generation、稳定锁顺序、commit marker、补偿回滚和 `replayed/idempotency_conflict` 响应。主按钮按“脚本 → 制作准备 → 样片”的固定顺序选择最早待确认门，错误映射为“结果有更新，请重新拉取”“没有审批权限”“有一项确认未通过”“需要恢复这次提交”。
+保留现有 `aggregate_revision`、participants、幂等键和 recovery 合同；验证并补齐 staged generation、稳定锁顺序、commit marker、批动作 `visibility_fence`、fence 放行前的 outbox 暂缓、CAS 补偿回滚和 `replayed/idempotency_conflict` 响应。增加故障注入测试：逐个 pointer 切换期间所有读取仍见旧事实，全部 marker 齐全后整批可见；补偿只修改仍匹配 coordinator marker 的 pointer，不能覆盖并发新事实。主按钮按“脚本 → 制作准备 → 样片”的固定顺序选择最早待确认门，错误映射为“结果有更新，请重新拉取”“没有审批权限”“有一项确认未通过”“需要恢复这次提交”。
 
 - [ ] **Step 4: 确认批量两步边界。**
 
@@ -220,7 +223,7 @@ git commit -m "feat(backlot): clarify batch approval actions and outcomes"
 
 - [ ] **Step 1: 写浏览器失败场景。**
 
-覆盖桌面和移动端：批量首屏、只读候选抽屉、进入单条、返回批量、批量门确认、选择托盘、混合阶段、退回/失败候选、无合格候选和报告降级。
+覆盖桌面和移动端：批量首屏、只读候选抽屉、进入单条、返回批量、批量门确认、选择托盘、混合阶段、退回/失败候选、无合格候选和报告降级。服务端 fixture 还必须覆盖批次/候选不匹配、候选删除或归档、预览 URL 失效、媒体播放失败、状态刷新超时和加载后权限撤销；测试应断言动作被禁用或服务端拒绝，并出现规格中的中文恢复入口，而不只是扫描字符串。
 
 - [ ] **Step 2: 运行失败场景确认缺口。**
 

@@ -134,10 +134,10 @@
 | `approved` 已通过 | 否 | 完成评分且报告完整后可选 | 否 |
 | `needs_revision` 已退回 | 否 | 否 | 否 |
 | `failed` 技术失败 | 否 | 否 | 否 |
-| `missing/corrupt` 产物异常 | 否 | 否 | 否 |
+| `artifact_health=missing/corrupt` 产物异常 | 否 | 否 | 否 |
 | `excluded` 本轮不参与 | 否 | 否 | 否 |
 
-当所有“存活候选”都已完成样片门和评分，或进入 `needs_revision/failed/missing/corrupt/excluded` 终态时，批次结束等待并计算可选集合。至少有 1 条 `approved + evaluated + report_complete` 候选时进入选择；没有合格候选时进入“本批没有可用视频”，主动作改为“查看问题汇总”，不显示选择托盘。
+当所有“存活候选”都已完成样片门和评分，或进入 `needs_revision/failed/excluded` 审核终态，或 `artifact_health=missing/corrupt` 时，批次结束等待并计算可选集合。至少有 1 条 `approved + evaluated + report_complete` 候选时进入选择；没有合格候选时进入“本批没有可用视频”，主动作改为“查看问题汇总”，不显示选择托盘。
 
 “退回并说明原因”在本轮写入 `needs_revision`、结构化问题标签和用户说明，页面显示“已退回，等待制作人员更新”。实际修改可由现有制作流程或后续编辑工作室完成；新内容以新的 `subject_hash` 重新进入对应确认门，旧审批不继承。退回不会卡住其他候选的批量确认或选择。
 
@@ -245,12 +245,13 @@
 |---|---|---|
 | `batch_id` | 批次身份 | 批次 |
 | `aggregate_revision` | 批量动作快照 | 批次结果版本 |
-| `candidate.subject_hash` | 单条内容快照；内容不变则稳定 | 这条视频版本 |
+| `candidate.subject_hash` | 单条内容快照；内容不变则稳定；已有可审产物时必填 | 这条视频版本 |
 | `candidate.workflow_revision` | 审批/checkpoint 乐观并发 | 不直接展示 |
 | `candidate.preview_url` | 样片/成片预览 | 视频 |
 | `candidate.current_step` | 当前阶段 | 当前步骤 |
 | `candidate.current_artifact` | 当前产物 | 正在看的内容 |
 | `candidate.review_status` | 单条审核状态 | 待确认/已通过/需修改 |
+| `candidate.artifact_health` | 产物是否可用 | 正常/缺失/损坏/播放失败 |
 | `pending_gates` | 批量待确认门 | 当前要做 |
 | `selection` | 精剪选择 | 已选/最多 |
 | `reports.data_quality` | 报告可用性 | 结果是否完整 |
@@ -263,18 +264,19 @@
 {
   "candidate_id": "string, required",
   "project_id": "string, required",
-  "subject_hash": "64-hex | null; 当前门没有可审批内容时为 null",
+  "subject_hash": "64-hex; 已有脚本、制作清单或样片时必填，尚未产生内容时可为 null",
   "workflow_revision": "integer >= 0",
   "current_step": "research|proposal|script|scene_plan|assets|sample|edit|compose|publish",
   "current_artifact": "research|proposal|script|scene_plan|production_plan|sample|final|delivery|none",
   "review_status": "not_ready|awaiting_review|approved|needs_revision|failed|excluded",
+  "artifact_health": "ready|missing|corrupt|playback_failed|unknown",
   "preview_url": "same-origin URL | null",
   "selection_eligible": "boolean",
   "selection_block_reason": "string | null"
 }
 ```
 
-`subject_hash` 由当前 review 绑定内容产生，`workflow_revision` 由候选审批/checkpoint generation 产生，`selection_eligible` 只能由服务端按 §3.3 计算。字段缺失、类型错误或枚举未知时 schema 校验失败；历史批次由投影层返回 `null/not_ready`，前端不自行补猜。schema `1.0` 客户端只读兼容，写动作必须先重新拉取 `1.1` 快照。
+`subject_hash` 由当前或最近一次已决 review 绑定的内容产生，review 关闭后仍保留；样片评分则额外绑定 `evaluation_hash`。只有候选尚未产生任何可审内容时才允许为 `null`，此时 `review_status=not_ready` 且不可选择。`workflow_revision` 由候选审批/checkpoint generation 产生，`artifact_health` 独立表达 `missing/corrupt/playback_failed`，不挤占审核状态；`selection_eligible` 只能由服务端按 §3.3 计算。字段缺失、类型错误或枚举未知时 schema 校验失败；历史批次由投影层返回明确的 `not_ready/unknown`，前端不自行补猜。schema `1.0` 客户端只读兼容，写动作必须先重新拉取 `1.1` 快照。
 
 ### 5.2 批量动作合同
 
@@ -285,9 +287,9 @@
 - 样片门的五项确认（仅样片门）；
 - 幂等键和用户原因。
 
-服务端先执行 prepare：核对权限、候选归属、内容 `subject_hash`、流程 `workflow_revision`、确认项和报告完整性；全部通过后再 commit。跨项目不能依赖一个数据库事务，因此协调器按稳定的 `project_id` 顺序加锁，把每个候选的 review、checkpoint、approval bundle、decision log 和 outbox 事件写入 prepared generation，再统一提交 current pointer。任一候选在 prepare 失败，清理所有 prepared generation 并返回 `stale`、`forbidden` 或 `validation_failed`，不产生用户可见批准。
+服务端先执行 prepare：核对权限、候选归属、内容 `subject_hash`、流程 `workflow_revision`、确认项和报告完整性；全部通过后再 commit。跨项目不能依赖一个数据库事务，因此协调器按稳定的 `project_id` 顺序加锁，把每个候选的 review、checkpoint、approval bundle、decision log 和 outbox 事件写入 prepared generation，再统一提交 current pointer。批量投影有 `visibility_fence`：只要 coordinator 不是 `committed/replayed`，批根和候选投影都继续读取旧 current pointer，并隐藏 prepared generation；事件 outbox 也只在 fence 放行后发布。任一候选在 prepare 失败，清理所有 prepared generation 并返回 `stale`、`forbidden` 或 `validation_failed`，不产生用户可见批准。
 
-commit 中途进程退出时，协调记录保持 `committing` 和每个参与者的 commit marker。恢复器按原顺序继续提交；发现参与者内容或流程版本已被外部改变时转为 `needs_recovery`，不覆盖新事实。无法继续时使用旧 generation 做补偿回滚，状态为 `rolled_back`。只有全部 marker 齐全后才返回 `committed`；重复请求按批次作用域的幂等键返回 `replayed`。
+commit 中途进程退出时，协调记录保持 `committing` 和每个参与者的 commit marker。恢复器按原顺序继续提交；每次 pointer 更新使用“旧 generation + coordinator id”条件写入，发现参与者内容或流程版本已被外部改变时转为 `needs_recovery`，不覆盖新事实。由于 visibility fence 尚未放行，已切换的 pointer 不会被用户看到；无法继续时只对仍匹配 coordinator marker 的参与者执行 CAS 补偿回滚，无法安全回滚则保留旧可见版本并等待人工恢复，不做静默覆盖。只有全部 marker 齐全后才切换 fence、释放 outbox 并返回 `committed`；重复请求按批次作用域的幂等键返回 `replayed`。
 
 批量命令的最小请求合同如下：
 
@@ -296,7 +298,6 @@ commit 中途进程退出时，协调记录保持 `committing` 和每个参与�
   "action_type": "batch_approve_gate",
   "gate": "sample",
   "aggregate_revision": "<64-hex>",
-  "idempotency_key": "<client-generated>",
   "reason": "批量确认样片",
   "participants": [{
     "candidate_id": "direction-a",
@@ -312,9 +313,9 @@ commit 中途进程退出时，协调记录保持 `committing` 和每个参与�
 }
 ```
 
-成功响应为 `{status:"committed", batch_action_id, aggregate_revision, participants:[...]}`。失败响应必须包含 `{status, batch_action_id, participant_errors:[{candidate_id, code, message, retryable}], current_revisions, retryable}`。批量确认原因默认使用“批量确认当前门”，批量选择原因使用用户填写的选择理由；两者都写入审计，不要求一线人员填写内部字段。
+成功响应为 `{status:"committed", batch_action_id, aggregate_revision, participants:[...]}`。失败响应必须包含 `{status, batch_action_id, participant_errors:[{candidate_id, code, message, retryable}], current_revisions, retryable}`。`Idempotency-Key` 只放请求头，不放 body；服务端把 header 值写入 coordinator record，缺失或为空直接拒绝。批量确认原因默认使用“批量确认当前门”，批量选择原因使用用户填写的选择理由；两者都写入审计，不要求一线人员填写内部字段。
 
-批量选择继续使用 `POST /api/v2/projects/{batch_id}/batch/select`，请求为 `{aggregate_revision, candidate_ids:[1..2], evaluation_snapshots:[{candidate_id, subject_hash, evaluation_hash}], reason}`；服务端重新验证候选归属、`selection_eligible` 和报告 hash。两个批量端点都要求 `Idempotency-Key` 请求头；作用域为批项目，至少保留到该 coordinator record 被归档。同 key 同请求返回 `replayed`，同 key 不同请求返回 `idempotency_conflict`。
+批量选择继续使用 `POST /api/v2/projects/{batch_id}/batch/select`，请求为 `{action_type:"batch_select_for_edit", aggregate_revision, participants:[{candidate_id, project_id, subject_hash, workflow_revision, evaluation_hash}], reason}`；服务端重新验证候选归属、`selection_eligible` 和报告 hash，并把 `candidate_ids` 从 participants 确定性派生。两个批量端点都要求 `Idempotency-Key` 请求头；作用域为批项目，至少保留到该 coordinator record 被归档。同 key 同请求返回 `replayed`，同 key 不同请求返回 `idempotency_conflict`。
 
 ### 5.3 单条与批量事实边界
 
