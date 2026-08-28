@@ -278,12 +278,76 @@ _NARRATION_SHEET_19C4 = [
     ("脏了一擦就净。", "直播间见", "cta"),
 ]
 
+
+# sheet-15-video17-aks-zhuodian（VLM 标定生成口播行）。
+_NARRATION_SHEET_15 = [
+    ("软玻璃贴合桌面，不翘边。", "贴合 · 不翘边", "proof"),
+    ("自动铺开，轻松对齐。", "自动铺开 · 对齐省事", "proof"),
+    ("耐磨防刮，久用如新。", "耐刮耐磨 · 久用如新", "proof"),
+    ("油污汤汁，一擦就净。", "油污 · 一擦即净", "proof"),
+    ("餐桌省心，质感如新。", "餐桌 · 省心好物", "proof"),
+    ("油污汤汁，一擦就净。", "油污 · 一擦即净", "proof"),
+    ("软玻璃贴合桌面，不翘边。", "贴合 · 不翘边", "proof"),
+    ("0 甲醛，检测报告为证。", "0 甲醛 · 报告可查", "proof"),
+    ("餐桌省心，质感如新。", "餐桌 · 省心好物", "proof"),
+]
+
+
+# sheet-20-video23-aks-zhuodian（VLM 标定生成口播行）。
+_NARRATION_SHEET_20 = [
+    ("软玻璃贴合桌面，不翘边。", "贴合 · 不翘边", "proof"),
+    ("油污汤汁，一擦就净。", "油污 · 一擦即净", "proof"),
+    ("耐磨防刮，久用如新。", "耐刮耐磨 · 久用如新", "proof"),
+    ("自动铺开，轻松对齐。", "自动铺开 · 对齐省事", "proof"),
+    ("餐桌省心，质感如新。", "餐桌 · 省心好物", "proof"),
+    ("油污汤汁，一擦就净。", "油污 · 一擦即净", "proof"),
+    ("0 甲醛，检测报告为证。", "0 甲醛 · 报告可查", "proof"),
+    ("油污汤汁，一擦就净。", "油污 · 一擦即净", "proof"),
+    ("软玻璃贴合桌面，不翘边。", "贴合 · 不翘边", "proof"),
+    ("餐桌省心，质感如新。", "餐桌 · 省心好物", "proof"),
+]
+
+
+# sheet-22-video27-aks-zhuodian（VLM 标定生成口播行）。
+_NARRATION_SHEET_22 = [
+    ("餐桌省心，质感如新。", "餐桌 · 省心好物", "proof"),
+    ("餐桌省心，质感如新。", "餐桌 · 省心好物", "proof"),
+    ("软玻璃贴合桌面，不翘边。", "贴合 · 不翘边", "proof"),
+    ("耐磨防刮，久用如新。", "耐刮耐磨 · 久用如新", "proof"),
+    ("油污汤汁，一擦就净。", "油污 · 一擦即净", "proof"),
+    ("油污汤汁，一擦就净。", "油污 · 一擦即净", "proof"),
+    ("软玻璃贴合桌面，不翘边。", "贴合 · 不翘边", "proof"),
+    ("餐桌省心，质感如新。", "餐桌 · 省心好物", "proof"),
+]
+
+
+# sheet-42-video48-yanban-zhuojia（VLM 标定生成口播行）。
+_NARRATION_SHEET_42 = [
+    ("油污汤汁，一擦就净。", "油污 · 一擦即净", "proof"),
+    ("餐桌省心，质感如新。", "餐桌 · 省心好物", "proof"),
+    ("自动铺开，轻松对齐。", "自动铺开 · 对齐省事", "proof"),
+    ("餐桌省心，质感如新。", "餐桌 · 省心好物", "proof"),
+    ("0 甲醛，检测报告为证。", "0 甲醛 · 报告可查", "proof"),
+    ("软玻璃贴合桌面，不翘边。", "贴合 · 不翘边", "proof"),
+    ("自动铺开，轻松对齐。", "自动铺开 · 对齐省事", "proof"),
+    ("自动铺开，轻松对齐。", "自动铺开 · 对齐省事", "proof"),
+    ("自动铺开，轻松对齐。", "自动铺开 · 对齐省事", "proof"),
+    ("耐磨防刮，久用如新。", "耐刮耐磨 · 久用如新", "proof"),
+    ("油污汤汁，一擦就净。", "油污 · 一擦即净", "proof"),
+    ("餐桌省心，质感如新。", "餐桌 · 省心好物", "proof"),
+    ("餐桌省心，质感如新。", "餐桌 · 省心好物", "proof"),
+]
+
 _NARRATION_BY_TEMPLATE: dict[str, list[tuple[str, str, str]]] = {
     "sheet-04-video4-zhuodian": _NARRATION_SHEET_04,
     "sheet-05-video5-aks-zhuodian": _NARRATION_SHEET_05,
     "sheet-09-video9-aks-zhuodian": _NARRATION_SHEET_09,
     "sheet-14-video15-aks-zhuodian": _NARRATION_SHEET_14,
 "sheet-19-video22-aks-zhuodian": _NARRATION_SHEET_19,
+    "sheet-15-video17-aks-zhuodian": _NARRATION_SHEET_15,
+    "sheet-20-video23-aks-zhuodian": _NARRATION_SHEET_20,
+    "sheet-22-video27-aks-zhuodian": _NARRATION_SHEET_22,
+    "sheet-42-video48-yanban-zhuojia": _NARRATION_SHEET_42,
     "sheet-14-video15-aks-zhuodian-c1": _NARRATION_SHEET_14C1,
     "sheet-04-video4-zhuodian-c1": _NARRATION_SHEET_04C1,
     "sheet-05-video5-aks-zhuodian-c1": _NARRATION_SHEET_05C1,
