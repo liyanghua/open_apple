@@ -522,5 +522,11 @@ def rollback_generation(project_dir: Path, generation_id: str) -> bool:
         else:
             with contextlib.suppress(FileNotFoundError):
                 target.unlink()
+    # P1（自审发现）：回退 pointer 至该 generation 的 base（held 前事实）；
+    # 否则 pointer 仍指向已回滚 generation，后续提交的 CAS 链与读者解析都会错。
+    previous = str(manifest.get("base_generation_id") or "")
+    _atomic_write(pointer_path, _json_bytes(
+        {"generation_id": previous or generation_id,
+         "manifest_sha256": str(manifest.get("base_manifest_sha256") or "")}))
     _write_status(generation_dir, "rolled-back")
     return True

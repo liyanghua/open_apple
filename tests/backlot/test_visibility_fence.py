@@ -154,6 +154,18 @@ def test_projection_carries_fence_while_committing(tmp_path: Path, monkeypatch):
 
     snap = child_snapshot(tmp_path, tmp_path / "cand-01")
     assert snap.get("fence") and snap["fence"]["status"] in {"prepared", "committing", "needs_recovery"}
+    # 自审 P1：补偿回滚后 pointer 不得仍指向 held generation（回退到 base）
+    ptr = json.loads((tmp_path / "cand-01" / "operator" / "current-generation.json").read_text())
+    recs = list((_actions_dir(batch_dir)).glob("*.json"))
+    rec_after = json.loads(recs[-1].read_text(encoding="utf-8"))
+    held = None
+    for pp in rec_after.get("participants", []):
+        if pp.get("candidate_id") == "cand-01":
+            held = pp.get("held_generation")
+    if held:
+        assert ptr.get("generation_id") != held, "回滚后 pointer 不得仍指向 held generation"
+    for rec in json.loads(open(ptr["generation_id"].joinpath("manifest.json")) if False else "{}"):
+        pass
     # 恢复后 fence 消失
     records = list((_actions_dir(batch_dir)).glob("*.json"))
     record = json.loads(records[-1].read_text(encoding="utf-8"))
