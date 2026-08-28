@@ -293,6 +293,9 @@ _NARRATION_BY_TEMPLATE: dict[str, list[tuple[str, str, str]]] = {
     "sheet-19-video22-aks-zhuodian-c1": _NARRATION_SHEET_19C1,
 }
 
+from lib.template_calibrations import _GENERATED_ROWS as _GEN_ROWS
+_NARRATION_BY_TEMPLATE.update(_GEN_ROWS)
+
 # 逐镜转场意图（按 template 参考片语法：动作匹配切为主，硬切开场/收尾）。
 # 明显化调整：证明前强调用 proof（flash-proof 闪白 0.12s，纯闪不缩放），
 # 高潮特写用 impact（impact-cut 缩放+闪），其余动作匹配 fade。

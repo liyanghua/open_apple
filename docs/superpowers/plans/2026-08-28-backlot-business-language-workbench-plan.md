@@ -1,0 +1,303 @@
+# 视频审批工作台业务语言与批单串联实施计划
+
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 将现有批量驾驶舱和单条审批台收敛为一条真实生产主线，用一线业务中文呈现视频生成、人审、产物和批量提交。
+
+**Architecture:** 保留现有批次根项目与候选子项目模型。批量总览只读聚合批次和候选快照；单条复核继续读取候选项目事实；两者通过导航上下文和共享审批 API 串联。三个人审门仍是脚本、制作准备、样片，批量操作分为“批量确认当前门”和“选择 1–2 条进入精剪”两步；本轮不实现编辑工作室。
+
+**Tech Stack:** Python 3.10+, FastAPI, JSON Schema, 原生 JavaScript/CSS, pytest, 现有 Backlot operator API 和浏览器 smoke 测试。
+
+**Reference:** `docs/superpowers/specs/2026-08-28-backlot-business-language-workbench-design.md`
+
+---
+
+## Chunk 1: 业务文案与状态投影
+
+### Task 1: 固化九步业务语言映射
+
+**Files:**
+- Modify: `backlot/operator_language.py`
+- Modify: `backlot/operator_state.py`
+- Modify: `schemas/backlot/operator_state.schema.json`
+- Test: `tests/backlot/test_operator_state.py`
+- Test: `tests/backlot/test_operator_ui_contract.py`
+
+- [ ] **Step 1: 写失败测试，锁定九步业务名称和状态文案。**
+
+断言 `research` 到 `publish` 映射为“了解任务、看创意方案、确认脚本、看分镜、确认制作准备、查看样片、完成剪辑、检查成片、确认交付”，并断言页面不输出内部枚举给一线用户。
+
+- [ ] **Step 2: 运行测试确认失败。**
+
+Run: `pytest -q tests/backlot/test_operator_state.py tests/backlot/test_operator_ui_contract.py`
+
+Expected: FAIL，当前映射仍包含“参考解析与素材体检”“剧本生成”等旧文案，且批量页文案未覆盖返回上下文。
+
+- [ ] **Step 3: 实现最小映射改动。**
+
+在 `operator_language.py` 集中维护页面标签、状态、确认门和产物标签；`operator_state.py` 只引用映射，不在投影函数内拼装英文阶段名。保持内部 stage id、schema 字段和事件字段不变。
+
+- [ ] **Step 4: 运行测试确认通过。**
+
+Run: `pytest -q tests/backlot/test_operator_state.py tests/backlot/test_operator_ui_contract.py`
+
+Expected: PASS。
+
+- [ ] **Step 5: 提交。**
+
+```bash
+git add backlot/operator_language.py backlot/operator_state.py schemas/backlot/operator_state.schema.json tests/backlot/test_operator_state.py tests/backlot/test_operator_ui_contract.py
+git commit -m "feat(backlot): align operator language with business workflow"
+```
+
+### Task 2: 为候选投影补齐“当前产物”和返回上下文
+
+**Files:**
+- Modify: `backlot/batch_state.py`
+- Modify: `backlot/operator_state.py`
+- Modify: `schemas/backlot/operator_state.schema.json`
+- Test: `tests/backlot/test_batch_workbench.py`
+- Test: `tests/backlot/test_batch_reporting_projection.py`
+
+- [ ] **Step 1: 写失败测试。**
+
+覆盖有样片、等待脚本、等待制作准备、技术失败和缺失候选五种 fixture，断言每个候选都有 `current_step`、`current_artifact`、`review_status`、`preview_url`、`stage_states` 和 `links.project_page`；批量数据有 `batch_context`，包含 `batch_id`、返回地址和 `aggregate_revision`。
+
+- [ ] **Step 2: 运行测试确认失败。**
+
+Run: `pytest -q tests/backlot/test_batch_workbench.py tests/backlot/test_batch_reporting_projection.py`
+
+Expected: FAIL，当前候选只有技术字段和项目链接，没有可直接渲染的当前产物/业务状态字段。
+
+- [ ] **Step 3: 实现只读派生。**
+
+在 `batch_state.py` 根据现有 checkpoint、sample report、evaluation 和 pending review 派生业务字段；增加 `subject_hash`（内容快照）、`workflow_revision`（审批/checkpoint 版本）、`current_step`、`current_artifact`、`review_status`、`selection_eligible` 和 `selection_block_reason`。缺失或损坏时返回明确状态，不在读取函数内创建 review、写事件或修改 checkpoint。`operator_state.py` 将批级上下文投影到 operator state，并保持 revision 计算稳定；批展示 schema 升为 1.1，旧客户端只读兼容。
+
+- [ ] **Step 4: 更新 schema 并运行测试。**
+
+Run: `pytest -q tests/backlot/test_batch_workbench.py tests/backlot/test_batch_reporting_projection.py`
+
+Expected: PASS。
+
+- [ ] **Step 5: 提交。**
+
+```bash
+git add backlot/batch_state.py backlot/operator_state.py schemas/backlot/operator_state.schema.json tests/backlot/test_batch_workbench.py tests/backlot/test_batch_reporting_projection.py
+git commit -m "feat(backlot): project business-ready candidate artifacts"
+```
+
+## Chunk 2: 批量总览与单条复核串联
+
+### Task 3: 增加批量来源和返回入口
+
+**Files:**
+- Modify: `backlot/ui/operator.html`
+- Modify: `backlot/ui/operator/app.js`
+- Modify: `backlot/ui/operator/store.js`
+- Modify: `backlot/ui/operator/styles.css`
+- Test: `tests/backlot/test_operator_ui_contract.py`
+- Create: `tests/backlot/test_operator_navigation.py`
+- Modify: `backlot/ui/operator/store.js`
+- Modify: `backlot/ui/operator/styles.css`
+- Test: `tests/backlot/test_operator_ui_contract.py`
+- Test: `tests/backlot/test_operator_navigation.py` (create if absent)
+
+- [ ] **Step 1: 写失败测试。**
+
+断言批量候选入口带 `from=batch` 和 `batch_id`；单条页面出现“返回批量总览”；返回时恢复批次地址、候选选择和滚动位置；没有批次来源的普通单条项目不显示返回入口；快速查看抽屉只能读，不能提交审批。
+
+- [ ] **Step 2: 运行测试确认失败。**
+
+Run: `pytest -q tests/backlot/test_operator_ui_contract.py tests/backlot/test_operator_navigation.py`
+
+Expected: FAIL，当前只生成 `/p/<candidate-id>` 链接，未携带批次上下文，也没有返回状态。
+
+- [ ] **Step 3: 实现导航上下文。**
+
+在 store 中解析 URL 查询参数并保存 `batch_id`、`return_url`、候选 ID 和滚动位置；在批量卡片和复核抽屉分别提供“快速查看”和“打开单条复核”；快速查看复用只读产物组件，不渲染通过/退回/选择按钮；单条页面只显示“返回批量总览”，不复制批量审批控件。
+
+- [ ] **Step 4: 增加状态变化处理。**
+
+返回批量前重新拉取 operator state；若候选 `subject_hash` 变化或候选资格变化，清除受影响选择并显示“这条视频有新版本，请重新看一遍”；仅审批/checkpoint 的 `workflow_revision` 变化不得清除选择。`aggregate_revision` 变化时按候选 hash 和资格逐项对账。浏览器返回、关闭抽屉和 Escape 都不得丢失上下文。
+
+- [ ] **Step 5: 运行测试并提交。**
+
+Run: `pytest -q tests/backlot/test_operator_ui_contract.py tests/backlot/test_operator_navigation.py`
+
+Expected: PASS。
+
+```bash
+git add backlot/ui/operator.html backlot/ui/operator/app.js backlot/ui/operator/store.js backlot/ui/operator/styles.css tests/backlot/test_operator_ui_contract.py tests/backlot/test_operator_navigation.py
+git commit -m "feat(backlot): connect batch and single review views"
+```
+
+### Task 4: 重排单条复核的产物呈现
+
+**Files:**
+- Modify: `backlot/ui/operator/app.js`
+- Modify: `backlot/ui/operator/editors.js`
+- Modify: `backlot/ui/operator/styles.css`
+- Modify: `backlot/ui/operator/language.js`
+- Test: `tests/backlot/test_operator_ui_contract.py`
+- Test: `tests/backlot/test_operator_single_review.py` (create if absent)
+
+- [ ] **Step 1: 写失败测试。**
+
+检查单条复核存在“视频播放器、当前步骤、制作脚本/镜头安排/制作清单/样片效果、通过这一条、退回并说明原因、制作记录”；同时断言不存在品牌词、内部英文阶段名、文件路径和 JSON 编辑入口。
+
+- [ ] **Step 2: 运行测试确认失败。**
+
+Run: `pytest -q tests/backlot/test_operator_ui_contract.py tests/backlot/test_operator_single_review.py`
+
+Expected: FAIL，当前单条页面仍按编辑器类型展开，批量来源和业务产物顺序不完整。
+
+- [ ] **Step 3: 实现只读复核面板。**
+
+将当前 `renderBatch` 和样片/交付渲染拆为可复用的 `renderCandidateSummary`、`renderCandidateProgress`、`renderCandidateArtifacts`、`renderReviewActions`；技术字段放入折叠区。保留已有播放器、评价卡、音轨和五项样片确认逻辑，不增加编辑动作。
+
+- [ ] **Step 4: 加入失败和缺失状态。**
+
+真实媒体缺失显示“样片未生成”，技术失败显示原因和“查看处理记录”，报告不完整显示“重新拉取最新结果”；不得用假图、空白卡或颜色单独表达状态。
+
+- [ ] **Step 5: 运行测试并提交。**
+
+Run: `pytest -q tests/backlot/test_operator_ui_contract.py tests/backlot/test_operator_single_review.py`
+
+Expected: PASS。
+
+```bash
+git add backlot/ui/operator/app.js backlot/ui/operator/editors.js backlot/ui/operator/styles.css backlot/ui/operator/language.js tests/backlot/test_operator_ui_contract.py tests/backlot/test_operator_single_review.py
+git commit -m "feat(backlot): present single review artifacts in business order"
+```
+
+## Chunk 3: 批量两步审批和一致性反馈
+
+### Task 5: 把批量门审批改成业务动作
+
+**Files:**
+- Modify: `backlot/ui/operator/app.js`
+- Modify: `backlot/ui/operator/api.js`
+- Modify: `backlot/batch_actions.py`
+- Modify: `backlot/operator_routes.py`
+- Test: `tests/backlot/test_batch_actions.py`
+- Test: `tests/backlot/test_operator_ui_contract.py`
+
+- [ ] **Step 1: 写失败测试。**
+
+覆盖“批量通过已勾选的脚本/制作准备/样片”、单条通过、混合阶段、退回、样片五项确认不完整、权限不足、revision 过期、重复提交和中途故障恢复。断言批量失败不留下部分审批，成功时每个候选有独立 review/decision log；失败响应包含 participant 错误、当前版本和可重试标记；同幂等键重放不新增记录。
+
+- [ ] **Step 2: 运行测试确认失败。**
+
+Run: `pytest -q tests/backlot/test_batch_actions.py tests/backlot/test_operator_ui_contract.py`
+
+Expected: FAIL，现有按钮和错误文案仍以技术动作表达，测试需要固定业务结果和协调状态。
+
+- [ ] **Step 3: 固化 prepare/commit 文案和状态。**
+
+保留现有 `aggregate_revision`、participants、幂等键和 recovery 合同；验证并补齐 staged generation、稳定锁顺序、commit marker、补偿回滚和 `replayed/idempotency_conflict` 响应。主按钮按“脚本 → 制作准备 → 样片”的固定顺序选择最早待确认门，错误映射为“结果有更新，请重新拉取”“没有审批权限”“有一项确认未通过”“需要恢复这次提交”。
+
+- [ ] **Step 4: 确认批量两步边界。**
+
+第一步只处理当前门；第二步只在所有存活候选完成评分或进入终态、至少一条候选 `selection_eligible=true` 且报告完整时显示选择托盘。选择动作仍限制 1–2 条并提交 evaluation snapshot/hash，写入 `concept_selection`，不启动编辑器。退回/失败/缺失/损坏/排除候选不阻塞其他候选。
+
+- [ ] **Step 5: 运行测试并提交。**
+
+Run: `pytest -q tests/backlot/test_batch_actions.py tests/backlot/test_operator_ui_contract.py`
+
+Expected: PASS。
+
+```bash
+git add backlot/ui/operator/app.js backlot/ui/operator/api.js backlot/batch_actions.py backlot/operator_routes.py tests/backlot/test_batch_actions.py tests/backlot/test_operator_ui_contract.py
+git commit -m "feat(backlot): clarify batch approval actions and outcomes"
+```
+
+### Task 6: 补齐浏览器交互验收
+
+**Files:**
+- Create: `tests/backlot/test_approval_workbench_playwright.py`
+- Modify: `design-demos/editorial-gallery/index.html` only if the fixture is kept as a visual regression page
+- Modify: `backlot/ui/operator/styles.css`
+
+- [ ] **Step 1: 写浏览器失败场景。**
+
+覆盖桌面和移动端：批量首屏、只读候选抽屉、进入单条、返回批量、批量门确认、选择托盘、混合阶段、退回/失败候选、无合格候选和报告降级。
+
+- [ ] **Step 2: 运行失败场景确认缺口。**
+
+Run: `pytest -q tests/backlot/test_approval_workbench_playwright.py`
+
+Expected: FAIL，直到页面具备稳定的 data attributes、返回上下文和业务文案。
+
+- [ ] **Step 3: 增加稳定选择器和响应式样式。**
+
+为批次来源、返回按钮、候选卡、当前产物、主动作、选择托盘和错误提示添加稳定 `data-testid`；检查 1180px、900px、390px 三个宽度无横向溢出，底部操作条不遮挡内容。
+
+- [ ] **Step 4: 运行浏览器测试并提交。**
+
+Run: `pytest -q tests/backlot/test_approval_workbench_playwright.py`
+
+Expected: PASS，桌面和移动端截图中没有品牌词、内部英文词或遮挡。
+
+```bash
+git add tests/backlot/test_approval_workbench_playwright.py backlot/ui/operator/styles.css design-demos/editorial-gallery/index.html
+git commit -m "test(backlot): cover connected approval workbench flow"
+```
+
+## Chunk 4: 回归与上线门槛
+
+### Task 7: 全量契约回归和文案扫描
+
+**Files:**
+- Modify: `tests/backlot/test_operator_ui_contract.py`
+- Create: `tests/backlot/test_business_language_contract.py`
+- Modify: `docs/reports/2026-08-26-analysis-readonly-workbench-run-report.md`，记录实施结果
+
+- [ ] **Step 1: 写文案扫描测试。**
+
+扫描用户可见 HTML/JS 文案，禁止 `OPENMONTAGE`、`OpenMontage`、`Editorial Gallery`、`runtime`、`revision`、`creative_lock`、`script_lock`、`undefined` 等内部词直接出现在一线页面；允许 API 字段、schema 和测试注释使用内部名。扫描同时覆盖直接访问、批次/候选不匹配、媒体失效、刷新超时和权限变化提示。
+
+- [ ] **Step 2: 运行扫描确认现状缺口。**
+
+Run: `pytest -q tests/backlot/test_business_language_contract.py`
+
+Expected: FAIL，列出仍需替换的页面文案和 fixture 文案。
+
+- [ ] **Step 3: 清理用户可见词并保留技术折叠区。**
+
+把页面主文案改为规格中的业务语言；技术字段只在“制作记录”中以中文标签呈现。同步更新 Demo 的 title、brand、按钮和提示，避免用户看到产品品牌词。
+
+- [ ] **Step 4: 执行回归。**
+
+Run: `pytest -q tests/backlot tests/lib`
+
+Expected: PASS。
+
+Run: `node --check backlot/ui/operator/app.js && node --check backlot/ui/operator/api.js && node --check backlot/ui/operator/store.js`
+
+Expected: PASS。
+
+- [ ] **Step 5: 记录验收并提交。**
+
+```bash
+git add tests/backlot/test_operator_ui_contract.py tests/backlot/test_business_language_contract.py docs/reports/2026-08-26-analysis-readonly-workbench-run-report.md
+git commit -m "docs(backlot): record business-language workbench rollout"
+```
+
+## 实施顺序和停止条件
+
+1. 先完成 Task 1–2，确保状态和产物有稳定业务字段；
+2. 再完成 Task 3–4，建立批量与单条的可逆导航；
+3. 完成 Task 5 后才能开放批量确认和批量选择；
+4. Task 6–7 通过后，才把真实批量页面作为一线审批入口；
+5. 任一一致性测试失败时，保留只读查看和重新拉取，不显示“已通过”；
+6. 编辑工作室、修改并重跑和完整交付确认另立设计与实施计划，不在本计划中临时扩展。
+
+## 最终验收清单
+
+- [ ] 一线人员无需知道内部阶段名即可完成三次确认。
+- [ ] 批量总览 → 单条复核 → 返回批量的上下文保持稳定。
+- [ ] 批量审批两步可解释：当前门确认、选择 1–2 条进入精剪。
+- [ ] 单条通过和批量通过写入同一套审批事实，不重复、不丢审计。
+- [ ] 失败、缺失、过期和降级状态均有中文原因和下一步。
+- [ ] 页面不出现 OPENMONTAGE 等品牌词或内部技术词。
+- [ ] 既有批量、单条、审批一致性和前端构建回归全部通过。

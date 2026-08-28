@@ -71,6 +71,9 @@ def plan_strict_subset(
     N = len(slots)
     if not slots or not any(a for _, _, a, _, _ in slots):
         return None
+    if N > 18:
+        # 枚举上限：N>18 检查复杂度 2^N；长模板走分段策略（见 standards §5）
+        return None
     caps = {a: strict_capacity(a) for _, _, a, _, _ in slots if a}
     best: tuple[float, list[int], float] | None = None
 

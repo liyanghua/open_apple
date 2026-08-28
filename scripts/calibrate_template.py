@@ -58,6 +58,85 @@ def build_workitem(template_id: str) -> dict:
             "mode": "manual", "reviewer": "", "calibrated_at": None}
 
 
+def write_calibration(tid: str, acts: list[str], meta: dict) -> None:
+    """统一写入标定产物（人工/ VLM 共用）。"""
+    import datetime
+    import ast as _ast
+
+    src = CAL_FILE.read_text(encoding="utf-8")
+    ns = {}
+    exec(src, ns)
+    cal = dict(ns["_CALIBRATIONS"]); cal[tid] = acts
+    metas = dict(ns["_CALIBRATION_META"]); metas[tid] = meta
+    block = "\n".join(f'    {k!r}: {v!r},' for k, v in cal.items())
+    meta_block = "\n".join(f'    {k!r}: {v!r},' for k, v in metas.items())
+    CAL_FILE.write_text(
+        '"""模板动作域标定产物（策略 C：未标定=阻断）。\n\n'
+        '由 scripts/calibrate_template.py 生成/维护。\n'
+        '"""\nfrom __future__ import annotations\n\n\n'
+        f'_CALIBRATIONS: dict[str, list[str]] = {{\n{block}\n}}\n\n'
+        f'_CALIBRATION_META: dict[str, dict] = {{\n{meta_block}\n}}\n', encoding="utf-8")
+    _ast.parse(CAL_FILE.read_text(encoding="utf-8"))
+    print(f"已标定并写入 {tid}（{len(acts)} 槽, source={meta.get('source')}）")
+
+
+def vlm_calibrate(template_id: str, *, model: str = "qwen-plus", threshold: float = 0.85) -> dict:
+    """VLM 批量语义打标：整表一次调用，输出每槽动作域+置信度。"""
+    import os
+    import requests
+
+    pack = json.loads((ROOT / "projects/template-pack-library/artifacts/template_pack.json").read_text())
+    t = next(x for x in pack["templates"] if x["template_id"] == template_id)
+    slots_desc = []
+    for s in t.get("slots") or []:
+        slots_desc.append({
+            "ordinal": s.get("ordinal"),
+            "scene": str(s.get("scene") or ""),
+            "visual": str(s.get("visual_content") or "")[:60],
+            "dialogue": str(s.get("dialogue") or "")[:80],
+            "overlay": str(s.get("overlay_text") or "")[:40],
+            "caption_treatment": s.get("caption_treatment"),
+        })
+    prompt = (
+        "你是电商短视频素材打标器。为每个镜头位（slot）选择唯一一个能用素材画面证明的动作域："
+        "防油易擦拭（油污/水/擦拭/防水防油/一擦即净）；"
+        "防刮（硬物刮擦/耐磨/耐用/划）；"
+        "无甲醛检测（检测/甲醛/安全健康/异味/材质认证/母婴级）；"
+        "桌角对齐-挤压不变形（边角/贴合/翘边/圆角/挤压/不刮手）；"
+        "自动铺开对齐（铺开/平铺/对齐/自由裁切）；"
+        "餐桌场景（家庭餐桌/家人/生活质感/木纹/价格/品牌/直播间等事实语境）。"
+        "只输出 JSON：{\"slots\":[{\"ordinal\":N,\"domain\":\"...\",\"confidence\":0.0-1.0,\"reason\":\"一句话\"}]}\n"
+        f"slots={json.dumps(slots_desc, ensure_ascii=False)}"
+    )
+    resp = requests.post(
+        "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        headers={"Authorization": f"Bearer {os.environ['DASHSCOPE_API_KEY']}"},
+        json={"model": model, "messages": [{"role": "user", "content": prompt}],
+              "temperature": 0.1, "response_format": {"type": "json_object"}},
+        timeout=180,
+    )
+    resp.raise_for_status()
+    text = resp.json()["choices"][0]["message"]["content"]
+    parsed = json.loads(text)
+    results = parsed.get("slots") or []
+    acts, low_conf = [], []
+    for r in sorted(results, key=lambda x: int(x.get("ordinal") or 0)):
+        domain = str(r.get("domain") or "")
+        if domain not in DOMAINS:
+            raise SystemExit(f"{template_id}: 模型输出非法域 {domain!r}")
+        conf = float(r.get("confidence") or 0.0)
+        acts.append(domain)
+        if conf < threshold:
+            low_conf.append((r.get("ordinal"), round(conf, 2)))
+    n_slots = len(t.get("slots") or [])
+    if len(acts) != n_slots:
+        raise SystemExit(f"{template_id}: 模型返回 {len(acts)} 槽，模板 {n_slots} 槽")
+    meta = {"source": "vlm", "version": "1.0", "model": model, "threshold": threshold,
+            "calibrated_at": __import__("datetime").datetime.now(tz=__import__("datetime").timezone.utc).isoformat()[:19],
+            "reviewer": "auto-accept" if not low_conf else "human-check", "low_conf": low_conf}
+    return {"template_id": template_id, "acts": acts, "meta": meta}
+
+
 def apply_workitem(workitem: dict) -> None:
     import datetime
 
@@ -98,6 +177,8 @@ def main() -> None:
     p.add_argument("--template")
     p.add_argument("--apply", action="store_true")
     p.add_argument("--list", action="store_true")
+    p.add_argument("--mode", choices=["manual", "vlm"], default="manual")
+    p.add_argument("--all", action="store_true", help="--mode vlm 时批量标定全部未标定模板")
     args = p.parse_args()
     if args.list:
         from lib.template_source_match import is_template_calibrated
@@ -109,11 +190,36 @@ def main() -> None:
         for tid in uncal[:20]:
             print("  ", tid)
         return
+    if args.all:
+        if args.mode != "vlm":
+            raise SystemExit("--all 需要 --mode vlm")
+        from lib.template_source_match import is_template_calibrated
+
+        pack = json.loads((ROOT / "projects/template-pack-library/artifacts/template_pack.json").read_text())
+        done = fail = 0
+        for t in pack["templates"]:
+            tid = t["template_id"]
+            if str(tid).endswith(("-c1", "-c2", "-c3", "-c4")) or is_template_calibrated(tid):
+                continue
+            try:
+                r = vlm_calibrate(tid)
+                write_calibration(tid, r["acts"], r["meta"])
+                done += 1
+                print(f"  [{done}] {tid} 标定完成（{len(r['acts'])} 槽，低置信 {r['meta']['low_conf']}）")
+            except Exception as exc:
+                fail += 1
+                print(f"  [FAIL] {tid}: {str(exc)[:80]}")
+        print(f"VLM 批量标定完成：成功 {done}，失败 {fail}")
+        return
     if not args.template:
-        raise SystemExit("--template 必填（或 --list）")
+        raise SystemExit("--template 必填（或 --list / --all --mode vlm）")
     out = PACK_ARTIFACTS / "calibration_workitems"
     out.mkdir(parents=True, exist_ok=True)
     wpath = out / f"{args.template}.json"
+    if args.mode == "vlm" and not args.apply:
+        r = vlm_calibrate(args.template)
+        write_calibration(args.template, r["acts"], r["meta"])
+        return
     if not args.apply:
         wi = build_workitem(args.template)
         wpath.write_text(json.dumps(wi, ensure_ascii=False, indent=2), encoding="utf-8")
