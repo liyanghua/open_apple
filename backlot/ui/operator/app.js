@@ -1,6 +1,6 @@
 import { fetchProjectState, fetchDraft, watchProject, saveDraft, previewDraft, commitDraft, fetchVersions, restoreVersion, quoteShotGeneration, createShotGeneration, adoptShotGeneration, decideReview, batchSelectForEdit, batchApproveGate, batchRecover } from "./api.js";
 import { createOperatorStore } from "./store.js";
-import { STATUS_MARKS, VIEW_STATES, formatDuration, formatTimeRange } from "./language.js";
+import { STATUS_MARKS, VIEW_STATES, formatDuration, formatTimeRange, APPROVAL_COPY } from "./language.js";
 import { renderTypedEditor } from "./editors.js";
 import { renderImpact } from "./impact.js";
 import { renderRevisions } from "./revisions.js";
@@ -1738,6 +1738,178 @@ function renderEditor(container, stage, editor, project, snapshot) {
   container.append(history);
 }
 
+// 单条页当前打开的步骤阅读器（null = 当前确认门视图）。
+let stepReaderStageId = null;
+
+// 步骤阅读器中的样片只读展示：播放器、系统检查、音轨与镜头对照，
+// 不含审批动作（避免在历史/已完成步骤上重复提交）。
+function renderReadonlySample(container, data) {
+  const workbench = node("div", "sample-review-workbench");
+  const playerPanel = node("section", "sample-player-panel");
+  playerPanel.append(detailRow("检查结果", data.qa_status || "等待检查"));
+  playerPanel.append(detailRow("样片时长", formatDuration(data.duration_seconds)));
+  playerPanel.append(node("p", "lead-copy", data.review_summary || ""));
+  if (data.preview_url) {
+    const video = document.createElement("video");
+    video.className = "preview-video";
+    video.controls = true;
+    video.playsInline = true;
+    video.preload = "none";
+    video.src = data.preview_url;
+    video.setAttribute("aria-label", "样片预览");
+    playerPanel.append(video);
+  } else {
+    playerPanel.append(node("p", "empty-copy", "样片未生成"));
+  }
+  workbench.append(playerPanel);
+
+  const evaluation = data.evaluation;
+  if (evaluation) {
+    const evalPanel = node("section", "sample-evaluation");
+    evalPanel.append(node("h3", "section-title", "系统检查"));
+    const statusText = evaluation.status === "pass" ? "通过" : evaluation.status === "fail" ? "存在致命问题" : "需要处理";
+    evalPanel.append(node("p", "delivery-eval-status", `${statusText} · 建议动作：${evaluation.recommended_action || "—"}`));
+    for (const fail of evaluation.hard_gate_fails || []) {
+      evalPanel.append(node("p", "delivery-eval-note", `${fail.name}：${fail.message}（${fail.fixable ? "可修复" : "致命"}）`));
+    }
+    if (evaluation.advisory?.summary) {
+      evalPanel.append(node("p", "delivery-eval-note", evaluation.advisory.summary));
+    }
+    workbench.append(evalPanel);
+  }
+
+  const tracks = data.audio_tracks;
+  if (tracks && tracks.length) {
+    const audioPanel = node("section", "sample-audio-tracks");
+    audioPanel.append(node("h3", "section-title", "音频轨"));
+    const stateLabels = { present: "已就位", missing: "缺失", not_planned: "未计划" };
+    const trackList = node("div", "sample-audio-track-list");
+    tracks.forEach((track) => {
+      const chip = node("span", `sample-audio-track state-${track.state || "not_planned"}`);
+      chip.append(node("strong", "", track.label || track.kind));
+      chip.append(node("span", "track-state", stateLabels[track.state] || track.state || "未知"));
+      trackList.append(chip);
+    });
+    audioPanel.append(trackList);
+    workbench.append(audioPanel);
+  }
+
+  const trace = data.execution_trace;
+  if (trace) {
+    const summary = trace.summary || {};
+    const counts = summary.status_counts || {};
+    const tracePanel = node("section", "sample-execution-trace");
+    tracePanel.append(node("h3", "section-title", "执行对照"));
+    tracePanel.append(node("p", "trace-summary",
+      `本次样片覆盖 ${summary.included_shot_count || 0}/${summary.planned_shot_count || 0} 个镜头 · 按方案执行 ${counts.executed || 0} 个 · 部分执行 ${counts.partial || 0} 个 · 新增内容 ${counts.added || 0} 个 · 尚未进入样片 ${counts.not_in_sample || 0} 个`));
+    const list = node("div", "sample-trace-list");
+    (trace.shots || []).forEach((shot) => {
+      const card = node("article", `sample-trace-card status-${shot.status || "unknown"}`);
+      const heading = node("div", "sample-trace-heading");
+      heading.append(node("strong", "sample-trace-shot", shot.shot_id || "镜头"));
+      heading.append(node("span", "status-chip", shot.status_label || "待核对"));
+      card.append(heading);
+      const planned = shot.planned || {};
+      const planText = [planned.purpose, planned.subject_action, planned.screen_copy].filter(Boolean).join(" · ");
+      if (planText) card.append(node("p", "sample-trace-copy", `计划：${planText}`));
+      const actual = shot.actual;
+      if (actual) {
+        const actualText = [actual.source_label && `素材：${actual.source_label}`, actual.screen_copy && `画面文字：${actual.screen_copy}`].filter(Boolean).join(" · ");
+        if (actualText) card.append(node("p", "sample-trace-copy", `实际：${actualText}`));
+      }
+      if (shot.deviation?.reason) card.append(node("p", "sample-trace-deviation", shot.deviation.reason));
+      list.append(card);
+    });
+    tracePanel.append(list);
+    workbench.append(tracePanel);
+  }
+  container.append(workbench);
+}
+
+// 步骤阅读器：在深色壳内以浅色“阅读单”展示某一制作步骤的全部中间产物。
+function renderStepReader(project, snapshot) {
+  const shell = byId("operator-shell");
+  if (shell) shell.dataset.mode = "approval";
+  const main = byId("approval-main");
+  const stage = (project.stages || []).find((item) => item.id === stepReaderStageId);
+  if (!stage || !main) {
+    stepReaderStageId = null;
+    renderApprovalWorkbench(byId("approval-shell"), project, snapshot);
+    return;
+  }
+  const title = byId("approval-title");
+  if (title) title.textContent = project.title || "未命名项目";
+  const kicker = byId("approval-hero-kicker");
+  if (kicker) kicker.textContent = `正在查看：${stage.label}`;
+  const note = byId("approval-note");
+  if (note) note.textContent = stage.summary || "";
+  main.replaceChildren();
+  const reader = node("div", "approval-reader");
+  const head = node("div", "approval-reader-head");
+  const back = node("button", "quiet-button", APPROVAL_COPY.readerBack);
+  back.type = "button";
+  back.dataset.testid = "approval-reader-back";
+  back.addEventListener("click", () => {
+    stepReaderStageId = null;
+    renderApprovalWorkbench(byId("approval-shell"), project, snapshot);
+  });
+  head.append(back, node("h2", "approval-reader-title", `${stage.label} · 第 ${stage.version || 1} 版`));
+  reader.append(head);
+  const body = node("div", "approval-reader-body");
+  const editor = stage.editor;
+  const data = (editor && editor.data) || {};
+  const readers = {
+    research_review: (target, value) => renderResearch(target, value, { editable: false }),
+    proposal_choice: (target, value) => renderProposal(target, value, { editable: false }),
+    script_editor: (target, value) => renderScript(target, value, { editable: false, onOperation: () => {} }),
+    shot_mapping: (target, value) => renderShots(target, value),
+    asset_review: (target, value) => renderAssets(target, value, { editable: false }),
+    sample_review: (target, value) => renderReadonlySample(target, value),
+    edit_review: (target, value) => renderEdit(target, value),
+    delivery_review: (target, value) => renderDelivery(target, value, { editable: false, onOperation: () => {}, pendingOperations: [] }),
+    unavailable: (target) => target.append(node("p", "empty-copy", "该步骤暂无可展示的结构化内容")),
+  };
+  (readers[editor?.type] || readers.unavailable)(body, data);
+  reader.append(body);
+  main.append(reader);
+}
+
+// 批级驾驶舱：深色外框 + 浅色工作单，内容仍是横向比较与统一提交入口。
+function renderBatchApproval(project, snapshot) {
+  const shell = byId("operator-shell");
+  if (shell) shell.dataset.mode = "batch";
+  const approvalShell = byId("approval-shell");
+  if (approvalShell) approvalShell.hidden = false;
+  document.title = `${APPROVAL_COPY.brand} · ${project.title || "批量"}`;
+  const title = byId("approval-title");
+  if (title) title.textContent = project.title || "本批视频";
+  const kicker = byId("approval-hero-kicker");
+  if (kicker) kicker.textContent = APPROVAL_COPY.batchKicker;
+  const data = (project.workspace?.editor && project.workspace.editor.data) || {};
+  const note = byId("approval-note");
+  if (note) note.textContent = data.phase_reason || APPROVAL_COPY.batchNote;
+  const state = byId("approval-meta-state");
+  if (state) {
+    state.textContent = APPROVAL_COPY.batchState;
+    state.classList.remove("is-waiting");
+  }
+  const returnLink = byId("approval-return-batch");
+  if (returnLink) returnLink.hidden = true;
+  const main = byId("approval-main");
+  if (!main) return;
+  main.replaceChildren();
+  const sheet = node("div", "approval-sheet");
+  renderBatch(sheet, data, { project });
+  main.append(sheet);
+}
+
+document.addEventListener("approval-open-step", (event) => {
+  const stageId = event.detail && event.detail.stageId;
+  if (!stageId) return;
+  stepReaderStageId = stageId;
+  render(store.get());
+});
+
 function render(snapshot) {
   const shell = byId("operator-shell");
   shell.dataset.viewState = snapshot.viewState;
@@ -1745,11 +1917,21 @@ function render(snapshot) {
   if (!snapshot.project) return;
 
   const project = snapshot.project;
-  // 单条审批工作台：审批模式优先于旧阶段编辑壳；批级驾驶舱保留原壳。
+  // 批级驾驶舱：套用原型深色外框（topbar/hero/业务文案），内容进浅色工作单。
+  if (project.workspace?.editor?.type === "batch_review") {
+    shell.dataset.mode = "batch";
+    renderBatchApproval(project, snapshot);
+    return;
+  }
+  // 单条审批工作台：审批模式优先于旧阶段编辑壳；步骤阅读器打开时显示该步中间产物。
   const approvalActive = isApprovalShellActive(project, snapshot);
   shell.dataset.mode = approvalActive ? "approval" : "batch";
   if (approvalActive) {
-    renderApprovalWorkbench(byId("approval-shell"), project, snapshot);
+    if (stepReaderStageId) {
+      renderStepReader(project, snapshot);
+    } else {
+      renderApprovalWorkbench(byId("approval-shell"), project, snapshot);
+    }
     return;
   }
 

@@ -304,3 +304,51 @@ def test_approval_never_fakes_an_approved_state_after_failed_submit() -> None:
     assert "requestApprovalRefresh" in approval
     assert "approval-refresh-request" in approval
     assert 'addEventListener("approval-refresh-request", () => refresh())' in app
+
+
+# ---------------------------------------------------------------------------
+# 阶段中间产物阅读器（用户反馈：新壳不能丢九步历史产物）
+# ---------------------------------------------------------------------------
+
+
+def test_step_reader_exposes_every_stage_artifacts() -> None:
+    app = _read_operator("app.js")
+    approval = _read_operator("approval.js")
+    css = _read_operator("styles.css")
+    combined = _frontline_combined()
+    # 点击任意步骤 → 打开该步中间产物阅读器；可回到当前确认门。
+    assert "approval-open-step" in approval
+    assert "approval-open-step" in app
+    assert "approval-return-current" in approval
+    assert "approval-reader-back" in app
+    assert "回到当前确认" in combined
+    assert "approval-reader" in app
+    assert ".approval-reader" in css
+    # 九步中间产物全覆盖（复用现有只读渲染器 + 样片只读视图）
+    for renderer in ("renderResearch", "renderProposal", "renderScript", "renderShots",
+                     "renderAssets", "renderReadonlySample", "renderEdit", "renderDelivery"):
+        assert renderer in app, renderer
+    assert "renderStepReader" in app
+    assert "stepReaderStageId" in app
+
+
+# ---------------------------------------------------------------------------
+# 批量工作台：套用原型深色外框（用户反馈：批量页仍是旧白底管理页）
+# ---------------------------------------------------------------------------
+
+
+def test_batch_workbench_uses_approval_chrome() -> None:
+    app = _read_operator("app.js")
+    html = _read(UI_ROOT / "operator.html")
+    css = _read_operator("styles.css")
+    combined = _frontline_combined()
+    assert "批量总览" in combined
+    assert "renderBatchApproval" in app
+    assert "approval-sheet" in app
+    assert ".approval-sheet" in css
+    # 批页也进深色壳：旧三栏壳在 batch 模式下隐藏。
+    assert 'data-mode="batch"' in html
+    assert '#operator-shell[data-mode="batch"] .workbench' in css
+    # 保留批级能力：横向比较与统一提交入口不被裁掉。
+    for term in ("候选矩阵", "一键全部通过", "人工选择：选 1–2 条进入精剪", "进入精剪"):
+        assert term in app, term

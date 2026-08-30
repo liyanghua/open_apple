@@ -817,3 +817,55 @@ h3 { font-size: 15px; }
   .approval-outcome { grid-template-columns: minmax(0, 1fr); }
   .approval-activity { margin: 14px 16px 0; }
 }
+
+/* ==========================================================================
+   步骤阅读器（浅色阅读单）与批级驾驶舱（深色外框 + 浅色工作单）
+   ========================================================================== */
+
+.approval-reader,
+.approval-sheet {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px 22px;
+  min-width: 0;
+}
+
+.approval-reader-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.approval-reader-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.approval-reader-body { min-width: 0; }
+.approval-reader-body .sample-review-workbench { padding: 0; }
+
+#operator-shell[data-mode="batch"] .workbench,
+#operator-shell[data-mode="batch"] .project-header {
+  display: none;
+}
+
+#operator-shell[data-mode="batch"] .approval-materials,
+#operator-shell[data-mode="batch"] .approval-confirmation,
+#operator-shell[data-mode="batch"] .approval-timeline,
+#operator-shell[data-mode="batch"] .approval-outcome,
+#operator-shell[data-mode="batch"] .approval-rail-wrap,
+#operator-shell[data-mode="batch"] .approval-activity {
+  display: none;
+}
+
+#operator-shell[data-mode="batch"] .approval-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+#operator-shell[data-mode="batch"] .approval-main {
+  padding: 20px 24px;
+}

@@ -147,5 +147,9 @@ export const APPROVAL_COPY = {
   playbackFailed: "样片无法播放，请重新拉取最新结果",
   unavailable: "候选已不可用",
   reportIncomplete: "系统检查报告不完整，请重新拉取",
+  readerBack: "回到当前确认",
+  batchKicker: "批量总览 · 横向比较与统一提交入口",
+  batchState: "批量制作中",
+  batchNote: "同一批次候选在这里横向比较；单条复核请打开候选卡，通过/退回在单条内完成。",
 };
 

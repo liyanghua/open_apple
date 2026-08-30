@@ -162,8 +162,8 @@ function renderRail(project) {
     card.addEventListener("click", () => {
       rail.querySelectorAll(".approval-step").forEach((item) => item.classList.remove("is-selected"));
       card.classList.add("is-selected");
-      const main = byId("approval-main");
-      if (main) main.scrollIntoView({ behavior: "smooth", block: "start" });
+      // 由 app.js 的步骤阅读器接管：展示该步全部中间产物（只读）。
+      document.dispatchEvent(new CustomEvent("approval-open-step", { detail: { stageId: stage.id } }));
     });
     rail.append(card);
   });
@@ -692,7 +692,19 @@ function requestApprovalRefresh(projectId) {
 // 主渲染
 // ---------------------------------------------------------------------------
 
+// 记录最近一次渲染上下文，供“回到当前确认”等外部事件重建当前门视图。
+let lastProject = null;
+let lastSnapshot = null;
+
+document.addEventListener("approval-return-current", () => {
+  if (lastProject && lastSnapshot) {
+    renderApprovalWorkbench(byId("approval-shell"), lastProject, lastSnapshot);
+  }
+});
+
 export function renderApprovalWorkbench(container, project, snapshot) {
+  lastProject = project;
+  lastSnapshot = snapshot;
   const shell = byId("approval-shell");
   if (shell) shell.hidden = false;
   document.title = `${APPROVAL_COPY.brand} · ${project.title || "项目"}`;
