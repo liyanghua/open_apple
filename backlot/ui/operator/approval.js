@@ -97,6 +97,12 @@ function currentGateDetail(project) {
 // ---------------------------------------------------------------------------
 
 function renderTopbar(project, snapshot) {
+  const title = byId("approval-title");
+  if (title) title.textContent = project.title || "未命名项目";
+  const kicker = byId("approval-hero-kicker");
+  if (kicker) {
+    kicker.textContent = project.pending_review ? APPROVAL_COPY.heroKicker : APPROVAL_COPY.heroKickerIdle;
+  }
   const state = byId("approval-meta-state");
   if (state) {
     const pending = project.pending_review;
@@ -271,7 +277,7 @@ function renderApprovalMaterialsSample(facts, container) {
 
 function renderApprovalMaterialsScript(facts, container) {
   container.append(materialCard("制作脚本", facts.sections?.length ? `${facts.sections.length} 段${facts.duration ? ` · ${Math.round(facts.duration)} 秒` : ""}` : "等待生成", "字", true));
-  container.append(materialCard("制定依据", "创意方案与已确认卖点", "↳"));
+  container.append(materialCard("制作依据", "创意方案与已确认卖点", "↳"));
   container.append(node("p", "approval-left-note", "确认通过后，系统会按这段脚本开始制作；如有错字或表述问题，请退回并说明位置。"));
 }
 
