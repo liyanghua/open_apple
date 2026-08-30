@@ -438,7 +438,8 @@ function renderApprovalOutcome() {
 
 function mapReviewError(error) {
   if (!error) return "操作暂时无法完成";
-  if (error.code === "stale") return APPROVAL_COPY.stale;
+  if (error.code === "stale" || error.code === "review_stale") return APPROVAL_COPY.stale;
+  if (error.code === "review_already_decided") return APPROVAL_COPY.alreadyDecided;
   if (error.code === "forbidden") return APPROVAL_COPY.forbidden;
   if (error.code === "validation_failed") return APPROVAL_COPY.validationFailed;
   return error.message || "操作暂时无法完成";

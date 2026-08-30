@@ -140,6 +140,7 @@ export const APPROVAL_COPY = {
   approveOutcome: ["保存你的确认结果", "系统自动继续制作", "最终检查通过后才会生成可交付视频"],
   rejectOutcome: ["保留现在看到的版本", "记录你指出的问题", "只修改有问题的部分，再次给你确认"],
   stale: "结果有更新，请重新拉取",
+  alreadyDecided: "该内容已经完成确认，请重新拉取",
   forbidden: "没有审批权限",
   validationFailed: "有一项确认未通过",
   missingMedia: "样片未生成",

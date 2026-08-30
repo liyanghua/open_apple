@@ -271,9 +271,11 @@ def test_approval_only_actions_are_reject_and_approve() -> None:
 def test_approval_maps_stale_forbidden_validation_outcomes() -> None:
     approval = _read_operator("approval.js")
     combined = _frontline_combined()
-    for message in ("结果有更新，请重新拉取", "没有审批权限", "有一项确认未通过"):
+    for message in ("结果有更新，请重新拉取", "没有审批权限", "有一项确认未通过", "该内容已经完成确认，请重新拉取"):
         assert message in combined, message
     assert '"stale"' in approval
+    assert '"review_stale"' in approval
+    assert '"review_already_decided"' in approval
     assert '"forbidden"' in approval
     assert '"validation_failed"' in approval
 
