@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -18,6 +19,25 @@ from tests.contracts.test_phase0_contracts import sample_artifact
 
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import sync_playwright  # noqa: E402
+
+
+def _chromium_available() -> bool:
+    try:
+        with sync_playwright() as pw:
+            path = pw.chromium.executable_path
+    except Exception:
+        return False
+    return Path(path).exists()
+
+
+if not _chromium_available():
+    # 本轮方案定案（A4）：不安装浏览器依赖/Chromium；UI 验收改为业务方按
+    # 1180px / 900px / 390px 三档手动走查。缺浏览器二进制时跳过而非报错。
+    pytest.skip(
+        "Chromium browser binary not installed (run `playwright install chromium`); "
+        "UI acceptance for this round is manual per plan A4 (1180/900/390).",
+        allow_module_level=True,
+    )
 
 
 APPROVAL_CASES = [
@@ -94,6 +114,11 @@ def _build_approval_projects() -> None:
                 "nitpicks": 0,
                 "summary": review_summary,
             },
+            next_action={
+                "summary": f"等待人工批准 {stage} 产物",
+                "verb": "await_user",
+                "context_refs": [f"checkpoint_{stage}.json"],
+            },
         )
 
     # A manifest-declared custom stage/artifact proves the fallback is driven
@@ -129,6 +154,11 @@ def _build_approval_projects() -> None:
             }],
         }},
         pipeline_type="character-animation",
+        next_action={
+            "summary": "等待人工批准角色设计 Ada",
+            "verb": "await_user",
+            "context_refs": ["checkpoint_character_design.json"],
+        },
     )
 
 
@@ -147,9 +177,12 @@ def staged_backlot_server():
         stderr=subprocess.DEVNULL,
     )
     deadline = time.time() + 20
+    # Local health probes must never ride a (possibly system-configured)
+    # proxy: macOS system proxies can 502 localhost requests.
+    direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=1):
+            with direct.open("http://127.0.0.1:{}/api/health".format(port), timeout=1):
                 break
         except Exception:
             time.sleep(0.2)
