@@ -108,8 +108,8 @@ def test_page_routes_render_after_login(auth_client, auth_store) -> None:
 
     pages = (
         ("/", "视频项目工作台"),
-        ("/p/film", "项目制作进度"),
-        ("/p/film/extra", "项目制作进度"),
+        ("/p/film", "商品视频制作工作台"),
+        ("/p/film/extra", "商品视频制作工作台"),
     )
     for path, title in pages:
         response = auth_client.get(path, follow_redirects=False)

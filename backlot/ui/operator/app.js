@@ -4,6 +4,7 @@ import { STATUS_MARKS, VIEW_STATES, formatDuration, formatTimeRange } from "./la
 import { renderTypedEditor } from "./editors.js";
 import { renderImpact } from "./impact.js";
 import { renderRevisions } from "./revisions.js";
+import { isApprovalShellActive, renderApprovalWorkbench } from "./approval.js";
 
 const byId = (id) => document.getElementById(id);
 const projectId = decodeURIComponent(window.location.pathname.split("/").filter(Boolean).pop() || "");
@@ -1744,6 +1745,14 @@ function render(snapshot) {
   if (!snapshot.project) return;
 
   const project = snapshot.project;
+  // 单条审批工作台：审批模式优先于旧阶段编辑壳；批级驾驶舱保留原壳。
+  const approvalActive = isApprovalShellActive(project, snapshot);
+  shell.dataset.mode = approvalActive ? "approval" : "batch";
+  if (approvalActive) {
+    renderApprovalWorkbench(byId("approval-shell"), project, snapshot);
+    return;
+  }
+
   const returnLink = byId("return-to-batch");
   const navigation = snapshot.navigation;
   if (returnLink) {
@@ -1836,6 +1845,8 @@ async function refresh({ showLoading = false } = {}) {
 
 store.subscribe(render);
 refresh({ showLoading: true });
+// 审批动作完成后由 approval.js 发出刷新请求，本处统一重新拉取快照。
+document.addEventListener("approval-refresh-request", () => refresh());
 const stopWatching = watchProject(projectId, () => refresh());
 // 批级驾驶舱（契约 A §5）：SSE 只覆盖批根变化，轮询兜底让候选子项目变化
 // 也能唤醒批页；事件丢失/缺口时通过 operator-state 重新拉取收敛。

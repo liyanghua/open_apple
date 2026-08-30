@@ -3,11 +3,55 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>项目制作进度</title>
+<title>商品视频制作工作台</title>
 <link rel="stylesheet" href="/ui/operator/styles.css">
 </head>
 <body>
-<div class="operator-shell" id="operator-shell" data-view-state="loading">
+<div class="operator-shell" id="operator-shell" data-view-state="loading" data-mode="batch">
+  <div class="approval-shell" id="approval-shell" data-testid="approval-shell" hidden>
+    <header class="approval-topbar">
+      <div class="approval-brand">商品视频制作工作台</div>
+      <div class="approval-top-meta">
+        <span>商品短视频</span>
+        <span class="approval-state" id="approval-meta-state">正在读取</span>
+      </div>
+    </header>
+    <section class="approval-hero">
+      <div class="approval-hero-head">
+        <div>
+          <h1 id="approval-title">正在读取项目</h1>
+          <p id="approval-note"></p>
+        </div>
+        <div class="approval-hero-actions">
+          <a class="quiet-button approval-return-batch" id="approval-return-batch" data-testid="return-to-batch" href="#" hidden>返回批量总览</a>
+          <a class="quiet-button approval-diagnostic-link" id="approval-diagnostic-link" href="/diagnostics/p/">查看诊断信息</a>
+        </div>
+      </div>
+    </section>
+    <section class="approval-rail-wrap">
+      <div class="approval-rail-label">
+        <span id="approval-rail-title">制作进度 · 共 9 步</span>
+        <span id="approval-rail-hint">3 步需要人工确认 · 其余由系统自动完成</span>
+      </div>
+      <div class="approval-rail" id="approval-rail" data-testid="approval-rail"></div>
+      <p class="approval-flownote" id="approval-flownote"></p>
+    </section>
+    <main class="approval-layout">
+      <aside class="approval-materials" id="approval-materials" data-testid="approval-materials"></aside>
+      <section class="approval-main" id="approval-main">
+        <div class="approval-media" id="approval-media"></div>
+        <div class="approval-gate-copy" id="approval-gate-copy"></div>
+        <div class="approval-timeline" id="approval-timeline"></div>
+        <div class="approval-outcome" id="approval-outcome"></div>
+      </section>
+      <aside class="approval-confirmation" id="approval-confirmation" data-testid="approval-confirmation"></aside>
+    </main>
+    <details class="approval-activity">
+      <summary>查看制作记录</summary>
+      <div class="approval-record" id="approval-record"></div>
+    </details>
+  </div>
+
   <header class="project-header">
     <div class="project-identity">
       <p class="eyebrow">视频制作项目</p>
