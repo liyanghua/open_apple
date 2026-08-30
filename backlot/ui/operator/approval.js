@@ -67,10 +67,14 @@ function currentGateId(project) {
   const pending = project.pending_review;
   if (pending?.kind && KIND_TO_STAGE[pending.kind]) return KIND_TO_STAGE[pending.kind];
   const stages = project.stages || [];
+  const failing = stages.find((stage) => stage.status === "处理失败");
+  if (failing) return failing.id;
   const awaiting = stages.find((stage) => stage.status === "等待确认");
   if (awaiting) return awaiting.id;
-  const upcoming = stages.find((stage) => stage.status !== "已完成");
+  const upcoming = stages.find((stage) => stage.status !== "已完成" && stage.status !== "未开始");
   if (upcoming) return upcoming.id;
+  const pendingStep = stages.find((stage) => stage.status === "未开始");
+  if (pendingStep) return pendingStep.id;
   return "done";
 }
 
@@ -607,12 +611,32 @@ function renderConfirmationDone(gate, project, facts) {
   box.append(message);
 }
 
+function renderConfirmationIdle(gate, project) {
+  const box = byId("approval-confirmation");
+  if (!box) return;
+  box.replaceChildren();
+  const head = node("div", "approval-confirm-head");
+  head.append(node("span", "", gate.label));
+  head.append(node("small", "", `第 ${gate.version} 版`));
+  box.append(head);
+  box.append(node("h2", "approval-confirm-title", gate.detail.confirmTitle));
+  box.append(node("p", "approval-confirm-intro", gate.detail.intro));
+  const message = setTestId(node("p", "approval-message", ""), "approval-message");
+  const stage = (project.stages || []).find((item) => item.id === gate.gateId);
+  message.textContent = stage?.status === "处理失败"
+    ? "当前没有可以确认的内容：这一步处理失败，请查看制作记录或重新拉取最新结果。"
+    : "当前没有需要确认的内容：这一步尚未准备完成，请重新拉取最新结果。";
+  box.append(message);
+}
+
 function renderConfirmation(project) {
   const gate = currentGateDetail(project);
-  if (gate.gateId === "sample") {
+  if (gate.gateId === "sample" && project.pending_review) {
     renderConfirmationSample(factsForGate(project, "sample"), project, gate);
   } else if (gate.gateId === "done") {
     renderConfirmationDone(gate, project, factsForGate(project, "done"));
+  } else if (!project.pending_review) {
+    renderConfirmationIdle(gate, project);
   } else {
     renderConfirmationSimple(gate, project);
   }
