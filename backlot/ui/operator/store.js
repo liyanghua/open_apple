@@ -89,7 +89,7 @@ function updateUrl(selection, { replace = true } = {}) {
 
 export function createOperatorStore(initialSearch = currentSearch()) {
   const initialSelection = parseViewSelection(initialSearch);
-  let selectionSignature = null;
+  let lastSelectionContext = null;
   let snapshot = {
     viewState: "loading", project: null, reviewGateId: null,
     selectedStageId: initialSelection.stageId, selectedArtifactId: initialSelection.artifactId,
@@ -107,28 +107,37 @@ export function createOperatorStore(initialSearch = currentSearch()) {
       const stages = Array.isArray(project?.stages) ? project.stages : [];
       const gate = reviewGateId(project, stages);
       const pending = project?.pending_review || {};
-      const gateStage = stages.find((stage) => stageIdOf(stage) === gate);
-      const stageVersions = stages.map((stage) => [stageIdOf(stage), stage.version ?? stage.editor?.version ?? ""]).join(",");
-      const signature = [project?.revision || "", gate || "", gateStage?.version ?? gateStage?.editor?.version ?? "",
-        stageVersions, pending.subject_hash || "", pending.subject_version || ""].join("|");
-      const changed = selectionSignature !== null && selectionSignature !== signature;
+      const currentVersions = {};
+      stages.forEach((stage) => { currentVersions[stageIdOf(stage)] = stage.version ?? stage.editor?.version ?? ""; });
+      const prev = lastSelectionContext;
+      // 只有当前确认门或待确认内容 hash 变化才整体重置浏览位置；
+      // 纯 revision、无关阶段版本、任务状态或性能信息刷新不打断正在查看的历史材料。
+      const gateChanged = prev !== null && prev.gate !== (gate || "");
+      const subjectChanged = prev !== null && prev.pendingHash !== (pending.subject_hash || "");
+      const changed = prev !== null && (gateChanged || subjectChanged);
+      const ownStageVersionChanged = prev !== null && snapshot.selectedStageId
+        && (prev.stageVersions[snapshot.selectedStageId] ?? "") !== (currentVersions[snapshot.selectedStageId] ?? "");
       const models = buildApprovalStages(project);
       const modelById = new Map(models.map((stage) => [stage.stageId, stage]));
       const requestedStage = changed ? null : snapshot.selectedStageId;
       const urlStage = changed ? null : initialSelection.stageId;
       const candidateStage = requestedStage || urlStage;
-      const selected = candidateStage && modelById.has(candidateStage)
+      let selected = candidateStage && modelById.has(candidateStage)
         ? candidateStage : defaultStageId(project, stages, gate);
+      // 正在查看的阶段自身材料版本变化：回到当前确认门（内容变了需要重新看）。
+      if (ownStageVersionChanged && selected === snapshot.selectedStageId) {
+        selected = gate && modelById.has(gate) ? gate : defaultStageId(project, stages, gate);
+      }
       const model = modelById.get(selected);
-      const requestedArtifact = changed ? null : snapshot.selectedArtifactId;
-      const urlArtifact = changed ? null : initialSelection.artifactId;
+      const requestedArtifact = (changed || ownStageVersionChanged) ? null : snapshot.selectedArtifactId;
+      const urlArtifact = (changed || ownStageVersionChanged) ? null : initialSelection.artifactId;
       const artifacts = model?.artifacts || [];
       const candidateArtifact = requestedArtifact || urlArtifact;
       const artifact = candidateArtifact && artifacts.some((item) => item.id === candidateArtifact)
         ? candidateArtifact : artifacts[0]?.id || null;
       const viewState = stages.length === 0 ? "empty" : project?.legacy?.upgrade_available ? "degraded"
         : project?.pending_review ? "awaiting" : project?.summary?.progress_percent === 100 ? "completed" : "ready";
-      selectionSignature = signature;
+      lastSelectionContext = { gate: gate || "", pendingHash: pending.subject_hash || "", stageVersions: currentVersions };
       snapshot = { ...snapshot, project, reviewGateId: gate, selectedStageId: selected,
         selectedArtifactId: artifact, viewState, message: "" }; updateUrl({ stageId: selected, artifactId: artifact }); emit();
     },

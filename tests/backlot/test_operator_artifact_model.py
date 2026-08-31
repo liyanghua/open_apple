@@ -80,28 +80,31 @@ const project = {revision:'r1', stages:[
 const store = createOperatorStore();
 store.setProject(project); store.selectStage('script'); store.selectArtifact('production_script');
 const preserved = store.get();
-store.setProject({...project, summary:{progress_percent:50}});
-const sameRevision = store.get();
 store.setProject({...project, revision:'r2'});
 const changedRevision = store.get();
 store.setProject({...project, revision:'r2', stages:[project.stages[0], {...project.stages[1], version:3}]});
-const changedVersion = store.get();
-store.setProject({...project, revision:'r3', pending_review:{...project.pending_review, subject_hash:'hash-2'}});
+const changedOtherStage = store.get();
+store.setProject({...project, revision:'r3', stages:[{...project.stages[0], version:2}, project.stages[1]]});
+const changedOwnStage = store.get();
+store.setProject({...project, revision:'r4', pending_review:{...project.pending_review, subject_hash:'hash-2'}});
 const changedSubject = store.get();
 console.log(JSON.stringify({
   preserved:[preserved.selectedStageId,preserved.selectedArtifactId],
-  sameRevision:[sameRevision.selectedStageId,sameRevision.selectedArtifactId],
   changedRevision:[changedRevision.selectedStageId,changedRevision.selectedArtifactId],
-  changedVersion:[changedVersion.selectedStageId,changedVersion.selectedArtifactId],
+  changedOtherStage:[changedOtherStage.selectedStageId,changedOtherStage.selectedArtifactId],
+  changedOwnStage:[changedOwnStage.selectedStageId,changedOwnStage.selectedArtifactId],
   changedSubject:[changedSubject.selectedStageId,changedSubject.selectedArtifactId],
 }));
 """
     )
     assert result == {
         "preserved": ["script", "production_script"],
-        "sameRevision": ["script", "production_script"],
-        "changedRevision": ["sample", "sample_video"],
-        "changedVersion": ["sample", "sample_video"],
+        # 纯 revision 变化不再打断浏览位置（P2-12）。
+        "changedRevision": ["script", "production_script"],
+        # 其他阶段版本变化不打断当前浏览。
+        "changedOtherStage": ["script", "production_script"],
+        # 正在查看的阶段自身版本变化：回到当前确认门。
+        "changedOwnStage": ["sample", "sample_video"],
         "changedSubject": ["sample", "sample_video"],
     }
 
@@ -1184,3 +1187,23 @@ console.log(JSON.stringify({
     assert result["pendingSummary"] == "没有待处理问题"
     assert result["evidenceHealth"] == "ready"
     assert result["evidenceSummary"] == "未提供 QA 附件"
+
+
+def test_failed_stage_with_stale_payload_never_shows_ready() -> None:
+    """P1-3 回归：失败阶段残留旧 payload 时，材料健康度必须是 failed。"""
+    result = _node(
+        """
+const stages = buildApprovalStages({stages:[
+  {id:'script', status:'处理失败', version:3, editor:{data:{sections:[{id:'s1', text:'旧正文'}]}}},
+  {id:'assets', status:'制作中', version:2, editor:{data:{items:[{id:'a1', label:'旧清单', status:'已准备', reason:'旧记录'}]}}},
+]});
+const script = stages.find((stage) => stage.stageId === 'script');
+const assets = stages.find((stage) => stage.stageId === 'assets');
+console.log(JSON.stringify({
+  scriptHealths: script.artifacts.map((artifact) => [artifact.id, artifact.health]),
+  assetsHealths: assets.artifacts.map((artifact) => [artifact.id, artifact.health]),
+}));
+"""
+    )
+    assert all(health == "failed" for _, health in result["scriptHealths"])
+    assert all(health == "processing" for _, health in result["assetsHealths"])

@@ -504,7 +504,7 @@ def test_business_enum_maps_cover_tasks_operations_and_dimensions() -> None:
         assert phrase in approval, phrase
     assert "TASK_QUALITY_LABELS[task.quality]" in approval
     assert "GENERATION_OPERATION_LABELS[task.operation]" in approval
-    assert "EVALUATION_DIMENSION_LABELS[dimension.name]" in approval
+    assert "evaluationDimensionLabel(dimension.name)" in approval
     # 评价结论动作不再以英文枚举出现在界面
     for phrase in ("需要修改", "需要修复", "不通过", "继续制作"):
         assert phrase in approval, phrase
@@ -516,3 +516,69 @@ def test_original_sound_state_has_business_labels() -> None:
     for phrase in ("有原声", "未保留原声", "原声状态未记录"):
         assert phrase in approval, phrase
     assert 'track.kind === "original"' in approval
+
+
+def test_simple_gate_reject_requires_issue_tags() -> None:
+    """P1-1 回归：脚本/制作准备退回必须携带结构化原因标签。"""
+    approval = _read_operator("approval.js")
+    assert "GATE_ISSUE_TAG_OPTIONS" in approval
+    assert "退回需要一个原因类型" in approval
+    assert "tagSelections.size === 0" in approval
+    assert "tags = decision === \"rejected\" ? [...tagSelections] : null" in approval
+    for phrase in ("卖点不够清楚", "制作清单缺项", "字幕会遮挡画面"):
+        assert phrase in approval, phrase
+
+
+def test_confirmation_gated_by_material_and_report_completeness() -> None:
+    """P1-2 回归：依据不完整（材料缺失/报告不完整/阶段失败）时阻止审批动作。"""
+    approval = _read_operator("approval.js")
+    assert "gateMaterialsReady" in approval
+    assert "当前依据还不完整" in approval
+    assert 'key.health !== "ready"' in approval
+    assert 'gateId === "sample"' in approval
+
+
+def test_done_panel_never_claims_pass_when_qa_requires_adjustment() -> None:
+    """P1-6 回归：成片完成面板按 qa_status 呈现，不硬编码检查通过。"""
+    approval = _read_operator("approval.js")
+    assert "qaOk" in approval
+    assert "检查还有问题 · 请先查看检查结果并处理" in approval
+    assert "本条候选的成片检查还没有通过" in approval
+
+
+def test_sample_gate_copy_acknowledges_incomplete_shots() -> None:
+    """P1-7 回归：镜头未完整进入样片时不再绿色“已按方案制作”。"""
+    approval = _read_operator("approval.js")
+    assert "plannedShotCount" in approval
+    assert "fullyExecuted" in approval
+    assert "未完整进入样片" in approval
+
+
+def test_timeline_embeds_player_when_media_area_has_no_video() -> None:
+    """P1-8 回归：从镜头对照打开时间轴时自带播放器，片段可跳转。"""
+    approval = _read_operator("approval.js")
+    assert "approval-timeline-video" in approval
+    assert "样片还没有生成，暂不能跳转" in approval
+    assert 'video.currentTime = segment.start' in approval
+
+
+def test_system_suggestion_respects_evaluation_conclusion() -> None:
+    """P2-9 回归：revise/repair 时不显示“整体正常 · 建议通过”。"""
+    approval = _read_operator("approval.js")
+    assert "needsRework" in approval
+    assert "系统建议修改后再确认" in approval
+
+
+def test_evaluation_dimension_labels_normalize_real_report_titles() -> None:
+    """P2-10 回归：真实报告维度名（Hook Clarity 等）归一化后映射中文。"""
+    approval = _read_operator("approval.js")
+    assert "evaluationDimensionLabel" in approval
+    assert 'raw.toLowerCase().replace(/[\\s\\-_]+/g, "_")' in approval
+    assert "EVALUATION_DIMENSION_LABELS[normalized]" in approval
+
+
+def test_technical_enums_never_render_raw() -> None:
+    """P2-11 回归：时长检查状态与制作记录下一步都经 displayValue 中文映射。"""
+    approval = _read_operator("approval.js")
+    assert 'detailRow("检查状态", displayValue(payload.status))' in approval
+    assert 'detailRow("下一步", displayValue(data.evaluation.recommended_action)' in approval

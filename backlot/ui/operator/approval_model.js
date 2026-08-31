@@ -93,8 +93,9 @@ function stageStatus(stage) {
 function statusHealth(status, data, editorType) {
   if (status === "处理失败") return "failed";
   if (editorType === "unavailable") return "missing";
+  if (status === "制作中") return "processing";
   if (!data || typeof data !== "object" || Object.keys(data).length === 0) {
-    return status === "制作中" || status === "等待确认" ? "processing" : "missing";
+    return status === "等待确认" ? "processing" : "missing";
   }
   return "ready";
 }
@@ -908,7 +909,10 @@ function artifactModel(data, descriptor, stageHealth, stageStatus) {
     label,
     summary,
     kind: id,
-    health: payload == null ? (stageHealth === "failed" ? "failed" : stageHealth === "processing" ? "processing" : "missing") : "ready",
+    // 阶段失败/处理中优先于旧 payload：失败阶段残留数据不得显示“已准备”。
+    health: stageHealth === "failed" ? "failed"
+      : stageHealth === "processing" ? "processing"
+        : payload == null ? "missing" : "ready",
     payload,
   };
 }

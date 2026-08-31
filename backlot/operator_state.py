@@ -126,6 +126,21 @@ def _media_url(project_id: str, relative_path: Any) -> str | None:
     return f"/media/{quote(project_id, safe='')}/{encoded_path}"
 
 
+def _render_file_present(board: Mapping[str, Any], path_value: Any) -> bool | None:
+    """核对渲染文件是否真实存在。无法核对（内存 board/无项目目录）时返回 None。"""
+    if not isinstance(path_value, str) or not path_value:
+        return None
+    project_dir = board.get("_project_dir")
+    if not isinstance(project_dir, Path):
+        return None
+    try:
+        target = (project_dir.resolve() / path_value).resolve()
+        target.relative_to(project_dir.resolve())
+    except (ValueError, OSError):
+        return False
+    return target.is_file()
+
+
 def _project_relative_path(project_id: str, value: Any) -> str:
     """Normalize a project-local artifact path without exposing host paths."""
     if not isinstance(value, str):
@@ -1209,12 +1224,16 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(eval_report, Mapping) and eval_report.get("scope") == "sample":
         evaluation = _evaluation_summary(eval_report)
     audio_tracks = _audio_tracks(raw_trace)
-    qa_status = _merge_qa_with_evaluation(status, evaluation)
+    media_present = _render_file_present(board, render.get("path")) if render else None
+    qa_status = _merge_qa_with_evaluation(
+        "fail" if media_present is False else status,
+        evaluation,
+    )
     return {
         "type": "sample_review",
         "data": {
             "duration_seconds": _number(render.get("duration_seconds")) if render else None,
-            "preview_url": _media_url(project_id, render.get("path")) if render else None,
+            "preview_url": _media_url(project_id, render.get("path")) if (render and media_present is not False) else None,
             "qa_status": qa_status,
             "review_summary": "等待确认样片效果" if qa_status == "检查通过" else "样片尚有需要调整的检查项",
             "execution_trace": execution_trace,
@@ -1622,11 +1641,15 @@ def _delivery_editor(
     eval_report = _artifact(board, "evaluation_report.final") or _artifact(board, "evaluation_report")
     if isinstance(eval_report, Mapping) and eval_report.get("scope") == "final":
         evaluation = _evaluation_summary(eval_report)
+    media_present = _render_file_present(board, source_path) if source_path else None
     qa_status = _merge_qa_with_evaluation(
-        "pass" if qa_passed else ("fail" if final_review.get("status") else None),
+        "fail" if media_present is False else ("pass" if qa_passed else ("fail" if final_review.get("status") else None)),
         evaluation,
         pending_label="等待成片检查",
     )
+    if media_present is False:
+        video_url = None
+        poster_url = None
     data: dict[str, Any] = {
         "duration_seconds": duration,
         "qa_status": qa_status,

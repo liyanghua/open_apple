@@ -1180,3 +1180,29 @@ def test_source_label_prefers_file_name_over_media_id_hash() -> None:
     sources = research["editor"]["data"]["sources"]
     assert sources[0]["label"] == "防油擦拭-近景"
     assert sources[0]["id"] == "2f9213d9132ae3f7aabbccdd"
+
+
+def test_missing_render_file_never_reports_qa_pass(tmp_path: Path) -> None:
+    """P1-4 回归：报告 pass 但样片/成片文件缺失时，qa 归约为需要调整且不提供预览。"""
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    board["_project_dir"] = tmp_path
+    board["artifacts"]["sample_report"]["status"] = "pass"
+    # renders/sample.mp4 并不存在于 tmp_path：必须归约为需要调整。
+    state = project_operator_state(board)
+    sample = next(stage for stage in state["stages"] if stage["id"] == "sample")
+    data = sample["editor"]["data"]
+    assert data["qa_status"] == "需要调整"
+    assert data["preview_url"] is None
+
+    # 成片：render_report 输出路径不存在 → 需要调整、无下载地址。
+    board["artifacts"]["render_report"] = {
+        "outputs": [{"path": "renders/final.mp4", "duration_seconds": 16}],
+    }
+    board["artifacts"]["final_review"] = {"status": "pass"}
+    state = project_operator_state(board)
+    compose = next(stage for stage in state["stages"] if stage["id"] == "compose")
+    compose_data = compose["editor"]["data"]
+    assert compose_data["qa_status"] == "需要调整"
+    assert compose_data["download_url"] is None

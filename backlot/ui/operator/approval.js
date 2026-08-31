@@ -230,6 +230,7 @@ function sampleFacts(project) {
     // 实际口播/字幕只取执行结果，不把计划字幕当成“已配好”的证据。
     narrationText: shots.map((shot) => shot.actual?.narration || "").filter(Boolean).join("；"),
     captionText: shots.map((shot) => shot.actual?.screen_copy || "").filter(Boolean).join("；"),
+    plannedShotCount: summary.planned_shot_count ?? null,
   };
 }
 
@@ -242,17 +243,17 @@ function factsForGate(project, gateId) {
     const data = editorDataFor(project, "assets");
     return { ...data, items: data.items || [] };
   }
-  if (gateId === "done") {
-    const data = editorDataFor(project, "compose");
-    const delivery = editorDataFor(project, "publish");
-    const payload = Object.keys(delivery || {}).length ? delivery : data;
+  // 阶段与事实同源：检查成片只读 compose 数据，确认交付才读 publish 数据，
+  // 避免查看 compose 阶段时右侧出现交付阶段字段。
+  if (gateId === "done" || gateId === "publish") {
+    const data = editorDataFor(project, gateId === "publish" ? "publish" : "compose");
     return {
-      videoUrl: payload.player?.video_url || payload.download_url,
-      posterUrl: payload.player?.poster_url,
-      duration: payload.player?.duration_seconds ?? payload.duration_seconds,
-      qaStatus: payload.qa_status,
-      formatLabel: payload.format_label,
-      evaluation: payload.evaluation || null,
+      videoUrl: data.player?.video_url || data.download_url,
+      posterUrl: data.player?.poster_url,
+      duration: data.player?.duration_seconds ?? data.duration_seconds,
+      qaStatus: data.qa_status,
+      formatLabel: data.format_label,
+      evaluation: data.evaluation || null,
     };
   }
   return sampleFacts(project);
@@ -289,7 +290,12 @@ function renderApprovalMaterialsSample(facts, container) {
     : "口播和背景音乐";
   container.append(materialCard("声音效果", sound, "♪"));
   container.append(materialCard("系统检查", facts.qaStatus || "等待检查", "✓"));
-  const advice = facts.fails.length ? `${facts.fails.length} 项需要处理` : facts.advisory ? "整体正常 · 建议通过" : "尚未给出建议";
+  const evalStatus = facts.evaluation?.status;
+  const recommended = facts.evaluation?.recommended_action;
+  const needsRework = evalStatus === "revise" || evalStatus === "fail" || recommended === "repair" || recommended === "reject";
+  const advice = facts.fails.length ? `${facts.fails.length} 项需要处理`
+    : needsRework ? "系统建议修改后再确认"
+      : facts.advisory ? "整体正常 · 建议通过" : "尚未给出建议";
   container.append(materialCard("系统建议", advice, "↗"));
   container.append(materialCard("制作依据", "文案、镜头和素材方案", "↳"));
   if (facts.qaStatus === "检查通过" && !facts.evaluation) {
@@ -438,6 +444,15 @@ const EVALUATION_DIMENSION_LABELS = {
   audio_quality: "声音清楚", text_readability: "字幕清楚", product_presence: "重点突出",
   proof: "证明清楚",
 };
+
+// 真实报告维度名可能是 "Hook Clarity" / "hook_clarity" 等形式，统一归一后查表。
+function evaluationDimensionLabel(name) {
+  const raw = String(name || "").trim();
+  if (!raw) return "维度";
+  if (EVALUATION_DIMENSION_LABELS[raw]) return EVALUATION_DIMENSION_LABELS[raw];
+  const normalized = raw.toLowerCase().replace(/[\s\-_]+/g, "_");
+  return EVALUATION_DIMENSION_LABELS[normalized] || raw;
+}
 
 function isTechnicalArtifactKey(key) {
   const value = String(key || "").toLowerCase();
@@ -757,7 +772,7 @@ function renderScriptEntryDetail(container, payload) {
 
 function renderDurationDetail(container, payload) {
   if (payload.duration_seconds != null) container.append(detailRow("总时长", `${Math.round(payload.duration_seconds)} 秒`));
-  if (payload.status) container.append(detailRow("检查状态", payload.status));
+  if (payload.status) container.append(detailRow("检查状态", displayValue(payload.status)));
   return true;
 }
 
@@ -1009,7 +1024,7 @@ function renderSuggestionsDetail(container, payload) {
   const list = node("div", "approval-detail-list");
   (payload.dimensions || []).forEach((dimension) => {
     const card = node("section", "approval-detail-group");
-    card.append(node("h4", "approval-detail-item-title", `${EVALUATION_DIMENSION_LABELS[dimension.name] || dimension.name || "维度"} · ${dimension.score ?? "—"}`));
+    card.append(node("h4", "approval-detail-item-title", `${evaluationDimensionLabel(dimension.name)} · ${dimension.score ?? "—"}`));
     if (dimension.note) card.append(node("p", "approval-detail-copy", dimension.note));
     list.append(card);
   });
@@ -1120,7 +1135,7 @@ function renderQualityConclusionDetail(container, payload) {
       const list = node("div", "approval-detail-list");
       evaluation.advisory.dimensions.forEach((dimension) => {
         const card = node("section", "approval-detail-group");
-        card.append(node("h4", "approval-detail-item-title", `${EVALUATION_DIMENSION_LABELS[dimension.name] || dimension.name || "维度"} · ${dimension.score ?? "—"}`));
+        card.append(node("h4", "approval-detail-item-title", `${evaluationDimensionLabel(dimension.name)} · ${dimension.score ?? "—"}`));
         if (dimension.note) card.append(node("p", "approval-detail-copy", dimension.note));
         list.append(card);
       });
@@ -1331,7 +1346,17 @@ function renderGateCopy(project, model) {
   if (model.selectedStageId === "sample" && isCurrent) {
     const facts = factsForGate(project, "sample");
     const executed = facts.counts?.executed ?? facts.shots?.length ?? 0;
-    deliveries.append(deliverLine("ok", `${executed} 个镜头已按方案制作`, "可在“镜头对照”里逐个查看。"));
+    const partial = facts.counts?.partial ?? 0;
+    const added = facts.counts?.added ?? 0;
+    const notInSample = facts.counts?.not_in_sample ?? 0;
+    const planned = facts.plannedShotCount;
+    const fullyExecuted = planned == null
+      ? (partial + added + notInSample) === 0
+      : executed === planned && (partial + added + notInSample) === 0;
+    const skipped = partial + notInSample;
+    deliveries.append(deliverLine(fullyExecuted ? "ok" : "warn",
+      fullyExecuted ? `${executed} 个镜头已按方案制作` : `${executed} 个镜头已按方案完成，${skipped} 个镜头未完整进入样片`,
+      fullyExecuted ? "可在“镜头对照”里逐个查看。" : "请在“镜头对照”里核对未进入样片的镜头。"));
     const narrationTrack = (facts.tracks || []).find((track) => String(track.kind || "").includes("narration"));
     const narrationReady = Boolean(narrationTrack && narrationTrack.state === "present");
     const captionsReady = Boolean(facts.captionText);
@@ -1342,7 +1367,7 @@ function renderGateCopy(project, model) {
       deliveries.append(deliverLine("warn", "有一项检查需要你留意", facts.fails?.[0]?.message || facts.advisory));
     }
   } else if (model.selectedStageId === "publish" || model.selectedStageId === "compose") {
-    const facts = factsForGate(project, "done");
+    const facts = factsForGate(project, model.selectedStageId === "publish" ? "publish" : "done");
     deliveries.append(deliverLine(facts.qaStatus === "检查通过" ? "ok" : "warn", facts.qaStatus === "检查通过" ? "检查通过" : "检查还有问题", facts.qaStatus === "检查通过" ? "画面、声音和文件都正常，可以交付。" : "请先查看检查结果。"));
   } else if (model.selectedStageId === "script" && isCurrent) {
     deliveries.append(deliverLine("ok", "文案已整理好", "确认没有错别字和表述问题后，就可以开始制作。"));
@@ -1361,10 +1386,21 @@ function renderApprovalTimeline(project, model) {
   const facts = factsForGate(project, "sample");
   const head = node("div", "approval-timeline-head");
   const duration = (Math.round((facts.duration || 0) * 10) / 10).toFixed(1);
-  head.append(node("span", "", "画面和声音对照 · 点击片段可跳到对应位置"), node("span", "", `00:00 ──────── 00:${duration}`));
+  let video = byId("approval-media")?.querySelector("video");
+  if (!video && facts.videoUrl) {
+    // 从“镜头对照”打开时中间区没有播放器：时间轴自带播放器，保证片段可跳转。
+    video = document.createElement("video");
+    video.className = "approval-timeline-video";
+    video.controls = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    video.src = facts.videoUrl;
+    video.setAttribute("aria-label", "样片播放器");
+    box.append(video);
+  }
+  head.append(node("span", "", video ? "画面和声音对照 · 点击片段可跳到对应位置" : "画面和声音对照 · 样片还没有生成，暂不能跳转"), node("span", "", `00:00 ──────── 00:${duration}`));
   box.append(head);
   const lanes = node("div", "approval-lanes");
-  const video = byId("approval-media")?.querySelector("video");
   const addLane = (label, segments) => {
     const lane = node("div", "approval-lane");
     lane.append(node("b", "", label));
@@ -1431,6 +1467,28 @@ const ISSUE_TAG_BY_KEY = {
   proof: "information_gap",
   pacing: "timing",
   readability: "mobile_illegibility",
+};
+
+// 脚本/制作准备门的退回原因标签（后端对所有 rejected 强制要求 ≥1 个结构化标签）。
+const GATE_ISSUE_TAG_OPTIONS = {
+  script: [
+    ["unclear_promise", "卖点不够清楚"],
+    ["unsupported_claim", "卖点没有依据"],
+    ["information_gap", "关键信息缺失"],
+    ["weak_hook", "开头不够抓人"],
+    ["unsafe_text", "文案有违规风险"],
+    ["wrong_duration", "时长不对"],
+    ["ambiguous_cta", "购买引导不清"],
+    ["late_cta", "引导出现太晚"],
+  ],
+  assets: [
+    ["information_gap", "制作清单缺项"],
+    ["wrong_duration", "时长或节奏不对"],
+    ["music_masking", "音乐影响口播"],
+    ["loudness", "响度不合适"],
+    ["caption_overlap", "字幕会遮挡画面"],
+    ["generic_visual", "画面素材太通用"],
+  ],
 };
 
 function renderConfirmationSample(facts, project, gate, canAct = hasReviewPermission(project)) {
@@ -1544,6 +1602,31 @@ function renderConfirmationSimple(gate, project, canAct = hasReviewPermission(pr
   const reasonBox = node("textarea", "approval-reason", "");
   reasonBox.placeholder = "如有问题，请在这里说明需要修改的地方（可选）";
   reasonBox.disabled = !canReview;
+  // 退回必须至少选择一个结构化原因标签（后端强制校验）。
+  const tagSelections = new Set();
+  const tagBox = node("div", "approval-issue-tags");
+  tagBox.append(node("p", "approval-issue-tags-hint", "退回时选择原因类型："));
+  const tagButtons = node("div", "approval-issue-tag-list");
+  (GATE_ISSUE_TAG_OPTIONS[gate.gateId] || []).forEach(([value, label]) => {
+    const tag = node("button", "approval-issue-tag", label);
+    tag.type = "button";
+    tag.disabled = !canReview;
+    tag.setAttribute("aria-pressed", "false");
+    tag.addEventListener("click", () => {
+      if (tagSelections.has(value)) {
+        tagSelections.delete(value);
+        tag.classList.remove("is-selected");
+        tag.setAttribute("aria-pressed", "false");
+      } else {
+        tagSelections.add(value);
+        tag.classList.add("is-selected");
+        tag.setAttribute("aria-pressed", "true");
+      }
+    });
+    tagButtons.append(tag);
+  });
+  tagBox.append(tagButtons);
+  box.append(reasonBox, tagBox);
   const reject = node("button", "approval-reject", APPROVAL_COPY.reject);
   reject.type = "button";
   reject.disabled = !canReview;
@@ -1554,7 +1637,7 @@ function renderConfirmationSimple(gate, project, canAct = hasReviewPermission(pr
   approve.dataset.testid = "approval-approve";
   const actions = node("div", "approval-confirm-actions");
   actions.append(reject, approve);
-  box.append(reasonBox, actions, message);
+  box.append(actions, message);
   if (!canReview) message.textContent = APPROVAL_COPY.forbidden;
   const submit = async (decision) => {
     const review = project.pending_review;
@@ -1562,11 +1645,16 @@ function renderConfirmationSimple(gate, project, canAct = hasReviewPermission(pr
       message.textContent = "确认信息尚未准备好，请刷新后重试。";
       return;
     }
+    if (decision === "rejected" && tagSelections.size === 0) {
+      message.textContent = "退回需要一个原因类型：请在原因标签里至少选择一项。";
+      return;
+    }
     approve.disabled = true;
     reject.disabled = true;
     try {
       const reason = decision === "approved" ? "内容确认通过" : (reasonBox.value || "请根据意见修改后再提交");
-      await decideReview(project.project_id, review.review_id, decision, reason, null, review.subject_version, review.subject_hash, null);
+      const tags = decision === "rejected" ? [...tagSelections] : null;
+      await decideReview(project.project_id, review.review_id, decision, reason, null, review.subject_version, review.subject_hash, tags);
       message.textContent = decision === "approved" ? "已确认，正在继续制作。" : "修改意见已提交。";
       requestApprovalRefresh(project.project_id);
     } catch (error) {
@@ -1588,13 +1676,18 @@ function renderConfirmationDone(gate, project, facts) {
   head.append(node("small", "", `第 ${gate.version} 版 · ${Math.round(facts.duration || 0)} 秒`));
   box.append(head);
   box.append(node("h2", "approval-confirm-title", gate.detail.confirmTitle));
+  const qaOk = facts.qaStatus === "检查通过";
   box.append(node("p", "approval-confirm-intro", `${facts.formatLabel || "纵向视频"} · ${facts.qaStatus || "等待检查"}。交付确认在批量总览统一进行。`));
   const outcomes = node("div", "approval-confirm-outcome");
   outcomes.append(node("b", "", "确认后会怎样"));
-  outcomes.append(node("p", "", "检查通过 · 单条页面不再重复审批 · 交付确认由批量总览统一完成。"));
+  outcomes.append(node("p", "", qaOk
+    ? "检查通过 · 单条页面不再重复审批 · 交付确认由批量总览统一完成。"
+    : "检查还有问题 · 请先查看检查结果并处理，之后才能进入交付确认。"));
   box.append(outcomes);
   const message = setTestId(node("p", "approval-message", ""), "approval-message");
-  message.textContent = "无需在此确认：本条候选已完成成片检查。";
+  message.textContent = qaOk
+    ? "无需在此确认：本条候选已完成成片检查。"
+    : "无需在此确认：本条候选的成片检查还没有通过。";
   message.setAttribute("role", "status");
   message.setAttribute("aria-live", "polite");
   box.append(message);
@@ -1620,23 +1713,23 @@ function renderConfirmationIdle(gate, project) {
   box.append(message);
 }
 
-function renderReadonlyConfirmation(project, model) {
+function renderReadonlyConfirmation(project, model, blockReason) {
   const box = byId("approval-confirmation");
   if (!box) return;
   const stage = model.stages.find((item) => item.stageId === model.selectedStageId);
   box.replaceChildren();
   box.append(node("div", "approval-confirm-head", "本阶段查看"));
   box.append(node("h2", "approval-confirm-title", `${stage?.stageLabel || "制作步骤"} · 只读查看`));
-  box.append(node("p", "approval-confirm-intro", stage?.summary || "这里展示已生成的制作材料。审批动作只对当前需要确认的步骤开放。"));
+  box.append(node("p", "approval-confirm-intro", blockReason || (stage?.summary || "这里展示已生成的制作材料。审批动作只对当前需要确认的步骤开放。")));
   const state = node("p", "approval-readonly-state", stage?.status === "处理失败"
     ? "这一步处理失败，请重新拉取最新结果。"
     : stage?.status === "未开始" ? "这一步还没有开始，完成后会自动显示。"
     : "你正在查看历史或后续材料。需要确认时，请回到当前确认。");
   state.setAttribute("role", "status");
   state.setAttribute("aria-live", "polite");
-  if (stage?.status === "处理失败") state.classList.add("is-failed");
+  if (stage?.status === "处理失败" || blockReason) state.classList.add("is-failed");
   box.append(state);
-  if (model.reviewGateId) {
+  if (model.reviewGateId && !blockReason) {
     const back = node("button", "approval-return-current", "回到当前确认");
     back.type = "button"; back.dataset.testid = "approval-select-current";
     back.addEventListener("click", () => document.dispatchEvent(new CustomEvent("approval-select-current")));
@@ -1644,20 +1737,41 @@ function renderReadonlyConfirmation(project, model) {
   }
 }
 
+// 依据完整性门控：关键材料缺失、报告不完整或阶段失败时，不允许提交审批动作。
+function gateMaterialsReady(project, gateId) {
+  const stages = buildApprovalViewModel(project).stages;
+  const stage = stages.find((item) => item.stageId === gateId);
+  if (!stage) return false;
+  if (stage.status === "处理失败") return false;
+  const keyIds = { script: "production_script", assets: "generation_list", sample: "sample_video" };
+  const key = stage.artifacts.find((item) => item.id === keyIds[gateId]);
+  if (!key || key.health !== "ready") return false;
+  if (gateId === "sample") {
+    // 样片门还要求评价报告完整：系统检查材料缺失即视为报告不完整。
+    const checks = stage.artifacts.find((item) => item.id === "system_checks");
+    if (!checks || checks.health !== "ready") return false;
+  }
+  return true;
+}
+
 function renderConfirmation(project, model) {
   const selectedStageId = model.selectedStageId;
   const reviewGateId = model.reviewGateId;
   const selectedStage = model.stages.find((stage) => stage.stageId === selectedStageId);
-  const canAct = selectedStageId === reviewGateId && selectedStage?.review?.actionable && hasReviewPermission(project);
+  const actionableBase = selectedStageId === reviewGateId && selectedStage?.review?.actionable && hasReviewPermission(project);
+  const materialsReady = actionableBase && reviewGateId ? gateMaterialsReady(project, reviewGateId) : true;
+  const canAct = actionableBase && materialsReady;
   const gate = currentGateDetail(project);
   if (!project.pending_review && ["compose", "publish"].includes(selectedStageId) && selectedStage?.status === "已完成") {
-    renderConfirmationDone({ ...gate, gateId: selectedStageId }, project, factsForGate(project, "done"));
+    renderConfirmationDone({ ...gate, gateId: selectedStageId }, project, factsForGate(project, selectedStageId === "publish" ? "publish" : "done"));
+  } else if (actionableBase && !materialsReady) {
+    renderReadonlyConfirmation(project, model, "当前依据还不完整（关键材料缺失或报告不完整），暂不能确认。请重新拉取最新结果。");
   } else if (!canAct) {
     renderReadonlyConfirmation(project, model);
   } else if (selectedStageId === "sample" && project.pending_review) {
     renderConfirmationSample(factsForGate(project, "sample"), project, gate, canAct);
   } else if (selectedStageId === "done" || selectedStageId === "compose" || selectedStageId === "publish") {
-    renderConfirmationDone(gate, project, factsForGate(project, "done"));
+    renderConfirmationDone(gate, project, factsForGate(project, selectedStageId === "publish" ? "publish" : "done"));
   } else if (!project.pending_review) {
     renderConfirmationIdle(gate, project);
   } else {
@@ -1685,7 +1799,7 @@ function renderRecord(project, model) {
   if (summary.spent_usd != null) box.append(detailRow("制作花费", `$${Number(summary.spent_usd).toFixed(2)}`));
   if (data.evaluation?.status) {
     box.append(detailRow("检查结论", data.evaluation.status === "pass" ? "通过" : "有待处理项"));
-    box.append(detailRow("下一步", data.evaluation.recommended_action || "—"));
+    box.append(detailRow("下一步", displayValue(data.evaluation.recommended_action) || "—"));
   }
   if (data.audio_tracks?.length) {
     const labels = data.audio_tracks.map((track) => `${track.label || track.kind}：${track.state_label || track.state || "未知"}`);

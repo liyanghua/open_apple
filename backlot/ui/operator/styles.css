@@ -900,6 +900,32 @@ h3 { font-size: 15px; }
 .approval-segment b { color: #d8dce0; font-size: 12px; font-weight: 600; }
 .approval-segment-time { color: var(--approval-muted); font-size: 11px; }
 
+.approval-issue-tags { margin: 10px 0; }
+.approval-issue-tags-hint { margin: 0 0 6px; color: var(--approval-muted); font-size: 12px; }
+.approval-issue-tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.approval-issue-tag {
+  padding: 5px 10px;
+  border: 1px solid var(--approval-line);
+  border-radius: 4px;
+  background: var(--approval-surface);
+  color: #b8bec6;
+  font-size: 12px;
+  cursor: pointer;
+}
+.approval-issue-tag.is-selected { border-color: var(--approval-amber); color: var(--approval-amber); }
+
+.approval-timeline-video {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: #080a0c;
+  border: 1px solid var(--approval-line);
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
 .approval-shell button:focus-visible,
 .approval-shell a:focus-visible,
 .approval-shell summary:focus-visible,
