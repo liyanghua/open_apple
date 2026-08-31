@@ -978,3 +978,120 @@ def test_compose_and_publish_degrade_honestly_when_render_missing() -> None:
     assert compose_data["download_url"] is None
     assert publish_data["delivery"]["entries"] == []
     assert publish_data["delivery"]["package_files"] == []
+
+
+def test_real_operator_state_flows_through_approval_adapter(tmp_path: Path) -> None:
+    """P1 联调回归：真实投影 + 真实任务注入 → 审批适配器不丢字段、不伪造事实。
+
+    覆盖四个 P1：生成任务真实状态、样片计划/实际口播分离、参考片段证据保留、
+    未选择创意方向时不默认取第一个方向。
+    """
+    import subprocess
+
+    from backlot.operator_state import _inject_generation_tasks, project_operator_state
+
+    repo_root = Path(__file__).resolve().parents[2]
+    board = _board_state()
+    # 1) 未选择创意方向（真实场景）
+    board["artifacts"]["proposal_packet"]["selected_concept"] = None
+    # 2) 真实生成任务目录（load_operator_state 的注入路径）
+    tasks_dir = tmp_path / "operator" / "shot-generation" / "tasks"
+    tasks_dir.mkdir(parents=True)
+    (tasks_dir / "task-1.json").write_text(json.dumps({
+        "task_id": "task-1", "shot_id": "shot-1", "proposal_id": "gp-1",
+        "quality": "fast", "status": "completed",
+        "output_path": "projects/table-mat/assets/gen/shot-1.mp4",
+        "actual_cost_usd": 0.08, "error": None, "seed": 7,
+    }), encoding="utf-8")
+    board["artifacts"]["shot_execution_plan"] = {
+        "plan_id": "ep-1", "plan_version": 2, "status": "approved",
+        "shots": [{
+            "id": "shot-1", "order": 1, "purpose": "展示擦净动作", "narration": "计划口播",
+            "screen_copy": "计划字幕",
+            "generation_proposals": [{
+                "id": "gp-1", "operation": "generate", "model_family": "seedance",
+                "duration_seconds": 2, "aspect_ratio": "9:16",
+                "estimated_fast_cost_usd": 0.1, "estimated_standard_cost_usd": 0.2,
+                "evidence_risk": "中",
+            }],
+            "selected_generation_task_id": "task-1",
+        }],
+    }
+    board["artifacts"]["sample_execution_trace"] = {
+        "summary": {"planned_shot_count": 1, "included_shot_count": 1,
+                     "status_counts": {"executed": 1, "partial": 0, "added": 0, "not_in_sample": 0},
+                     "new_content_count": 0},
+        "shots": [{
+            "shot_id": "shot-1", "status": "executed", "status_label": "已按方案执行",
+            "planned_basis": {"purpose": "展示擦净动作", "screen_copy": "计划字幕",
+                               "reference_rules": ["动作与结果成对"]},
+            "actual_execution": {"source_path": "projects/table-mat/inputs/source/source-0.mp4",
+                                  "screen_copy": "实际字幕",
+                                  "timeline_start_seconds": 0, "timeline_end_seconds": 2,
+                                  "source_in_seconds": 1, "source_out_seconds": 3, "narration": ""},
+            "deviation": None,
+            "sample_window": {"included": True, "start_seconds": 0, "end_seconds": 2},
+        }],
+        "caption_diff": {"status": "executed", "summary": "字幕按剧本意图进入样片"},
+        "creative_rule_diff": {"status": "executed", "summary": "导演规则已绑定",
+                                "rules": [{"section": "内容方向", "rule": "动作与结果成对",
+                                           "status": "bound", "summary": "已绑定"}]},
+        "audio_diff": {"plan": {"narration_planned": True, "music_planned": False},
+                        "actual": {"narration_present": True, "music_present": False, "original_sound": True}},
+    }
+    board["artifacts"]["creative_control_plan"] = {
+        "plan_id": "cp-1", "plan_version": 1,
+        "sections": {"content_direction": {"summary": "方向摘要", "rules": ["动作与结果成对"]}},
+    }
+    board["artifacts"]["asset_plan"] = {
+        "planned_assets": [{"id": "a1", "type": "image_generation", "provider": "flux",
+                             "paid": True, "cost_estimate_usd": 0.02, "source_stage": "assets"}],
+        "paid_generation_approved": False,
+    }
+    board["artifacts"]["asset_manifest"] = {"assets": []}
+    board["artifacts"]["media_index"] = {"entries": []}
+
+    state = project_operator_state(board)
+    _inject_generation_tasks(state, tmp_path)
+
+    stages_json = json.dumps(state["stages"], ensure_ascii=False)
+    script = f"""
+import {{ buildApprovalStages }} from './backlot/ui/operator/approval_model.js';
+const stages = buildApprovalStages({{stages: {stages_json}}});
+const proposal = stages.find((stage) => stage.stageId === 'proposal');
+const assets = stages.find((stage) => stage.stageId === 'assets');
+const sample = stages.find((stage) => stage.stageId === 'sample');
+const scene = stages.find((stage) => stage.stageId === 'scene_plan');
+const selected = proposal.artifacts.find((artifact) => artifact.id === 'selected_direction');
+const tasks = assets.artifacts.find((artifact) => artifact.id === 'generation_tasks')?.payload?.tasks;
+const captions = sample.artifacts.find((artifact) => artifact.id === 'captions_voice')?.payload?.shots?.[0];
+const plan = scene.artifacts.find((artifact) => artifact.id === 'shot_plan')?.payload?.shots?.[0];
+console.log(JSON.stringify({{
+  selectedPayload: selected?.payload,
+  selectedSummary: selected?.summary,
+  taskStatus: tasks?.[0]?.status_label,
+  taskOutput: tasks?.[0]?.output_url,
+  taskCost: tasks?.[0]?.actual_cost_usd,
+  taskSelected: tasks?.[0]?.selected,
+  plannedNarration: captions?.planned_narration,
+  actualNarration: captions?.actual_narration,
+  referencePreview: plan?.reference_evidence?.preview_url,
+  sourcePreview: plan?.preview_url,
+  urlsDistinct: plan?.reference_evidence?.preview_url != null
+    && plan?.reference_evidence?.preview_url !== plan?.preview_url,
+}}));
+"""
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=repo_root, check=True, capture_output=True, text=True,
+    )
+    result = json.loads(completed.stdout)
+    assert result["selectedPayload"] is None
+    assert result["selectedSummary"] == "尚未选定方向"
+    assert result["taskStatus"] == "已完成"
+    assert result["taskOutput"] == "/media/table-mat/assets/gen/shot-1.mp4"
+    assert result["taskCost"] == 0.08
+    assert result["taskSelected"] is True
+    assert result["plannedNarration"] == "计划口播"
+    assert result["actualNarration"] is None
+    assert result["urlsDistinct"] is True

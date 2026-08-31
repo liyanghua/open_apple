@@ -768,7 +768,13 @@ function renderShotPlanDetail(container, payload) {
     if (shot.reference_evidence?.mechanism) card.append(detailRow("参考依据", shot.reference_evidence.mechanism));
     if (shot.reference_evidence?.rationale) card.append(detailRow("依据说明", shot.reference_evidence.rationale));
     if (shot.mapping_reason) card.append(detailRow("安排理由", shot.mapping_reason));
-    if (hasText(shot.preview_url)) card.append(mediaVideo(shot.preview_url, shot.poster_url, "镜头素材预览"));
+    if (hasText(shot.reference_evidence?.preview_url)) {
+      const referenceRange = secondsRange(shot.reference_evidence.start_seconds, shot.reference_evidence.end_seconds);
+      if (shot.reference_evidence.description) card.append(detailRow("参考片段", shot.reference_evidence.description));
+      if (referenceRange) card.append(detailRow("参考时间区间", referenceRange));
+      card.append(mediaVideo(shot.reference_evidence.preview_url, shot.reference_evidence.poster_url, "参考片段预览"));
+    }
+    if (hasText(shot.preview_url)) card.append(mediaVideo(shot.preview_url, shot.poster_url, "自有素材预览"));
     list.append(card);
   });
   container.append(list);
@@ -848,15 +854,21 @@ function renderGenerationTasksDetail(container, payload) {
     const card = node("section", "approval-detail-group");
     const head = node("div", "approval-script-head");
     head.append(node("b", "", task.shot_purpose || `生成任务 ${index + 1}`));
-    if (task.selected) head.append(node("span", "approval-badge is-active", "已选中"));
+    const badgeClass = task.status === "failed" ? "is-warn" : task.selected ? "is-active" : "";
+    head.append(node("span", `approval-badge ${badgeClass}`, task.status_label || "排队中"));
+    if (task.selected) head.append(node("span", "approval-badge is-active", "已用于本镜头"));
     card.append(head);
+    if (task.quality) card.append(detailRow("任务质量", task.quality));
     if (task.operation) card.append(detailRow("生成方式", task.operation));
     if (task.duration_seconds != null) card.append(detailRow("时长", `${Math.round(task.duration_seconds)} 秒`));
     if (task.aspect_ratio) card.append(detailRow("画幅", task.aspect_ratio));
     if (task.estimated_fast_cost_usd != null || task.estimated_standard_cost_usd != null) {
       card.append(detailRow("费用档位", `快速 $${task.estimated_fast_cost_usd ?? "—"} / 标准 $${task.estimated_standard_cost_usd ?? "—"}`));
     }
+    if (task.actual_cost_usd != null) card.append(detailRow("实际费用", `$${Number(task.actual_cost_usd).toFixed(3)}`));
     if (task.evidence_risk) card.append(detailRow("证据风险", task.evidence_risk));
+    if (task.error) card.append(detailRow("失败原因", task.error));
+    if (hasText(task.output_url)) card.append(mediaVideo(task.output_url, null, "生成任务预览"));
     list.append(card);
   });
   container.append(list);
@@ -882,7 +894,8 @@ function renderNarrationSubtitlesDetail(container, payload) {
 
 function renderMusicBudgetDetail(container, payload) {
   if (payload.music_status) container.append(detailRow("音乐状态", payload.music_status));
-  if (payload.estimated_cost_usd != null) container.append(detailRow("已用费用", `$${Number(payload.estimated_cost_usd).toFixed(3)}`));
+  if (payload.estimated_cost_usd != null) container.append(detailRow("预计费用", `$${Number(payload.estimated_cost_usd).toFixed(3)}`));
+  if (payload.spent_cost_usd != null) container.append(detailRow("已用费用", `$${Number(payload.spent_cost_usd).toFixed(3)}`));
   return true;
 }
 
@@ -926,8 +939,10 @@ function renderCaptionsVoiceDetail(container, payload) {
   (payload.shots || []).forEach((row, index) => {
     const card = node("section", "approval-detail-group");
     card.append(node("h4", "approval-detail-item-title", row.id || `镜头 ${index + 1}`));
-    if (row.narration) card.append(detailRow("口播", row.narration));
-    if (row.caption) card.append(detailRow("字幕", row.caption));
+    card.append(detailRow("计划口播", row.planned_narration || "未计划"));
+    card.append(detailRow("实际口播", row.actual_narration || "实际口播未提供"));
+    card.append(detailRow("计划字幕", row.planned_caption || "未计划"));
+    card.append(detailRow("实际字幕", row.actual_caption || "实际字幕未提供"));
     list.append(card);
   });
   container.append(list);
@@ -946,6 +961,9 @@ function renderSoundDetail(container, payload) {
     list.append(card);
   });
   container.append(list);
+  if ((payload.tracks || []).some((track) => track.kind === "narration" && track.state === "present")) {
+    container.append(node("p", "approval-detail-copy", "口播音轨已生成；逐镜口播文本核对见“字幕和口播”材料。"));
+  }
   return true;
 }
 

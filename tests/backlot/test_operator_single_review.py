@@ -434,6 +434,9 @@ def test_detail_readers_present_business_facts_and_media_actions() -> None:
         "导演总控单", "为什么有效", "行动引导", "段落目标", "画面重点", "证明要求",
         "字幕差异", "导演规则差异", "下载视频", "下载文件", "下载导出文件",
         "打开制作脚本查看完整内容", "付费生成尚未批准",
+        # 真实数据联调修复（2026-08-31 第二轮）：
+        "参考片段预览", "自有素材预览", "参考时间区间", "实际口播未提供", "实际字幕未提供",
+        "任务质量", "实际费用", "失败原因", "已用于本镜头", "生成任务预览", "已用费用",
     ):
         assert phrase in approval, phrase
     assert "mediaDownload(" in approval

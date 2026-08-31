@@ -362,9 +362,9 @@ console.log(JSON.stringify({
     assert first["pacing"] == "快节奏"
     assert first["evidence_requirements"] == ["回弹结果"]
     assert result["hasEngineering"] is False
-    assert result["narration"] == {"section_count": 3, "total_seconds": 16, "source": "production_script"}
+    assert result["narration"] == {"section_count": 3, "total_seconds": 16}
     assert result["narrationHasText"] is False
-    assert result["screenText"] == {"section_count": 3, "total_seconds": 16, "source": "production_script"}
+    assert result["screenText"] == {"section_count": 3, "total_seconds": 16}
     assert result["narrationSummary"] == "3 段，共 16 秒"
 
 
@@ -426,7 +426,7 @@ def test_assets_adapter_outputs_business_checklist_tasks_and_audio_status() -> N
 const assets = buildApprovalStages({stages:[{
   id:'assets', status:'已完成', editor:{data:{
     narration_status:'已准备', subtitle_status:'方案已锁定，将在样片阶段生成', music_status:'未安排背景音乐',
-    estimated_cost_usd:0.05, planned_count:3, prepared_count:1, waiting_confirmation_count:1, paid_generation_approved:false,
+    estimated_cost_usd:0.06, spent_cost_usd:0.05, planned_count:3, prepared_count:1, waiting_confirmation_count:1, paid_generation_approved:false,
     items:[
       {id:'a1', label:'源素材代理 · 素材A', type:'video_proxy', provider:'seedance', stage_label:'制作阶段', status:'已准备', reason:'文件已经生成并登记', paid:false, cost_estimate_usd:0, source_summary:'产品近景', source_range:'建议 3-5.5 秒'},
       {id:'a2', label:'画面生成 · 镜头1', type:'image_generation', provider:'flux', stage_label:'后续阶段', status:'等待确认', reason:'付费生成尚未获得批准', paid:true, cost_estimate_usd:0.01},
@@ -436,7 +436,11 @@ const assets = buildApprovalStages({stages:[{
       shots:[
         {id:'shot-1', purpose:'展示刮擦', narration:'这是口播', screen_copy:'这是字幕',
          generation_proposals:[{id:'gp-1', operation:'generate', model_family:'seedance', duration_seconds:3, aspect_ratio:'9:16', estimated_fast_cost_usd:0.1, estimated_standard_cost_usd:0.2, evidence_risk:'中'}],
-         selected_generation_task_id:'gp-1'},
+         selected_generation_task_id:'task-1'},
+      ],
+      generation_tasks:[
+        {task_id:'task-1', shot_id:'shot-1', proposal_id:'gp-1', quality:'fast', status:'completed',
+         output_url:'/gen/shot-1.mp4', actual_cost_usd:0.08, error:null},
       ],
     },
   }}
@@ -471,10 +475,16 @@ console.log(JSON.stringify({
     tasks = result["tasks"]
     assert tasks["status"] == "approved"
     task = tasks["tasks"][0]
+    assert task["task_id"] == "task-1"
     assert task["shot_purpose"] == "展示刮擦"
+    assert task["status"] == "completed"
+    assert task["status_label"] == "已完成"
+    assert task["quality"] == "fast"
     assert task["operation"] == "generate"
     assert task["aspect_ratio"] == "9:16"
     assert task["evidence_risk"] == "中"
+    assert task["output_url"] == "/gen/shot-1.mp4"
+    assert task["actual_cost_usd"] == 0.08
     assert task["selected"] is True
     assert "model_family" not in task
     narration_payload = result["narration"]
@@ -482,7 +492,7 @@ console.log(JSON.stringify({
     assert narration_payload["subtitle_status"] == "方案已锁定，将在样片阶段生成"
     assert narration_payload["coverage"] == [{"id": "shot-1", "narration_ready": True, "subtitle_ready": True}]
     assert result["narrationHasText"] is False
-    assert result["music"] == {"music_status": "未安排背景音乐", "estimated_cost_usd": 0.05}
+    assert result["music"] == {"music_status": "未安排背景音乐", "estimated_cost_usd": 0.06, "spent_cost_usd": 0.05}
 
 
 def test_sample_adapter_outputs_comparison_captions_diffs_and_checks() -> None:
@@ -529,7 +539,10 @@ console.log(JSON.stringify({
     comparison_json = json.dumps(result["comparison"], ensure_ascii=False)
     assert "计划字幕" not in comparison_json and "实际字幕" not in comparison_json
     captions = result["captions"]
-    assert captions["shots"][0] == {"id": "shot-1", "narration": "实际口播", "caption": "实际字幕"}
+    assert captions["shots"][0] == {
+        "id": "shot-1", "planned_narration": "计划口播", "actual_narration": "实际口播",
+        "planned_caption": "计划字幕", "actual_caption": "实际字幕",
+    }
     assert captions["caption_diff"]["status"] == "executed"
     assert captions["creative_rule_diff"]["rules"][0]["status"] == "bound"
     assert result["sound"]["tracks"][0]["state"] == "present"
@@ -776,7 +789,7 @@ console.log(JSON.stringify({
     )
     assert result["actualCaption"] == ["captions_voice"]
     assert result["actualNarration"] == ["captions_voice"]
-    assert result["plannedCaption"] == []
+    assert result["plannedCaption"] == ["captions_voice"]
     assert result["comparisonHasCaption"] is False
 
 
@@ -820,7 +833,8 @@ const stages = buildApprovalStages({stages:[
     planned_count:2, prepared_count:1, waiting_confirmation_count:1, paid_generation_approved:false,
     items:[{id:'a1', label:'画面生成 · 镜头1', type:'image_generation', provider:'flux', stage_label:'后续阶段', status:'等待确认', reason:'付费生成尚未获得批准', paid:true, cost_estimate_usd:0.01}],
     execution_plan:{plan_id:'ep-1', status:'approved', shots:[{id:'shot-1', purpose:'展示刮擦', narration:'这是口播', screen_copy:'这是字幕',
-      generation_proposals:[{id:'gp-1', operation:'generate', model_family:'seedance', duration_seconds:2, aspect_ratio:'9:16', estimated_fast_cost_usd:0.1, estimated_standard_cost_usd:0.2, evidence_risk:'中'}], selected_generation_task_id:'gp-1'}]},
+      generation_proposals:[{id:'gp-1', operation:'generate', model_family:'seedance', duration_seconds:2, aspect_ratio:'9:16', estimated_fast_cost_usd:0.1, estimated_standard_cost_usd:0.2, evidence_risk:'中'}], selected_generation_task_id:'task-1'}],
+      generation_tasks:[{task_id:'task-1', shot_id:'shot-1', proposal_id:'gp-1', quality:'fast', status:'completed', output_url:'/gen/shot-1.mp4', actual_cost_usd:0.1, error:null}]},
   }}},
   {id:'sample', status:'等待确认', editor:{data:{
     preview_url:'/sample.mp4', duration_seconds:12, qa_status:'检查通过',
@@ -867,7 +881,7 @@ console.log(JSON.stringify({
   scriptHasProof: stageText('script').includes('回弹结果'),
   sceneHasBothIntervals: stageText('scene_plan').includes('timeline_in_seconds') && stageText('scene_plan').includes('source_in_seconds'),
   sceneTimelineValue: JSON.stringify(stages.find((stage) => stage.stageId === 'scene_plan').artifacts.find((artifact) => artifact.id === 'action_timing')?.payload).includes('"timeline_in_seconds":0'),
-  assetsHasTask: stageText('assets').includes('"selected":true') && stageText('assets').includes('"operation":"generate"'),
+  assetsHasTask: stageText('assets').includes('"selected":true') && stageText('assets').includes('"status_label":"已完成"'),
   assetsHasNarrationStatus: stageText('assets').includes('已准备'),
   sampleHasActualNarration: stageText('sample').includes('实际口播'),
   sampleHasCaptionDiff: stageText('sample').includes('字幕按剧本意图进入样片'),
@@ -920,3 +934,149 @@ console.log(JSON.stringify({
     assert result["assetsHealth"] == "failed"
     assert result["assetsSummary"] == "暂未提供"
     assert result["sceneTimingHealth"] == "missing"
+
+
+def test_proposal_without_selected_direction_never_fabricates_first_concept() -> None:
+    """P1-4 回归：未选择方向时不默认取第一个方向，不派生卖点结论。"""
+    result = _node(
+        """
+const proposal = buildApprovalStages({stages:[{
+  id:'proposal', status:'已完成', editor:{data:{
+    concepts:[
+      {id:'c1', title:'真实测试', hook:'开场直接做测试', core_message:'看得见的防油', key_points:['防油']},
+      {id:'c2', title:'实验室对比', hook:'实验室数据开场', core_message:'数据说话', key_points:['数据']},
+    ],
+    selected_id:null, estimated_cost_usd:0.05,
+  }}
+}]})[1];
+const selected = proposal.artifacts.find((artifact) => artifact.id === 'selected_direction');
+const alternatives = proposal.artifacts.find((artifact) => artifact.id === 'alternative_directions');
+const points = proposal.artifacts.find((artifact) => artifact.id === 'selling_points');
+console.log(JSON.stringify({
+  selectedPayload:selected?.payload,
+  selectedSummary:selected?.summary,
+  selectedHealth:selected?.health,
+  alternativeTitles:alternatives?.payload?.map((concept) => concept.title),
+  pointsPayload:points?.payload,
+  pointsHealth:points?.health,
+}));
+"""
+    )
+    assert result["selectedPayload"] is None
+    assert result["selectedHealth"] == "missing"
+    assert result["selectedSummary"] == "尚未选定方向"
+    assert result["alternativeTitles"] == ["真实测试", "实验室对比"]
+    assert result["pointsPayload"] is None
+    assert result["pointsHealth"] == "missing"
+
+
+def test_scene_plan_keeps_reference_segment_evidence_distinct_from_source_preview() -> None:
+    """P1-3 回归：直接参考片段证据（描述/区间/预览）与自有素材预览分开保留。"""
+    result = _node(
+        """
+const scene = buildApprovalStages({stages:[{
+  id:'scenePlan', status:'已完成', editor:{data:{
+    duration_seconds: 4,
+    shots:[{
+      id:'shot-1', beat:'刮擦冲突', intent:'展示刮擦', source_label:'素材A',
+      source_in_seconds:3.0, source_out_seconds:5.0,
+      timeline_in_seconds:0.0, timeline_out_seconds:2.0,
+      mapping_reason:'直接采用参考片段 1 的动作',
+      preview_url:'/media/source.mp4', poster_url:'/thumb/source.jpg',
+      reference_evidence:{mode:'direct_segment', mechanism:'动作证明',
+        rationale:'直接对应参考片段 1', description:'工具刮擦制造冲突',
+        start_seconds:0.5, end_seconds:2.0,
+        preview_url:'/media/reference.mp4', poster_url:'/thumb/reference.jpg'},
+    }],
+  }}
+}]})[3];
+const plan = scene.artifacts.find((artifact) => artifact.id === 'shot_plan')?.payload;
+const evidence = plan?.shots?.[0]?.reference_evidence;
+const shot = plan?.shots?.[0];
+console.log(JSON.stringify({
+  evidenceMode:evidence?.mode,
+  evidenceDescription:evidence?.description,
+  evidenceStart:evidence?.start_seconds,
+  evidenceEnd:evidence?.end_seconds,
+  evidencePreview:evidence?.preview_url,
+  evidencePoster:evidence?.poster_url,
+  sourcePreview:shot?.preview_url,
+  urlsDistinct:evidence?.preview_url !== shot?.preview_url,
+}));
+"""
+    )
+    assert result["evidenceMode"] == "direct_segment"
+    assert result["evidenceDescription"] == "工具刮擦制造冲突"
+    assert result["evidenceStart"] == 0.5
+    assert result["evidenceEnd"] == 2.0
+    assert result["evidencePreview"] == "/media/reference.mp4"
+    assert result["evidencePoster"] == "/thumb/reference.jpg"
+    assert result["sourcePreview"] == "/media/source.mp4"
+    assert result["urlsDistinct"] is True
+
+
+def test_sample_actual_narration_missing_is_never_replaced_by_plan() -> None:
+    """P1-2 回归：实际口播缺失时保持 null，不回退到计划口播。"""
+    result = _node(
+        """
+const sample = buildApprovalStages({stages:[{
+  id:'sample', status:'等待确认', editor:{data:{
+    preview_url:'/sample.mp4', qa_status:'检查通过',
+    execution_trace:{shots:[{
+      shot_id:'shot-1', status:'executed', status_label:'已按方案执行',
+      planned:{purpose:'展示擦净', screen_copy:'计划字幕', narration:'计划口播'},
+      actual:{source_label:'oil', screen_copy:'实际字幕', narration:''},
+      deviation:null,
+    }]},
+    audio_tracks:[{kind:'narration', label:'口播', planned:true, present:true, state:'present'}],
+  }},
+}]})[5];
+const captions = sample.artifacts.find((artifact) => artifact.id === 'captions_voice')?.payload;
+console.log(JSON.stringify({
+  row:captions?.shots?.[0],
+  sound:sample.artifacts.find((artifact) => artifact.id === 'sound')?.payload,
+}));
+"""
+    )
+    row = result["row"]
+    assert row["planned_narration"] == "计划口播"
+    assert row["actual_narration"] is None
+    assert row["actual_caption"] == "实际字幕"
+    assert result["sound"]["tracks"][0]["state"] == "present"
+
+
+def test_generation_tasks_cover_failed_and_unstarted_states() -> None:
+    """P1-1 回归：真实任务失败原因可读；有方案但无任务时显示“尚未生成”而非消失。"""
+    result = _node(
+        """
+const assets = buildApprovalStages({stages:[{
+  id:'assets', status:'已完成', editor:{data:{
+    estimated_cost_usd:0.06, spent_cost_usd:0.05, music_status:'未安排背景音乐',
+    items:[],
+    execution_plan:{plan_id:'ep-1', status:'approved',
+      shots:[
+        {id:'shot-1', purpose:'展示刮擦', generation_proposals:[{id:'gp-1', operation:'generate', duration_seconds:2, aspect_ratio:'9:16'}], selected_generation_task_id:'task-1'},
+        {id:'shot-2', purpose:'展示结果', generation_proposals:[{id:'gp-2', operation:'generate', duration_seconds:2, aspect_ratio:'9:16'}], selected_generation_task_id:null},
+      ],
+      generation_tasks:[
+        {task_id:'task-1', shot_id:'shot-1', proposal_id:'gp-1', quality:'fast', status:'failed', output_url:null, actual_cost_usd:0.02, error:'供应商超时，已退款'},
+      ],
+    },
+  }}
+}]})[4];
+const tasks = assets.artifacts.find((artifact) => artifact.id === 'generation_tasks')?.payload?.tasks;
+console.log(JSON.stringify({tasks}));
+"""
+    )
+    tasks = result["tasks"]
+    failed = next((task for task in tasks if task["task_id"] == "task-1"), None)
+    assert failed["status"] == "failed"
+    assert failed["status_label"] == "生成失败"
+    assert failed["error"] == "供应商超时，已退款"
+    assert failed["actual_cost_usd"] == 0.02
+    assert failed["selected"] is True
+    pending = next((task for task in tasks if task["shot_id"] == "shot-2"), None)
+    assert pending is not None
+    assert pending["status"] == "not_started"
+    assert pending["status_label"] == "尚未生成"
+    assert pending["selected"] is False

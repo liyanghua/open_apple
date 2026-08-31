@@ -2185,6 +2185,10 @@
             "estimated_cost_usd": {
               "$ref": "#/$defs/nullable_number"
             },
+            "spent_cost_usd": {
+              "$ref": "#/$defs/nullable_number",
+              "description": "制作准备阶段已实际花费金额；与 estimated_cost_usd（清单预计总额）分离"
+            },
             "planned_count": {
               "type": "integer",
               "minimum": 0

@@ -20,7 +20,7 @@ const STAGE_MATERIALS = {
     ["proposal_handoff", "下一步", ["proposal_handoff"]],
   ],
   proposal: [
-    ["selected_direction", "采用方向", ["selected_direction", "concept", "concepts"]],
+    ["selected_direction", "采用方向", ["selected_direction", "concept", "concepts"], "尚未选定方向"],
     ["alternative_directions", "备选方向", ["alternatives", "alternative_directions", "concepts"]],
     ["selling_points", "卖点和差异", ["selling_points", "key_selling_points", "core_message", "concepts"]],
     ["control_plan", "导演总控单", ["control_plan"]],
@@ -330,7 +330,6 @@ function compactScriptEntry(data, field) {
   return {
     section_count: count,
     total_seconds: data.duration_seconds,
-    source: "production_script",
   };
 }
 
@@ -369,6 +368,11 @@ function compactScenePlan(data) {
         mode: shot.reference_evidence.mode,
         mechanism: shot.reference_evidence.mechanism,
         rationale: shot.reference_evidence.rationale,
+        description: shot.reference_evidence.description,
+        start_seconds: shot.reference_evidence.start_seconds,
+        end_seconds: shot.reference_evidence.end_seconds,
+        preview_url: shot.reference_evidence.preview_url,
+        poster_url: shot.reference_evidence.poster_url,
       } : null,
       preview_url: shot?.preview_url,
       poster_url: shot?.poster_url,
@@ -437,22 +441,71 @@ function compactVisualAssets(data) {
   return items.length ? { items } : null;
 }
 
+const GENERATION_TASK_STATUS_LABELS = {
+  queued: "排队中", generating: "生成中", needs_confirmation: "需要确认",
+  completed: "已完成", failed: "生成失败", not_started: "尚未生成",
+};
+
 function compactGenerationTasks(data) {
   const execution = data?.execution_plan;
   if (!execution || typeof execution !== "object") return null;
   const shots = Array.isArray(execution.shots) ? execution.shots : [];
-  const tasks = shots.flatMap((shot) => (Array.isArray(shot?.generation_proposals) ? shot.generation_proposals : [])
-    .map((proposal) => ({
-      shot_id: shot?.id,
+  const proposalById = new Map();
+  const shotByProposalId = new Map();
+  shots.forEach((shot) => {
+    (Array.isArray(shot?.generation_proposals) ? shot.generation_proposals : []).forEach((proposal) => {
+      proposalById.set(proposal?.id, proposal);
+      shotByProposalId.set(proposal?.id, shot);
+    });
+  });
+  // 真实生成任务以 execution_plan.generation_tasks 为准（由 load_operator_state 从任务目录注入）。
+  const rawTasks = Array.isArray(execution.generation_tasks) ? execution.generation_tasks : [];
+  const taskRows = rawTasks.map((task) => {
+    const proposal = proposalById.get(task?.proposal_id) || {};
+    const shot = shotByProposalId.get(task?.proposal_id) || shots.find((item) => item?.id === task?.shot_id) || {};
+    return {
+      task_id: task?.task_id,
+      shot_id: task?.shot_id || shot?.id,
       shot_purpose: shot?.purpose,
+      status: task?.status,
+      status_label: GENERATION_TASK_STATUS_LABELS[task?.status] || task?.status || "排队中",
+      quality: task?.quality,
       operation: proposal?.operation,
       duration_seconds: proposal?.duration_seconds,
       aspect_ratio: proposal?.aspect_ratio,
       estimated_fast_cost_usd: proposal?.estimated_fast_cost_usd,
       estimated_standard_cost_usd: proposal?.estimated_standard_cost_usd,
+      actual_cost_usd: task?.actual_cost_usd,
+      output_url: task?.output_url,
+      error: task?.error,
       evidence_risk: proposal?.evidence_risk,
-      selected: proposal?.id != null && shot?.selected_generation_task_id === proposal.id,
-    })));
+      selected: shot?.selected_generation_task_id != null && shot.selected_generation_task_id === task?.task_id,
+    };
+  });
+  const matchedProposalIds = new Set(rawTasks.map((task) => task?.proposal_id).filter(Boolean));
+  const pendingRows = [];
+  proposalById.forEach((proposal, proposalId) => {
+    if (matchedProposalIds.has(proposalId)) return;
+    const shot = shotByProposalId.get(proposalId) || {};
+    pendingRows.push({
+      task_id: null,
+      shot_id: shot?.id,
+      shot_purpose: shot?.purpose,
+      status: "not_started",
+      status_label: "尚未生成",
+      operation: proposal?.operation,
+      duration_seconds: proposal?.duration_seconds,
+      aspect_ratio: proposal?.aspect_ratio,
+      estimated_fast_cost_usd: proposal?.estimated_fast_cost_usd,
+      estimated_standard_cost_usd: proposal?.estimated_standard_cost_usd,
+      actual_cost_usd: null,
+      output_url: null,
+      error: null,
+      evidence_risk: proposal?.evidence_risk,
+      selected: false,
+    });
+  });
+  const tasks = [...taskRows, ...pendingRows];
   if (!tasks.length) return null;
   return { status: execution.status, tasks };
 }
@@ -475,8 +528,12 @@ function compactNarrationSubtitles(data) {
 }
 
 function compactMusicBudget(data) {
-  if (!hasValue(data.music_status) && !hasValue(data.estimated_cost_usd)) return null;
-  return { music_status: data.music_status, estimated_cost_usd: data.estimated_cost_usd };
+  if (!hasValue(data.music_status) && !hasValue(data.estimated_cost_usd) && !hasValue(data.spent_cost_usd)) return null;
+  return {
+    music_status: data.music_status,
+    estimated_cost_usd: data.estimated_cost_usd,
+    spent_cost_usd: data.spent_cost_usd,
+  };
 }
 
 function compactSampleVideo(data) {
@@ -505,11 +562,14 @@ function compactShotComparison(data) {
 
 function compactCaptionsVoice(data) {
   const shots = Array.isArray(data.execution_trace?.shots) ? data.execution_trace.shots : [];
+  // 计划与实际必须分开呈现；实际口播/字幕缺失时不回退到计划内容，由阅读器显示“未提供”。
   const rows = shots.map((shot) => ({
     id: shot?.shot_id,
-    narration: shot?.actual?.narration || shot?.planned?.narration,
-    caption: shot?.actual?.screen_copy || shot?.planned?.screen_copy,
-  })).filter((row) => hasValue(row.narration) || hasValue(row.caption));
+    planned_narration: shot?.planned?.narration || null,
+    actual_narration: shot?.actual?.narration || null,
+    planned_caption: shot?.planned?.screen_copy || null,
+    actual_caption: shot?.actual?.screen_copy || null,
+  })).filter((row) => row.planned_narration || row.actual_narration || row.planned_caption || row.actual_caption);
   if (!rows.length && !data.caption_diff && !data.creative_rule_diff) return null;
   return {
     shots: rows,
@@ -726,16 +786,25 @@ function payloadForArtifact(data, descriptor, status) {
   if (id === "decision_inbox") return compactDecisionInbox(data.decision_inbox);
   if (id === "research_quality") return compactQuality(data.quality);
   if (id === "proposal_handoff") return compactHandoff(data.proposal_handoff);
-  if (id === "selected_direction" || id === "alternative_directions" || id === "selling_points") {
+  if (id === "selected_direction") {
+    // 未选择方向时不默认取第一个方向，不制造错误事实。
     const concepts = Array.isArray(data.concepts) ? data.concepts : [];
-    const selectedId = data.selected_id;
-    const selected = concepts.find((concept) => concept?.id === selectedId) || concepts[0];
-    if (id === "selected_direction") return compactConcept(selected);
-    if (id === "alternative_directions") {
-      const alternatives = concepts.filter((concept) => concept?.id !== selectedId).map(compactConcept);
-      return alternatives.length ? alternatives : null;
-    }
-    return selected?.key_points || selected?.core_message || null;
+    const selected = concepts.find((concept) => concept?.id != null && concept.id === data.selected_id);
+    return selected ? compactConcept(selected) : null;
+  }
+  if (id === "alternative_directions") {
+    const concepts = Array.isArray(data.concepts) ? data.concepts : [];
+    const alternatives = concepts
+      .filter((concept) => !hasValue(data.selected_id) || concept?.id !== data.selected_id)
+      .map(compactConcept);
+    return alternatives.length ? alternatives : null;
+  }
+  if (id === "selling_points") {
+    // 卖点结论只从已选方向派生；未选方向时不生成卖点结论。
+    if (!hasValue(data.selected_id)) return null;
+    const selected = (Array.isArray(data.concepts) ? data.concepts : [])
+      .find((concept) => concept?.id != null && concept.id === data.selected_id);
+    return selected?.key_points?.length ? selected.key_points : selected?.core_message || null;
   }
   if (id === "control_plan") return compactControlPlan(data.control_plan);
   if (id === "production_budget") return hasValue(data.estimated_cost_usd) ? { estimated_cost_usd: data.estimated_cost_usd } : null;
@@ -779,11 +848,11 @@ function payloadForArtifact(data, descriptor, status) {
 }
 
 function artifactModel(data, descriptor, stageHealth, stageStatus) {
-  const [id, label, keys] = descriptor;
+  const [id, label, keys, emptySummary] = descriptor;
   const rawPayload = payloadForArtifact(data, descriptor, stageStatus);
   const payload = Array.isArray(rawPayload) && rawPayload.length === 0 ? null : rawPayload;
   const summary = payload == null
-    ? "暂未提供"
+    ? (emptySummary || "暂未提供")
     : typeof payload === "string"
       ? (/^(https?:|\/)/.test(payload) ? "已准备，可查看预览" : payload.slice(0, 120))
       : Array.isArray(payload)

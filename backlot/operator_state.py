@@ -1002,6 +1002,11 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     prepared_count = sum(item["status"] == "已准备" for item in projected)
     waiting_confirmation_count = sum(item["status"] == "等待确认" for item in projected)
     spent = _number((board.get("cost") or {}).get("total_spent_usd"))
+    estimated_total = sum(
+        float(item.get("cost_estimate_usd") or 0)
+        for item in planned_assets
+        if isinstance(item, Mapping) and isinstance(item.get("cost_estimate_usd"), (int, float))
+    )
     execution = _artifact(board, "shot_execution_plan")
     execution_shots = []
     for index, shot in enumerate(execution.get("shots") or []):
@@ -1078,7 +1083,8 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "narration_status": category_status("narration", "未安排口播"),
             "subtitle_status": category_status("subtitles", "未安排字幕"),
             "music_status": category_status("music", "未安排背景音乐"),
-            "estimated_cost_usd": spent,
+            "estimated_cost_usd": round(estimated_total, 4) if estimated_total else None,
+            "spent_cost_usd": spent,
             "planned_count": len(projected),
             "prepared_count": prepared_count,
             "waiting_confirmation_count": waiting_confirmation_count,
@@ -1982,6 +1988,23 @@ def project_operator_state(board_state: Mapping[str, Any]) -> dict[str, Any]:
     return state
 
 
+def _inject_generation_tasks(state: dict[str, Any], project_dir: Path) -> None:
+    """把 operator/shot-generation/tasks 下的真实生成任务注入 asset_review.execution_plan。
+
+    与 `_generation_tasks_for_operator` 配对使用；`load_operator_state` 与集成测试共享本函数，
+    确保真实任务注入只有一条代码路径。
+    """
+    tasks = _generation_tasks_for_operator(project_dir, state["project_id"])
+    for stage in state["stages"]:
+        editor = stage.get("editor") if isinstance(stage, Mapping) else None
+        if not isinstance(editor, dict) or editor.get("type") != "asset_review":
+            continue
+        data = editor.get("data")
+        execution = data.get("execution_plan") if isinstance(data, dict) else None
+        if isinstance(execution, dict):
+            execution["generation_tasks"] = tasks
+
+
 def load_operator_state(
     project_dir: Path, *, permissions: tuple[str, ...] = ("view",)
 ) -> dict[str, Any]:
@@ -1998,15 +2021,7 @@ def load_operator_state(
         board["_delivery_versions"] = []
         board["_current_delivery"] = None
     state = project_operator_state(board)
-    tasks = _generation_tasks_for_operator(project_dir, state["project_id"])
-    for stage in state["stages"]:
-        editor = stage.get("editor") if isinstance(stage, Mapping) else None
-        if not isinstance(editor, dict) or editor.get("type") != "asset_review":
-            continue
-        data = editor.get("data")
-        execution = data.get("execution_plan") if isinstance(data, dict) else None
-        if isinstance(execution, dict):
-            execution["generation_tasks"] = tasks
+    _inject_generation_tasks(state, project_dir)
     state["summary"]["performance"] = _performance_summary(project_dir)
     if (project_dir / "operator" / "operator-managed").exists():
         # 纯读取（修正 3）：读取路径一律不创建 review/写 checkpoint/补事件。
