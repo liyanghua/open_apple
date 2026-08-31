@@ -87,10 +87,10 @@
 - Modify: `backlot/ui/operator/styles.css`
 - Test: `tests/backlot/test_operator_single_review.py`
 
-- [ ] 保留统一三栏壳和 `selectedStageId/selectedArtifactId` 浏览状态。
-- [ ] 增加阶段级详情分流：研究步骤、创意方案、脚本、分镜、制作准备、样片对照、精剪状态、成片检查、交付信息。
-- [ ] `renderArtifactValue()` 只作为低风险纯文本 fallback，不再承担镜头、时间轴、检查项、交付文件和生成任务的主渲染。
-- [ ] 技术字段进入“制作记录”，媒体字段转成播放器、预览、下载等业务动作。
+- [x] 保留统一三栏壳和 `selectedStageId/selectedArtifactId` 浏览状态。
+- [x] 增加阶段级详情分流：研究步骤、创意方案、脚本、分镜、制作准备、样片对照、精剪状态、成片检查、交付信息（`STAGE_DETAIL_READERS` 按材料 ID 分流，35+ 阅读器）。
+- [x] `renderArtifactValue()` 只作为低风险纯文本 fallback，不再承担镜头、时间轴、检查项、交付文件和生成任务的主渲染。
+- [x] 技术字段进入“制作记录”，媒体字段转成播放器、预览、下载等业务动作（`mediaVideo/mediaDownload`，平台导出与交付文件提供下载动作）。
 
 ### Task 2.2：统一空态、失败态和状态摘要
 
@@ -100,9 +100,9 @@
 - Modify: `backlot/ui/operator/language.js`
 - Test: `tests/backlot/test_operator_single_review.py`
 
-- [ ] 统一“未生成 / 正在准备 / 资料异常 / 播放失败 / 报告不完整”的中文状态和恢复动作。
-- [ ] 阶段摘要显示业务结果，不显示对象数量代替结论。
-- [ ] 当前待确认阶段显示确认动作；历史阶段、后续阶段和精剪阶段保持只读。
+- [x] 统一“未生成 / 正在准备 / 资料异常 / 播放失败 / 报告不完整”的中文状态和恢复动作。
+- [x] 阶段摘要显示业务结果，不显示对象数量代替结论（脚本/分镜/清单/样片等摘要已改为“N 段/个镜头/条素材 + 结果”，条目式摘要保留“数量 + 入口”）。
+- [x] 当前待确认阶段显示确认动作；历史阶段、后续阶段和精剪阶段保持只读。
 
 ## Chunk 3：去重、业务语言和可访问性回归
 

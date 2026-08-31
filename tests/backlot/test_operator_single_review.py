@@ -327,7 +327,7 @@ def test_step_reader_exposes_every_stage_artifacts() -> None:
     # 九步中间产物由统一适配器覆盖，不再直接复用旧阶段 renderer。
     assert "buildApprovalViewModel" in approval
     for renderer in ("renderResearch", "renderProposal", "renderScript", "renderAssets", "renderDelivery"):
-        assert renderer not in approval, renderer
+        assert f"{renderer}(" not in approval, renderer
 
 
 def test_approval_workbench_uses_one_browsing_state_for_stage_and_artifact() -> None:
@@ -391,3 +391,62 @@ def test_batch_workbench_uses_approval_chrome() -> None:
     # 保留批量比较、当前确认和统一选择能力。
     for term in ("本批视频", "当前要做", "确认勾选的视频", "进入精剪"):
         assert term in app, term
+
+
+# ---------------------------------------------------------------------------
+# 补充 Chunk 5（专项 2026-08-31）Task 2.1/2.2：阶段专用详情阅读器与统一状态
+# ---------------------------------------------------------------------------
+
+
+def test_stage_detail_readers_cover_nine_stage_groups() -> None:
+    """Task 2.1：九类阶段详情分流存在，renderArtifactValue 只作为 fallback。"""
+    approval = _read_operator("approval.js")
+    for reader in (
+        "STAGE_DETAIL_READERS",
+        "renderReferenceHighlightsDetail",
+        "renderConceptDetail",
+        "renderControlPlanDetail",
+        "renderScriptDetail",
+        "renderScriptEntryDetail",
+        "renderShotPlanDetail",
+        "renderGenerationListDetail",
+        "renderGenerationTasksDetail",
+        "renderShotComparisonDetail",
+        "renderCaptionsVoiceDetail",
+        "renderEditResultDetail",
+        "renderComposeReadinessDetail",
+        "renderQualityConclusionDetail",
+        "renderVersionHistoryDetail",
+        "renderPlatformsDetail",
+        "renderDeliveryPackageDetail",
+        "renderQaEvidenceDetail",
+    ):
+        assert reader in approval, reader
+    assert "renderArtifactValue" in approval
+    assert "currentApprovalProjectId" in approval
+
+
+def test_detail_readers_present_business_facts_and_media_actions() -> None:
+    """Task 2.1：时间区间、总控单、差异、下载动作使用业务语义，不再由通用递归渲染承担。"""
+    approval = _read_operator("approval.js")
+    for phrase in (
+        "成片时间轴", "源素材区间", "镜头目的", "素材能证明什么", "安排理由",
+        "导演总控单", "为什么有效", "行动引导", "段落目标", "画面重点", "证明要求",
+        "字幕差异", "导演规则差异", "下载视频", "下载文件", "下载导出文件",
+        "打开制作脚本查看完整内容", "付费生成尚未批准",
+    ):
+        assert phrase in approval, phrase
+    assert "mediaDownload(" in approval
+    assert "mediaVideo(" in approval
+
+
+def test_approval_unified_missing_and_failure_copy() -> None:
+    """Task 2.2：统一空态/失败态中文与恢复动作；详情阅读器沿用同一套文案。"""
+    approval = _read_operator("approval.js")
+    combined = _frontline_combined()
+    for phrase in (
+        "这项材料暂未生成", "这项材料还在准备中", "这项材料处理失败",
+        "请重新拉取最新结果", "资料异常", "正在准备",
+    ):
+        assert phrase in combined, phrase
+    assert "approval-select-artifact" in approval

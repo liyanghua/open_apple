@@ -536,6 +536,707 @@ function renderArtifactValue(container, value, depth = 0) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// 阶段专用只读详情阅读器：renderArtifactValue 只作为纯文本 fallback。
+// ---------------------------------------------------------------------------
+
+let currentApprovalProjectId = null;
+
+function hasText(value) {
+  return value !== undefined && value !== null && value !== "";
+}
+
+function mediaVideo(src, poster, label) {
+  const video = document.createElement("video");
+  video.className = "approval-detail-video";
+  video.controls = true;
+  video.playsInline = true;
+  video.preload = "metadata";
+  video.src = src;
+  if (poster) video.poster = poster;
+  video.setAttribute("aria-label", label);
+  video.addEventListener("error", () => {
+    const message = node("p", "approval-player-error", APPROVAL_COPY.playbackFailed);
+    message.setAttribute("role", "status");
+    message.setAttribute("aria-live", "polite");
+    video.replaceWith(message);
+  }, { once: true });
+  return video;
+}
+
+function mediaDownload(label, url) {
+  const link = document.createElement("a");
+  link.className = "approval-download";
+  link.href = url;
+  link.textContent = label;
+  link.setAttribute("download", "");
+  link.setAttribute("aria-label", `${label}（下载）`);
+  return link;
+}
+
+function secondsRange(inSeconds, outSeconds) {
+  if (inSeconds == null && outSeconds == null) return null;
+  const start = inSeconds != null ? Number(inSeconds).toFixed(1) : "?";
+  const end = outSeconds != null ? Number(outSeconds).toFixed(1) : "?";
+  return `${start} – ${end} 秒`;
+}
+
+function jumpToArtifact(container, targetId, copy) {
+  const button = node("button", "approval-jump");
+  button.type = "button";
+  button.textContent = copy;
+  button.addEventListener("click", () => {
+    document.dispatchEvent(new CustomEvent("approval-select-artifact", { detail: { artifactId: targetId } }));
+  });
+  container.append(button);
+}
+
+function verdictBanner(container, kind, title, copy) {
+  container.append(node("p", `approval-verdict ${kind === "ok" ? "is-ok" : kind === "warn" ? "is-warn" : "is-bad"}`, `${title}：${copy}`));
+}
+
+function renderReferenceHighlightsDetail(container, payload) {
+  if (hasText(payload.preview_url)) container.append(mediaVideo(payload.preview_url, payload.poster_url, "参考片预览"));
+  if (hasText(payload.title)) container.append(detailRow("参考片", payload.title));
+  if (hasText(payload.summary)) container.append(detailRow("说明", payload.summary));
+  if (hasText(payload.hook)) container.append(detailRow("开头方式", payload.hook));
+  if (hasText(payload.proof_method)) container.append(detailRow("证明方法", payload.proof_method));
+  if (payload.avg_evidence_seconds != null) container.append(detailRow("证明节奏", `${Number(payload.avg_evidence_seconds).toFixed(1)} 秒`));
+  if (hasText(payload.camera_method)) container.append(detailRow("镜头方法", payload.camera_method));
+  if (hasText(payload.caption_method)) container.append(detailRow("字幕方法", payload.caption_method));
+  if (payload.beat_order?.length) container.append(detailRow("内容顺序", payload.beat_order.join(" → ")));
+  if (hasText(payload.replicate)) container.append(detailRow("可以借鉴", payload.replicate));
+  if (hasText(payload.differentiate)) container.append(detailRow("需要做出差异", payload.differentiate));
+  if (payload.scenes?.length) container.append(detailRow("参考片段", `${payload.scenes.length} 段`));
+  return true;
+}
+
+function renderReferenceBreakdownDetail(container, payload) {
+  const list = node("div", "approval-detail-list");
+  (payload.rows || []).forEach((row, index) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", row.title || `第 ${index + 1} 个镜头`));
+    if (row.time_range) card.append(detailRow("时间", row.time_range));
+    if (row.shot_size) card.append(detailRow("景别", row.shot_size));
+    if (row.camera_angle) card.append(detailRow("机位", row.camera_angle));
+    if (row.camera_movement) card.append(detailRow("运镜", row.camera_movement));
+    if (row.dialogue) card.append(detailRow("台词", row.dialogue));
+    if (row.overlay_text) card.append(detailRow("画面文字", row.overlay_text));
+    if (row.effect_treatment) card.append(detailRow("画面效果", row.effect_treatment));
+    if (row.setting) card.append(detailRow("场景", row.setting));
+    if (row.audio) card.append(detailRow("声音", row.audio));
+    if (row.music) card.append(detailRow("音乐", row.music));
+    if (row.evidence) card.append(detailRow("画面参考", row.evidence));
+    if (row.note) card.append(detailRow("分析备注", row.note));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderStepsDetail(container, payload) {
+  const list = node("div", "approval-detail-list");
+  (payload.steps || []).forEach((step, index) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", step.title || `第 ${index + 1} 步`));
+    if (step.status) card.append(detailRow("状态", displayValue(step.status)));
+    if (step.summary) card.append(node("p", "approval-detail-copy", step.summary));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderConceptDetail(container, payload) {
+  container.append(node("h4", "approval-detail-group-title", payload.title || "采用方向"));
+  if (payload.hook) container.append(detailRow("开头方式", payload.hook));
+  if (payload.core_message) container.append(detailRow("核心卖点", payload.core_message));
+  if (payload.target_audience) container.append(detailRow("目标人群", payload.target_audience));
+  if (payload.tone) container.append(detailRow("语气", payload.tone));
+  if (payload.visual_approach) container.append(detailRow("画面做法", payload.visual_approach));
+  if (payload.why_effective) container.append(detailRow("为什么有效", payload.why_effective));
+  if (payload.key_points?.length) container.append(detailRow("关键卖点", payload.key_points.join("、")));
+  if (payload.cta) container.append(detailRow("行动引导", payload.cta));
+  if (payload.duration_seconds != null) container.append(detailRow("预计时长", `${Math.round(payload.duration_seconds)} 秒`));
+  if (payload.target_platform) container.append(detailRow("目标平台", payload.target_platform));
+  return true;
+}
+
+function renderConceptsDetail(container, payload) {
+  const list = node("div", "approval-detail-list");
+  payload.forEach((concept, index) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", concept?.title || `方向 ${index + 1}`));
+    if (concept?.hook) card.append(detailRow("开头方式", concept.hook));
+    if (concept?.core_message) card.append(detailRow("核心卖点", concept.core_message));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderPointsDetail(container, payload) {
+  if (typeof payload === "string") {
+    container.append(node("p", "approval-detail-lead", payload));
+    return true;
+  }
+  if (Array.isArray(payload)) {
+    container.append(approvalTagList(payload.filter(hasText)));
+    return true;
+  }
+  return false;
+}
+
+function renderControlPlanDetail(container, payload) {
+  container.append(node("p", "approval-detail-copy", "导演总控单是后续脚本和分镜的执行依据，按章节核对即可。"));
+  const list = node("div", "approval-detail-list");
+  (payload.sections || []).forEach((section) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-group-title", section.label || "总控章节"));
+    if (section.summary) card.append(node("p", "approval-detail-copy", section.summary));
+    (section.rules || []).forEach((rule) => card.append(node("p", "approval-rule-line", `· ${rule}`)));
+    if (section.review) card.append(detailRow("章节复核", displayValue(section.review)));
+    if (section.feedback) card.append(detailRow("章节反馈", section.feedback));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderBudgetDetail(container, payload) {
+  container.append(node("p", "approval-detail-lead", payload.estimated_cost_usd != null ? `预计成本 $${Number(payload.estimated_cost_usd).toFixed(3)}` : "尚未提供预计成本"));
+  return true;
+}
+
+function renderScriptDetail(container, payload) {
+  const list = node("div", "approval-detail-list");
+  (payload.sections || []).forEach((section, index) => {
+    const card = node("section", "approval-script-section");
+    const head = node("header", "approval-script-head");
+    head.append(node("b", "", section.part || "段落"), node("span", "approval-script-label", section.label || `第 ${index + 1} 段`));
+    const range = secondsRange(section.start_seconds, section.end_seconds);
+    if (range) head.append(node("span", "approval-script-time", range));
+    card.append(head);
+    if (section.narration) card.append(node("p", "approval-script-copy", section.narration));
+    if (section.screen_copy) card.append(detailRow("屏幕文字", section.screen_copy));
+    if (section.section_goal) card.append(detailRow("段落目标", section.section_goal));
+    if (section.visual_intent) card.append(detailRow("画面重点", section.visual_intent));
+    if (section.pacing) card.append(detailRow("节奏", section.pacing));
+    if (section.evidence_requirements?.length) card.append(detailRow("证明要求", section.evidence_requirements.join("；")));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderScriptEntryDetail(container, payload) {
+  const count = payload.section_count ?? 0;
+  container.append(node("p", "approval-detail-lead", `共 ${count} 段${payload.total_seconds != null ? `，总时长 ${payload.total_seconds} 秒` : ""}`));
+  container.append(node("p", "approval-detail-copy", "完整正文只在“制作脚本”中呈现一次，避免重复阅读。"));
+  jumpToArtifact(container, "production_script", "打开制作脚本查看完整内容");
+  return true;
+}
+
+function renderDurationDetail(container, payload) {
+  if (payload.duration_seconds != null) container.append(detailRow("总时长", `${Math.round(payload.duration_seconds)} 秒`));
+  if (payload.status) container.append(detailRow("检查状态", payload.status));
+  return true;
+}
+
+function renderShotPlanDetail(container, payload) {
+  if (payload.reference_basis && (payload.reference_basis.proof_method || payload.reference_basis.summary || payload.reference_basis.beat_order?.length)) {
+    const basis = node("div", "approval-basis");
+    if (payload.reference_basis.proof_method) basis.append(detailRow("参考证明方法", payload.reference_basis.proof_method));
+    if (payload.reference_basis.beat_order?.length) basis.append(detailRow("参考内容顺序", payload.reference_basis.beat_order.join(" → ")));
+    if (payload.reference_basis.summary) basis.append(detailRow("参考说明", payload.reference_basis.summary));
+    container.append(basis);
+  }
+  const list = node("div", "approval-detail-list");
+  (payload.shots || []).forEach((shot, index) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", shot.title || shot.purpose || `第 ${index + 1} 个镜头`));
+    if (shot.purpose) card.append(detailRow("镜头目的", shot.purpose));
+    if (shot.screen_copy) card.append(detailRow("画面重点", shot.screen_copy));
+    const timelineRange = secondsRange(shot.timeline_in_seconds, shot.timeline_out_seconds);
+    const sourceRange = secondsRange(shot.source_in_seconds, shot.source_out_seconds);
+    if (timelineRange) card.append(detailRow("成片时间轴", timelineRange));
+    if (sourceRange) card.append(detailRow("源素材区间", `${sourceRange}${shot.source_label ? ` · ${shot.source_label}` : ""}`));
+    if (shot.framing) card.append(detailRow("取景", shot.framing));
+    if (shot.movement) card.append(detailRow("运镜", shot.movement));
+    if (shot.narrative_role) card.append(detailRow("叙事作用", shot.narrative_role));
+    if (shot.evidence) card.append(detailRow("素材能证明什么", shot.evidence));
+    if (shot.reference_evidence?.mechanism) card.append(detailRow("参考依据", shot.reference_evidence.mechanism));
+    if (shot.reference_evidence?.rationale) card.append(detailRow("依据说明", shot.reference_evidence.rationale));
+    if (shot.mapping_reason) card.append(detailRow("安排理由", shot.mapping_reason));
+    if (hasText(shot.preview_url)) card.append(mediaVideo(shot.preview_url, shot.poster_url, "镜头素材预览"));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderMappingRowsDetail(container, payload) {
+  const list = node("div", "approval-detail-list");
+  (payload.rows || []).forEach((row, index) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", row.title || `第 ${index + 1} 个镜头`));
+    if (row.source_label) card.append(detailRow("使用素材", row.source_label));
+    if (row.evidence) card.append(detailRow("素材能证明什么", row.evidence));
+    if (row.mapping_reason) card.append(detailRow("安排理由", row.mapping_reason));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderTimingRowsDetail(container, payload) {
+  container.append(node("p", "approval-detail-copy", "成片时间轴表示镜头在成片中的位置；源素材区间请见“镜头安排”。"));
+  const list = node("div", "approval-detail-list");
+  (payload.rows || []).forEach((row, index) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", row.id || `第 ${index + 1} 个镜头`));
+    const range = secondsRange(row.timeline_in_seconds, row.timeline_out_seconds);
+    if (range) card.append(detailRow("成片时间轴", range));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderGenerationListDetail(container, payload) {
+  const stats = node("div", "approval-meta-stats");
+  if (payload.planned_count != null) stats.append(node("span", "", `计划 ${payload.planned_count} 项`));
+  if (payload.prepared_count != null) stats.append(node("span", "", `${payload.prepared_count} 项已就绪`));
+  if (payload.waiting_confirmation_count != null) stats.append(node("span", "", `${payload.waiting_confirmation_count} 项等待确认`));
+  if (payload.paid_generation_approved != null) stats.append(node("span", "", payload.paid_generation_approved ? "付费生成已获批准" : "付费生成尚未批准"));
+  container.append(stats);
+  const list = node("div", "approval-detail-list");
+  (payload.items || []).forEach((item, index) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", item.label || `第 ${index + 1} 项`));
+    if (item.status) card.append(detailRow("状态", item.status));
+    if (item.reason) card.append(detailRow("说明", item.reason));
+    if (item.stage_label) card.append(detailRow("生成阶段", item.stage_label));
+    if (item.source_summary) card.append(detailRow("素材说明", item.source_summary));
+    if (item.source_range) card.append(detailRow("建议片段", item.source_range));
+    if (item.paid) card.append(detailRow("费用", item.cost_estimate_usd != null ? `付费 · 预计 $${Number(item.cost_estimate_usd).toFixed(3)}` : "付费生成"));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderVisualAssetsDetail(container, payload) {
+  const list = node("div", "approval-detail-list");
+  (payload.items || []).forEach((item, index) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", item.label || `素材 ${index + 1}`));
+    if (item.status) card.append(detailRow("状态", item.status));
+    if (item.reason) card.append(detailRow("说明", item.reason));
+    if (item.source_summary) card.append(detailRow("素材说明", item.source_summary));
+    if (item.source_range) card.append(detailRow("建议片段", item.source_range));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderGenerationTasksDetail(container, payload) {
+  if (payload.status) container.append(detailRow("方案状态", displayValue(payload.status)));
+  const list = node("div", "approval-detail-list");
+  (payload.tasks || []).forEach((task, index) => {
+    const card = node("section", "approval-detail-group");
+    const head = node("div", "approval-script-head");
+    head.append(node("b", "", task.shot_purpose || `生成任务 ${index + 1}`));
+    if (task.selected) head.append(node("span", "approval-badge is-active", "已选中"));
+    card.append(head);
+    if (task.operation) card.append(detailRow("生成方式", task.operation));
+    if (task.duration_seconds != null) card.append(detailRow("时长", `${Math.round(task.duration_seconds)} 秒`));
+    if (task.aspect_ratio) card.append(detailRow("画幅", task.aspect_ratio));
+    if (task.estimated_fast_cost_usd != null || task.estimated_standard_cost_usd != null) {
+      card.append(detailRow("费用档位", `快速 $${task.estimated_fast_cost_usd ?? "—"} / 标准 $${task.estimated_standard_cost_usd ?? "—"}`));
+    }
+    if (task.evidence_risk) card.append(detailRow("证据风险", task.evidence_risk));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderNarrationSubtitlesDetail(container, payload) {
+  if (payload.narration_status) container.append(detailRow("口播状态", payload.narration_status));
+  if (payload.subtitle_status) container.append(detailRow("字幕状态", payload.subtitle_status));
+  if (payload.coverage?.length) {
+    const list = node("div", "approval-detail-list");
+    payload.coverage.forEach((shot, index) => {
+      const card = node("section", "approval-detail-group");
+      card.append(node("h4", "approval-detail-item-title", shot.id || `镜头 ${index + 1}`));
+      card.append(detailRow("口播", shot.narration_ready ? "已安排" : "未安排"));
+      card.append(detailRow("字幕", shot.subtitle_ready ? "已安排" : "未安排"));
+      list.append(card);
+    });
+    container.append(list);
+  }
+  return true;
+}
+
+function renderMusicBudgetDetail(container, payload) {
+  if (payload.music_status) container.append(detailRow("音乐状态", payload.music_status));
+  if (payload.estimated_cost_usd != null) container.append(detailRow("已用费用", `$${Number(payload.estimated_cost_usd).toFixed(3)}`));
+  return true;
+}
+
+function renderShotComparisonDetail(container, payload) {
+  const list = node("div", "approval-detail-list");
+  (payload.rows || []).forEach((row, index) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", row.purpose || `第 ${index + 1} 个镜头`));
+    if (row.status) card.append(detailRow("执行状态", displayValue(row.status)));
+    if (row.plan_screen_copy) card.append(detailRow("计划字幕", row.plan_screen_copy));
+    if (row.actual_screen_copy) card.append(detailRow("实际字幕", row.actual_screen_copy));
+    if (row.actual_source_label) card.append(detailRow("实际素材", row.actual_source_label));
+    if (row.difference) card.append(detailRow("不同之处", row.difference));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderDiffBanner(container, title, diff) {
+  if (!diff || typeof diff !== "object") return;
+  const banner = node("section", "approval-diff-banner");
+  banner.append(node("h4", "", title));
+  if (diff.summary) banner.append(node("p", "approval-detail-copy", diff.summary));
+  if (diff.reason) banner.append(detailRow("原因", diff.reason));
+  if (Array.isArray(diff.rules)) {
+    const rules = node("div", "approval-detail-list");
+    diff.rules.forEach((rule) => {
+      const card = node("section", "approval-detail-group");
+      card.append(node("h4", "approval-detail-item-title", `${rule.section || "规则"} · ${rule.rule || ""}`));
+      if (rule.summary) card.append(node("p", "approval-detail-copy", rule.summary));
+      rules.append(card);
+    });
+    banner.append(rules);
+  }
+  container.append(banner);
+}
+
+function renderCaptionsVoiceDetail(container, payload) {
+  const list = node("div", "approval-detail-list");
+  (payload.shots || []).forEach((row, index) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", row.id || `镜头 ${index + 1}`));
+    if (row.narration) card.append(detailRow("口播", row.narration));
+    if (row.caption) card.append(detailRow("字幕", row.caption));
+    list.append(card);
+  });
+  container.append(list);
+  renderDiffBanner(container, "字幕差异", payload.caption_diff);
+  renderDiffBanner(container, "导演规则差异", payload.creative_rule_diff);
+  return true;
+}
+
+function renderSoundDetail(container, payload) {
+  const stateLabels = { present: "已准备", missing: "缺少", not_planned: "未安排" };
+  const list = node("div", "approval-detail-list");
+  (payload.tracks || []).forEach((track, index) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", track.label || `音轨 ${index + 1}`));
+    card.append(detailRow("状态", stateLabels[track.state] || displayValue(track.state) || "未知"));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderSystemChecksDetail(container, payload) {
+  if (payload.status) container.append(detailRow("检查结论", displayValue(payload.status)));
+  if (payload.recommended_action) container.append(detailRow("下一步", displayValue(payload.recommended_action)));
+  if (payload.hard_gate_fails?.length) {
+    const list = node("div", "approval-detail-list");
+    payload.hard_gate_fails.forEach((check) => {
+      const card = node("section", "approval-detail-group");
+      card.append(node("h4", "approval-detail-item-title", check.name || "检查项"));
+      if (check.message) card.append(node("p", "approval-detail-copy", check.message));
+      if (check.fixable != null) card.append(detailRow("是否可修复", check.fixable ? "可以修复" : "无法自动修复"));
+      list.append(card);
+    });
+    container.append(list);
+  }
+  return true;
+}
+
+function renderSuggestionsDetail(container, payload) {
+  if (payload.summary) container.append(node("p", "approval-detail-lead", payload.summary));
+  const list = node("div", "approval-detail-list");
+  (payload.dimensions || []).forEach((dimension) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", `${dimension.name || "维度"} · ${dimension.score ?? "—"}`));
+    if (dimension.note) card.append(node("p", "approval-detail-copy", dimension.note));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderProductionBasisDetail(container, payload) {
+  if (payload.summary && typeof payload.summary === "object") {
+    const stats = node("div", "approval-meta-stats");
+    if (payload.summary.included_shot_count != null) stats.append(node("span", "", `${payload.summary.included_shot_count} 个镜头进入样片`));
+    if (payload.summary.planned_shot_count != null) stats.append(node("span", "", `计划 ${payload.summary.planned_shot_count} 个镜头`));
+    if (payload.summary.new_content_count != null) stats.append(node("span", "", `${payload.summary.new_content_count} 处新内容`));
+    container.append(stats);
+  }
+  const list = node("div", "approval-detail-list");
+  (payload.reference_rules || []).forEach((row, index) => {
+    if (!row.rules?.length) return;
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", row.id || `镜头 ${index + 1}`));
+    row.rules.forEach((rule) => card.append(node("p", "approval-rule-line", `· ${rule}`)));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderEditResultDetail(container, payload) {
+  if (hasText(payload.preview_url)) container.append(mediaVideo(payload.preview_url, null, "修改前样片预览"));
+  if (payload.change_scope) container.append(detailRow("修改范围", payload.change_scope));
+  if (payload.affected_shot_count != null) container.append(detailRow("影响镜头", `${payload.affected_shot_count} 个`));
+  if (payload.reasons?.length) container.append(detailRow("修改原因", payload.reasons.join("；")));
+  return true;
+}
+
+function renderShotOrderDetail(container, payload) {
+  const list = node("div", "approval-detail-list");
+  (payload.shots || []).forEach((shot, index) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", shot.title || `镜头 ${index + 1}`));
+    if (shot.source_label) card.append(detailRow("使用素材", shot.source_label));
+    if (shot.duration_seconds != null) card.append(detailRow("时长", `${Number(shot.duration_seconds).toFixed(1)} 秒`));
+    if (shot.caption) card.append(detailRow("字幕", shot.caption));
+    if (shot.narration) card.append(detailRow("口播", shot.narration));
+    if (shot.enabled === false) card.append(detailRow("状态", "已删减"));
+    if (hasText(shot.preview_url)) card.append(mediaVideo(shot.preview_url, shot.poster_url, "镜头预览"));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderEditAudioDetail(container, payload) {
+  if (payload.music_volume != null) container.append(detailRow("音乐音量", payload.music_volume));
+  if (payload.sfx_volume != null) container.append(detailRow("音效音量", payload.sfx_volume));
+  if (payload.narration_enabled != null) container.append(detailRow("口播", payload.narration_enabled ? "保留口播" : "已关闭口播"));
+  return true;
+}
+
+function renderComposeReadinessDetail(container, payload) {
+  verdictBanner(container, payload.ready ? "ok" : "warn", "成片检查就绪", payload.summary || "尚未确定");
+  if (payload.change_scope) container.append(detailRow("修改范围", payload.change_scope));
+  if (payload.affected_shot_count != null) container.append(detailRow("影响镜头", `${payload.affected_shot_count} 个`));
+  if (payload.reasons?.length) container.append(detailRow("修改原因", payload.reasons.join("；")));
+  return true;
+}
+
+function renderMediaObjectDetail(container, payload) {
+  const videoUrl = payload.video_url || payload.preview_url;
+  if (hasText(videoUrl)) container.append(mediaVideo(videoUrl, payload.poster_url, "视频预览"));
+  if (payload.duration_seconds != null) container.append(detailRow("时长", `${Math.round(payload.duration_seconds)} 秒`));
+  if (payload.qa_status) container.append(detailRow("检查结果", payload.qa_status));
+  if (hasText(payload.download_url)) container.append(mediaDownload("下载视频", payload.download_url));
+  return true;
+}
+
+function renderPictureSoundDetail(container, payload) {
+  const list = node("div", "approval-detail-list");
+  (payload.tracks || []).forEach((track) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-group-title", track.label || track.kind || "时间轴"));
+    (track.segments || []).forEach((segment, index) => {
+      const row = node("div", "approval-segment");
+      const range = secondsRange(segment.start_seconds, segment.end_seconds);
+      row.append(node("b", "", segment.label || `片段 ${index + 1}`));
+      if (range) row.append(node("span", "approval-segment-time", range));
+      card.append(row);
+      if (hasText(segment.preview_url)) card.append(mediaVideo(segment.preview_url, null, "片段预览"));
+    });
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderQualityConclusionDetail(container, payload) {
+  if (payload.qa_status) verdictBanner(container, payload.qa_status === "检查通过" ? "ok" : "warn", "检查结论", payload.qa_status);
+  const evaluation = payload.evaluation;
+  if (evaluation && typeof evaluation === "object") {
+    if (evaluation.recommended_action) container.append(detailRow("下一步", displayValue(evaluation.recommended_action)));
+    if (evaluation.hard_gate_fails?.length) {
+      evaluation.hard_gate_fails.forEach((check) => {
+        container.append(detailRow(check.name || "检查项", check.message || "未通过"));
+      });
+    }
+    if (evaluation.advisory?.summary) container.append(node("p", "approval-detail-copy", evaluation.advisory.summary));
+    if (evaluation.advisory?.dimensions?.length) {
+      const list = node("div", "approval-detail-list");
+      evaluation.advisory.dimensions.forEach((dimension) => {
+        const card = node("section", "approval-detail-group");
+        card.append(node("h4", "approval-detail-item-title", `${dimension.name || "维度"} · ${dimension.score ?? "—"}`));
+        if (dimension.note) card.append(node("p", "approval-detail-copy", dimension.note));
+        list.append(card);
+      });
+      container.append(list);
+    }
+  }
+  return true;
+}
+
+function renderVersionHistoryDetail(container, payload) {
+  const list = node("div", "approval-detail-list");
+  (payload.versions || []).forEach((version) => {
+    const card = node("section", "approval-detail-group");
+    const head = node("div", "approval-script-head");
+    head.append(node("b", "", version.label || version.id || "版本"));
+    if (version.active) head.append(node("span", "approval-badge is-active", "当前版本"));
+    card.append(head);
+    if (version.qa_status) card.append(detailRow("检查状态", version.qa_status));
+    if (version.change_summary) card.append(detailRow("变更说明", version.change_summary));
+    if (hasText(version.video_url)) card.append(mediaDownload("下载该版本", version.video_url));
+    if (hasText(version.poster_url)) {
+      const image = document.createElement("img");
+      image.className = "approval-scene-thumb";
+      image.src = version.poster_url;
+      image.loading = "lazy";
+      image.alt = `${version.label || "版本"}封面`;
+      card.append(image);
+    }
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderPendingChangesDetail(container, payload) {
+  const list = node("div", "approval-detail-list");
+  (payload.changes || []).forEach((change) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", change.label || change.kind || "待处理项"));
+    if (change.summary) card.append(node("p", "approval-detail-copy", change.summary));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderFileInfoDetail(container, payload) {
+  if (payload.format_label) container.append(detailRow("视频格式", payload.format_label));
+  if (payload.duration_seconds != null) container.append(detailRow("时长", `${Math.round(payload.duration_seconds)} 秒`));
+  return true;
+}
+
+function renderPlatformsDetail(container, payload) {
+  const list = node("div", "approval-detail-list");
+  (payload.entries || []).forEach((entry) => {
+    const card = node("section", "approval-detail-group");
+    const head = node("div", "approval-script-head");
+    head.append(node("b", "", entry.platform_label || entry.platform || "平台"));
+    head.append(node("span", `approval-badge ${entry.status === "failed" ? "is-warn" : ""}`, entry.status_label || entry.status || ""));
+    card.append(head);
+    if (entry.title) card.append(detailRow("发布标题", entry.title));
+    if (entry.description) card.append(detailRow("发布描述", entry.description));
+    if (entry.hashtags?.length) card.append(detailRow("话题标签", entry.hashtags.join(" ")));
+    if (entry.timestamp) card.append(detailRow("时间", entry.timestamp));
+    if (hasText(entry.export_path) && currentApprovalProjectId) {
+      card.append(mediaDownload("下载导出文件", `/media/${currentApprovalProjectId}/${String(entry.export_path).replace(/^\/+/, "")}`));
+    }
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderDeliveryPackageDetail(container, payload) {
+  if (payload.notes) container.append(node("p", "approval-detail-lead", payload.notes));
+  if (payload.package_path) container.append(detailRow("交付包", payload.package_path));
+  const list = node("div", "approval-detail-list");
+  (payload.files || []).forEach((file) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", file.label || file.relative_path || "交付文件"));
+    if (file.kind) card.append(detailRow("类型", file.kind));
+    if (hasText(file.download_url)) card.append(mediaDownload("下载文件", file.download_url));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderQaEvidenceDetail(container, payload) {
+  const list = node("div", "approval-detail-list");
+  (payload.files || []).forEach((file) => {
+    const card = node("section", "approval-detail-group");
+    card.append(node("h4", "approval-detail-item-title", file.label || file.relative_path || "QA 证据"));
+    if (hasText(file.download_url)) card.append(mediaDownload("下载证据", file.download_url));
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+const STAGE_DETAIL_READERS = {
+  // 研究步骤
+  reference_highlights: renderReferenceHighlightsDetail,
+  reference_breakdown: renderReferenceBreakdownDetail,
+  research_path: renderStepsDetail,
+  source_inventory: renderSourceInventoryDetail,
+  // 创意方案
+  selected_direction: renderConceptDetail,
+  alternative_directions: renderConceptsDetail,
+  selling_points: renderPointsDetail,
+  control_plan: renderControlPlanDetail,
+  production_budget: renderBudgetDetail,
+  // 脚本
+  production_script: renderScriptDetail,
+  narration: renderScriptEntryDetail,
+  on_screen_text: renderScriptEntryDetail,
+  duration_check: renderDurationDetail,
+  // 分镜
+  shot_plan: renderShotPlanDetail,
+  source_mapping: renderMappingRowsDetail,
+  action_timing: renderTimingRowsDetail,
+  // 制作准备
+  generation_list: renderGenerationListDetail,
+  visual_assets: renderVisualAssetsDetail,
+  generation_tasks: renderGenerationTasksDetail,
+  narration_subtitles: renderNarrationSubtitlesDetail,
+  music_budget: renderMusicBudgetDetail,
+  // 样片
+  sample_video: renderMediaObjectDetail,
+  shot_comparison: renderShotComparisonDetail,
+  captions_voice: renderCaptionsVoiceDetail,
+  sound: renderSoundDetail,
+  system_checks: renderSystemChecksDetail,
+  system_suggestions: renderSuggestionsDetail,
+  production_basis: renderProductionBasisDetail,
+  // 精剪
+  edit_result: renderEditResultDetail,
+  shot_order: renderShotOrderDetail,
+  audio_captions: renderEditAudioDetail,
+  compose_readiness: renderComposeReadinessDetail,
+  // 成片
+  final_video: renderMediaObjectDetail,
+  picture_sound: renderPictureSoundDetail,
+  quality_conclusion: renderQualityConclusionDetail,
+  version_history: renderVersionHistoryDetail,
+  pending_changes: renderPendingChangesDetail,
+  // 交付
+  delivery_video: renderMediaObjectDetail,
+  file_info: renderFileInfoDetail,
+  platforms_download: renderPlatformsDetail,
+  delivery_package: renderDeliveryPackageDetail,
+  qa_evidence: renderQaEvidenceDetail,
+};
+
 function renderArtifactDetail(container, artifact) {
   const detail = node("section", "approval-detail");
   detail.dataset.artifactId = artifact.id;
@@ -545,32 +1246,11 @@ function renderArtifactDetail(container, artifact) {
   else if (artifact.health === "processing") detail.append(node("p", "approval-detail-warning", "这项材料还在准备中，完成后会自动显示。"));
   else if (artifact.health === "missing") detail.append(node("p", "approval-detail-warning", "这项材料暂未生成。"));
   const payload = artifact.payload;
-  const referencePreview = artifact.id === "reference_highlights" && typeof payload === "object" ? payload.preview_url : null;
-  const mediaUrl = typeof payload === "string" && /^(https?:|\/)/.test(payload) && /video|sample|final|delivery|edit_result/.test(artifact.id);
-  if (referencePreview) {
-    const video = document.createElement("video");
-    video.className = "approval-detail-video";
-    video.controls = true; video.playsInline = true; video.preload = "metadata"; video.src = referencePreview;
-    if (payload.poster_url) video.poster = payload.poster_url;
-    video.setAttribute("aria-label", "参考片预览");
-    detail.append(video);
-  }
-  if (mediaUrl) {
-    const video = document.createElement("video");
-    video.className = "approval-detail-video";
-    video.controls = true; video.playsInline = true; video.preload = "metadata"; video.src = payload;
-    video.setAttribute("aria-label", `${artifact.label}预览`);
-    video.addEventListener("error", () => {
-      const message = node("p", "approval-player-error", APPROVAL_COPY.playbackFailed);
-      message.setAttribute("role", "status");
-      message.setAttribute("aria-live", "polite");
-      detail.append(message);
-    }, { once: true });
-    detail.append(video);
-  } else if (artifact.id === "source_inventory" && renderSourceInventoryDetail(detail, payload)) {
-    // 素材库保留缩略图和可播放预览，其余研究材料走统一文字详情。
-  } else if (payload != null) {
-    renderArtifactValue(detail, payload);
+  let rendered = false;
+  if (payload != null) {
+    const reader = STAGE_DETAIL_READERS[artifact.id];
+    rendered = Boolean(reader && reader(detail, payload));
+    if (!rendered) renderArtifactValue(detail, payload);
   } else if (artifact.summary) {
     detail.append(node("p", "approval-detail-copy", artifact.summary));
   }
@@ -986,6 +1666,7 @@ function requestApprovalRefresh(projectId) {
 
 export function renderApprovalWorkbench(container, project, snapshot) {
   const view = buildApprovalViewModel(project);
+  currentApprovalProjectId = project.project_id || project.id || null;
   const requestedStage = view.stages.find((stage) => stage.stageId === snapshot.selectedStageId);
   const selectedStage = requestedStage || view.stages.find((stage) => stage.stageId === view.reviewGateId) || view.stages[0];
   view.selectedStageId = selectedStage?.stageId || null;
