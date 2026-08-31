@@ -50,6 +50,11 @@ const CAPACITY_STYLE = { DIVERSIFY: "pass", DIVERSIFY_LIMITED: "partial", COMPRE
 const CAPACITY_LABEL = { DIVERSIFY: "✅ 池充足", DIVERSIFY_LIMITED: "⚠ 受限(DIVERSIFY)", COMPRESS: "⚠ 需压缩", MARK_GAP: "⛔ 素材缺口", UNCALIBRATED: "⏳ 未标定" };
 const CAPACITY_STYLE_EXTRA = { UNCALIBRATED: "pending" };
 Object.assign(CAPACITY_STYLE, CAPACITY_STYLE_EXTRA);
+const CAPACITY_LABEL_DESC = {
+  DIVERSIFY: "✅ 池充足", DIVERSIFY_LIMITED: "⚠ 受限", COMPRESS: "⚠ 需压缩",
+  MARK_GAP: "⛔ 素材缺口", UNCALIBRATED: "⏳ 未标定",
+};
+const CAPACITY_STYLE_BR = { DIVERSIFY: "pass", DIVERSIFY_LIMITED: "partial", COMPRESS: "partial", MARK_GAP: "fail", UNCALIBRATED: "pending" };
 function capacityChip(c) {
   if (!c) return chip("—", "pending");
   if (c.verdict === "COMPRESS" && c.compressed_variant) return chip("✅ 已压缩→压缩版", "pass");
@@ -223,11 +228,96 @@ function renderEvidence(data) {
   }
 }
 
+function kpiCard(title, value, sub) {
+  return el("div", { class: "report-card" },
+    el("h3", {}, title),
+    el("div", { class: "kpi" }, value),
+    el("div", { class: "kpi-sub" }, sub || ""));
+}
+
+function renderBatchReport(br) {
+  const root = document.getElementById("batch-report");
+  if (!br) return;
+  const cards = el("div", { class: "report-cards" });
+  cards.append(kpiCard("已发布成片", `${br.published} 部`,
+    `L3 已评分 ${br.scored} · 交付证书 ${br.certificated} · L1a 通过 ${br.l1a_pass}`));
+
+  const t = br.tiers || {};
+  const top3 = (br.top3 || []).map((r) => `${r.sheet_name} ${r.l3_avg}`).join(" · ");
+  cards.append(kpiCard("档位与 L3 均分", br.l3_avg ?? "—",
+    `推荐 ${t["推荐"] || 0} · 达标 ${t["达标"] || 0} · 观察 ${t["观察"] || 0}` +
+    `${br.concerned ? `（含短板 ${br.concerned} 部）` : ""}` +
+    `${top3 ? `；TOP3：${top3}` : ""}`));
+
+  const pool = br.pool || {};
+  const prod = br.produced || {};
+  cards.append(kpiCard("模板池",
+    `${pool.main_templates || 0} 张主模板`,
+    `模板记录 ${pool.templates || 0} 条 · 已标定 ${pool.calibrated ?? pool.templates ?? 0} · ` +
+    `已有成片 ${prod.main_templates || 0} 张 · 未产出 ${prod.unproduced_main ?? 0} 张`));
+
+  const cap = pool.capacity_main || {};
+  const capChips = Object.entries(cap)
+    .map(([k, v]) => (v > 0 ? chip(`${CAPACITY_LABEL_DESC[k] || k} ${v}`, CAPACITY_STYLE_BR[k] || "pending") : null))
+    .filter(Boolean);
+  const capRow = capChips.length ? capChips : [chip("—", "pending")];
+  cards.append(el("div", { class: "report-card" },
+    el("h3", {}, "主模板容量判定"),
+    el("div", { class: "kpi kpi-row" }, ...capRow),
+    el("div", { class: "kpi-sub" }, "池充足 / 受限 / 需压缩 / 素材缺口 / 未标定")));
+
+  const rel = br.release || {};
+  const whitelist = (rel.whitelist || []).join("、");
+  cards.append(kpiCard("发布版本", `正式版 ${rel.official || 0} 部`,
+    `严格档全绿 ${rel.strict_green || 0} · 已取代 ${rel.superseded || 0} · 基准 ${rel.baseline || 0}` +
+    `${whitelist ? `；严格档豁免：${whitelist}` : ""}`));
+
+  const inflight = br.inflight || [];
+  const inflightSub = inflight.length
+    ? inflight.map((i) => `${i.sheet_name}（${i.phase_label}·${i.stage_label}·${i.status_label}` +
+        `${i.since ? "，" + i.since : ""}）`).join("；")
+    : "暂无";
+  cards.append(kpiCard("在制 / 待推进", `${br.running_count || 0} 条在制 · ${br.prepared_count || 0} 条已备`,
+    inflightSub));
+  root.replaceChildren(cards);
+
+  const detail = el("div", { class: "report-detail" });
+  const wk = Object.entries(br.weakest || {});
+  const wkChips = wk.map(([k, v]) => el("span", { class: "chip chip-partial" }, `${k} ${v} 部`));
+  const weakestRow = el("div", { class: "report-detail-item" },
+    el("span", { class: "detail-label" }, "L3 单维短板分布"));
+  if (wkChips.length) {
+    for (const c of wkChips) weakestRow.append(c);
+  } else {
+    weakestRow.append("—");
+  }
+  detail.append(weakestRow);
+  if (br.gaps) {
+    const g = br.gaps;
+    detail.append(el("div", { class: "report-detail-item" },
+      el("span", { class: "detail-label" }, "素材缺口清单"),
+      el("span", { class: "chip chip-fail" }, `${g.domains || 0} 个动作域`),
+      el("span", { class: "chip chip-partial" }, `P0 ${g.p0_domains || 0} 个`)));
+  }
+  if (br.scaffolds) {
+    detail.append(el("div", { class: "report-detail-item" },
+      el("span", { class: "detail-label" }, "未启动占位"),
+      el("span", { class: "chip chip-pending" }, `${br.scaffolds} 个模板 run 计划待批`)));
+  }
+  root.append(detail);
+  if ((br.notes || []).length) {
+    root.append(el("ul", { class: "report-notes" }, ...br.notes.map((n) => el("li", {}, n))));
+  }
+}
+
 async function refresh() {
   const sub = document.getElementById("ov-sub");
   try {
     const data = await fetchOverview();
-    sub.textContent = `共 ${data.total_runs} 部历史成片 · ${data.scored_count} 部已 L3 评分 · 生成于 ${data.generated_at}`;
+    sub.textContent = `共 ${data.total_runs} 部历史成片 · ${data.scored_count} 部已 L3 评分` +
+      `${data.batch_report ? ` · 在制 ${data.batch_report.running_count || 0} 条` : ""}` +
+      ` · 生成于 ${data.generated_at}`;
+    renderBatchReport(data.batch_report);
     renderMethodology(data.methodology);
     renderOverview(data.slim_runs);
     renderGates(data);
@@ -235,6 +325,8 @@ async function refresh() {
     renderEvidence(data);
   } catch (err) {
     sub.textContent = String(err.message || err);
+    const errBox = document.getElementById("batch-report");
+    if (errBox) errBox.replaceChildren(el("p", { class: "muted" }, String(err.message || err)));
   }
 }
 

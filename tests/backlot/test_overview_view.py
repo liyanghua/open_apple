@@ -70,6 +70,22 @@ def test_overview_api_readonly(backlot_client, projects_root, monkeypatch):
     monkeypatch.setattr(export_mod, "PROJECTS", projects_root)
     _make_fake_run(projects_root, "template-run-a")
     _make_fake_run(projects_root, "template-run-b", with_cert=False, with_l3=False)
+    # 进行中 run：plan 已批，停在素材门等待确认
+    inflight = projects_root / "template-run-c"
+    (inflight / "artifacts").mkdir(parents=True)
+    _write(inflight / "artifacts" / "template_run_plan.json",
+           {"status": "approved", "template_id": "sheet-01-video1-aks-zhuodian"})
+    _write(inflight / "checkpoint_research.json", {"status": "completed"})
+    _write(inflight / "checkpoint_assets.json", {
+        "status": "awaiting_human",
+        "set_at": "2026-08-28T05:00:15+00:00",
+        "next_action": {"summary": "资产就绪", "set_at": "2026-08-28T05:00:15+00:00"},
+    })
+    # 占位 run：已建位未启动（无 checkpoint，plan 待批）
+    scaffold = projects_root / "template-run-d"
+    (scaffold / "artifacts").mkdir(parents=True)
+    _write(scaffold / "artifacts" / "template_run_plan.json",
+           {"status": "awaiting_human", "template_id": "sheet-01-video1-aks-zhuodian"})
 
     res = backlot_client.get("/api/v2/overview/videos")
     assert res.status_code == 200
@@ -88,6 +104,23 @@ def test_overview_api_readonly(backlot_client, projects_root, monkeypatch):
     assert ranked[0] == "template-run-a"  # 有证书 + 有评分 → 排前
     # 只读：不触发 judge（无 l3_advisory 的 run 只是未评分，不写文件）
     assert not (projects_root / "template-run-b" / "artifacts" / "l3_advisory.json").exists()
+    # 整体报告：只读聚合，进行中/待推进/占位分类正确
+    br = data["batch_report"]
+    assert br["published"] == 2 and br["scored"] == 1
+    assert br["certificated"] == 2
+    assert br["l1a_pass"] == 2
+    assert set(br["tiers"]) <= {"推荐", "达标", "观察", "未评分"}
+    assert br["l3_avg"] == 8.5
+    assert "pool" in br and "produced" in br and "inflight" in br and "notes" in br
+    runs = [i["run"] for i in br["inflight"]]
+    assert "template-run-c" in runs
+    item = next(i for i in br["inflight"] if i["run"] == "template-run-c")
+    assert item["phase"] == "running" and item["status_label"] == "等待确认"
+    assert item["stage_label"] == "确认制作准备"
+    assert item["since"] == "2026-08-28 13:00"
+    assert br["scaffolds"] == 1
+    # 动态口径：无写死的过期说明（证书状态已全部绑定，不再出现 sheet-01/04 硬编码）
+    assert "sheet-01/04" not in " ".join(data["methodology"]["known_limits"])
 
 
 def test_overview_page_served(backlot_client, projects_root, monkeypatch):
