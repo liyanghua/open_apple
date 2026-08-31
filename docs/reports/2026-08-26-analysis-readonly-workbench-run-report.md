@@ -424,3 +424,17 @@ Phase 4/5 收尾项：
 9. **顺带修复**：`_evaluation_summary` 全字段 `_safe_text` 化（评价报告缺 `judge_version` 时曾产出 None 违反 schema）。
 
 验证记录：`PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot` → **385 passed, 1 skipped, 0 failed**；`node --check`、`git diff --check` 通过。覆盖缺口已补齐；三档手动验收仍待业务方按清单步骤 0 执行。
+
+**第四轮：审批动作与运行时边界修复（2026-08-31 深夜）**。review 指出测试仍偏静态契约，8 个 P1 位于审批动作与真实运行时路径。本轮闭环：
+
+1. **退回标签（P1-1）**：脚本/制作准备退回增加门级原因标签选择器（`GATE_ISSUE_TAG_OPTIONS`），退回必须 ≥1 个结构化标签（此前恒传 null 必被后端拒绝）。
+2. **依据门控（P1-2）**：新增 `gateMaterialsReady`——门关键材料与样片评价报告不 ready 或阶段失败时，审批动作禁用并显示“当前依据还不完整”。
+3. **失败阶段健康度（P1-3）**：`statusHealth` 制作中一律 processing；材料健康度 failed/processing 优先于残留 payload。
+4. **媒体存在性（P1-4）**：新增 `_render_file_present` 真实文件核对；报告 pass 但文件缺失时 qa 归约“需要调整”，预览/下载置空。
+5. **阶段事实同源（P1-5）**：`factsForGate` 拆分 done/publish，检查成片不再读 publish 数据。
+6. **成片面板（P1-6）**：`renderConfirmationDone` 按 qa_status 条件呈现，不再硬编码“检查通过”。
+7. **镜头覆盖（P1-7）**：样片说明按 executed/partial/added/not_in_sample 与计划数判定完整执行。
+8. **时间轴跳转（P1-8）**：从镜头对照打开时时间轴自带播放器并绑定跳转。
+9. **P2**：系统建议尊重评价结论；评价维度名归一化映射；时长状态与制作记录枚举经 `displayValue`；刷新不再过度清除浏览位置（只在本阶段版本/门/hash 变化时重置）。
+
+验证记录：`PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot` → **395 passed, 1 skipped, 0 failed**；`node --check`、`git diff --check` 通过。P1-4 存在性核对已在 `.backlot/review-stage` fixture 上复核（`sample-v1.mp4` 真实存在，qa 仍为“检查通过”）。三档手动验收仍待业务方执行。

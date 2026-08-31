@@ -216,3 +216,26 @@ node --check backlot/ui/operator/app.js
 **顺带修复**：`_evaluation_summary` 的 `status/recommended_action/judge_version/name/message/note` 全部 `_safe_text` 化——此前评价报告缺 `judge_version` 等字段时会产出 None 并违反 operator_state schema（新测试暴露的真实缺陷）。
 
 **验证**：`PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot` → **385 passed, 1 skipped, 0 failed**；`node --check`、`git diff --check` 通过。覆盖缺口（复合键冲突、矛盾质量结论、空集合语义、九阶段全空数据）已由本轮测试补齐；三档手动验收仍待业务方执行。
+
+## 修订记录（2026-08-31 第四轮：审批动作与运行时边界 8 P1 + 4 P2）
+
+第三轮后 review 指出测试仍偏静态契约，未覆盖审批动作与运行时边界。本轮闭环：
+
+| # | 问题 | 修复 | 回归测试 |
+|---|---|---|---|
+| P1-1 | 脚本/制作准备退回必失败（issueTags 恒为 null，后端强制 ≥1 标签） | `renderConfirmationSimple` 增加门级原因标签选择器（`GATE_ISSUE_TAG_OPTIONS`，script/assets 各一组业务中文标签），退回必须 ≥1 标签才提交，标签随 `decideReview` 传入 | `test_simple_gate_reject_requires_issue_tags` |
+| P1-2 | 材料缺失/报告不完整时审批按钮仍可用 | 新增 `gateMaterialsReady`：门关键材料（制作脚本/生成清单/样片）health 必须 ready，样片门还要求系统检查（评价报告）ready，阶段失败即阻断；`renderConfirmation` 依据不完整时显示只读说明与“重新拉取” | `test_confirmation_gated_by_material_and_report_completeness` |
+| P1-3 | 失败阶段残留 payload 仍显示已准备 | `statusHealth` 制作中一律 processing；`artifactModel` 阶段 failed/processing 优先于 payload | `test_failed_stage_with_stale_payload_never_shows_ready` |
+| P1-4 | 报告 pass 但媒体文件缺失仍判通过 | 新增 `_render_file_present`（限定项目目录内真实文件核对）；sample/compose 的 `qa_status` 在文件缺失时归约“需要调整”，`preview_url/download_url` 置空 | `test_missing_render_file_never_reports_qa_pass` |
+| P1-5 | 查看 compose 时右侧事实来自 publish | `factsForGate` 拆分 done/publish：检查成片只读 compose 数据，确认交付才读 publish 数据 | `factsForGate` 同源（静态） |
+| P1-6 | 成片完成面板硬编码“检查通过” | `renderConfirmationDone` 按 `qa_status` 条件呈现：未通过显示“检查还有问题 · 请先查看检查结果并处理” | `test_done_panel_never_claims_pass_when_qa_requires_adjustment` |
+| P1-7 | 镜头未完整执行仍绿色完成 | 样片说明按 `executed/partial/added/not_in_sample` 与 `planned_shot_count` 判定完整执行，未完整时黄色提示“N 个镜头未完整进入样片” | `test_sample_gate_copy_acknowledges_incomplete_shots` |
+| P1-8 | 时间轴片段按钮无实际行为 | 从镜头对照打开时中间区无播放器：时间轴自带 `approval-timeline-video` 播放器并绑定跳转；无样片时明示“暂不能跳转” | `test_timeline_embeds_player_when_media_area_has_no_video` |
+| P2-9 | 系统建议忽略评价结论 | 建议卡在 `revise/fail` 或 `repair/reject` 时显示“系统建议修改后再确认” | `test_system_suggestion_respects_evaluation_conclusion` |
+| P2-10 | 真实维度名（Hook Clarity）显示英文 | 新增 `evaluationDimensionLabel` 归一化（去空格/下划线/连字符小写）后查中文表 | `test_evaluation_dimension_labels_normalize_real_report_titles` |
+| P2-11 | 工程枚举直接进界面 | 时长检查 `payload.status` 与制作记录 `recommended_action` 均经 `displayValue` 中文映射 | `test_technical_enums_never_render_raw` |
+| P2-12 | 刷新过度清除浏览位置 | `store.setProject` 只在当前确认门或 `subject_hash` 变化时重置；纯 revision、其他阶段版本变化不打断浏览；仅正在查看的阶段自身版本变化回到确认门 | `test_store_preserves_valid_selection_and_resets_on_revision_or_subject_change`（语义更新） |
+
+**顺带验证**：P1-4 的存在性核对在 `.backlot/review-stage` fixture 上复核——`review-sample-gate` 的 `renders/sample-v1.mp4` 真实存在，qa 仍为“检查通过”且预览正常；`review-missing` 的“样片缺失”语义保持一致。
+
+**验证**：`PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot` → **395 passed, 1 skipped, 0 failed**；`node --check`、`git diff --check` 通过。三档手动验收仍待业务方执行。
