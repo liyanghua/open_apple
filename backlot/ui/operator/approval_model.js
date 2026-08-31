@@ -57,16 +57,21 @@ const STAGE_MATERIALS = {
     ["edit_result", "剪辑结果", ["preview_url", "edit_result", "video_url"]],
     ["shot_order", "镜头顺序", ["shot_order", "shots", "scenes"]],
     ["audio_captions", "声音和字幕", ["audio", "subtitles", "audio_captions"]],
+    ["compose_readiness", "成片检查就绪", ["compose_readiness"]],
   ],
   compose: [
     ["final_video", "完整视频", ["preview_url", "download_url", "final_video", "video_url"]],
     ["picture_sound", "画面声音对照", ["picture_sound", "timeline", "audio", "video"]],
     ["quality_conclusion", "质量结论", ["qa_status", "quality_conclusion", "checks"]],
+    ["version_history", "版本变化", ["versions"]],
+    ["pending_changes", "待处理问题", ["pending_changes"]],
   ],
   publish: [
     ["delivery_video", "交付视频", ["download_url", "delivery_video", "preview_url"]],
     ["file_info", "文件信息", ["format_label", "file_info", "duration_seconds"]],
     ["platforms_download", "平台和下载", ["platforms", "entries", "package_files", "delivery.package_files", "delivery.entries"]],
+    ["delivery_package", "交付文件", ["delivery.package_files", "delivery"]],
+    ["qa_evidence", "QA 证据", ["delivery.qa_evidence", "qa_evidence"]],
   ],
 };
 
@@ -470,7 +475,240 @@ function compactMusicBudget(data) {
   return { music_status: data.music_status, estimated_cost_usd: data.estimated_cost_usd };
 }
 
-function payloadForArtifact(data, descriptor) {
+function compactSampleVideo(data) {
+  if (!hasValue(data.preview_url)) return null;
+  return {
+    preview_url: data.preview_url,
+    duration_seconds: data.duration_seconds,
+    qa_status: data.qa_status,
+  };
+}
+
+function compactShotComparison(data) {
+  const shots = Array.isArray(data.execution_trace?.shots) ? data.execution_trace.shots : [];
+  const rows = shots.map((shot) => ({
+    id: shot?.shot_id,
+    status: shot?.status_label || shot?.status,
+    purpose: shot?.planned?.purpose,
+    plan_screen_copy: shot?.planned?.screen_copy,
+    actual_screen_copy: shot?.actual?.screen_copy,
+    actual_source_label: shot?.actual?.source_label,
+    difference: shot?.deviation?.reason,
+  }));
+  return rows.length ? { rows } : null;
+}
+
+function compactCaptionsVoice(data) {
+  const shots = Array.isArray(data.execution_trace?.shots) ? data.execution_trace.shots : [];
+  const rows = shots.map((shot) => ({
+    id: shot?.shot_id,
+    narration: shot?.actual?.narration || shot?.planned?.narration,
+    caption: shot?.actual?.screen_copy || shot?.planned?.screen_copy,
+  })).filter((row) => hasValue(row.narration) || hasValue(row.caption));
+  if (!rows.length && !data.caption_diff && !data.creative_rule_diff) return null;
+  return {
+    shots: rows,
+    caption_diff: data.caption_diff,
+    creative_rule_diff: data.creative_rule_diff,
+  };
+}
+
+function compactSound(data) {
+  const tracks = Array.isArray(data.audio_tracks) ? data.audio_tracks : [];
+  return tracks.length ? { tracks } : null;
+}
+
+function compactSystemChecks(data) {
+  const evaluation = data?.evaluation;
+  if (!evaluation || typeof evaluation !== "object") return null;
+  return {
+    status: evaluation.status,
+    recommended_action: evaluation.recommended_action,
+    hard_gate_fails: Array.isArray(evaluation.hard_gate_fails) ? evaluation.hard_gate_fails : [],
+  };
+}
+
+function compactSystemSuggestions(data) {
+  const advisory = data?.evaluation?.advisory;
+  if (!advisory || typeof advisory !== "object") return null;
+  return {
+    scored: Boolean(advisory.scored),
+    summary: advisory.summary,
+    dimensions: Array.isArray(advisory.dimensions) ? advisory.dimensions : [],
+  };
+}
+
+function compactProductionBasis(data) {
+  const trace = data?.execution_trace;
+  if (!trace || typeof trace !== "object") return null;
+  return {
+    summary: trace.summary,
+    reference_rules: (Array.isArray(trace.shots) ? trace.shots : []).map((shot) => ({
+      id: shot?.shot_id,
+      rules: Array.isArray(shot?.planned?.reference_rules) ? shot.planned.reference_rules : [],
+    })).filter((row) => row.rules.length),
+  };
+}
+
+function compactEditResult(data) {
+  return {
+    change_scope: data.change_scope,
+    reasons: Array.isArray(data.reasons) ? data.reasons : [],
+    affected_shot_count: data.affected_shot_count,
+    preview_url: data.preview_url,
+    preview_duration_seconds: data.preview_duration_seconds,
+  };
+}
+
+function compactShotOrder(data) {
+  const shots = Array.isArray(data.shots) ? data.shots.map((shot) => ({
+    id: shot?.id,
+    title: shot?.title,
+    source_label: shot?.source_label,
+    source_in_seconds: shot?.source_in_seconds,
+    source_out_seconds: shot?.source_out_seconds,
+    duration_seconds: shot?.duration_seconds,
+    enabled: shot?.enabled,
+    caption: shot?.caption,
+    narration: shot?.narration,
+    preview_url: shot?.preview_url,
+    poster_url: shot?.poster_url,
+  })) : [];
+  return shots.length ? { shots } : null;
+}
+
+function compactAudioCaptions(data) {
+  const audio = data?.audio;
+  if (!audio || typeof audio !== "object") return null;
+  return {
+    music_volume: audio.music_volume,
+    sfx_volume: audio.sfx_volume,
+    narration_enabled: audio.narration_enabled,
+  };
+}
+
+function compactComposeReadiness(data, status) {
+  const ready = status === "已完成";
+  return {
+    ready,
+    summary: ready
+      ? "精剪已完成，可以进入成片检查"
+      : status === "制作中" || status === "等待确认"
+        ? "精剪尚未完成，暂不能进入成片检查"
+        : status === "处理失败"
+          ? "精剪处理失败，需先处理失败原因"
+          : "尚未开始精剪",
+    change_scope: data.change_scope,
+    affected_shot_count: data.affected_shot_count,
+    reasons: Array.isArray(data.reasons) ? data.reasons : [],
+  };
+}
+
+function compactFinalVideo(data) {
+  const videoUrl = data?.player?.video_url || data?.video_url || data?.download_url;
+  if (!hasValue(videoUrl)) return null;
+  return {
+    video_url: videoUrl,
+    poster_url: data?.player?.poster_url || data?.poster_url,
+    duration_seconds: data?.duration_seconds,
+    qa_status: data?.qa_status,
+    download_url: data?.download_url,
+  };
+}
+
+function compactPictureSound(data) {
+  const timeline = data?.timeline;
+  if (!timeline || typeof timeline !== "object" || !Array.isArray(timeline.tracks)) return null;
+  return {
+    duration_seconds: timeline.duration_seconds,
+    tracks: timeline.tracks.map((track) => ({
+      kind: track?.kind,
+      label: track?.label,
+      segments: (Array.isArray(track?.segments) ? track.segments : []).map((segment) => ({
+        id: segment?.id,
+        label: segment?.label,
+        start_seconds: segment?.start_seconds,
+        end_seconds: segment?.end_seconds,
+        preview_url: segment?.preview_url,
+      })),
+    })),
+  };
+}
+
+function compactQualityConclusion(data) {
+  const evaluation = data?.evaluation;
+  return {
+    qa_status: data.qa_status,
+    evaluation: evaluation && typeof evaluation === "object" ? {
+      status: evaluation.status,
+      recommended_action: evaluation.recommended_action,
+      hard_gate_fails: Array.isArray(evaluation.hard_gate_fails) ? evaluation.hard_gate_fails : [],
+      advisory: evaluation.advisory && typeof evaluation.advisory === "object" ? {
+        scored: Boolean(evaluation.advisory.scored),
+        summary: evaluation.advisory.summary,
+        dimensions: Array.isArray(evaluation.advisory.dimensions) ? evaluation.advisory.dimensions : [],
+      } : null,
+    } : null,
+  };
+}
+
+function compactVersionHistory(data) {
+  const versions = Array.isArray(data.versions) ? data.versions.map((version) => ({
+    id: version?.id,
+    label: version?.label,
+    active: Boolean(version?.active),
+    qa_status: version?.qa_status,
+    video_url: version?.video_url,
+    poster_url: version?.poster_url,
+    change_summary: version?.change_summary,
+  })) : [];
+  return versions.length ? { versions } : null;
+}
+
+function compactPendingChanges(data) {
+  const changes = Array.isArray(data.pending_changes) ? data.pending_changes : [];
+  return changes.length ? { changes } : null;
+}
+
+function compactFileInfo(data) {
+  if (!hasValue(data.format_label) && !hasValue(data.duration_seconds)) return null;
+  return { format_label: data.format_label, duration_seconds: data.duration_seconds };
+}
+
+function compactPlatforms(data) {
+  const entries = Array.isArray(data?.delivery?.entries) ? data.delivery.entries.map((entry) => ({
+    platform: entry?.platform,
+    platform_label: entry?.platform_label,
+    status: entry?.status,
+    status_label: entry?.status_label,
+    title: entry?.title,
+    description: entry?.description,
+    hashtags: Array.isArray(entry?.hashtags) ? entry.hashtags : [],
+    timestamp: entry?.timestamp,
+    export_path: entry?.export_path,
+  })) : [];
+  return entries.length ? { entries } : null;
+}
+
+function compactDeliveryPackage(data) {
+  const delivery = data?.delivery;
+  if (!delivery || typeof delivery !== "object") return null;
+  const files = Array.isArray(delivery.package_files) ? delivery.package_files.map((file) => ({
+    relative_path: file?.relative_path,
+    label: file?.label,
+    kind: file?.kind,
+    download_url: file?.download_url,
+  })) : [];
+  if (!files.length && !hasValue(delivery.notes) && !hasValue(delivery.package_path)) return null;
+  return { package_path: delivery.package_path, notes: delivery.notes, files };
+}
+
+function compactQaEvidence(data) {
+  const evidence = Array.isArray(data?.delivery?.qa_evidence) ? data.delivery.qa_evidence : [];
+  return evidence.length ? { files: evidence } : null;
+}
+
+function payloadForArtifact(data, descriptor, status) {
   const [id, , keys] = descriptor;
   if (id === "research_path") return compactSubstages(data.substages);
   if (id === "research_template") return compactTemplate(data.template);
@@ -512,28 +750,32 @@ function payloadForArtifact(data, descriptor) {
   if (id === "generation_tasks") return compactGenerationTasks(data);
   if (id === "narration_subtitles") return compactNarrationSubtitles(data);
   if (id === "music_budget") return compactMusicBudget(data);
-  if (id === "captions_voice" && Array.isArray(data.execution_trace?.shots)) {
-    return data.execution_trace.shots.map((shot) => ({
-      id: shot?.shot_id,
-      narration: shot?.planned?.narration || shot?.actual?.narration,
-      caption: shot?.planned?.screen_copy || shot?.actual?.screen_copy,
-    })).filter((shot) => hasValue(shot.narration) || hasValue(shot.caption));
-  }
-  if (id === "shot_comparison" && Array.isArray(data.execution_trace?.shots)) {
-    return data.execution_trace.shots.map((shot) => ({
-      id: shot?.shot_id,
-      purpose: shot?.planned?.purpose,
-      plan: shot?.planned?.subject_action || shot?.planned?.screen_copy,
-      actual: shot?.actual?.source_label || shot?.actual?.screen_copy,
-      difference: shot?.deviation?.reason,
-    }));
-  }
+  if (id === "sample_video") return compactSampleVideo(data);
+  if (id === "shot_comparison") return compactShotComparison(data);
+  if (id === "captions_voice") return compactCaptionsVoice(data);
+  if (id === "sound") return compactSound(data);
+  if (id === "system_checks") return compactSystemChecks(data);
+  if (id === "system_suggestions") return compactSystemSuggestions(data);
+  if (id === "production_basis") return compactProductionBasis(data);
+  if (id === "edit_result") return compactEditResult(data);
+  if (id === "shot_order") return compactShotOrder(data);
+  if (id === "audio_captions") return compactAudioCaptions(data);
+  if (id === "compose_readiness") return compactComposeReadiness(data, status);
+  if (id === "final_video" || id === "delivery_video") return compactFinalVideo(data);
+  if (id === "picture_sound") return compactPictureSound(data);
+  if (id === "quality_conclusion") return compactQualityConclusion(data);
+  if (id === "version_history") return compactVersionHistory(data);
+  if (id === "pending_changes") return compactPendingChanges(data);
+  if (id === "file_info") return compactFileInfo(data);
+  if (id === "platforms_download") return compactPlatforms(data);
+  if (id === "delivery_package") return compactDeliveryPackage(data);
+  if (id === "qa_evidence") return compactQaEvidence(data);
   return dataValue(data, keys);
 }
 
-function artifactModel(data, descriptor, stageHealth) {
+function artifactModel(data, descriptor, stageHealth, stageStatus) {
   const [id, label, keys] = descriptor;
-  const rawPayload = payloadForArtifact(data, descriptor);
+  const rawPayload = payloadForArtifact(data, descriptor, stageStatus);
   const payload = Array.isArray(rawPayload) && rawPayload.length === 0 ? null : rawPayload;
   const summary = payload == null
     ? "暂未提供"
@@ -591,7 +833,7 @@ export function buildApprovalStages(project = {}) {
       status,
       version: stage.version ?? stage.editor?.version ?? null,
       summary: stage.summary || (health === "missing" ? "该步骤暂未生成材料" : `${STAGE_LABELS[stageLabelKey(stageId)] || stage.label || "该步骤"}${status}`),
-      artifacts: descriptors.map((descriptor) => artifactModel(data, descriptor, health)),
+      artifacts: descriptors.map((descriptor) => artifactModel(data, descriptor, health, status)),
       review: reviewFor(project, stageId, status),
     };
   });

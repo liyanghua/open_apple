@@ -485,3 +485,186 @@ console.log(JSON.stringify({
     assert result["music"] == {"music_status": "未安排背景音乐", "estimated_cost_usd": 0.05}
 
 
+def test_sample_adapter_outputs_comparison_captions_diffs_and_checks() -> None:
+    """Task 1.3 契约：样片输出计划/实际对照、口播、字幕差异、导演规则差异、检查与建议。"""
+    result = _node(
+        """
+const sample = buildApprovalStages({stages:[{
+  id:'sample', status:'等待确认', editor:{data:{
+    preview_url:'/sample.mp4', duration_seconds:12, qa_status:'检查通过',
+    execution_trace:{
+      summary:{included_shot_count:1},
+      shots:[{
+        shot_id:'shot-1', status:'executed', status_label:'已按方案执行',
+        planned:{purpose:'展示擦净', screen_copy:'计划字幕', narration:'计划口播', reference_rules:['动作与结果成对']},
+        actual:{source_label:'oil', screen_copy:'实际字幕', narration:'实际口播'},
+        deviation:{reason:'字幕措辞调整'},
+      }],
+    },
+    audio_tracks:[{kind:'narration', label:'口播', planned:true, present:true, state:'present'}],
+    evaluation:{status:'pass', recommended_action:'approve',
+      hard_gate_fails:[{name:'loudness', message:'响度超限', fixable:true}],
+      advisory:{scored:true, summary:'观感不错', dimensions:[{name:'hook', score:8, note:'开头抓人'}]}},
+    caption_diff:{status:'executed', summary:'字幕按剧本意图进入样片'},
+    creative_rule_diff:{status:'executed', summary:'导演规则已绑定', rules:[{section:'内容方向', rule:'动作与结果成对', status:'bound', summary:'已绑定镜头并进入样片'}]},
+  }}
+}]})[5];
+console.log(JSON.stringify({
+  video:sample.artifacts.find((artifact) => artifact.id === 'sample_video')?.payload,
+  comparison:sample.artifacts.find((artifact) => artifact.id === 'shot_comparison')?.payload,
+  captions:sample.artifacts.find((artifact) => artifact.id === 'captions_voice')?.payload,
+  sound:sample.artifacts.find((artifact) => artifact.id === 'sound')?.payload,
+  checks:sample.artifacts.find((artifact) => artifact.id === 'system_checks')?.payload,
+  suggestions:sample.artifacts.find((artifact) => artifact.id === 'system_suggestions')?.payload,
+  basis:sample.artifacts.find((artifact) => artifact.id === 'production_basis')?.payload,
+}));
+"""
+    )
+    assert result["video"] == {"preview_url": "/sample.mp4", "duration_seconds": 12, "qa_status": "检查通过"}
+    row = result["comparison"]["rows"][0]
+    assert row["purpose"] == "展示擦净"
+    assert row["plan_screen_copy"] == "计划字幕"
+    assert row["actual_screen_copy"] == "实际字幕"
+    assert row["actual_source_label"] == "oil"
+    assert row["difference"] == "字幕措辞调整"
+    captions = result["captions"]
+    assert captions["shots"][0] == {"id": "shot-1", "narration": "实际口播", "caption": "实际字幕"}
+    assert captions["caption_diff"]["status"] == "executed"
+    assert captions["creative_rule_diff"]["rules"][0]["status"] == "bound"
+    assert result["sound"]["tracks"][0]["state"] == "present"
+    checks = result["checks"]
+    assert checks["recommended_action"] == "approve"
+    assert checks["hard_gate_fails"][0]["name"] == "loudness"
+    suggestions = result["suggestions"]
+    assert suggestions["summary"] == "观感不错"
+    assert suggestions["dimensions"][0]["score"] == 8
+    assert result["basis"]["reference_rules"][0]["rules"] == ["动作与结果成对"]
+
+
+def test_edit_adapter_reads_refine_status_and_compose_readiness() -> None:
+    """Task 1.3 契约：精剪只读呈现状态、样片、镜头和声音字幕；compose_readiness 按阶段状态派生。"""
+    result = _node(
+        """
+const stages = buildApprovalStages({stages:[
+  {id:'edit', status:'已完成', editor:{data:{
+    change_scope:'删减镜头', reasons:['节奏偏慢'], affected_shot_count:2,
+    preview_url:'/sample.mp4', preview_duration_seconds:12,
+    shots:[{id:'shot-1', title:'刮擦冲突', source_label:'素材A', source_in_seconds:1, source_out_seconds:3,
+            duration_seconds:2, enabled:true, caption:'字幕一', narration:'口播一',
+            preview_url:'/shot.mp4', poster_url:'/shot.jpg'}],
+    audio:{music_volume:0.8, sfx_volume:0.5, narration_enabled:true},
+  }}},
+  {id:'edit2', status:'制作中'},
+]});
+console.log(JSON.stringify({
+  done:stages.find((stage) => stage.stageId === 'edit'),
+  pending:buildApprovalStages({stages:[{id:'edit', status:'制作中', editor:{data:{change_scope:'删减镜头', reasons:[], affected_shot_count:0}}}]}).find((stage) => stage.stageId === 'edit'),
+}));
+"""
+    )
+    done = result["done"]
+    edit_result = next(item for item in done["artifacts"] if item["id"] == "edit_result")
+    assert edit_result["health"] == "ready"
+    assert edit_result["payload"]["change_scope"] == "删减镜头"
+    assert edit_result["payload"]["preview_url"] == "/sample.mp4"
+    order = next(item for item in done["artifacts"] if item["id"] == "shot_order")["payload"]
+    assert order["shots"][0]["narration"] == "口播一"
+    assert order["shots"][0]["preview_url"] == "/shot.mp4"
+    audio = next(item for item in done["artifacts"] if item["id"] == "audio_captions")["payload"]
+    assert audio == {"music_volume": 0.8, "sfx_volume": 0.5, "narration_enabled": True}
+    readiness = next(item for item in done["artifacts"] if item["id"] == "compose_readiness")["payload"]
+    assert readiness["ready"] is True
+    assert readiness["affected_shot_count"] == 2
+    pending_readiness = next(item for item in result["pending"]["artifacts"] if item["id"] == "compose_readiness")["payload"]
+    assert pending_readiness["ready"] is False
+    assert pending_readiness["summary"] == "精剪尚未完成，暂不能进入成片检查"
+
+
+def test_compose_adapter_outputs_video_timeline_quality_versions_and_pending_changes() -> None:
+    """Task 1.3 契约：成片输出完整视频、时间轴、硬性检查、观感结论、版本变化和待处理问题。"""
+    result = _node(
+        """
+const compose = buildApprovalStages({stages:[{
+  id:'compose', status:'已完成', editor:{data:{
+    duration_seconds:16, qa_status:'检查通过', download_url:'/final.mp4',
+    player:{video_url:'/final.mp4', poster_url:'/final.jpg', duration_seconds:16},
+    format_label:'竖屏视频',
+    timeline:{duration_seconds:16, tracks:[
+      {kind:'video', label:'画面', segments:[{id:'shot-1', label:'刮擦冲突', start_seconds:0, end_seconds:2, preview_url:'/shot.mp4'}]},
+      {kind:'narration', label:'口播', segments:[{id:'sec-1', label:'口播', start_seconds:0, end_seconds:2}]},
+    ]},
+    evaluation:{status:'pass', recommended_action:'publish',
+      hard_gate_fails:[], advisory:{scored:true, summary:'成片观感良好', dimensions:[{name:'hook', score:8, note:'开头抓人'}]}},
+    versions:[{id:'v1', label:'V1', active:true, qa_status:'检查通过', video_url:'/final.mp4', poster_url:'/final.jpg', change_summary:'初始版本'}],
+    pending_changes:[{kind:'cover', label:'封面', summary:'已选择新方案，等待生成新版'}],
+  }}
+}]})[7];
+console.log(JSON.stringify({
+  video:compose.artifacts.find((artifact) => artifact.id === 'final_video')?.payload,
+  picture:compose.artifacts.find((artifact) => artifact.id === 'picture_sound')?.payload,
+  quality:compose.artifacts.find((artifact) => artifact.id === 'quality_conclusion')?.payload,
+  versions:compose.artifacts.find((artifact) => artifact.id === 'version_history')?.payload,
+  pending:compose.artifacts.find((artifact) => artifact.id === 'pending_changes')?.payload,
+}));
+"""
+    )
+    video = result["video"]
+    assert video["video_url"] == "/final.mp4"
+    assert video["download_url"] == "/final.mp4"
+    assert video["qa_status"] == "检查通过"
+    picture = result["picture"]
+    assert [track["label"] for track in picture["tracks"]] == ["画面", "口播"]
+    assert picture["tracks"][0]["segments"][0]["preview_url"] == "/shot.mp4"
+    quality = result["quality"]
+    assert quality["qa_status"] == "检查通过"
+    assert quality["evaluation"]["recommended_action"] == "publish"
+    assert quality["evaluation"]["advisory"]["summary"] == "成片观感良好"
+    versions = result["versions"]["versions"]
+    assert versions[0]["active"] is True
+    assert versions[0]["change_summary"] == "初始版本"
+    assert result["pending"]["changes"][0]["kind"] == "cover"
+
+
+def test_publish_adapter_outputs_platforms_package_and_qa_evidence() -> None:
+    """Task 1.3 契约：交付输出平台 entries、文件清单、下载动作、失败原因和 QA 证据。"""
+    result = _node(
+        """
+const publish = buildApprovalStages({stages:[{
+  id:'publish', status:'已完成', editor:{data:{
+    duration_seconds:16, qa_status:'检查通过', download_url:'/final.mp4', format_label:'竖屏视频',
+    player:{video_url:'/final.mp4', poster_url:'/final.jpg'},
+    delivery:{
+      entries:[{platform:'douyin', platform_label:'抖音', status:'exported', status_label:'已导出',
+                title:'发布标题', description:'发布描述', hashtags:['防油'], timestamp:'2026-08-31T10:00:00Z',
+                export_path:'publish/final.mp4'}],
+      package_path:'publish/package.zip',
+      package_files:[{relative_path:'publish/final.mp4', label:'final.mp4', kind:'video', download_url:'/dl/final.mp4'}],
+      notes:'交付说明',
+      qa_evidence:[{relative_path:'qa/l1a.json', label:'l1a.json', download_url:'/dl/l1a.json'}],
+    },
+  }}
+}]})[8];
+console.log(JSON.stringify({
+  video:publish.artifacts.find((artifact) => artifact.id === 'delivery_video')?.payload,
+  fileInfo:publish.artifacts.find((artifact) => artifact.id === 'file_info')?.payload,
+  platforms:publish.artifacts.find((artifact) => artifact.id === 'platforms_download')?.payload,
+  pkg:publish.artifacts.find((artifact) => artifact.id === 'delivery_package')?.payload,
+  evidence:publish.artifacts.find((artifact) => artifact.id === 'qa_evidence')?.payload,
+}));
+"""
+    )
+    video = result["video"]
+    assert video["video_url"] == "/final.mp4"
+    assert video["download_url"] == "/final.mp4"
+    assert result["fileInfo"] == {"format_label": "竖屏视频", "duration_seconds": 16}
+    entry = result["platforms"]["entries"][0]
+    assert entry["platform_label"] == "抖音"
+    assert entry["status_label"] == "已导出"
+    assert entry["title"] == "发布标题"
+    assert entry["export_path"] == "publish/final.mp4"
+    pkg = result["pkg"]
+    assert pkg["notes"] == "交付说明"
+    assert pkg["files"][0]["download_url"] == "/dl/final.mp4"
+    assert result["evidence"]["files"][0]["download_url"] == "/dl/l1a.json"
+
+

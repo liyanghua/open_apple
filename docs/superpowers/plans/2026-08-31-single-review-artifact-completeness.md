@@ -71,11 +71,11 @@
 - Modify: `tests/backlot/test_operator_artifact_model.py`
 - Modify: `tests/backlot/test_operator_state.py`
 
-- [ ] sample：完整输出计划/实际镜头对照、口播、字幕、音轨、字幕差异、导演规则差异、检查结论和恢复提示。
-- [ ] edit：输出精剪状态、修改前样片、影响镜头、声音字幕结果和“是否可以进入成片检查”；审批页不暴露编辑能力入口。
-- [ ] compose：输出完整视频、版本变化、画面/声音/字幕时间轴、硬性检查、观感结论和待处理问题。
-- [ ] publish：输出当前版本、平台 entries、导出状态、文件清单、下载动作、失败原因和 QA 证据。
-- [ ] 如 operator-state 缺少口播或 `caption_diff/creative_rule_diff`，只扩展只读投影字段，不改变审批 API。
+- [x] sample：完整输出计划/实际镜头对照、口播、字幕、音轨、字幕差异、导演规则差异、检查结论和恢复提示。
+- [x] edit：输出精剪状态、修改前样片、影响镜头、声音字幕结果和“是否可以进入成片检查”（新增 `compose_readiness`）；审批页不暴露编辑能力入口。
+- [x] compose：输出完整视频、版本变化、画面/声音/字幕时间轴、硬性检查、观感结论和待处理问题（新增 `version_history`、`pending_changes`）。
+- [x] publish：输出当前版本、平台 entries、导出状态、文件清单、下载动作、失败原因和 QA 证据（新增 `delivery_package`、`qa_evidence`）。
+- [x] 如 operator-state 缺少口播或 `caption_diff/creative_rule_diff`，只扩展只读投影字段，不改变审批 API（`_sample_editor` 补逐镜口播与两个 diff，schema 同步，`test_operator_state.py` 覆盖）。
 
 ## Chunk 2：阶段专用详情阅读器
 

@@ -395,6 +395,62 @@ def test_sample_editor_exposes_execution_trace_summary_and_shots() -> None:
     validate_operator_state(state)
 
 
+def test_sample_editor_projects_narration_and_diff_artifacts() -> None:
+    """Task 1.3：样片只读投影补齐逐镜口播、caption_diff 和 creative_rule_diff。"""
+    from backlot.operator_state import project_operator_state, validate_operator_state
+
+    board = _board_state()
+    board["artifacts"]["shot_execution_plan"] = {
+        "shots": [{"id": "shot-1", "purpose": "展示擦净结果", "narration": "计划口播"}],
+    }
+    board["artifacts"]["sample_execution_trace"] = {
+        "summary": {
+            "planned_shot_count": 1,
+            "included_shot_count": 1,
+            "status_counts": {"executed": 1, "partial": 0, "added": 0, "not_in_sample": 0},
+            "new_content_count": 0,
+        },
+        "shots": [{
+            "shot_id": "shot-1",
+            "status": "executed",
+            "status_label": "已按方案执行",
+            "planned_basis": {"purpose": "展示擦净结果", "screen_copy": "计划字幕"},
+            "actual_execution": {
+                "source_path": "inputs/source/oil.mp4",
+                "timeline_start_seconds": 0,
+                "timeline_end_seconds": 2,
+                "screen_copy": "实际字幕",
+                "narration": "实际口播",
+            },
+            "deviation": None,
+            "sample_window": {"included": True, "start_seconds": 0, "end_seconds": 2},
+        }],
+        "caption_diff": {
+            "status": "executed",
+            "summary": "字幕：计划 1 条意图 / 实际 1 条字幕；字幕按剧本意图进入样片",
+            "plan": {"policy": "", "expected_copy_count": 1},
+            "actual": {"caption_count": 1, "timing_drift_detected": False},
+            "reason": "字幕按剧本意图进入样片",
+        },
+        "creative_rule_diff": {
+            "status": "executed",
+            "summary": "导演规则已绑定并进入样片",
+            "rules": [{"section": "内容方向", "rule": "动作与结果成对", "status": "bound", "summary": "已绑定镜头并进入样片"}],
+        },
+    }
+
+    state = project_operator_state(board)
+    sample = next(stage for stage in state["stages"] if stage["id"] == "sample")
+    data = sample["editor"]["data"]
+
+    shot = data["execution_trace"]["shots"][0]
+    assert shot["planned"]["narration"] == "计划口播"
+    assert shot["actual"]["narration"] == "实际口播"
+    assert data["caption_diff"]["status"] == "executed"
+    assert data["creative_rule_diff"]["rules"][0]["status"] == "bound"
+    validate_operator_state(state)
+
+
 def test_sample_editor_builds_trace_for_legacy_sample_without_saved_trace() -> None:
     from backlot.operator_state import project_operator_state
 

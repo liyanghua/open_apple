@@ -1147,6 +1147,11 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     execution_trace = None
     if raw_trace:
         summary = raw_trace.get("summary") if isinstance(raw_trace.get("summary"), Mapping) else {}
+        narration_by_shot: dict[str, str] = {}
+        execution_plan = _artifact(board, "shot_execution_plan")
+        for plan_shot in execution_plan.get("shots") or []:
+            if isinstance(plan_shot, Mapping) and plan_shot.get("id"):
+                narration_by_shot[str(plan_shot.get("id"))] = _safe_text(plan_shot.get("narration"))
         trace_shots = []
         for shot in raw_trace.get("shots") or []:
             if not isinstance(shot, Mapping):
@@ -1163,6 +1168,7 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
                     "timeline_start_seconds": actual.get("timeline_start_seconds"),
                     "timeline_end_seconds": actual.get("timeline_end_seconds"),
                     "screen_copy": _safe_text(actual.get("screen_copy")),
+                    "narration": _safe_text(actual.get("narration")),
                 }
             trace_shots.append({
                 "shot_id": _safe_text(shot.get("shot_id")),
@@ -1172,6 +1178,7 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
                     "purpose": _safe_text(planned.get("purpose")),
                     "subject_action": _safe_text(planned.get("subject_action")),
                     "screen_copy": _safe_text(planned.get("screen_copy")),
+                    "narration": narration_by_shot.get(_safe_text(shot.get("shot_id")), ""),
                     "reference_rules": [_safe_text(item) for item in planned.get("reference_rules") or []],
                 },
                 "actual": actual_view,
@@ -1179,6 +1186,16 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
                 "sample_window": shot.get("sample_window") if isinstance(shot.get("sample_window"), Mapping) else None,
             })
         execution_trace = {"summary": summary, "shots": trace_shots}
+    caption_diff = (
+        raw_trace.get("caption_diff")
+        if isinstance(raw_trace, Mapping) and isinstance(raw_trace.get("caption_diff"), Mapping)
+        else None
+    )
+    creative_rule_diff = (
+        raw_trace.get("creative_rule_diff")
+        if isinstance(raw_trace, Mapping) and isinstance(raw_trace.get("creative_rule_diff"), Mapping)
+        else None
+    )
     # 评审缺口 #4：样片页补齐评价卡 + 三轨音频（口播/BGM/原声）。
     evaluation = None
     eval_report = _artifact(board, "evaluation_report.sample") or _artifact(board, "evaluation_report")
@@ -1195,6 +1212,8 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "execution_trace": execution_trace,
             "evaluation": evaluation,
             "audio_tracks": audio_tracks,
+            "caption_diff": caption_diff,
+            "creative_rule_diff": creative_rule_diff,
         },
     }
 
