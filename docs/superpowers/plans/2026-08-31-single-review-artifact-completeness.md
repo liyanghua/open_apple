@@ -197,3 +197,22 @@ node --check backlot/ui/operator/app.js
 **验证**：`PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot` → **375 passed, 1 skipped, 0 failed**；`node --check` 与 `git diff --check` 通过。
 
 **状态收窄声明**：完成标准 1–4 仅在“适配器 fixture + 真实投影集成测试”双重证据下勾选；`test_nine_stage_minimal_fixture_keeps_legacy_business_fields` 是适配器层测试，不单独作为真实产物完整性证据。三档视觉验收仍待业务方在产物完整性走查（清单步骤 0）通过后执行。
+
+## 修订记录（2026-08-31 第三轮：5 个 P1 + 3 个 P2）
+
+第二轮后 review 确认 `3c089e7` 修复有效，但测试全绿仍未覆盖复合键冲突、矛盾质量结论、空集合语义和九阶段全空数据，5 个 P1 使页面呈现与真实业务结论不符。本轮全部闭环：
+
+| # | 问题 | 修复 | 回归测试 |
+|---|---|---|---|
+| P1-1 | 检查结论互相冲突（“检查通过，可以交付”与 revise/repair、硬门失败并存） | 新增 `_merge_qa_with_evaluation`：文件/渲染检查与内容质量评价按更严格结果归约（`status∈{revise,fail}`、`recommended_action∈{repair,reject}`、硬门失败非空 → “需要调整”）；sample 与 compose/publish 的 `qa_status` 统一走该函数 | `test_sample_qa_status_merges_evaluation_failures`、`test_compose_qa_status_merges_final_evaluation_failures` |
+| P1-2 | 生成任务关联键不完整（proposal_id 复用导致任务挂错镜头） | `compactGenerationTasks` 改用 `(shot_id, proposal_id)` 复合键，proposal 唯一时回退按 proposal 匹配，再回退按 shot 匹配；pending 行同样按复合键去重 | `test_generation_tasks_join_uses_composite_shot_proposal_key` |
+| P1-3 | 缺少口播仍显示已配好（口播轨存在但 state 非 present / 文本来自计划字幕） | `sampleFacts.narrationText/captionText` 只取 `actual.narration/actual.screen_copy`；门结论改为 `narrationReady && captionsReady` 双条件，否则显示“口播或字幕还没有完整核对” | `test_sample_gate_narration_copy_uses_actual_not_planned` |
+| P1-4 | 原声状态无法正确表达（固定 planned=False 导致 present 也显示未安排；缺失信号默认 True） | `_audio_tracks` 原声改为 presence-only：present→“present”、False→“not_planned”、缺失→“unknown”，不再默认 True；schema `state` 枚举加 `unknown`；阅读器原声标签（有原声/未保留原声/原声状态未记录） | `test_original_sound_state_is_presence_based_not_planned`、`test_original_sound_state_has_business_labels` |
+| P1-5 | 未开始阶段伪造已准备产物（edit_result/quality_conclusion 空数据仍 ready） | `compactEditResult`/`compactQualityConclusion`/`compactComposeReadiness`/`compactSources` 无业务字段时返回 null；`compose_readiness` 空态文案“尚未开始精剪” | `test_empty_stages_never_fabricate_ready_materials` |
+| P2-6 | 合法空集合被当成资料缺失 | `artifactModel` 不再折叠空数组；`source_risks=[]`→“未发现风险”、`pending_changes=[]`→“没有待处理问题”、`qa_evidence=[]`→“未提供 QA 附件”，health=ready；详情页空集合显示业务文案 | `test_legitimate_empty_collections_are_not_missing` |
+| P2-7 | 素材名称显示内部哈希 | research 素材 `label` 优先取原始文件名 stem，`media_id` 只留在 `id`/制作记录 | `test_source_label_prefers_file_name_over_media_id_hash` |
+| P2-8 | 业务界面泄漏内部枚举 | 集中映射 `TASK_QUALITY_LABELS`（fast/standard）、`GENERATION_OPERATION_LABELS`（text_to_video/image_to_video 等）、`EVALUATION_DIMENSION_LABELS`（八维中文）；`displayValue` 补 revise/repair/reject/proceed/fail | `test_business_enum_maps_cover_tasks_operations_and_dimensions` |
+
+**顺带修复**：`_evaluation_summary` 的 `status/recommended_action/judge_version/name/message/note` 全部 `_safe_text` 化——此前评价报告缺 `judge_version` 等字段时会产出 None 并违反 operator_state schema（新测试暴露的真实缺陷）。
+
+**验证**：`PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot` → **385 passed, 1 skipped, 0 failed**；`node --check`、`git diff --check` 通过。覆盖缺口（复合键冲突、矛盾质量结论、空集合语义、九阶段全空数据）已由本轮测试补齐；三档手动验收仍待业务方执行。

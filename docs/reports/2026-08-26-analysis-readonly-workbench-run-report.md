@@ -410,3 +410,17 @@ Phase 4/5 收尾项：
 新增真实投影集成测试 `test_real_operator_state_flows_through_approval_adapter`：`project_operator_state` 真实投影 + 真实任务目录注入 → node `buildApprovalStages`，端到端断言四个 P1 字段不丢、不伪造。`test_nine_stage_minimal_fixture_keeps_legacy_business_fields` 明确为适配器层测试，不单独作为真实产物完整性证据。
 
 验证记录：`PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot` → **375 passed, 1 skipped, 0 failed**；`node --check`、`git diff --check` 通过。三档视觉验收仍暂缓，待业务方按清单步骤 0 完成九阶段产物走查后执行。
+
+**第三轮：业务结论一致性修复（2026-08-31 深夜）**。review 确认第二轮修复有效，但指出测试全绿未覆盖复合键冲突、矛盾质量结论、空集合语义与九阶段全空数据，5 个 P1 使页面结论与真实业务事实不符。本轮闭环：
+
+1. **检查结论归约（P1-1）**：新增 `_merge_qa_with_evaluation`，文件/渲染检查与内容质量评价合并——评价 `status∈{revise,fail}`、`recommended_action∈{repair,reject}` 或硬门失败非空时 `qa_status` 归约为“需要调整”；sample 与 compose/publish 统一走该函数，消除“检查通过，可以交付”与 revise/repair 并存。
+2. **生成任务复合键（P1-2）**：`compactGenerationTasks` 改用 `(shot_id, proposal_id)` 复合键关联任务与方案，proposal 复用不再挂错镜头；pending 行按复合键去重。
+3. **口播事实（P1-3）**：`sampleFacts` 的实际口播/字幕只取执行结果；门结论要求实际口播音轨 present 且实际字幕存在，否则“口播或字幕还没有完整核对”。
+4. **原声状态（P1-4）**：原声改为 presence-only（有原声/未保留原声/原声状态未记录），缺失信号不再默认 True；schema `state` 枚举加 `unknown`。
+5. **空阶段诚实降级（P1-5）**：`compactEditResult/compactQualityConclusion/compactComposeReadiness/compactSources` 无业务字段时返回 null，九阶段全空数据不再出现“已准备”。
+6. **空集合语义（P2-6）**：`risks=[]`→“未发现风险”、`pending_changes=[]`→“没有待处理问题”、`qa_evidence=[]`→“未提供 QA 附件”，与“暂未提供”分离。
+7. **素材名（P2-7）**：优先原始文件名 stem，`media_id` 哈希只留在制作记录。
+8. **枚举中文映射（P2-8）**：`TASK_QUALITY_LABELS`/`GENERATION_OPERATION_LABELS`/`EVALUATION_DIMENSION_LABELS` 集中映射，`displayValue` 补 revise/repair/reject/proceed。
+9. **顺带修复**：`_evaluation_summary` 全字段 `_safe_text` 化（评价报告缺 `judge_version` 时曾产出 None 违反 schema）。
+
+验证记录：`PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot` → **385 passed, 1 skipped, 0 failed**；`node --check`、`git diff --check` 通过。覆盖缺口已补齐；三档手动验收仍待业务方按清单步骤 0 执行。
