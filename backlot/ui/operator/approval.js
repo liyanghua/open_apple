@@ -259,18 +259,22 @@ function factsForGate(project, gateId) {
   return sampleFacts(project);
 }
 
-function materialCard(label, detail, icon, active, onSelect) {
-  const button = node("button", `approval-artifact${active ? " is-on" : ""}`);
+function materialCard(label, detail, icon, active, onSelect, health = "ready") {
+  const healthLabels = { missing: "暂未生成", processing: "正在准备", failed: "资料异常", playback_failed: "无法播放" };
+  const healthCopy = healthLabels[health];
+  const visibleDetail = healthCopy && detail && !String(detail).startsWith(healthCopy)
+    ? `${healthCopy} · ${detail}` : (healthCopy || detail);
+  const button = node("button", `approval-artifact status-${health}${active ? " is-on" : ""}`);
   button.type = "button";
   button.dataset.artifact = label;
   button.setAttribute("aria-current", active ? "true" : "false");
-  button.setAttribute("aria-label", `${label}：${detail || "暂未提供"}`);
+  button.setAttribute("aria-label", `${label}：${visibleDetail || "暂未提供"}`);
   if (onSelect) button.addEventListener("click", onSelect);
   button.append(
     node("span", "approval-artifact-icon", icon || "▸"),
     (() => {
       const body = node("span", "approval-artifact-body");
-      body.append(node("b", "", label), node("small", "", detail));
+      body.append(node("b", "", label), node("small", "", visibleDetail));
       return body;
     })(),
   );
@@ -344,7 +348,7 @@ function renderApprovalMaterials(project, model) {
     const button = materialCard(artifact.label, detail, artifact.kind === "sample_video" || artifact.kind === "final_video" || artifact.kind === "delivery_video" ? "▶" : "•",
       artifact.id === model.selectedArtifactId, () => {
         document.dispatchEvent(new CustomEvent("approval-select-artifact", { detail: { artifactId: artifact.id } }));
-      });
+      }, artifact.health);
     button.dataset.artifactId = artifact.id;
     button.dataset.testid = `approval-artifact-${artifact.id}`;
     container.append(button);
@@ -428,6 +432,9 @@ function displayValue(value) {
     // 评价结论与动作的中文映射（业务界面不出现内部枚举）
     revise: "需要修改", repair: "需要修复", reject: "不通过", proceed: "继续制作",
     fail: "未通过",
+    queued: "排队中", generating: "生成中", not_started: "尚未生成",
+    not_planned: "未安排", exported: "已导出", published: "已发布",
+    video: "视频", audio: "音频", image: "图片", subtitle: "字幕",
   };
   return labels[value] || value;
 }
@@ -853,7 +860,7 @@ function renderGenerationListDetail(container, payload) {
   (payload.items || []).forEach((item, index) => {
     const card = node("section", "approval-detail-group");
     card.append(node("h4", "approval-detail-item-title", item.label || `第 ${index + 1} 项`));
-    if (item.status) card.append(detailRow("状态", item.status));
+    if (item.status) card.append(detailRow("状态", displayValue(item.status)));
     if (item.reason) card.append(detailRow("说明", item.reason));
     if (item.stage_label) card.append(detailRow("生成阶段", item.stage_label));
     if (item.source_summary) card.append(detailRow("素材说明", item.source_summary));
@@ -870,7 +877,7 @@ function renderVisualAssetsDetail(container, payload) {
   (payload.items || []).forEach((item, index) => {
     const card = node("section", "approval-detail-group");
     card.append(node("h4", "approval-detail-item-title", item.label || `素材 ${index + 1}`));
-    if (item.status) card.append(detailRow("状态", item.status));
+    if (item.status) card.append(detailRow("状态", displayValue(item.status)));
     if (item.reason) card.append(detailRow("说明", item.reason));
     if (item.source_summary) card.append(detailRow("素材说明", item.source_summary));
     if (item.source_range) card.append(detailRow("建议片段", item.source_range));
@@ -909,8 +916,8 @@ function renderGenerationTasksDetail(container, payload) {
 }
 
 function renderNarrationSubtitlesDetail(container, payload) {
-  if (payload.narration_status) container.append(detailRow("口播状态", payload.narration_status));
-  if (payload.subtitle_status) container.append(detailRow("字幕状态", payload.subtitle_status));
+  if (payload.narration_status) container.append(detailRow("口播状态", displayValue(payload.narration_status)));
+  if (payload.subtitle_status) container.append(detailRow("字幕状态", displayValue(payload.subtitle_status)));
   if (payload.coverage?.length) {
     const list = node("div", "approval-detail-list");
     payload.coverage.forEach((shot, index) => {
@@ -926,7 +933,7 @@ function renderNarrationSubtitlesDetail(container, payload) {
 }
 
 function renderMusicBudgetDetail(container, payload) {
-  if (payload.music_status) container.append(detailRow("音乐状态", payload.music_status));
+  if (payload.music_status) container.append(detailRow("音乐状态", displayValue(payload.music_status)));
   if (payload.estimated_cost_usd != null) container.append(detailRow("预计费用", `$${Number(payload.estimated_cost_usd).toFixed(3)}`));
   if (payload.spent_cost_usd != null) container.append(detailRow("已用费用", `$${Number(payload.spent_cost_usd).toFixed(3)}`));
   return true;
@@ -1096,7 +1103,7 @@ function renderMediaObjectDetail(container, payload) {
   const videoUrl = payload.video_url || payload.preview_url;
   if (hasText(videoUrl)) container.append(mediaVideo(videoUrl, payload.poster_url, "视频预览"));
   if (payload.duration_seconds != null) container.append(detailRow("时长", `${Math.round(payload.duration_seconds)} 秒`));
-  if (payload.qa_status) container.append(detailRow("检查结果", payload.qa_status));
+  if (payload.qa_status) container.append(detailRow("检查结果", displayValue(payload.qa_status)));
   if (hasText(payload.download_url)) container.append(mediaDownload("下载视频", payload.download_url));
   return true;
 }
@@ -1153,7 +1160,7 @@ function renderVersionHistoryDetail(container, payload) {
     head.append(node("b", "", version.label || version.id || "版本"));
     if (version.active) head.append(node("span", "approval-badge is-active", "当前版本"));
     card.append(head);
-    if (version.qa_status) card.append(detailRow("检查状态", version.qa_status));
+    if (version.qa_status) card.append(detailRow("检查状态", displayValue(version.qa_status)));
     if (version.change_summary) card.append(detailRow("变更说明", version.change_summary));
     if (hasText(version.video_url)) card.append(mediaDownload("下载该版本", version.video_url));
     if (hasText(version.poster_url)) {
@@ -1194,7 +1201,7 @@ function renderPlatformsDetail(container, payload) {
     const card = node("section", "approval-detail-group");
     const head = node("div", "approval-script-head");
     head.append(node("b", "", entry.platform_label || entry.platform || "平台"));
-    head.append(node("span", `approval-badge ${entry.status === "failed" ? "is-warn" : ""}`, entry.status_label || entry.status || ""));
+    head.append(node("span", `approval-badge ${entry.status === "failed" ? "is-warn" : ""}`, entry.status_label || displayValue(entry.status) || ""));
     card.append(head);
     if (entry.title) card.append(detailRow("发布标题", entry.title));
     if (entry.description) card.append(detailRow("发布描述", entry.description));
@@ -1215,7 +1222,7 @@ function renderDeliveryPackageDetail(container, payload) {
   (payload.files || []).forEach((file) => {
     const card = node("section", "approval-detail-group");
     card.append(node("h4", "approval-detail-item-title", file.label || file.relative_path || "交付文件"));
-    if (file.kind) card.append(detailRow("类型", file.kind));
+    if (file.kind) card.append(detailRow("类型", displayValue(file.kind)));
     if (hasText(file.download_url)) card.append(mediaDownload("下载文件", file.download_url));
     list.append(card);
   });
@@ -1792,7 +1799,7 @@ function renderRecord(project, model) {
   const data = editorDataFor(project, model.selectedStageId);
   const summary = project.summary || {};
   box.append(detailRow("当前步骤", selected?.stageLabel || summary.current_stage || "—"));
-  box.append(detailRow("检查结果", data.qa_status || data.status || "待检查"));
+  box.append(detailRow("检查结果", displayValue(data.qa_status || data.status || "待检查")));
   const duration = data.duration_seconds ?? data.preview_duration_seconds;
   box.append(detailRow("时长", duration ? `${Math.round(duration)} 秒` : "暂未提供"));
   box.append(detailRow("视频版本", `第 ${selected?.version || gate.version || 1} 版`));
@@ -1802,7 +1809,7 @@ function renderRecord(project, model) {
     box.append(detailRow("下一步", displayValue(data.evaluation.recommended_action) || "—"));
   }
   if (data.audio_tracks?.length) {
-    const labels = data.audio_tracks.map((track) => `${track.label || track.kind}：${track.state_label || track.state || "未知"}`);
+    const labels = data.audio_tracks.map((track) => `${track.label || displayValue(track.kind) || "声音"}：${track.state_label || displayValue(track.state) || "未知"}`);
     box.append(detailRow("声音情况", labels.join("、")));
   }
 }
@@ -1836,6 +1843,12 @@ export function renderApprovalWorkbench(container, project, snapshot) {
   if (candidateUnavailable(project)) {
     const main = byId("approval-main");
     const materials = byId("approval-materials");
+    // 候选整体不可用时，不能保留上一次渲染的确认区或制作记录。
+    // 这些区域可能来自同一页面上一次的可用候选，残留会误导用户继续审批。
+    ["approval-confirmation", "approval-record"].forEach((id) => {
+      const region = byId(id);
+      if (region) region.replaceChildren();
+    });
     if (main) {
       main.replaceChildren();
       main.append(node("p", "approval-muted", APPROVAL_COPY.unavailable), node("p", "approval-recover-hint", "请返回批量总览重新拉取，或联系制作人员。"));

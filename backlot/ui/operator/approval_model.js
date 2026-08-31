@@ -100,6 +100,31 @@ function statusHealth(status, data, editorType) {
   return "ready";
 }
 
+function materialHealth(id, payload, stageHealth) {
+  if (stageHealth === "failed" || stageHealth === "processing") return stageHealth;
+  if (payload == null) return "missing";
+  const values = [];
+  const collect = (value) => {
+    if (!value || typeof value !== "object") return;
+    if (typeof value.status === "string") values.push(value.status);
+    if (Array.isArray(value.tasks)) value.tasks.forEach(collect);
+    if (Array.isArray(value.items)) value.items.forEach(collect);
+    if (Array.isArray(value.rows)) value.rows.forEach(collect);
+    if (Array.isArray(value.shots)) value.shots.forEach(collect);
+  };
+  collect(payload);
+  if (id === "system_checks" && Array.isArray(payload.hard_gate_fails) && payload.hard_gate_fails.length) {
+    return "failed";
+  }
+  if (values.some((value) => ["failed", "fail", "rejected", "revise", "处理失败", "未通过", "需要调整"].includes(value))) {
+    return "failed";
+  }
+  if (values.some((value) => ["queued", "generating", "in_progress", "pending", "制作中", "排队中", "生成中"].includes(value))) {
+    return "processing";
+  }
+  return "ready";
+}
+
 function hasValue(value) {
   return value !== undefined && value !== null && value !== "" && !(Array.isArray(value) && value.length === 0);
 }
@@ -910,9 +935,7 @@ function artifactModel(data, descriptor, stageHealth, stageStatus) {
     summary,
     kind: id,
     // 阶段失败/处理中优先于旧 payload：失败阶段残留数据不得显示“已准备”。
-    health: stageHealth === "failed" ? "failed"
-      : stageHealth === "processing" ? "processing"
-        : payload == null ? "missing" : "ready",
+    health: materialHealth(id, payload, stageHealth),
     payload,
   };
 }

@@ -243,6 +243,26 @@ console.log(JSON.stringify({
     assert result["sourceRisksHealth"] == "ready"
 
 
+def test_artifact_health_is_derived_per_material_when_one_task_fails() -> None:
+    """一个阶段有旧数据时，失败的单项材料不能继续显示为已准备。"""
+    result = _node(
+        """
+const stages = buildApprovalStages({stages:[{
+  id:'assets', status:'已完成', editor:{data:{
+    items:[{label:'画面 A', status:'ready'}],
+    execution_plan:{
+      generation_tasks:[{task_id:'task-1', status:'failed', error:'生成失败'}]
+    }
+  }}
+}]});
+const assets = stages.find((stage) => stage.stageId === 'assets');
+console.log(JSON.stringify(Object.fromEntries(assets.artifacts.map((artifact) => [artifact.id, artifact.health]))));
+"""
+    )
+    assert result["generation_tasks"] == "failed"
+    assert result["generation_list"] == "ready"
+
+
 def test_summary_cards_never_embed_full_material_body() -> None:
     """Task 0.1 契约：摘要卡只显示结论与入口，完整正文只在材料详情中出现。"""
     result = _node(

@@ -538,6 +538,22 @@ def test_confirmation_gated_by_material_and_report_completeness() -> None:
     assert 'gateId === "sample"' in approval
 
 
+def test_failure_view_clears_stale_approval_regions_and_uses_stage_copy() -> None:
+    """候选全部失败时不能留下旧的确认按钮，失败门也不能套用交付文案。"""
+    approval = _read_operator("approval.js")
+    assert '"approval-confirmation", "approval-record"' in approval
+    assert "这一步处理失败，请查看制作记录或重新拉取最新结果" in approval
+
+
+def test_material_cards_expose_material_health_and_records_map_enums() -> None:
+    approval = _read_operator("approval.js")
+    assert "artifact.health" in approval
+    assert 'status-${health}' in approval
+    assert 'displayValue(data.qa_status || data.status || "待检查")' in approval
+    assert "displayValue(track.state)" in approval
+    assert "displayValue(version.qa_status)" in approval
+
+
 def test_done_panel_never_claims_pass_when_qa_requires_adjustment() -> None:
     """P1-6 回归：成片完成面板按 qa_status 呈现，不硬编码检查通过。"""
     approval = _read_operator("approval.js")
