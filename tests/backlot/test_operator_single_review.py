@@ -450,3 +450,31 @@ def test_approval_unified_missing_and_failure_copy() -> None:
     ):
         assert phrase in combined, phrase
     assert "approval-select-artifact" in approval
+
+
+def test_ui_layer_references_engineering_fields_only_in_technical_filter() -> None:
+    """Task 3.1：工程字段 token 只出现在技术字段过滤函数内，不被 UI 层消费或渲染。"""
+    approval = _read_operator("approval.js")
+    for token in ("control_rule_refs", "plan_id", "source_media_id", "model_family"):
+        outside = re.sub(r"function isTechnicalArtifactKey\(.*?\n\}", "", approval, flags=re.S)
+        assert token not in outside, token
+    assert "isTechnicalArtifactKey" in approval
+
+
+def test_stage_material_jump_and_download_controls_are_keyboard_operable() -> None:
+    """Task 3.2：阶段、材料、跳转和下载动作使用原生 button/anchor，键盘可达。"""
+    approval = _read_operator("approval.js")
+    assert 'node("button", "approval-step"' in approval or 'node("button", cls.join' in approval
+    assert 'node("button", `approval-artifact' in approval
+    assert 'node("button", "approval-jump"' in approval
+    assert 'createElement("a")' in approval
+    assert "href = url" in approval
+
+
+def test_media_refresh_and_material_cards_keep_live_regions_and_stable_anchors() -> None:
+    """Task 3.2：媒体失败使用 aria-live；材料卡保留 aria-current 和稳定 data-testid。"""
+    approval = _read_operator("approval.js")
+    assert '"aria-live", "polite"' in approval
+    assert '"aria-current"' in approval
+    assert "approval-artifact-${artifact.id}" in approval
+    assert "dataset.testid" in approval

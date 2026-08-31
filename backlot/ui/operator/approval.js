@@ -892,10 +892,10 @@ function renderShotComparisonDetail(container, payload) {
     const card = node("section", "approval-detail-group");
     card.append(node("h4", "approval-detail-item-title", row.purpose || `第 ${index + 1} 个镜头`));
     if (row.status) card.append(detailRow("执行状态", displayValue(row.status)));
-    if (row.plan_screen_copy) card.append(detailRow("计划字幕", row.plan_screen_copy));
-    if (row.actual_screen_copy) card.append(detailRow("实际字幕", row.actual_screen_copy));
+    if (row.plan_subject) card.append(detailRow("计划画面", row.plan_subject));
     if (row.actual_source_label) card.append(detailRow("实际素材", row.actual_source_label));
     if (row.difference) card.append(detailRow("不同之处", row.difference));
+    card.append(detailRow("字幕正文", "见“字幕和口播”材料"));
     list.append(card);
   });
   container.append(list);
@@ -1158,7 +1158,6 @@ function renderPlatformsDetail(container, payload) {
 
 function renderDeliveryPackageDetail(container, payload) {
   if (payload.notes) container.append(node("p", "approval-detail-lead", payload.notes));
-  if (payload.package_path) container.append(detailRow("交付包", payload.package_path));
   const list = node("div", "approval-detail-list");
   (payload.files || []).forEach((file) => {
     const card = node("section", "approval-detail-group");

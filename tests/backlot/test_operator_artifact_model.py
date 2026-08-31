@@ -523,10 +523,11 @@ console.log(JSON.stringify({
     assert result["video"] == {"preview_url": "/sample.mp4", "duration_seconds": 12, "qa_status": "检查通过"}
     row = result["comparison"]["rows"][0]
     assert row["purpose"] == "展示擦净"
-    assert row["plan_screen_copy"] == "计划字幕"
-    assert row["actual_screen_copy"] == "实际字幕"
     assert row["actual_source_label"] == "oil"
+    assert row["caption_changed"] is True
     assert row["difference"] == "字幕措辞调整"
+    comparison_json = json.dumps(result["comparison"], ensure_ascii=False)
+    assert "计划字幕" not in comparison_json and "实际字幕" not in comparison_json
     captions = result["captions"]
     assert captions["shots"][0] == {"id": "shot-1", "narration": "实际口播", "caption": "实际字幕"}
     assert captions["caption_diff"]["status"] == "executed"
@@ -668,3 +669,112 @@ console.log(JSON.stringify({
     assert result["evidence"]["files"][0]["download_url"] == "/dl/l1a.json"
 
 
+
+
+def test_engineering_fields_never_enter_material_payloads() -> None:
+    """Task 3.1 契约：plan_id/control_rule_refs/runtime/revision/模型名等工程字段不进主 payload。"""
+    result = _node(
+        """
+const stages = buildApprovalStages({stages:[
+  {id:'script', status:'已完成', editor:{data:{
+    script_id:'s-1', script_version:3, plan_id:'p-1', runtime:'remotion', revision:'r9',
+    sections:[{id:'sec-1', label:'开场', text:'口播', screen_copy:'字幕',
+               control_rule_refs:['r1'], review:'approved', feedback:'',
+               section_goal:'抓住注意', visual_intent:'画面', pacing:'快', evidence_requirements:[]}],
+  }}},
+  {id:'assets', status:'已完成', editor:{data:{
+    estimated_cost_usd:0.05, music_status:'未安排背景音乐',
+    items:[{id:'a1', label:'画面生成', type:'image_generation', provider:'flux', status:'待生成', reason:'尚未执行', paid:true, cost_estimate_usd:0.01}],
+    execution_plan:{plan_id:'ep-1', plan_version:2, status:'draft',
+      shots:[{id:'shot-1', purpose:'展示', generation_proposals:[{id:'gp-1', operation:'generate', model_family:'seedance', duration_seconds:2, aspect_ratio:'9:16', estimated_fast_cost_usd:0.1, estimated_standard_cost_usd:0.2, evidence_risk:'中'}], selected_generation_task_id:'gp-1'}]},
+  }}},
+  {id:'proposal', status:'已完成', editor:{data:{
+    concepts:[{id:'c1', title:'方向', core_message:'卖点'}], selected_id:'c1', estimated_cost_usd:0.05,
+    control_plan:{plan_id:'cp-1', plan_version:2, sections:[{id:'content_direction', label:'内容方向', summary:'摘要', rules:['规则'], review:'approved', feedback:''}]},
+  }}},
+]});
+const allPayloads = stages.flatMap((stage) => stage.artifacts.map((artifact) => artifact.payload)).filter(Boolean);
+const text = JSON.stringify(allPayloads);
+const scriptText = JSON.stringify(stages.find((stage) => stage.stageId === 'script').artifacts.find((artifact) => artifact.id === 'production_script')?.payload || {});
+console.log(JSON.stringify({
+  control_rule_refs: text.includes('control_rule_refs'),
+  plan_id: text.includes('plan_id'),
+  plan_version: text.includes('plan_version'),
+  runtime: text.includes('runtime'),
+  revision: text.includes('revision'),
+  script_id: text.includes('script_id'),
+  script_version: text.includes('script_version'),
+  model_family: text.includes('model_family'),
+  provider: text.includes('provider'),
+  source_media_id: text.includes('source_media_id'),
+  scriptReviewFeedback: scriptText.includes('"review"') || scriptText.includes('"feedback"'),
+}));
+"""
+    )
+    for key, flag in result.items():
+        assert flag is False, key
+
+
+def test_script_caption_text_appears_once_across_material_payloads() -> None:
+    """Task 3.1 契约：脚本文案/字幕完整正文只在制作脚本中出现一次。"""
+    result = _node(
+        """
+const stages = buildApprovalStages({stages:[{
+  id:'script', status:'已完成', editor:{data:{
+    duration_seconds:16,
+    sections:[
+      {id:'sec-1', label:'开场', text:'唯一口播正文', screen_copy:'唯一字幕正文', section_goal:'抓住注意'},
+    ],
+  }}
+}]});
+const script = stages.find((stage) => stage.stageId === 'script');
+const fullText = (artifact) => JSON.stringify(artifact?.payload || {});
+const occurrences = (needle) => script.artifacts.filter((artifact) => fullText(artifact).includes(needle)).map((artifact) => artifact.id);
+const production = script.artifacts.find((artifact) => artifact.id === 'production_script');
+console.log(JSON.stringify({
+  narrationOccurrences: occurrences('唯一口播正文'),
+  captionOccurrences: occurrences('唯一字幕正文'),
+  productionHasBoth: fullText(production).includes('唯一口播正文') && fullText(production).includes('唯一字幕正文'),
+  narrationSummary: script.artifacts.find((artifact) => artifact.id === 'narration')?.summary,
+  screenTextSummary: script.artifacts.find((artifact) => artifact.id === 'on_screen_text')?.summary,
+}));
+"""
+    )
+    assert result["narrationOccurrences"] == ["production_script"]
+    assert result["captionOccurrences"] == ["production_script"]
+    assert result["productionHasBoth"] is True
+    assert result["narrationSummary"] == "1 段，共 16 秒"
+    assert result["screenTextSummary"] == "1 段，共 16 秒"
+
+
+def test_sample_caption_text_only_in_captions_voice_material() -> None:
+    """Task 3.1 契约：样片字幕/口播完整正文只出现在“字幕和口播”材料，镜头对照只留差异。"""
+    result = _node(
+        """
+const stages = buildApprovalStages({stages:[{
+  id:'sample', status:'等待确认', editor:{data:{
+    preview_url:'/sample.mp4', qa_status:'检查通过',
+    execution_trace:{shots:[{
+      shot_id:'shot-1', status:'executed', status_label:'已按方案执行',
+      planned:{purpose:'展示擦净', screen_copy:'计划字幕正文', narration:'计划口播正文'},
+      actual:{source_label:'oil', screen_copy:'实际字幕正文', narration:'实际口播正文'},
+      deviation:{reason:'字幕措辞调整'},
+    }]},
+  }},
+}]});
+const sample = stages.find((stage) => stage.stageId === 'sample');
+const fullText = (artifact) => JSON.stringify(artifact?.payload || {});
+const occurrences = (needle) => sample.artifacts.filter((artifact) => fullText(artifact).includes(needle)).map((artifact) => artifact.id);
+const comparisonText = fullText(sample.artifacts.find((artifact) => artifact.id === 'shot_comparison'));
+console.log(JSON.stringify({
+  actualCaption: occurrences('实际字幕正文'),
+  actualNarration: occurrences('实际口播正文'),
+  plannedCaption: occurrences('计划字幕正文'),
+  comparisonHasCaption: comparisonText.includes('计划字幕正文') || comparisonText.includes('实际字幕正文'),
+}));
+"""
+    )
+    assert result["actualCaption"] == ["captions_voice"]
+    assert result["actualNarration"] == ["captions_voice"]
+    assert result["plannedCaption"] == []
+    assert result["comparisonHasCaption"] is False

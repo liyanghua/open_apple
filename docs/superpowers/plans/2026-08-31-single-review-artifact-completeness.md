@@ -113,9 +113,9 @@
 - Modify: `tests/backlot/test_business_language_contract.py`
 - Modify: `tests/backlot/test_operator_single_review.py`
 
-- [ ] 禁止主界面出现 `plan_id`、`control_rule_refs`、`runtime`、`revision`、`source_media_id`、模型名、文件路径等内部字段。
-- [ ] 增加重复内容断言：脚本文案、字幕、样片镜头对照不能在多个主卡片完整重复。
-- [ ] 保留制作记录中的必要技术信息，但不作为一线审批依据。
+- [x] 禁止主界面出现 `plan_id`、`control_rule_refs`、`runtime`、`revision`、`source_media_id`、模型名、文件路径等内部字段（模型级工程字段契约测试 + UI 层 token 只允许出现在 `isTechnicalArtifactKey` 过滤函数内 + HTML 可见文字禁词扫描）。
+- [x] 增加重复内容断言：脚本文案、字幕、样片镜头对照不能在多个主卡片完整重复（脚本完整正文唯一出现在 `production_script`；样片字幕/口播唯一出现在 `captions_voice`，`shot_comparison` 只保留差异与素材身份）。
+- [x] 保留制作记录中的必要技术信息，但不作为一线审批依据（交付路径/导出路径保留在 payload 供下载动作使用，不作为正文渲染）。
 
 ### Task 3.2：交互和无障碍回归
 
@@ -124,9 +124,9 @@
 - Modify: `tests/backlot/test_operator_single_review.py`
 - Modify: `backlot/ui/operator/approval.js`
 
-- [ ] 阶段、材料、时间片段、预览和下载动作均可通过键盘操作。
-- [ ] 媒体失败、刷新和审批错误使用 `aria-live="polite"`。
-- [ ] 所有材料卡保留 `aria-current` 和稳定 `data-testid`。
+- [x] 阶段、材料、时间片段、预览和下载动作均可通过键盘操作（阶段/材料/跳转均为原生 button，下载为原生 anchor）。
+- [x] 媒体失败、刷新和审批错误使用 `aria-live="polite"`（播放器错误、异步状态均有 polite live region）。
+- [x] 所有材料卡保留 `aria-current` 和稳定 `data-testid`（`approval-artifact-<id>`）。
 
 ## Chunk 4：验证和手动验收准备
 

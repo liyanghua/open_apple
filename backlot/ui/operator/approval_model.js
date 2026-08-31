@@ -486,13 +486,14 @@ function compactSampleVideo(data) {
 
 function compactShotComparison(data) {
   const shots = Array.isArray(data.execution_trace?.shots) ? data.execution_trace.shots : [];
+  // 计划/实际对照只呈现差异与素材身份；完整字幕正文唯一主材料是 captions_voice。
   const rows = shots.map((shot) => ({
     id: shot?.shot_id,
     status: shot?.status_label || shot?.status,
     purpose: shot?.planned?.purpose,
-    plan_screen_copy: shot?.planned?.screen_copy,
-    actual_screen_copy: shot?.actual?.screen_copy,
+    plan_subject: shot?.planned?.subject_action,
     actual_source_label: shot?.actual?.source_label,
+    caption_changed: Boolean(shot?.deviation?.reason),
     difference: shot?.deviation?.reason,
   }));
   return rows.length ? { rows } : null;

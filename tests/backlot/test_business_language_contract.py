@@ -125,5 +125,6 @@ def test_frontline_html_has_no_brand_or_internal_vocabulary():
     forbidden = (
         "OPENMONTAGE", "OpenMontage", "Editorial Gallery", "runtime",
         "revision", "creative_lock", "script_lock", "undefined",
+        "control_rule_refs", "plan_id", "source_media_id", "model_family",
     )
     assert not [word for word in forbidden if word.lower() in visible.lower()], visible
