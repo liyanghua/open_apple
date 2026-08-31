@@ -1095,3 +1095,88 @@ console.log(JSON.stringify({{
     assert result["plannedNarration"] == "计划口播"
     assert result["actualNarration"] is None
     assert result["urlsDistinct"] is True
+
+
+def test_sample_qa_status_merges_evaluation_failures() -> None:
+    """P1-1 回归：文件检查 pass 但内容评价 revise/硬门失败时，qa_status 归约为需要调整。"""
+    from backlot.operator_state import project_operator_state, validate_operator_state
+
+    board = _board_state()
+    board["artifacts"]["sample_report"]["status"] = "pass"
+    board["artifacts"]["evaluation_report.sample"] = {
+        "scope": "sample", "status": "revise", "recommended_action": "repair",
+        "hard_gate": {"checks": [
+            {"id": "c1", "name": "字幕可读性", "status": "fail", "severity": "fatal",
+             "message": "字幕遮挡动作结果", "fixable": True},
+        ]},
+        "creative_advisory": {"scored": True, "summary": "需要修改字幕", "dimensions": []},
+    }
+
+    state = project_operator_state(board)
+    sample = next(stage for stage in state["stages"] if stage["id"] == "sample")
+    data = sample["editor"]["data"]
+    assert data["qa_status"] == "需要调整"
+    assert data["review_summary"] == "样片尚有需要调整的检查项"
+    assert data["evaluation"]["hard_gate_fails"][0]["name"] == "字幕可读性"
+    validate_operator_state(state)
+
+
+def test_compose_qa_status_merges_final_evaluation_failures() -> None:
+    """P1-1 回归：成片文件检查 pass 但 final 评价 fail 时，qa_status 归约为需要调整。"""
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    board["artifacts"]["render_report"] = {
+        "outputs": [{"path": "projects/table-mat/renders/final.mp4", "duration_seconds": 16}],
+    }
+    board["artifacts"]["final_review"] = {"status": "pass"}
+    board["artifacts"]["evaluation_report.final"] = {
+        "scope": "final", "status": "fail", "recommended_action": "reject",
+        "hard_gate": {"checks": [
+            {"id": "c1", "name": "响度", "status": "fail", "severity": "fatal",
+             "message": "响度超标", "fixable": False},
+        ]},
+        "creative_advisory": {"scored": True, "summary": "不可发布", "dimensions": []},
+    }
+
+    state = project_operator_state(board)
+    compose = next(stage for stage in state["stages"] if stage["id"] == "compose")
+    data = compose["editor"]["data"]
+    assert data["qa_status"] == "需要调整"
+    assert data["evaluation"]["recommended_action"] == "reject"
+
+
+def test_original_sound_state_is_presence_based_not_planned() -> None:
+    """P1-4 回归：原声状态独立于「是否计划」；缺失信号为 unknown，不默认成 True。"""
+    from backlot.operator_state import _audio_tracks
+
+    with_sound = _audio_tracks({"audio_diff": {
+        "plan": {"narration_planned": True, "music_planned": True},
+        "actual": {"narration_present": True, "music_present": True, "original_sound": True},
+    }})
+    original = next(track for track in with_sound if track["kind"] == "original")
+    assert original["state"] == "present"
+
+    without_signal = _audio_tracks({"audio_diff": {
+        "plan": {"narration_planned": True, "music_planned": True},
+        "actual": {"narration_present": True, "music_present": True},
+    }})
+    original = next(track for track in without_signal if track["kind"] == "original")
+    assert original["state"] == "unknown"
+    assert original["present"] is False
+
+
+def test_source_label_prefers_file_name_over_media_id_hash() -> None:
+    """P2-7 回归：素材名优先用原始文件名，media_id 哈希不进业务标题。"""
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    files = board["artifacts"]["source_media_review"]["files"]
+    files[0]["media_id"] = "2f9213d9132ae3f7aabbccdd"
+    files[0]["path"] = "projects/table-mat/inputs/source/防油擦拭-近景.mp4"
+
+    state = project_operator_state(board)
+    research = next(stage for stage in state["stages"] if stage["id"] == "research")
+    sources = research["editor"]["data"]["sources"]
+    assert sources[0]["label"] == "防油擦拭-近景"
+    assert sources[0]["id"] == "2f9213d9132ae3f7aabbccdd"

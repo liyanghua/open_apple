@@ -326,9 +326,10 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         frame = next((value for value in frames if isinstance(value, str)), None)
         path = item.get("path")
         media_type = _safe_text(item.get("media_type"), "unknown")
-        label = _safe_text(item.get("media_id"))
-        if not label and isinstance(path, str):
-            label = Path(path).stem
+        # 素材名优先用原始文件名（业务可读），media_id 哈希只留在 id/制作记录。
+        label = Path(path).stem if isinstance(path, str) and path else ""
+        if not label:
+            label = _safe_text(item.get("media_id"))
         item_risks = [_safe_text(value) for value in item.get("quality_risks") or []]
         sources.append({
             "id": _safe_text(item.get("media_id"), f"source-{len(sources) + 1}"),
@@ -1108,11 +1109,11 @@ def _evaluation_summary(eval_report: Mapping[str, Any]) -> dict[str, Any] | None
         return None
     advisory = eval_report.get("creative_advisory") if isinstance(eval_report.get("creative_advisory"), Mapping) else {}
     return {
-        "status": eval_report.get("status"),
-        "recommended_action": eval_report.get("recommended_action"),
-        "judge_version": eval_report.get("judge_version"),
+        "status": _safe_text(eval_report.get("status")),
+        "recommended_action": _safe_text(eval_report.get("recommended_action")),
+        "judge_version": _safe_text(eval_report.get("judge_version")),
         "hard_gate_fails": [
-            {"name": c.get("name"), "message": c.get("message"), "fixable": c.get("fixable")}
+            {"name": _safe_text(c.get("name")), "message": _safe_text(c.get("message")), "fixable": c.get("fixable") is True}
             for c in (eval_report.get("hard_gate") or {}).get("checks", [])
             if isinstance(c, Mapping) and c.get("status") == "fail"
         ],
@@ -1120,7 +1121,7 @@ def _evaluation_summary(eval_report: Mapping[str, Any]) -> dict[str, Any] | None
             "scored": bool(advisory.get("scored")),
             "summary": _safe_text(advisory.get("summary"), "尚未运行 VLM 创意评审"),
             "dimensions": [
-                {"name": d.get("name"), "score": d.get("score"), "note": d.get("note")}
+                {"name": _safe_text(d.get("name")), "score": d.get("score"), "note": _safe_text(d.get("note"))}
                 for d in (advisory.get("dimensions") or [])
                 if isinstance(d, Mapping)
             ],
@@ -1208,13 +1209,14 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(eval_report, Mapping) and eval_report.get("scope") == "sample":
         evaluation = _evaluation_summary(eval_report)
     audio_tracks = _audio_tracks(raw_trace)
+    qa_status = _merge_qa_with_evaluation(status, evaluation)
     return {
         "type": "sample_review",
         "data": {
             "duration_seconds": _number(render.get("duration_seconds")) if render else None,
             "preview_url": _media_url(project_id, render.get("path")) if render else None,
-            "qa_status": "检查通过" if status == "pass" else "等待检查" if not status else "需要调整",
-            "review_summary": "等待确认样片效果" if status == "pass" else "样片尚未准备完成",
+            "qa_status": qa_status,
+            "review_summary": "等待确认样片效果" if qa_status == "检查通过" else "样片尚有需要调整的检查项",
             "execution_trace": execution_trace,
             "evaluation": evaluation,
             "audio_tracks": audio_tracks,
@@ -1224,6 +1226,28 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _merge_qa_with_evaluation(file_status: Any, evaluation: Mapping[str, Any] | None, pending_label: str = "等待检查") -> str:
+    """文件/渲染检查与内容质量评价合并为唯一结论：更严格的评价结果优先。
+
+    避免页面同时呈现「检查通过，可以交付」与 revise/repair、硬门失败。
+    evaluation.status: pass/revise/fail；recommended_action: proceed/repair/reject。
+    """
+    if file_status is None or str(file_status) not in {"pass", "fail"}:
+        return pending_label
+    if str(file_status) == "fail":
+        return "需要调整"
+    # 文件检查 pass：再按内容质量评价归约
+    if isinstance(evaluation, Mapping):
+        if str(evaluation.get("status") or "") in {"revise", "fail"}:
+            return "需要调整"
+        if str(evaluation.get("recommended_action") or "") in {"repair", "reject"}:
+            return "需要调整"
+        hard_fails = evaluation.get("hard_gate_fails")
+        if isinstance(hard_fails, list) and hard_fails:
+            return "需要调整"
+    return "检查通过"
+
+
 def _audio_tracks(raw_trace: Any) -> list[dict[str, Any]]:
     """口播/BGM/原声三轨状态（来自 sample_execution_trace.audio_diff）。"""
     diff = raw_trace.get("audio_diff") if isinstance(raw_trace, Mapping) else None
@@ -1231,20 +1255,25 @@ def _audio_tracks(raw_trace: Any) -> list[dict[str, Any]]:
     plan = diff.get("plan") if isinstance(diff.get("plan"), Mapping) else {}
     actual = diff.get("actual") if isinstance(diff.get("actual"), Mapping) else {}
 
-    def track(kind: str, label: str, planned: bool, present: bool) -> dict[str, Any]:
-        state = "present" if planned and present else ("missing" if planned else "not_planned")
+    def track(kind: str, label: str, planned: bool, present: bool, presence_only: bool = False) -> dict[str, Any]:
+        if presence_only:
+            # 原声没有「计划」语义：只表达实际存在与否；缺失信号表达为 unknown，不默认成 True。
+            state = "present" if present else ("unknown" if present is None else "not_planned")
+        else:
+            state = "present" if planned and present else ("missing" if planned else "not_planned")
         return {
             "kind": kind,
             "label": label,
             "planned": bool(planned),
-            "present": bool(present),
+            "present": bool(present) if present is not None else False,
             "state": state,
         }
 
+    original_sound = actual.get("original_sound")
     return [
         track("narration", "口播", plan.get("narration_planned"), actual.get("narration_present")),
         track("bgm", "BGM", plan.get("music_planned"), actual.get("music_present")),
-        track("original", "原声", False, bool(actual.get("original_sound", True))),
+        track("original", "原声", False, None if original_sound is None else bool(original_sound), presence_only=True),
     ]
 
 
@@ -1593,9 +1622,14 @@ def _delivery_editor(
     eval_report = _artifact(board, "evaluation_report.final") or _artifact(board, "evaluation_report")
     if isinstance(eval_report, Mapping) and eval_report.get("scope") == "final":
         evaluation = _evaluation_summary(eval_report)
+    qa_status = _merge_qa_with_evaluation(
+        "pass" if qa_passed else ("fail" if final_review.get("status") else None),
+        evaluation,
+        pending_label="等待成片检查",
+    )
     data: dict[str, Any] = {
         "duration_seconds": duration,
-        "qa_status": "检查通过" if qa_passed else "等待成片检查",
+        "qa_status": qa_status,
         "download_url": video_url,
         "format_label": _safe_text(output.get("resolution"), "竖屏视频") if output else "竖屏视频",
         "player": {

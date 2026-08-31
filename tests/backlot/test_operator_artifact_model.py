@@ -1080,3 +1080,107 @@ console.log(JSON.stringify({tasks}));
     assert pending["status"] == "not_started"
     assert pending["status_label"] == "尚未生成"
     assert pending["selected"] is False
+
+
+def test_generation_tasks_join_uses_composite_shot_proposal_key() -> None:
+    """P1-2 回归：同一 proposal_id 被两个镜头复用时，任务必须挂到 task.shot_id 对应的镜头。"""
+    result = _node(
+        """
+const assets = buildApprovalStages({stages:[{
+  id:'assets', status:'已完成', editor:{data:{
+    estimated_cost_usd:0.06, spent_cost_usd:0.05, music_status:'未安排背景音乐', items:[],
+    execution_plan:{plan_id:'ep-1', status:'approved',
+      shots:[
+        {id:'shot-1', purpose:'镜头一：展示刮擦', generation_proposals:[{id:'gp-1', operation:'generate', duration_seconds:2, aspect_ratio:'9:16'}], selected_generation_task_id:null},
+        {id:'shot-2', purpose:'镜头二：展示结果', generation_proposals:[{id:'gp-1', operation:'generate', duration_seconds:2, aspect_ratio:'9:16'}], selected_generation_task_id:'task-1'},
+      ],
+      generation_tasks:[
+        {task_id:'task-1', shot_id:'shot-2', proposal_id:'gp-1', quality:'fast', status:'completed', output_url:'/gen/shot-2.mp4', actual_cost_usd:0.08, error:null},
+      ],
+    },
+  }}
+}]})[4];
+const tasks = assets.artifacts.find((artifact) => artifact.id === 'generation_tasks')?.payload?.tasks;
+console.log(JSON.stringify({tasks}));
+"""
+    )
+    tasks = result["tasks"]
+    real = next((task for task in tasks if task["task_id"] == "task-1"), None)
+    assert real["shot_id"] == "shot-2"
+    assert real["shot_purpose"] == "镜头二：展示结果"
+    assert real["selected"] is True
+    pending = next((task for task in tasks if task["shot_id"] == "shot-1"), None)
+    assert pending is not None
+    assert pending["status"] == "not_started"
+    assert pending["shot_purpose"] == "镜头一：展示刮擦"
+    assert pending["selected"] is False
+
+
+def test_empty_stages_never_fabricate_ready_materials() -> None:
+    """P1-5 回归：九阶段全空数据时，除状态材料外没有任何材料被标成 ready。"""
+    result = _node(
+        """
+const stages = buildApprovalStages({stages:[
+  {id:'research', status:'未开始', editor:{data:{}}},
+  {id:'proposal', status:'未开始', editor:{data:{}}},
+  {id:'script', status:'未开始', editor:{data:{}}},
+  {id:'scenePlan', status:'未开始', editor:{data:{}}},
+  {id:'assets', status:'未开始', editor:{data:{}}},
+  {id:'sample', status:'未开始', editor:{data:{}}},
+  {id:'edit', status:'未开始', editor:{data:{}}},
+  {id:'compose', status:'未开始', editor:{data:{}}},
+  {id:'publish', status:'未开始', editor:{data:{}}},
+]});
+const readyIds = stages.flatMap((stage) => stage.artifacts.filter((artifact) => artifact.health === 'ready').map((artifact) => `${stage.stageId}.${artifact.id}`));
+const readiness = stages.find((stage) => stage.stageId === 'edit').artifacts.find((artifact) => artifact.id === 'compose_readiness');
+console.log(JSON.stringify({
+  readyIds,
+  editResultHealth: stages.find((stage) => stage.stageId === 'edit').artifacts.find((artifact) => artifact.id === 'edit_result').health,
+  qualityHealth: stages.find((stage) => stage.stageId === 'compose').artifacts.find((artifact) => artifact.id === 'quality_conclusion').health,
+  readinessHealth: readiness.health,
+  readinessSummary: readiness.summary,
+}));
+"""
+    )
+    assert result["readyIds"] == []
+    assert result["editResultHealth"] == "missing"
+    assert result["qualityHealth"] == "missing"
+    assert result["readinessHealth"] == "missing"
+    assert result["readinessSummary"] == "尚未开始精剪"
+
+
+def test_legitimate_empty_collections_are_not_missing() -> None:
+    """P2-6 回归：risks=[]/pending_changes=[]/qa_evidence=[] 是业务空，不是资料缺失。"""
+    result = _node(
+        """
+const stages = buildApprovalStages({stages:[
+  {id:'research', status:'已完成', editor:{data:{risks:[]}}},
+  {id:'compose', status:'已完成', editor:{data:{
+    download_url:'/final.mp4', player:{video_url:'/final.mp4'}, qa_status:'检查通过',
+    pending_changes:[],
+  }}},
+  {id:'publish', status:'已完成', editor:{data:{
+    download_url:'/final.mp4', player:{video_url:'/final.mp4'}, qa_status:'检查通过',
+    delivery:{entries:[], package_files:[], qa_evidence:[]},
+  }}},
+]});
+const research = stages.find((stage) => stage.stageId === 'research');
+const compose = stages.find((stage) => stage.stageId === 'compose');
+const publish = stages.find((stage) => stage.stageId === 'publish');
+const risks = research.artifacts.find((artifact) => artifact.id === 'source_risks');
+const pending = compose.artifacts.find((artifact) => artifact.id === 'pending_changes');
+const evidence = publish.artifacts.find((artifact) => artifact.id === 'qa_evidence');
+console.log(JSON.stringify({
+  risksHealth: risks.health, risksSummary: risks.summary, risksPayload: risks.payload,
+  pendingHealth: pending.health, pendingSummary: pending.summary,
+  evidenceHealth: evidence.health, evidenceSummary: evidence.summary,
+}));
+"""
+    )
+    assert result["risksHealth"] == "ready"
+    assert result["risksSummary"] == "未发现风险"
+    assert result["risksPayload"] == []
+    assert result["pendingHealth"] == "ready"
+    assert result["pendingSummary"] == "没有待处理问题"
+    assert result["evidenceHealth"] == "ready"
+    assert result["evidenceSummary"] == "未提供 QA 附件"

@@ -481,3 +481,38 @@ def test_media_refresh_and_material_cards_keep_live_regions_and_stable_anchors()
     assert '"aria-current"' in approval
     assert "approval-artifact-${artifact.id}" in approval
     assert "dataset.testid" in approval
+
+
+def test_sample_gate_narration_copy_uses_actual_not_planned() -> None:
+    """P1-3 回归：口播结论只看实际口播音轨与实际字幕，不把计划字幕当成已配好。"""
+    approval = _read_operator("approval.js")
+    assert "shot.actual?.narration" in approval
+    assert "shot.actual?.screen_copy" in approval
+    assert "narrationReady && captionsReady" in approval
+    assert "口播或字幕还没有完整核对" in approval
+    assert "暂无实际口播字幕" in approval
+    # 不再把计划字幕当作口播文本来源
+    assert "shot.planned?.screen_copy || \"\"" not in approval
+
+
+def test_business_enum_maps_cover_tasks_operations_and_dimensions() -> None:
+    """P2-8 回归：生成任务质量/方式与评价维度集中中文映射，阅读器不直接展示内部枚举。"""
+    approval = _read_operator("approval.js")
+    for table in ("TASK_QUALITY_LABELS", "GENERATION_OPERATION_LABELS", "EVALUATION_DIMENSION_LABELS"):
+        assert table in approval, table
+    for phrase in ("快速预览", "清晰版", "文生视频", "图生视频", "开头清楚", "字幕清楚"):
+        assert phrase in approval, phrase
+    assert "TASK_QUALITY_LABELS[task.quality]" in approval
+    assert "GENERATION_OPERATION_LABELS[task.operation]" in approval
+    assert "EVALUATION_DIMENSION_LABELS[dimension.name]" in approval
+    # 评价结论动作不再以英文枚举出现在界面
+    for phrase in ("需要修改", "需要修复", "不通过", "继续制作"):
+        assert phrase in approval, phrase
+
+
+def test_original_sound_state_has_business_labels() -> None:
+    """P1-4 回归：原声按存在状态表达，缺失信号显示“原声状态未记录”。"""
+    approval = _read_operator("approval.js")
+    for phrase in ("有原声", "未保留原声", "原声状态未记录"):
+        assert phrase in approval, phrase
+    assert 'track.kind === "original"' in approval

@@ -2344,7 +2344,8 @@
                     "enum": [
                       "present",
                       "missing",
-                      "not_planned"
+                      "not_planned",
+                      "unknown"
                     ]
                   }
                 },

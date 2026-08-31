@@ -227,7 +227,9 @@ function sampleFacts(project) {
     evaluation,
     advisory: advisory.summary || "",
     fails,
-    narrationText: shots.map((shot) => shot.planned?.screen_copy || "").filter(Boolean).join("；"),
+    // 实际口播/字幕只取执行结果，不把计划字幕当成“已配好”的证据。
+    narrationText: shots.map((shot) => shot.actual?.narration || "").filter(Boolean).join("；"),
+    captionText: shots.map((shot) => shot.actual?.screen_copy || "").filter(Boolean).join("；"),
   };
 }
 
@@ -280,7 +282,7 @@ function renderApprovalMaterialsSample(facts, container) {
     ? `${facts.counts.executed ?? facts.shots.length} 个镜头按方案完成`
     : "暂无镜头对照";
   container.append(materialCard("镜头对照", shotText, "▦"));
-  const subText = facts.narrationText ? "口播和字幕已生成" : "暂无口播字幕";
+  const subText = facts.narrationText || facts.captionText ? "口播和字幕已生成" : "暂无实际口播字幕";
   container.append(materialCard("字幕和口播", subText, "字"));
   const sound = facts.tracks.length
     ? facts.tracks.map((track) => track.label || track.kind).join("、")
@@ -417,9 +419,25 @@ function displayValue(value) {
     accepted: "已采用", accept: "已采用", replace_source: "更换素材", bridge: "补充素材",
     rewrite: "调整表达", omit: "已删除", avoid: "暂不采用", peak: "重点段落",
     true: "是", false: "否",
+    // 评价结论与动作的中文映射（业务界面不出现内部枚举）
+    revise: "需要修改", repair: "需要修复", reject: "不通过", proceed: "继续制作",
+    fail: "未通过",
   };
   return labels[value] || value;
 }
+
+// 业务枚举映射：生成任务与评价维度不允许把内部 token 直接展示给一线人员。
+const TASK_QUALITY_LABELS = { fast: "快速预览", standard: "清晰版" };
+const GENERATION_OPERATION_LABELS = {
+  generate: "生成视频", regenerate: "重新生成",
+  text_to_video: "文生视频", image_to_video: "图生视频",
+};
+const EVALUATION_DIMENSION_LABELS = {
+  hook: "开头", hook_clarity: "开头清楚", visual_hierarchy: "画面层次",
+  rhythm: "节奏顺畅", shot_quality: "画面清楚", story_coherence: "内容连贯",
+  audio_quality: "声音清楚", text_readability: "字幕清楚", product_presence: "重点突出",
+  proof: "证明清楚",
+};
 
 function isTechnicalArtifactKey(key) {
   const value = String(key || "").toLowerCase();
@@ -858,8 +876,8 @@ function renderGenerationTasksDetail(container, payload) {
     head.append(node("span", `approval-badge ${badgeClass}`, task.status_label || "排队中"));
     if (task.selected) head.append(node("span", "approval-badge is-active", "已用于本镜头"));
     card.append(head);
-    if (task.quality) card.append(detailRow("任务质量", task.quality));
-    if (task.operation) card.append(detailRow("生成方式", task.operation));
+    if (task.quality) card.append(detailRow("任务质量", TASK_QUALITY_LABELS[task.quality] || task.quality));
+    if (task.operation) card.append(detailRow("生成方式", GENERATION_OPERATION_LABELS[task.operation] || task.operation));
     if (task.duration_seconds != null) card.append(detailRow("时长", `${Math.round(task.duration_seconds)} 秒`));
     if (task.aspect_ratio) card.append(detailRow("画幅", task.aspect_ratio));
     if (task.estimated_fast_cost_usd != null || task.estimated_standard_cost_usd != null) {
@@ -952,12 +970,14 @@ function renderCaptionsVoiceDetail(container, payload) {
 }
 
 function renderSoundDetail(container, payload) {
-  const stateLabels = { present: "已准备", missing: "缺少", not_planned: "未安排" };
+  const stateLabels = { present: "已准备", missing: "缺少", not_planned: "未安排", unknown: "状态未记录" };
+  const originalLabels = { present: "有原声", not_planned: "未保留原声", unknown: "原声状态未记录", missing: "缺少" };
   const list = node("div", "approval-detail-list");
   (payload.tracks || []).forEach((track, index) => {
     const card = node("section", "approval-detail-group");
     card.append(node("h4", "approval-detail-item-title", track.label || `音轨 ${index + 1}`));
-    card.append(detailRow("状态", stateLabels[track.state] || displayValue(track.state) || "未知"));
+    const labels = track.kind === "original" ? originalLabels : stateLabels;
+    card.append(detailRow("状态", labels[track.state] || displayValue(track.state) || "未知"));
     list.append(card);
   });
   container.append(list);
@@ -989,7 +1009,7 @@ function renderSuggestionsDetail(container, payload) {
   const list = node("div", "approval-detail-list");
   (payload.dimensions || []).forEach((dimension) => {
     const card = node("section", "approval-detail-group");
-    card.append(node("h4", "approval-detail-item-title", `${dimension.name || "维度"} · ${dimension.score ?? "—"}`));
+    card.append(node("h4", "approval-detail-item-title", `${EVALUATION_DIMENSION_LABELS[dimension.name] || dimension.name || "维度"} · ${dimension.score ?? "—"}`));
     if (dimension.note) card.append(node("p", "approval-detail-copy", dimension.note));
     list.append(card);
   });
@@ -1100,7 +1120,7 @@ function renderQualityConclusionDetail(container, payload) {
       const list = node("div", "approval-detail-list");
       evaluation.advisory.dimensions.forEach((dimension) => {
         const card = node("section", "approval-detail-group");
-        card.append(node("h4", "approval-detail-item-title", `${dimension.name || "维度"} · ${dimension.score ?? "—"}`));
+        card.append(node("h4", "approval-detail-item-title", `${EVALUATION_DIMENSION_LABELS[dimension.name] || dimension.name || "维度"} · ${dimension.score ?? "—"}`));
         if (dimension.note) card.append(node("p", "approval-detail-copy", dimension.note));
         list.append(card);
       });
@@ -1264,7 +1284,10 @@ function renderArtifactDetail(container, artifact) {
   else if (artifact.health === "missing") detail.append(node("p", "approval-detail-warning", "这项材料暂未生成。"));
   const payload = artifact.payload;
   let rendered = false;
-  if (payload != null) {
+  if (Array.isArray(payload) && payload.length === 0) {
+    detail.append(node("p", "approval-detail-copy", artifact.summary || "没有需要展示的内容。"));
+    rendered = true;
+  } else if (payload != null) {
     const reader = STAGE_DETAIL_READERS[artifact.id];
     rendered = Boolean(reader && reader(detail, payload));
     if (!rendered) renderArtifactValue(detail, payload);
@@ -1309,8 +1332,12 @@ function renderGateCopy(project, model) {
     const facts = factsForGate(project, "sample");
     const executed = facts.counts?.executed ?? facts.shots?.length ?? 0;
     deliveries.append(deliverLine("ok", `${executed} 个镜头已按方案制作`, "可在“镜头对照”里逐个查看。"));
-    const narration = (facts.tracks || []).some((track) => String(track.kind || track.label || "").includes("口播") || String(track.kind || "").includes("narration"));
-    deliveries.append(deliverLine(narration && facts.narrationText ? "ok" : "warn", "口播和字幕已配好", "可在“字幕和口播”里查看。"));
+    const narrationTrack = (facts.tracks || []).find((track) => String(track.kind || "").includes("narration"));
+    const narrationReady = Boolean(narrationTrack && narrationTrack.state === "present");
+    const captionsReady = Boolean(facts.captionText);
+    deliveries.append(deliverLine(narrationReady && captionsReady ? "ok" : "warn", narrationReady && captionsReady ? "口播和字幕已配好" : "口播或字幕还没有完整核对", narrationReady && captionsReady
+      ? "可在“字幕和口播”里查看。"
+      : "请在“字幕和口播”里核对实际口播与字幕。"));
     if (facts.fails?.length || facts.advisory) {
       deliveries.append(deliverLine("warn", "有一项检查需要你留意", facts.fails?.[0]?.message || facts.advisory));
     }

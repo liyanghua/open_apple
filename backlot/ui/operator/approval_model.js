@@ -12,7 +12,7 @@ const STAGE_MATERIALS = {
     ["reference_highlights", "参考片重点", ["reference", "highlights", "breakdown"]],
     ["reference_breakdown", "参考片分镜", ["breakdown"]],
     ["source_inventory", "素材情况", ["sources", "source_inventory", "source_summary"]],
-    ["source_risks", "素材风险", ["risks", "warnings", "quality.warnings"]],
+    ["source_risks", "素材风险", ["risks", "warnings", "quality.warnings"], "未发现风险"],
     ["material_matching", "镜头与素材匹配", ["matching"]],
     ["content_directions", "可选方向", ["directions"]],
     ["decision_inbox", "待确认事项", ["decision_inbox"]],
@@ -57,21 +57,21 @@ const STAGE_MATERIALS = {
     ["edit_result", "剪辑结果", ["preview_url", "edit_result", "video_url"]],
     ["shot_order", "镜头顺序", ["shot_order", "shots", "scenes"]],
     ["audio_captions", "声音和字幕", ["audio", "subtitles", "audio_captions"]],
-    ["compose_readiness", "成片检查就绪", ["compose_readiness"]],
+    ["compose_readiness", "成片检查就绪", ["compose_readiness"], "尚未开始精剪"],
   ],
   compose: [
     ["final_video", "完整视频", ["preview_url", "download_url", "final_video", "video_url"]],
     ["picture_sound", "画面声音对照", ["picture_sound", "timeline", "audio", "video"]],
     ["quality_conclusion", "质量结论", ["qa_status", "quality_conclusion", "checks"]],
     ["version_history", "版本变化", ["versions"]],
-    ["pending_changes", "待处理问题", ["pending_changes"]],
+    ["pending_changes", "待处理问题", ["pending_changes"], "没有待处理问题"],
   ],
   publish: [
     ["delivery_video", "交付视频", ["download_url", "delivery_video", "preview_url"]],
     ["file_info", "文件信息", ["format_label", "file_info", "duration_seconds"]],
     ["platforms_download", "平台和下载", ["platforms", "entries", "package_files", "delivery.package_files", "delivery.entries"]],
     ["delivery_package", "交付文件", ["delivery.package_files", "delivery"]],
-    ["qa_evidence", "QA 证据", ["delivery.qa_evidence", "qa_evidence"]],
+    ["qa_evidence", "QA 证据", ["delivery.qa_evidence", "qa_evidence"], "未提供 QA 附件"],
   ],
 };
 
@@ -191,6 +191,7 @@ function compactBreakdown(breakdown) {
 
 function compactSources(data) {
   const sources = Array.isArray(data?.sources) ? data.sources : [];
+  if (!sources.length && data?.source_count == null && data?.usable_count == null) return null;
   return {
     checked_count: data?.source_count,
     usable_count: data?.usable_count,
@@ -446,23 +447,41 @@ const GENERATION_TASK_STATUS_LABELS = {
   completed: "已完成", failed: "生成失败", not_started: "尚未生成",
 };
 
+function taskCompositeKey(shotId, proposalId) {
+  return `${shotId ?? ""}\u0000${proposalId ?? ""}`;
+}
+
 function compactGenerationTasks(data) {
   const execution = data?.execution_plan;
   if (!execution || typeof execution !== "object") return null;
   const shots = Array.isArray(execution.shots) ? execution.shots : [];
-  const proposalById = new Map();
-  const shotByProposalId = new Map();
+  // 关联键必须是 (shot_id, proposal_id) 复合键：同一 proposal_id 可能被多个镜头复用，
+  // 只用 proposal.id 作键会把任务挂到后一个镜头上。
+  const proposalByComposite = new Map();
+  const shotByComposite = new Map();
+  const proposalEntries = [];
   shots.forEach((shot) => {
     (Array.isArray(shot?.generation_proposals) ? shot.generation_proposals : []).forEach((proposal) => {
-      proposalById.set(proposal?.id, proposal);
-      shotByProposalId.set(proposal?.id, shot);
+      const key = taskCompositeKey(shot?.id, proposal?.id);
+      proposalByComposite.set(key, proposal);
+      shotByComposite.set(key, shot);
+      proposalEntries.push({ shot, proposal });
     });
   });
+  const resolvePair = (task) => {
+    const key = taskCompositeKey(task?.shot_id, task?.proposal_id);
+    const shot = shotByComposite.get(key);
+    if (shot) return { shot, proposal: proposalByComposite.get(key) || {} };
+    // 回退：proposal_id 在全部镜头中唯一时按 proposal 匹配；否则按 shot_id 匹配。
+    const byProposal = proposalEntries.filter((entry) => entry.proposal?.id === task?.proposal_id);
+    if (byProposal.length === 1) return { shot: byProposal[0].shot, proposal: byProposal[0].proposal };
+    const byShot = proposalEntries.filter((entry) => entry.shot?.id === task?.shot_id);
+    return { shot: byShot.length === 1 ? byShot[0].shot : (shots.find((item) => item?.id === task?.shot_id) || {}), proposal: {} };
+  };
   // 真实生成任务以 execution_plan.generation_tasks 为准（由 load_operator_state 从任务目录注入）。
   const rawTasks = Array.isArray(execution.generation_tasks) ? execution.generation_tasks : [];
   const taskRows = rawTasks.map((task) => {
-    const proposal = proposalById.get(task?.proposal_id) || {};
-    const shot = shotByProposalId.get(task?.proposal_id) || shots.find((item) => item?.id === task?.shot_id) || {};
+    const { shot, proposal } = resolvePair(task);
     return {
       task_id: task?.task_id,
       shot_id: task?.shot_id || shot?.id,
@@ -482,11 +501,10 @@ function compactGenerationTasks(data) {
       selected: shot?.selected_generation_task_id != null && shot.selected_generation_task_id === task?.task_id,
     };
   });
-  const matchedProposalIds = new Set(rawTasks.map((task) => task?.proposal_id).filter(Boolean));
+  const matchedKeys = new Set(rawTasks.map((task) => taskCompositeKey(task?.shot_id, task?.proposal_id)));
   const pendingRows = [];
-  proposalById.forEach((proposal, proposalId) => {
-    if (matchedProposalIds.has(proposalId)) return;
-    const shot = shotByProposalId.get(proposalId) || {};
+  proposalEntries.forEach(({ shot, proposal }) => {
+    if (matchedKeys.has(taskCompositeKey(shot?.id, proposal?.id))) return;
     pendingRows.push({
       task_id: null,
       shot_id: shot?.id,
@@ -616,6 +634,9 @@ function compactProductionBasis(data) {
 }
 
 function compactEditResult(data) {
+  // 未开始/空数据时不伪造“已准备”产物。
+  if (!hasValue(data.change_scope) && !(Array.isArray(data.reasons) && data.reasons.length)
+    && !hasValue(data.preview_url) && data.affected_shot_count == null) return null;
   return {
     change_scope: data.change_scope,
     reasons: Array.isArray(data.reasons) ? data.reasons : [],
@@ -653,6 +674,9 @@ function compactAudioCaptions(data) {
 }
 
 function compactComposeReadiness(data, status) {
+  // 未开始/空数据时不伪造“已准备”产物（由空态文案表达“尚未开始精剪”）。
+  if (!hasValue(data.change_scope) && data.affected_shot_count == null
+    && !(Array.isArray(data.reasons) && data.reasons.length)) return null;
   const ready = status === "已完成";
   return {
     ready,
@@ -701,7 +725,9 @@ function compactPictureSound(data) {
 }
 
 function compactQualityConclusion(data) {
+  // 未开始/空数据时不伪造“已准备”产物；结论必须有文件检查或内容评价任一依据。
   const evaluation = data?.evaluation;
+  if (!hasValue(data.qa_status) && (!evaluation || typeof evaluation !== "object")) return null;
   return {
     qa_status: data.qa_status,
     evaluation: evaluation && typeof evaluation === "object" ? {
@@ -731,8 +757,9 @@ function compactVersionHistory(data) {
 }
 
 function compactPendingChanges(data) {
-  const changes = Array.isArray(data.pending_changes) ? data.pending_changes : [];
-  return changes.length ? { changes } : null;
+  // 字段未提供 → 缺失；提供但为空数组 → 业务空（“没有待处理问题”）。
+  if (!Array.isArray(data.pending_changes)) return null;
+  return data.pending_changes.length ? { changes: data.pending_changes } : [];
 }
 
 function compactFileInfo(data) {
@@ -769,8 +796,10 @@ function compactDeliveryPackage(data) {
 }
 
 function compactQaEvidence(data) {
-  const evidence = Array.isArray(data?.delivery?.qa_evidence) ? data.delivery.qa_evidence : [];
-  return evidence.length ? { files: evidence } : null;
+  // 字段未提供 → 缺失；提供但为空数组 → 业务空（“未提供 QA 附件”）。
+  if (!data?.delivery || !Array.isArray(data.delivery.qa_evidence)) return null;
+  const evidence = data.delivery.qa_evidence;
+  return evidence.length ? { files: evidence } : [];
 }
 
 function payloadForArtifact(data, descriptor, status) {
@@ -850,26 +879,30 @@ function payloadForArtifact(data, descriptor, status) {
 function artifactModel(data, descriptor, stageHealth, stageStatus) {
   const [id, label, keys, emptySummary] = descriptor;
   const rawPayload = payloadForArtifact(data, descriptor, stageStatus);
-  const payload = Array.isArray(rawPayload) && rawPayload.length === 0 ? null : rawPayload;
+  // 合法空集合（risks=[] 等）是业务状态，不再折叠为缺失。
+  const isEmptyCollection = Array.isArray(rawPayload) && rawPayload.length === 0;
+  const payload = rawPayload == null ? null : rawPayload;
   const summary = payload == null
     ? (emptySummary || "暂未提供")
-    : typeof payload === "string"
-      ? (/^(https?:|\/)/.test(payload) ? "已准备，可查看预览" : payload.slice(0, 120))
-      : Array.isArray(payload)
-        ? `${payload.length} 项，可查看详情`
-        : Array.isArray(payload?.steps)
-          ? `${payload.steps.length} 个步骤，可查看详情`
-          : Array.isArray(payload?.items)
-            ? `${payload.items.length} 条素材，可查看详情`
-            : Array.isArray(payload?.rows)
-              ? `${payload.rows.length} 个镜头，可查看详情`
-              : Array.isArray(payload?.shots)
-                ? `${payload.shots.length} 个镜头，可查看详情`
-                : Array.isArray(payload?.sections)
-                  ? `${payload.sections.length} 段，可查看详情`
-                  : payload?.section_count != null
-                    ? `${payload.section_count} 段${payload.total_seconds != null ? `，共 ${payload.total_seconds} 秒` : ""}`
-        : "已准备，可查看详情";
+    : isEmptyCollection
+      ? (emptySummary || "没有需要展示的内容")
+      : typeof payload === "string"
+        ? (/^(https?:|\/)/.test(payload) ? "已准备，可查看预览" : payload.slice(0, 120))
+        : Array.isArray(payload)
+          ? `${payload.length} 项，可查看详情`
+          : Array.isArray(payload?.steps)
+            ? `${payload.steps.length} 个步骤，可查看详情`
+            : Array.isArray(payload?.items)
+              ? `${payload.items.length} 条素材，可查看详情`
+              : Array.isArray(payload?.rows)
+                ? `${payload.rows.length} 个镜头，可查看详情`
+                : Array.isArray(payload?.shots)
+                  ? `${payload.shots.length} 个镜头，可查看详情`
+                  : Array.isArray(payload?.sections)
+                    ? `${payload.sections.length} 段，可查看详情`
+                    : payload?.section_count != null
+                      ? `${payload.section_count} 段${payload.total_seconds != null ? `，共 ${payload.total_seconds} 秒` : ""}`
+          : "已准备，可查看详情";
   return {
     id,
     label,
