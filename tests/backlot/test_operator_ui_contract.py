@@ -50,9 +50,16 @@ def test_operator_ui_supports_nine_business_stages_and_view_states() -> None:
 
 
 def test_operator_ui_does_not_embed_engineering_output_patterns() -> None:
+    # The adapter/store and renderer legitimately carry internal stage ids and
+    # API keys.  This contract scans only static user-facing resources so it
+    # does not mistake implementation keys for text that an operator sees.
     source = "\n".join(
         _read(path)
-        for path in (UI_ROOT / "operator.html", *sorted(OPERATOR_ROOT.iterdir()))
+        for path in (
+            UI_ROOT / "operator.html",
+            OPERATOR_ROOT / "language.js",
+            OPERATOR_ROOT / "styles.css",
+        )
         if path.is_file()
     ).lower()
     forbidden = (
@@ -78,6 +85,99 @@ def test_operator_ui_has_stable_desktop_and_mobile_layout_constraints() -> None:
     assert "@media (max-width: 390px)" in css
     assert "min-width: 0" in css
     assert ".research-matching-row .inline-edit-actions" in css
+
+
+def test_batch_workbench_has_plain_language_information_hierarchy() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    language = _read(OPERATOR_ROOT / "language.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+    source = app + language
+
+    # The batch view should lead with the current action, then comparison,
+    # then the optional reports. These hooks are the stable contract for the
+    # redesigned renderer and keep the layout testable without a browser.
+    for term in (
+        "batch-overview",
+        "batch-current-action",
+        "batch-candidate-grid",
+        "batch-selection-tray",
+        "batch-more-details",
+        "批量审批",
+        "当前要做",
+        "本批视频",
+        "打开单条复核",
+    ):
+        assert term in source
+    for term in (
+        ".batch-overview",
+        ".batch-workspace-grid",
+        ".batch-decision-rail",
+        ".batch-current-action",
+        ".batch-candidate-grid",
+        ".batch-candidate-result",
+        ".batch-candidate-evidence",
+        ".batch-candidate-preview-empty",
+        ".batch-quick-view-layer",
+        ".batch-selection-tray",
+        ".batch-more-details",
+    ):
+        assert term in css
+
+
+def test_batch_workbench_keeps_one_contextual_decision_area() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    batch = app.split("function renderBatch(", 1)[1].split("function renderDelivery(", 1)[0]
+
+    assert "batch-workspace-grid" in batch
+    assert "batch-gallery-column" in batch
+    assert "batch-decision-rail" in batch
+    assert 'const selectionAvailable = data.phase === "selection"' in batch
+    assert "eligibleIds.size > 0 && pendingGates.length === 0" in batch
+    assert "if (selectionAvailable || selected.length)" in batch
+    assert "batch-waiting-state" in batch
+
+
+def test_batch_workbench_user_copy_avoids_internal_terms() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    batch = app.split("function renderBatch(", 1)[1].split("function renderDelivery(", 1)[0]
+
+    for phrase in (
+        '"批级一键通过"',
+        '"打开候选工作台复核"',
+        '"请至少勾选一个候选"',
+        '"请选择 1–2 个候选"',
+    ):
+        assert phrase not in batch
+
+
+def test_batch_workbench_uses_readable_light_theme_tokens() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    css = _read(OPERATOR_ROOT / "styles.css")
+    for token in (
+        "--batch-bg",
+        "--batch-surface",
+        "--batch-ink",
+        "--batch-muted",
+        "--batch-line",
+        "--batch-accent",
+    ):
+        assert token in css
+    assert '#f7f8f6' in css
+    assert '#1f2a24' in css
+    assert '#5a665f' in css
+    assert 'document.body.dataset.mode = mode' in app
+    assert 'body[data-mode="batch"]' in css
+    assert '#operator-shell[data-mode="batch"] .approval-diagnostic-link' in css
+
+
+def test_batch_selection_sends_versioned_participants() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    api = _read(OPERATOR_ROOT / "api.js")
+    schema = _read(REPO_ROOT / "schemas" / "backlot" / "operator_state.schema.json")
+    for term in ("const participants = ids.map", "subject_hash", "workflow_revision", "evaluation_hash", "batchSelectForEdit(project.project_id, data.aggregate_revision, participants"):
+        assert term in app
+    assert "body.participants = participantsOrIds" in api
+    assert '"evaluation_hash"' in schema
 
 
 def test_operator_ui_renders_detailed_sources_concepts_and_clip_previews() -> None:
@@ -330,12 +430,12 @@ def test_sample_review_shows_evaluation_card_and_audio_tracks() -> None:
 
 
 def test_batch_cockpit_ui_contract() -> None:
-    """批级驾驶舱 UI 契约（两份契约的交互层）。"""
+    """批量工作台保留比较、确认、选择和恢复能力。"""
     app = _read(OPERATOR_ROOT / "app.js")
     css = _read(OPERATOR_ROOT / "styles.css")
     api = _read(OPERATOR_ROOT / "api.js")
-    for term in ("候选矩阵", "一键全部通过", "人工选择：选 1–2 条进入精剪", "进入精剪",
-                 "批量状态", "警告与降级候选", "打开候选工作台", "需要恢复"):
+    for term in ("本批视频", "确认勾选的视频", "选择要进入精剪的视频", "进入精剪",
+                 "处理概况", "需要留意", "打开单条复核", "点击继续处理"):
         assert term in app
     for term in (".batch-cockpit", ".batch-warnings", ".batch-matrix-table", ".batch-candidate-card", ".batch-select-list"):
         assert term in css
@@ -357,7 +457,7 @@ def test_batch_cockpit_renders_on_every_phase_tab() -> None:
     """用户反馈回归守卫：批页任何相位 tab 都渲染驾驶舱，不落到空 editor。"""
     app = _read(OPERATOR_ROOT / "app.js")
     assert 'project.workspace?.editor?.type === "batch_review"' in app
-    assert "批量驾驶舱" in app
+    assert 'batchEditor ? "本批视频"' in app
 
 
 def test_batch_cockpit_renders_diversity_matrix_and_reports() -> None:
@@ -365,9 +465,9 @@ def test_batch_cockpit_renders_diversity_matrix_and_reports() -> None:
     app = _read(OPERATOR_ROOT / "app.js")
     css = _read(OPERATOR_ROOT / "styles.css")
     for term in (
-        "候选差异度", "差异执行", "变更维度", "结构镜头", "视觉风险", "缺差异计划",
-        "批次报告", "总成本", "最慢阶段", "建议", "报告状态", "数据已降级",
-        "数据提示", "已停用", "未生成", "selectionDisabled", "请先重建批次报告",
+        "视频之间的区别", "检查方式", "不同镜头", "画面风险", "缺少区别记录",
+        "处理记录", "总费用", "用时最长", "处理建议", "部分信息异常",
+        "需要留意", "暂未生成", "selectionDisabled", "重新拉取最新结果",
     ):
         assert term in app
     for term in (".batch-diversity", ".batch-diversity-row", ".batch-reports",

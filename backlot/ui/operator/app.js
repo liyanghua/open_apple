@@ -34,14 +34,45 @@ const CANDIDATE_STATUS_LABELS = {
   awaiting_review: "等待确认", evaluated: "已完成检查", editing: "等待精剪",
   approved: "已通过", needs_revision: "需要调整", failed: "处理失败",
   missing: "资料缺失", corrupt: "资料异常", excluded: "不参与本批",
+  awaiting_human: "等待确认", completed: "已完成", in_progress: "制作中",
 };
 const STAGE_STATUS_LABELS = {
   script: "确认脚本", assets: "确认制作准备", sample: "查看样片",
   edit: "完成剪辑", compose: "检查成片", publish: "确认交付",
+  research: "了解任务", proposal: "看创意方案", scene_plan: "看分镜",
 };
 function candidateStatusLabel(status) { return CANDIDATE_STATUS_LABELS[status] || "处理中"; }
 function stageStateLabel(stageId, status) {
   return `${STAGE_STATUS_LABELS[stageId] || "制作步骤"}：${candidateStatusLabel(status)}`;
+}
+
+function candidateBlockLabel(reason) {
+  const copy = String(reason || "");
+  if (!copy) return "";
+  if (copy.includes("尚未通过样片")) return "样片还没有确认";
+  if (copy.includes("评分报告") || copy.includes("评价报告")) return "视频检查还没有完成";
+  if (copy.includes("不完整")) return "视频检查结果还不完整";
+  return "暂时不能进入精剪，请打开单条复核查看";
+}
+
+function evaluationDimensionLabel(value) {
+  const key = String(value || "").trim().toLowerCase().replaceAll(" ", "_");
+  return {
+    hook_clarity: "开头吸引力", visual_hierarchy: "画面层次", rhythm: "观看节奏",
+    shot_quality: "画面质量", story_coherence: "内容连贯", audio_quality: "声音效果",
+    text_readability: "字幕清晰", product_presence: "产品呈现",
+  }[key] || "画面观感";
+}
+
+function evaluationSummary(value) {
+  const copy = String(value || "");
+  return /VLM|advisory|L1a|judge/i.test(copy) ? "画面观感还没有检查" : copy;
+}
+
+function setPageMode(mode) {
+  const shell = byId("operator-shell");
+  if (shell) shell.dataset.mode = mode;
+  if (document.body) document.body.dataset.mode = mode;
 }
 
 function node(tag, className, text) {
@@ -1069,25 +1100,25 @@ function renderEdit(container, data) {
 function renderEvaluationCard(evaluation) {
   if (!evaluation) return null;
   const card = node("section", "delivery-evaluation-card");
-  card.append(node("h4", "section-title", "成片评价卡"),
-    node("span", "delivery-eval-meta", `judge: ${evaluation.judge_version || "—"} · 建议动作: ${evaluation.recommended_action || "—"}`));
-  const statusText = evaluation.status === "pass" ? "通过" : evaluation.status === "fail" ? "不通过（致命）" : "需修复（可修复项）";
+  card.append(node("h4", "section-title", "视频检查"),
+    node("span", "delivery-eval-meta", "系统自动检查"));
+  const statusText = evaluation.status === "pass" ? "检查通过" : evaluation.status === "fail" ? "有必须修复的问题" : "有需要处理的问题";
   const statusColor = evaluation.status === "pass" ? "#1f9d55" : evaluation.status === "fail" ? "#c53030" : "#b7791f";
   const statusEl = node("p", "delivery-eval-status", statusText);
   statusEl.style.color = statusColor;
   card.append(statusEl);
   if (evaluation.hard_gate_fails?.length) {
-    card.append(node("p", "delivery-eval-heading", "L1a 未通过项"));
+    card.append(node("p", "delivery-eval-heading", "必须处理"));
     for (const fail of evaluation.hard_gate_fails) {
-      card.append(node("p", "delivery-eval-note", `${fail.name}：${fail.message}（${fail.fixable ? "可修复" : "致命"}）`));
+      card.append(node("p", "delivery-eval-note", `${fail.name}：${fail.message}（${fail.fixable ? "可以修复" : "需要停止处理"}）`));
     }
   }
   if (evaluation.advisory?.scored && evaluation.advisory.dimensions?.length) {
-    card.append(node("p", "delivery-eval-heading", "L3 创意质量（VLM advisory）"));
+    card.append(node("p", "delivery-eval-heading", "画面观感"));
     card.append(node("p", "delivery-eval-note", evaluation.advisory.summary || ""));
     for (const dim of evaluation.advisory.dimensions) {
       const row = node("div", "delivery-eval-dim");
-      const name = node("span", "delivery-eval-dim-name", dim.name);
+      const name = node("span", "delivery-eval-dim-name", evaluationDimensionLabel(dim.name));
       const score = node("strong", "delivery-eval-dim-score", String(dim.score ?? "—"));
       score.style.color = dim.score >= 8 ? "#1f9d55" : dim.score >= 6 ? "#b7791f" : "#c53030";
       const note = node("span", "delivery-eval-dim-note", dim.note || "");
@@ -1095,137 +1126,232 @@ function renderEvaluationCard(evaluation) {
       card.append(row);
     }
   } else {
-    card.append(node("p", "delivery-eval-note", evaluation.advisory?.summary || "尚未运行 VLM 创意评审（advisory，不影响硬门）"));
+    card.append(node("p", "delivery-eval-note", evaluationSummary(evaluation.advisory?.summary) || "画面观感还没有检查"));
   }
   return card;
 }
 
 function renderBatch(container, data, { project } = {}) {
+  // 批量页面只展示判断当前视频所需的信息；详细处理记录放在折叠区。
   const workbench = setTestId(node("div", "batch-cockpit"), "batch-workbench");
-  let primaryAction = null;
-  let mediaFailure = false;
-  const quickView = (candidate) => {
+  const phaseLabels = {
+    building: "准备中", sampling: "生成样片", scoring: "检查中",
+    selection: "等待选择", editing: "精剪中", publishing: "准备交付",
+    completed: "已完成", blocked: "暂时停下",
+  };
+  const gateLabels = { script: "确认脚本", assets: "确认制作准备", sample: "查看样片" };
+  const phaseLabel = phaseLabels[data.phase] || "处理中";
+  const candidates = data.candidates || [];
+  const labelForCandidate = (id) => candidates.find((candidate) => candidate.candidate_id === id)?.label || "视频";
+  const pendingGates = (data.pending_gates || []).filter((gate) => gate.candidates?.length);
+  const waitingCount = pendingGates[0]?.candidates?.length || 0;
+  const eligibleIds = new Set(data.selection?.eligible_candidate_ids || []);
+  const selected = data.selection?.selected_candidate_ids || [];
+  // 某些旧批次会把所有候选归约为 completed，但仍未写入精剪选择；
+  // 只要没有待确认且存在合格候选，就继续展示选择托盘。
+  const selectionAvailable = data.phase === "selection"
+    || (!selected.length && eligibleIds.size > 0 && pendingGates.length === 0);
+  const displayPhaseLabel = selectionAvailable ? "等待选择" : phaseLabel;
+  const overviewReason = pendingGates.length
+    ? `有 ${waitingCount} 条视频需要${gateLabels[pendingGates[0].gate] || "确认内容"}，看完后再继续。`
+    : selectionAvailable
+      ? "视频已经完成检查，请从中选择要进入精剪的版本。"
+      : {
+        selection: "视频已经完成检查，请从中选择要进入精剪的版本。",
+        editing: "已经选好视频，正在进入精剪。",
+        publishing: "精剪已经完成，正在准备交付。",
+        completed: "这批视频已经全部处理完成。",
+        blocked: "当前没有可以继续处理的视频，请先查看需要留意的内容。",
+      }[data.phase] || "系统正在准备视频，完成后会在这里提示你。";
+  const overview = node("section", "batch-overview-panel");
+  const overviewHead = node("div", "batch-overview-head");
+  const overviewCopy = node("div", "batch-overview-copy");
+  overviewCopy.append(node("p", "batch-overview-kicker", "当前进度"));
+  overviewCopy.append(node("h2", "batch-overview-title", displayPhaseLabel));
+  overviewCopy.append(node("p", "batch-overview-note", overviewReason));
+  overviewHead.append(overviewCopy);
+  const overviewStats = node("div", "batch-overview-stats");
+  const stat = (label, value, tone = "") => {
+    const item = node("div", `batch-overview-stat${tone ? ` ${tone}` : ""}`);
+    item.append(node("span", "batch-overview-stat-label", label), node("strong", "batch-overview-stat-value", value));
+    return item;
+  };
+  overviewStats.append(
+    stat("视频数量", `${candidates.length} 条`),
+    stat("待确认", waitingCount ? `${waitingCount} 条` : "没有"),
+    stat("可选进入精剪", `${eligibleIds.size} 条`),
+    stat("已选择", selected.length ? `${selected.length} 条` : "没有"),
+  );
+  overviewHead.append(overviewStats);
+  overview.append(overviewHead);
+  const progress = node("div", "batch-progress", "");
+  (data.rail || []).forEach((item) => {
+    const status = selectionAvailable && item.phase === "selection" ? "current" : item.status || "pending";
+    const step = node("div", `batch-progress-step is-${status}`);
+    step.append(node("span", "batch-progress-dot", ""), node("span", "batch-progress-label", {
+      building: "准备", sampling: "样片", scoring: "检查", selection: "选择", editing: "精剪", publishing: "交付",
+    }[item.phase] || item.label || "处理中"));
+    progress.append(step);
+  });
+  overview.append(progress);
+  const workspaceGrid = node("div", "batch-workspace-grid");
+  const galleryColumn = node("section", "batch-gallery-column");
+  const decisionRail = node("aside", "batch-decision-rail");
+  const decisionDetails = node("div", "batch-decision-details");
+  galleryColumn.setAttribute("aria-label", "本批视频");
+  decisionRail.setAttribute("aria-label", "当前要做");
+
+  let quickViewLayer = null;
+  const quickView = (candidate, trigger) => {
+    quickViewLayer?.remove();
+    const layer = node("div", "batch-quick-view-layer");
+    const backdrop = node("button", "batch-quick-view-backdrop");
+    backdrop.type = "button";
+    backdrop.setAttribute("aria-label", "关闭快速查看");
     const drawer = setTestId(node("aside", "candidate-quick-view"), "candidate-quick-view");
-    drawer.append(node("h3", "section-title", candidate.label || "候选视频"));
-    drawer.append(node("p", "row-copy", candidate.current_artifact || "当前产物"));
+    const headingId = `quick-view-title-${candidate.candidate_id}`;
+    drawer.setAttribute("role", "dialog");
+    drawer.setAttribute("aria-modal", "true");
+    drawer.setAttribute("aria-labelledby", headingId);
+    const head = node("div", "batch-quick-view-head");
+    const title = node("h3", "section-title", candidate.label || "视频");
+    title.id = headingId;
+    const close = setTestId(node("button", "batch-quick-view-close", "×"), "close-quick-view");
+    close.type = "button";
+    close.setAttribute("aria-label", "关闭快速查看");
+    head.append(title, close);
+    drawer.append(head);
     if (candidate.media?.sample_url) {
       const video = document.createElement("video");
       video.controls = true; video.playsInline = true; video.preload = "metadata";
-      video.src = candidate.media.sample_url; video.setAttribute("aria-label", "候选视频预览");
+      video.src = candidate.media.sample_url; video.setAttribute("aria-label", "视频预览");
       drawer.append(video);
+    } else {
+      drawer.append(node("div", "batch-candidate-preview-empty", "样片还没有生成"));
     }
-    drawer.append(node("p", "row-copy", candidate.selection_block_reason || "仅用于快速查看，不在这里提交审批"));
-    const close = setTestId(node("button", "quiet-button", "关闭"), "close-quick-view");
-    close.type = "button"; close.addEventListener("click", () => drawer.remove());
-    drawer.append(close); workbench.append(drawer);
+    drawer.append(node("p", "row-copy", candidateBlockLabel(candidate.selection_block_reason) || "这里用于快速浏览，确认操作请在当前要做中完成。"));
+    if (candidate.links?.project_page) {
+      const link = node("a", "primary-link", "打开单条复核");
+      link.href = batchProjectUrl(candidate.project_id || candidate.candidate_id, data.batch_id || project?.project_id || projectId);
+      drawer.append(link);
+    }
+    const closeDrawer = () => {
+      layer.remove();
+      quickViewLayer = null;
+      trigger?.focus();
+    };
+    close.addEventListener("click", closeDrawer);
+    backdrop.addEventListener("click", closeDrawer);
+    layer.addEventListener("keydown", (event) => { if (event.key === "Escape") closeDrawer(); });
+    layer.append(backdrop, drawer);
+    workbench.append(layer);
+    quickViewLayer = layer;
+    close.focus();
   };
 
-  // 一致性 + 预算 / 并发面板
-  const consistencyLabel = { stable: "稳定", unstable: "候选读取期间发生变化", degraded: "存在降级候选或预算不一致" };
+  // 费用与处理提醒放在概览之后，避免抢占当前确认任务的注意力。
+  const consistencyLabel = { stable: "数据正常", unstable: "内容刚刚更新", degraded: "部分内容需要留意" };
   const budgetPanel = node("section", "batch-budget");
-  budgetPanel.append(node("h3", "section-title", `批量状态（${data.phase || "—"} · ${consistencyLabel[data.consistency] || data.consistency || "—"}）`));
-  if (data.phase_reason) budgetPanel.append(node("p", "batch-phase-reason", data.phase_reason));
+  budgetPanel.append(node("h3", "section-title", "处理概况"));
+  budgetPanel.append(node("p", "batch-phase-reason", consistencyLabel[data.consistency] || "数据正常"));
   const budget = data.budget || {};
   budgetPanel.append(node("p", "batch-budget-line",
-    `已花费 $${(budget.spent_usd ?? 0).toFixed(2)}${budget.max_cost_usd ? ` / 预算 $${budget.max_cost_usd.toFixed(2)}` : ""} · 候选 ${(data.candidates || []).length} 个 · 并发 ${(data.concurrency || {}).active_count ?? 0}/${(data.concurrency || {}).max_parallel ?? 3}${budget.over_budget ? " · 已超预算" : ""}`));
-  workbench.append(budgetPanel);
+    `已用费用 $${(budget.spent_usd ?? 0).toFixed(2)}${budget.max_cost_usd ? `，预算 $${budget.max_cost_usd.toFixed(2)}` : ""} · 同时处理 ${(data.concurrency || {}).active_count ?? 0} 条${budget.over_budget ? " · 已超过预算" : ""}`));
+  decisionDetails.append(budgetPanel);
 
   // 降级/警告
   if ((data.warnings || []).length) {
     const warnPanel = node("section", "batch-warnings");
-    warnPanel.append(node("h3", "section-title", "警告与降级候选"));
+    warnPanel.append(node("h3", "section-title", "需要留意"));
+    const warningCopy = {
+      candidate_path_invalid: "视频地址有误",
+      candidate_missing: "找不到这条视频的资料",
+      candidate_corrupt: "这条视频的资料无法读取",
+      budget_mismatch: "费用记录需要核对",
+      over_budget: "已超过预算",
+    };
+    const warningAction = {
+      candidate_path_invalid: "请重新添加这条视频",
+      candidate_missing: "请重新生成或移出本批",
+      candidate_corrupt: "请检查资料后重新拉取",
+      budget_mismatch: "请重新拉取最新结果",
+      over_budget: "请先确认预算后再继续",
+    };
     for (const warning of data.warnings) {
+      const warningCandidate = warning.candidate_id
+        ? candidates.find((candidate) => candidate.candidate_id === warning.candidate_id)
+        : null;
+      const warningName = warningCandidate ? `${warningCandidate.label || "这条视频"}：` : "";
       warnPanel.append(node("p", "batch-warning",
-        `${warning.candidate_id ? `[${warning.candidate_id}] ` : ""}${warning.description} — ${warning.suggested_action || ""}`));
+        `${warningName}${warningCopy[warning.code] || "这条视频暂时不可用"}。${warningAction[warning.code] || "请重新拉取最新结果"}`));
     }
-    workbench.append(warnPanel);
+    decisionDetails.append(warnPanel);
   }
 
-  // 批级门审批（逐候选复核 + 一键通过）
-  const gates = (data.pending_gates || []).filter((gate) => gate.candidates?.length);
+  // 当前确认任务：只展示最早需要处理的一道门，避免让一线人员在多个动作间跳转。
+  const gates = (data.pending_gates || []).filter((gate) => gate.candidates?.length).slice(0, 1);
   if (gates.length) {
-    const gatePanel = node("section", "batch-gates");
-    gatePanel.append(node("h3", "section-title", "等待批级确认"));
-    gatePanel.append(node("p", "row-copy", "展开候选复核素材/样片；取消勾选即可暂不通过该候选（其余一键通过）。"));
+    const gatePanel = node("section", "batch-gates batch-current-action");
+    gatePanel.append(node("p", "batch-current-action-kicker", "当前要做"));
+    gatePanel.append(node("h3", "section-title", `${gateLabels[gates[0].gate] || "确认内容"} · ${gates[0].candidates.length} 条视频`));
+    gatePanel.append(node("p", "row-copy", "逐条看一眼，确认没问题的勾上；只会通过你勾选的视频。"));
     const reviewKinds = { script: "script_lock", assets: "creative_lock", sample: "sample" };
     for (const gate of gates) {
       const row = node("div", "batch-gate-row");
       const info = node("p", "batch-gate-info",
-        `${gate.label}（${gate.candidates.length} 个候选）`);
-      const approve = node("button", "primary-button", "一键全部通过");
+        `${gateLabels[gate.gate] || gate.label || "确认内容"} · 已选 ${gate.candidates.length}/${gate.candidates.length}`);
+      info.setAttribute("aria-live", "polite");
+      const approve = node("button", "primary-button", `确认勾选的视频（${gate.candidates.length} 条）`);
       approve.type = "button";
       const included = new Set(gate.candidates.map((entry) => entry.candidate_id));
       const list = node("div", "batch-gate-candidates");
       for (const entry of gate.candidates) {
         const view = (data.candidates || []).find((candidate) => candidate.candidate_id === entry.candidate_id) || {};
         const material = view.gate_material || {};
-        const item = node("details", "batch-gate-candidate");
-        const summary = node("summary", "batch-gate-candidate-summary");
+        const item = node("div", "batch-gate-candidate");
+        const header = node("div", "batch-gate-candidate-summary");
+        const choice = node("label", "batch-gate-choice");
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
         checkbox.checked = true;
+        checkbox.setAttribute("aria-label", `选择${view.label || entry.candidate_id}`);
         checkbox.addEventListener("change", () => {
           if (checkbox.checked) included.add(entry.candidate_id);
           else included.delete(entry.candidate_id);
-          approve.textContent = included.size === gate.candidates.length
-            ? "一键全部通过" : `通过已勾选（${included.size}/${gate.candidates.length}）`;
+          const count = included.size;
+          info.textContent = `${gateLabels[gate.gate] || gate.label || "确认内容"} · 已选 ${count}/${gate.candidates.length}`;
+          approve.textContent = count ? `确认勾选的视频（${count} 条）` : "请先勾选视频";
+          approve.disabled = count === 0;
         });
-        summary.append(checkbox, document.createTextNode(` ${view.label || entry.candidate_id}`));
-        summary.append(node("span", "row-meta", ` ${(view.stage_states || []).map((state) => stageStateLabel(state.stage_id, state.status)).join(" · ")}`));
-        item.append(summary);
+        choice.append(checkbox, node("span", "", view.label || entry.candidate_id));
+        header.append(choice, node("span", "row-meta", ` ${(view.stage_states || []).map((state) => stageStateLabel(state.stage_id, state.status)).join(" · ")}`));
+        item.append(header);
+        const materialDetails = node("details", "batch-gate-material");
+        materialDetails.append(node("summary", "", "查看确认内容"));
         const body = node("div", "batch-gate-candidate-body");
-        if (gate.gate === "script" && material.sections?.length) {
-          body.append(node("p", "row-copy", `剧本《${material.title || "—"}》${material.duration_seconds ?? ""}秒`));
-          const sectionList = node("ul", "plain-list");
-          material.sections.forEach((section) => sectionList.append(
-            node("li", "", `${section.id} ${section.label} · 字幕「${section.screen_copy || ""}」`)));
-          body.append(sectionList);
-        }
-        if (gate.gate === "assets") {
-          if (material.narration) {
-            body.append(node("p", "row-copy",
-              `口播：${material.narration.provider || "—"} / ${material.narration.model || "—"} / ${material.narration.voice || "—"}`));
-          }
-          if (material.bgm) {
-            body.append(node("p", "row-copy",
-              `BGM：${material.bgm.provider || "—"} · ${material.bgm.profile || "—"}`));
-          }
-          if (material.plan_summary) {
-            body.append(node("p", "row-copy",
-              `素材计划：${material.plan_summary.proxy_shots ?? 0} 代理镜 + ${material.plan_summary.narration_segments ?? 0} 段口播 + ${material.plan_summary.music_tracks ?? 0} BGM · 付费预估 $${(material.plan_summary.paid_estimate_usd ?? 0).toFixed(2)}`));
-          }
-          if (material.lock) {
-            const out = material.lock.output || {};
-            const aspect = material.lock.aspect || out.resolution || "";
-            const duration = material.lock.duration_seconds
-              ? `${material.lock.duration_seconds}s`
-              : (out.duration ? `${out.duration}s` : "—");
-            body.append(node("p", "row-copy",
-              `生产锁：${aspect || "—"} · ${duration} · ${material.lock.engine || "—"}`));
-          }
-          if (material.shots?.length) {
-            const shots = node("ul", "plain-list");
-            material.shots.forEach((shot) => shots.append(node("li", "", `${shot.id} 字幕「${shot.screen_copy || ""}」`)));
-            body.append(shots);
-          }
-        }
-        if (gate.gate === "sample" && material.output_path) {
-          body.append(node("p", "row-copy", `样片：${material.output_path}（${(material.probe || {}).duration_seconds ?? "—"}s）`));
-          body.append(node("p", "row-copy", `QA：${((material.qa || {}).status || "—")}`));
-        }
+        const materialSummary = gate.gate === "script"
+          ? `制作脚本${material.duration_seconds ? ` · ${material.duration_seconds} 秒` : ""}`
+          : gate.gate === "assets"
+            ? `生成清单${material.plan_summary?.proxy_shots ? ` · ${material.plan_summary.proxy_shots} 个画面` : ""}`
+            : material.output_path
+              ? `样片${material.probe?.duration_seconds ? ` · ${material.probe.duration_seconds} 秒` : ""}`
+              : "样片还没有生成";
+        body.append(node("p", "row-copy", materialSummary));
         if (view.links?.project_page) {
-          const pageLink = node("a", "batch-candidate-link", "打开候选工作台复核");
+          const pageLink = node("a", "batch-candidate-link", "打开单条复核");
           pageLink.href = view.links.project_page;
           pageLink.target = "_blank";
           body.append(pageLink);
         }
-        item.append(body);
+        materialDetails.append(body);
+        item.append(materialDetails);
         list.append(item);
       }
+      approve.disabled = included.size === 0;
       approve.addEventListener("click", async () => {
         approve.disabled = true;
         const chosen = gate.candidates.filter((entry) => included.has(entry.candidate_id));
-        if (!chosen.length) { approve.disabled = false; approve.textContent = "请至少勾选一个候选"; return; }
+        if (!chosen.length) { approve.disabled = false; approve.textContent = "请先勾选视频"; return; }
         const participants = chosen.map((entry) => {
           const view = (data.candidates || []).find((candidate) => candidate.candidate_id === entry.candidate_id) || {};
           const review = (view.pending_reviews || []).find((item) => item.kind === reviewKinds[gate.gate]);
@@ -1241,122 +1367,180 @@ function renderBatch(container, data, { project } = {}) {
           };
         });
         try {
-          await batchApproveGate(project.project_id, data.aggregate_revision, gate.gate, participants, "批级一键通过");
+          await batchApproveGate(project.project_id, data.aggregate_revision, gate.gate, participants, "批量确认当前内容");
           window.location.reload();
         } catch (error) {
           approve.disabled = false;
           if (error.code === "needs_recovery") {
-            approve.textContent = "需要恢复 — 点击续跑";
+            approve.textContent = "这次操作没有完成，点击继续处理";
             approve.addEventListener("click", async () => {
               await batchRecover(project.project_id, error.details?.batch_action_id);
               window.location.reload();
             }, { once: true });
           } else if (error.code === "stale") {
-            approve.textContent = "状态已更新，即将刷新…";
+            approve.textContent = "内容已更新，正在刷新…";
             window.location.reload();
           } else {
-            approve.textContent = `失败：${error.message}`;
+            approve.textContent = businessErrorMessage(error);
           }
         }
       });
       row.append(info, list, approve);
       gatePanel.append(row);
     }
-    workbench.append(gatePanel);
+    decisionRail.append(gatePanel);
   }
 
-  // 候选矩阵
+  // 视频对比：默认只露出判断所需的信息，成本和音轨等细节收进“更多信息”。
   const matrix = node("section", "batch-matrix");
-  matrix.append(node("h3", "section-title", "候选矩阵"));
-  const table = node("div", "batch-matrix-table");
-  for (const candidate of data.candidates || []) {
+  matrix.append(node("h3", "section-title", "本批视频"));
+  matrix.append(node("p", "batch-matrix-intro", "先比较每条视频的方向和当前状态，需要深入时再打开单条复核。"));
+  const table = node("div", "batch-matrix-table batch-candidate-grid");
+  candidates.forEach((candidate, candidateIndex) => {
     const cell = setTestId(node("article", `batch-candidate-card status-${candidate.candidate_phase || candidate.status || "planned"}`), `candidate-card-${candidate.candidate_id}`);
-    const heading = node("div", "batch-candidate-heading");
-    heading.append(node("strong", "batch-candidate-label", candidate.label || candidate.candidate_id));
-    heading.append(node("span", "status-chip", candidateStatusLabel(candidate.candidate_phase || candidate.status || "planned")));
-    cell.append(heading);
-    const direction = Object.values(candidate.direction || {}).join(" / ");
-    if (direction) cell.append(node("p", "batch-candidate-direction", direction));
-    const stageLine = (candidate.stage_states || []).map((state) => stageStateLabel(state.stage_id, state.status)).join(" · ");
-    if (stageLine) cell.append(node("p", "batch-candidate-stages", stageLine));
-    if (candidate.links?.project_page) {
-      const pageLink = setTestId(node("a", "batch-candidate-link", "打开单条复核"), `open-single-${candidate.candidate_id}`);
-      pageLink.href = batchProjectUrl(candidate.project_id || candidate.candidate_id, data.batch_id || project?.project_id || projectId);
-      cell.append(pageLink);
-      const quick = setTestId(node("button", "batch-candidate-link", "快速查看"), `quick-view-${candidate.candidate_id}`);
-      quick.type = "button";
-      quick.addEventListener("click", () => quickView(candidate));
-      cell.append(quick);
-    }
-    cell.append(node("p", "batch-candidate-cost", `成本 $${(candidate.cost?.cost_usd ?? 0).toFixed(2)} · 尝试 ${candidate.cost?.attempts ?? 0}${candidate.failure?.failure ? ` · 失败：${candidate.failure.failure}` : ""}`));
+    const mediaFrame = node("div", "batch-candidate-media");
     if (candidate.media?.sample_url) {
       const video = document.createElement("video");
       video.className = "batch-candidate-preview";
       video.controls = true; video.playsInline = true; video.preload = "metadata";
       video.src = candidate.media.sample_url;
-      video.setAttribute("aria-label", `${candidate.label || "候选"}样片预览`);
+      video.setAttribute("aria-label", `${candidate.label || "视频"}样片预览`);
       video.addEventListener("error", () => {
-        mediaFailure = true;
-        if (primaryAction) primaryAction.disabled = true;
         const error = setTestId(node("p", "batch-media-error", "样片无法播放，请检查文件后重新拉取"), `media-error-${candidate.candidate_id}`);
-        cell.append(error);
+        mediaFrame.replaceChildren(error);
       }, { once: true });
-      cell.append(video);
+      mediaFrame.append(video);
+    } else {
+      mediaFrame.append(node("div", "batch-candidate-preview-empty", "样片还没有生成"));
     }
+    cell.append(mediaFrame);
+    const heading = node("div", "batch-candidate-heading");
+    const candidateLabel = candidate.label || `视频 ${candidateIndex + 1}`;
+    heading.append(node("strong", "batch-candidate-label", candidateLabel));
+    heading.append(node("span", "status-chip", candidateStatusLabel(candidate.candidate_phase || candidate.status || "planned")));
+    cell.append(heading);
+    const direction = candidate.direction?.label || candidate.direction?.title || candidate.direction?.name
+      || Object.values(candidate.direction || {}).filter(Boolean).slice(0, 2).join(" / ");
+    if (direction) cell.append(node("p", "batch-candidate-direction", direction));
+    const evaluation = candidate.score?.evaluation;
+    const score = Number(candidate.score?.weighted_total);
+    const resultLabel = evaluation?.status === "pass"
+      ? "检查通过"
+      : evaluation?.status === "fail"
+        ? "有问题需要处理"
+        : evaluation?.status === "revise"
+          ? "建议再看一遍"
+          : Number.isFinite(score) ? `检查得分 ${score.toFixed(1)}` : "等待检查";
+    cell.append(node("p", "batch-candidate-result", resultLabel));
+    const evidence = [];
+    const evidenceLabels = {
+      hook_clarity: "开头清楚", visual_hierarchy: "画面层次", rhythm: "节奏顺畅",
+      shot_quality: "画面清楚", story_coherence: "内容连贯", audio_quality: "声音清楚",
+      text_readability: "字幕清楚", product_presence: "重点突出",
+    };
+    (evaluation?.advisory?.dimensions || []).forEach((item) => {
+      const key = item.id || String(item.name || "").trim().toLowerCase().replaceAll(" ", "_");
+      const label = evidenceLabels[key];
+      if (label && evidence.length < 3) evidence.push(label);
+    });
+    if (evaluation?.status === "pass" && evidence.length < 3) evidence.push("系统检查通过");
+    if (evidence.length) cell.append(tagList(evidence, "batch-candidate-evidence"));
+    const currentStage = (candidate.stage_states || []).find((state) => state.status === "awaiting_human")
+      || (candidate.stage_states || []).find((state) => !["completed", "已完成"].includes(state.status));
+    if (currentStage) cell.append(node("p", "batch-candidate-stages", stageStateLabel(currentStage.stage_id, currentStage.status)));
+    if (candidate.selection_block_reason) cell.append(node("p", "batch-candidate-block", candidateBlockLabel(candidate.selection_block_reason)));
+    if (candidate.links?.project_page) {
+      const actions = node("div", "batch-candidate-actions");
+      const pageLink = setTestId(node("a", "batch-candidate-link", "打开单条复核"), `open-single-${candidate.candidate_id}`);
+      pageLink.href = batchProjectUrl(candidate.project_id || candidate.candidate_id, data.batch_id || project?.project_id || projectId);
+      const quick = setTestId(node("button", "batch-candidate-link", "快速查看"), `quick-view-${candidate.candidate_id}`);
+      quick.type = "button";
+      quick.addEventListener("click", () => quickView(candidate, quick));
+      actions.append(quick, pageLink);
+      cell.append(actions);
+    }
+    const more = node("details", "batch-card-details");
+    more.append(node("summary", "", "更多信息"));
+    more.append(node("p", "batch-candidate-cost", `已用费用 $${(candidate.cost?.cost_usd ?? 0).toFixed(2)} · 处理 ${candidate.cost?.attempts ?? 0} 次`));
     const tracks = candidate.media?.audio_tracks || [];
     if (tracks.length) {
-      const trackLine = tracks.map((track) => `${track.label}:${track.state === "present" ? "有" : track.state === "missing" ? "缺" : "未计划"}`).join(" · ");
-      cell.append(node("p", "batch-candidate-tracks", trackLine));
+      const trackLabel = { narration: "口播", bgm: "背景音乐", original: "原声" };
+      const trackLine = tracks.map((track) => `${trackLabel[track.kind] || track.label || "声音"}：${track.state === "present" ? "已准备" : track.state === "missing" ? "缺少" : "未安排"}`).join(" · ");
+      more.append(node("p", "batch-candidate-tracks", trackLine));
     }
-    if (candidate.score?.evaluation) cell.append(renderEvaluationCard(candidate.score.evaluation));
+    if (candidate.score?.evaluation) more.append(renderEvaluationCard(candidate.score.evaluation));
+    if (candidate.failure?.failure) more.append(node("p", "batch-candidate-block", "处理遇到问题，请联系制作人员查看记录"));
+    cell.append(more);
     table.append(cell);
-  }
+  });
   matrix.append(table);
-  workbench.append(matrix);
+  galleryColumn.append(matrix);
 
-  // 人工选择区
+  // 进入精剪的选择托盘：只有完成检查且符合条件的视频才会出现。
   const reports = data.reports || {};
   const selectionDisabled = (reports.disabled_actions || []).includes("select");
-  const selectPanel = setTestId(node("section", "batch-select"), "batch-selection");
-  selectPanel.append(node("h3", "section-title", "人工选择：选 1–2 条进入精剪"));
-  const selected = data.selection?.selected_candidate_ids || [];
+  const selectPanel = setTestId(node("section", "batch-select batch-selection-tray"), "batch-selection");
+  selectPanel.append(node("p", "batch-selection-kicker", "下一步"));
+  selectPanel.append(node("h3", "section-title", "选择要进入精剪的视频"));
+  selectPanel.append(node("p", "batch-selection-intro", "最多选 2 条。没有合适的视频时，可以先不选择。"));
   if (selected.length) {
-    selectPanel.append(node("p", "batch-select-done", `已选择：${selected.join("、")}（${data.selection?.reason || ""}）`));
-  } else {
+    const selectedLabels = selected.map((id) => labelForCandidate(id));
+    selectPanel.append(node("p", "batch-select-done", `已选 ${selected.length} 条：${selectedLabels.join("、")}`));
+    if (data.selection?.reason) selectPanel.append(node("p", "batch-selection-reason", `选择原因：${data.selection.reason}`));
+  } else if (selectionAvailable) {
     const picks = new Set();
     const checkboxes = node("div", "batch-select-list");
-    for (const candidate of data.candidates || []) {
-      if (candidate.status !== "evaluated") continue;
+    const count = node("p", "batch-selection-count", "已选 0/2");
+    count.setAttribute("aria-live", "polite");
+    for (const candidate of candidates) {
+      if (!eligibleIds.has(candidate.candidate_id)) continue;
       const label = node("label", "batch-select-item");
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.disabled = selectionDisabled;
+      checkbox.setAttribute("aria-label", `选择${candidate.label || candidate.candidate_id}`);
       checkbox.addEventListener("change", () => {
         if (checkbox.checked) picks.add(candidate.candidate_id); else picks.delete(candidate.candidate_id);
         if (picks.size > 2) { checkbox.checked = false; picks.delete(candidate.candidate_id); }
+        count.textContent = `已选 ${picks.size}/2`;
+        submit.disabled = picks.size === 0;
       });
-      label.append(checkbox, document.createTextNode(` ${candidate.label || candidate.candidate_id}`));
+      label.append(checkbox, document.createTextNode(` ${candidate.label || "视频"}`));
       checkboxes.append(label);
     }
-    selectPanel.append(checkboxes);
-    const reason = document.createElement("input");
+    selectPanel.append(count, checkboxes);
+    if (!checkboxes.childElementCount) selectPanel.append(node("p", "batch-selection-empty", "目前没有符合条件的视频"));
+    const reason = document.createElement("textarea");
     reason.className = "batch-select-reason";
-    reason.placeholder = "选择理由（写入决策记录）";
+    reason.rows = 2;
+    reason.placeholder = "为什么选这几条（可选）";
     reason.disabled = selectionDisabled;
     const submit = node("button", "primary-button", "进入精剪");
     submit.type = "button";
-    submit.disabled = selectionDisabled;
-    // 旧版契约仍检查“请先重建批次报告”；实际操作改为一线可读的“重新拉取最新结果”。
+    submit.disabled = !selectionDisabled && !checkboxes.childElementCount;
     if (selectionDisabled) submit.textContent = "重新拉取最新结果";
     setTestId(submit, "batch-primary-action");
-    primaryAction = submit;
-    if (mediaFailure) submit.disabled = true;
     submit.addEventListener("click", async () => {
+      if (selectionDisabled) { window.location.reload(); return; }
       const ids = [...picks];
-      if (!ids.length || ids.length > 2) { submit.textContent = "请选择 1–2 个候选"; return; }
+      if (!ids.length || ids.length > 2) { submit.textContent = "请选 1–2 条视频"; return; }
+      const participants = ids.map((id) => {
+        const candidate = candidates.find((item) => item.candidate_id === id) || {};
+        return {
+          candidate_id: id,
+          project_id: candidate.project_id || id,
+          subject_hash: candidate.subject_hash,
+          workflow_revision: candidate.workflow_revision,
+          evaluation_hash: candidate.evaluation_hash,
+        };
+      });
+      if (participants.some((item) => !item.subject_hash || !item.evaluation_hash || item.workflow_revision == null)) {
+        submit.textContent = "视频检查还没完成，请重新拉取";
+        return;
+      }
       submit.disabled = true;
       try {
-        await batchSelectForEdit(project.project_id, data.aggregate_revision, ids, reason.value || "驾驶舱人工选择");
+        await batchSelectForEdit(project.project_id, data.aggregate_revision, participants, reason.value || "人工选择");
         window.location.reload();
       } catch (error) {
         submit.disabled = false;
@@ -1365,61 +1549,89 @@ function renderBatch(container, data, { project } = {}) {
     });
     selectPanel.append(reason, submit);
   }
-  if (!selected.length && !(data.selection?.eligible_candidate_ids || []).length) {
+  if (selectionAvailable && !selected.length && !(data.selection?.eligible_candidate_ids || []).length) {
     selectPanel.append(setTestId(node("p", "batch-issue-summary", "本批没有可用视频"), "batch-issue-summary"));
   }
-  workbench.append(selectPanel);
+  if (!gates.length) {
+    if (selectionAvailable || selected.length) decisionRail.append(selectPanel);
+    else {
+      const waiting = node("section", "batch-waiting-state");
+      waiting.append(node("p", "batch-selection-kicker", "当前要做"));
+      const waitingCopy = {
+        scoring: ["等待视频检查", "检查完成后，这里会出现可以进入精剪的视频。"],
+        editing: ["等待精剪", "已选视频会继续处理，完成后页面会自动更新。"],
+        publishing: ["等待交付", "交付文件准备好后，页面会自动更新。"],
+        completed: ["本批已完成", "这批视频已经处理完成，可以查看下面的处理记录。"],
+        blocked: ["先处理异常", "请展开处理信息，查看哪些视频需要制作人员处理。"],
+      }[data.phase] || ["等待视频生成", "有内容需要确认时，页面会在这里提示你。"];
+      waiting.append(node("h3", "section-title", waitingCopy[0]));
+      waiting.append(node("p", "batch-selection-intro", waitingCopy[1]));
+      decisionRail.append(waiting);
+    }
+  }
 
-  // 候选差异度矩阵（差异计划 + 两两差异 + 缺计划提示）
+  // 差异与效率信息是辅助判断，默认折叠，避免与当前确认任务争夺注意力。
+  const moreDetails = node("details", "batch-more-details");
+  moreDetails.append(node("summary", "", "查看批次检查"));
   const diversity = data.diversity || {};
   const divSection = node("section", "batch-diversity");
-  divSection.append(node("h3", "section-title", "候选差异度"));
+  divSection.append(node("h3", "section-title", "视频之间的区别"));
   if (diversity.mode) {
-    const modeLabel = { hard_gate: "硬门（不足即拒）", warning: "警告（记录并继续）", legacy_read_only: "历史只读" }[diversity.mode] || diversity.mode;
-    divSection.append(node("p", "batch-diversity-mode", `差异执行：${modeLabel}`));
+    const modeLabel = { hard_gate: "必须有明显区别", warning: "仅作提醒", legacy_read_only: "仅供查看" }[diversity.mode] || "仅供查看";
+    divSection.append(node("p", "batch-diversity-mode", `检查方式：${modeLabel}`));
   }
   const pairwise = diversity.pairwise || [];
   if (pairwise.length) {
     const rows = node("div", "batch-diversity-rows");
     for (const pair of pairwise) {
       const row = node("div", `batch-diversity-row ${pair.passes ? "pass" : "fail"}`);
-      row.append(node("span", "batch-diversity-pair", `${pair.candidate_a} vs ${pair.candidate_b}`));
-      row.append(node("span", "batch-diversity-metrics", `变更维度 ${pair.changed_dimensions} · 结构镜头 ${pair.structural_shot_count}${pair.visual_risk === "high" ? " · 视觉风险高" : ""}`));
+      row.append(node("span", "batch-diversity-pair", `${labelForCandidate(pair.candidate_a)} 和 ${labelForCandidate(pair.candidate_b)}`));
+      row.append(node("span", "batch-diversity-metrics", `区别 ${pair.changed_dimensions} 处 · 不同镜头 ${pair.structural_shot_count} 个${pair.visual_risk === "high" ? " · 画面风险较高" : ""}`));
       row.append(node("span", "status-chip", pair.passes ? "通过" : "差异不足"));
       rows.append(row);
     }
     divSection.append(rows);
   } else {
-    divSection.append(node("p", "batch-diversity-empty", "暂无候选差异计划（未提交差异计划或历史批次）"));
+    divSection.append(node("p", "batch-diversity-empty", "暂无视频区别记录"));
   }
   if (diversity.plans_missing?.length) {
-    divSection.append(node("p", "batch-diversity-missing", `缺差异计划：${diversity.plans_missing.join("、")}`));
+    divSection.append(node("p", "batch-diversity-missing", `有 ${diversity.plans_missing.length} 条视频缺少区别记录`));
   }
-  workbench.append(divSection);
+  moreDetails.append(divSection);
 
-  // 批次报告（效率摘要 + 质量建议 + 数据完整/降级状态）
+  // 批次报告（辅助信息，不作为一线人员的主操作入口）。
   const repSection = node("section", "batch-reports");
-  repSection.append(node("h3", "section-title", "批次报告"));
+  repSection.append(node("h3", "section-title", "处理记录"));
   const repStatus = reports.status || "missing";
-  const statusLabel = { complete: "数据完整", partial: "部分数据", degraded: "数据已降级", missing: "未生成" }[repStatus] || repStatus;
-  repSection.append(node("p", `batch-reports-status state-${repStatus}`, `报告状态：${statusLabel}`));
+  const statusLabel = { complete: "信息完整", partial: "部分信息", degraded: "部分信息异常", missing: "暂未生成" }[repStatus] || "暂不可用";
+  repSection.append(node("p", `batch-reports-status state-${repStatus}`, `处理记录：${statusLabel}`));
   const run = reports.run;
   if (run) {
     const cost = run.cost?.total_usd ?? 0;
-    const slowest = run.slowest_stage ? `${run.slowest_stage.stage_id}（累计 ${Math.round(run.slowest_stage.wall_seconds)}s）` : "—";
-    repSection.append(node("p", "batch-reports-summary", `总成本 $${Number(cost).toFixed(2)} · 最慢阶段 ${slowest}`));
+    const slowest = run.slowest_stage
+      ? `${STAGE_STATUS_LABELS[run.slowest_stage.stage_id] || "制作步骤"}（约 ${Math.max(1, Math.round(run.slowest_stage.wall_seconds / 60))} 分钟）`
+      : "暂未提供";
+    repSection.append(node("p", "batch-reports-summary", `总费用 $${Number(cost).toFixed(2)} · 用时最长的是${slowest}`));
     if (run.data_quality?.warnings?.length) {
-      repSection.append(node("p", "batch-reports-warnings", `数据提示：${run.data_quality.warnings.map((w) => w.message).join("、")}`));
+      repSection.append(node("p", "batch-reports-warnings", `需要留意：${run.data_quality.warnings.map((w) => w.message).join("、")}`));
     }
   }
   const quality = reports.quality;
   if (quality?.recommendations?.length) {
-    repSection.append(node("p", "batch-reports-recommendation", `建议：${quality.recommendations.map((r) => `${r.candidate_id}→${r.action}`).join("、")}`));
+    const actionLabel = { select: "可以进入精剪", select_for_edit: "可以进入精剪", revise: "需要调整", hold: "先暂停" };
+    repSection.append(node("p", "batch-reports-recommendation", `处理建议：${quality.recommendations.map((r) => `${labelForCandidate(r.candidate_id)}：${actionLabel[r.action] || "请查看"}`).join("、")}`));
   }
   if (reports.disabled_actions?.length) {
-    repSection.append(node("p", "batch-reports-disabled", `已停用：${reports.disabled_actions.join("、")}（需 ${reports.recovery_action || "重建报告"}）`));
+    repSection.append(node("p", "batch-reports-disabled", "选择功能暂不可用，请重新拉取最新结果"));
   }
-  workbench.append(repSection);
+  moreDetails.append(repSection);
+  if (decisionDetails.childElementCount) {
+    const details = node("details", "batch-decision-more");
+    details.append(node("summary", "", "查看处理信息"), decisionDetails);
+    decisionRail.append(details);
+  }
+  workspaceGrid.append(galleryColumn, decisionRail);
+  workbench.append(overview, workspaceGrid, moreDetails);
 
   container.append(workbench);
 }
@@ -1738,146 +1950,9 @@ function renderEditor(container, stage, editor, project, snapshot) {
   container.append(history);
 }
 
-// 单条页当前打开的步骤阅读器（null = 当前确认门视图）。
-let stepReaderStageId = null;
-
-// 步骤阅读器中的样片只读展示：播放器、系统检查、音轨与镜头对照，
-// 不含审批动作（避免在历史/已完成步骤上重复提交）。
-function renderReadonlySample(container, data) {
-  const workbench = node("div", "sample-review-workbench");
-  const playerPanel = node("section", "sample-player-panel");
-  playerPanel.append(detailRow("检查结果", data.qa_status || "等待检查"));
-  playerPanel.append(detailRow("样片时长", formatDuration(data.duration_seconds)));
-  playerPanel.append(node("p", "lead-copy", data.review_summary || ""));
-  if (data.preview_url) {
-    const video = document.createElement("video");
-    video.className = "preview-video";
-    video.controls = true;
-    video.playsInline = true;
-    video.preload = "none";
-    video.src = data.preview_url;
-    video.setAttribute("aria-label", "样片预览");
-    playerPanel.append(video);
-  } else {
-    playerPanel.append(node("p", "empty-copy", "样片未生成"));
-  }
-  workbench.append(playerPanel);
-
-  const evaluation = data.evaluation;
-  if (evaluation) {
-    const evalPanel = node("section", "sample-evaluation");
-    evalPanel.append(node("h3", "section-title", "系统检查"));
-    const statusText = evaluation.status === "pass" ? "通过" : evaluation.status === "fail" ? "存在致命问题" : "需要处理";
-    evalPanel.append(node("p", "delivery-eval-status", `${statusText} · 建议动作：${evaluation.recommended_action || "—"}`));
-    for (const fail of evaluation.hard_gate_fails || []) {
-      evalPanel.append(node("p", "delivery-eval-note", `${fail.name}：${fail.message}（${fail.fixable ? "可修复" : "致命"}）`));
-    }
-    if (evaluation.advisory?.summary) {
-      evalPanel.append(node("p", "delivery-eval-note", evaluation.advisory.summary));
-    }
-    workbench.append(evalPanel);
-  }
-
-  const tracks = data.audio_tracks;
-  if (tracks && tracks.length) {
-    const audioPanel = node("section", "sample-audio-tracks");
-    audioPanel.append(node("h3", "section-title", "音频轨"));
-    const stateLabels = { present: "已就位", missing: "缺失", not_planned: "未计划" };
-    const trackList = node("div", "sample-audio-track-list");
-    tracks.forEach((track) => {
-      const chip = node("span", `sample-audio-track state-${track.state || "not_planned"}`);
-      chip.append(node("strong", "", track.label || track.kind));
-      chip.append(node("span", "track-state", stateLabels[track.state] || track.state || "未知"));
-      trackList.append(chip);
-    });
-    audioPanel.append(trackList);
-    workbench.append(audioPanel);
-  }
-
-  const trace = data.execution_trace;
-  if (trace) {
-    const summary = trace.summary || {};
-    const counts = summary.status_counts || {};
-    const tracePanel = node("section", "sample-execution-trace");
-    tracePanel.append(node("h3", "section-title", "执行对照"));
-    tracePanel.append(node("p", "trace-summary",
-      `本次样片覆盖 ${summary.included_shot_count || 0}/${summary.planned_shot_count || 0} 个镜头 · 按方案执行 ${counts.executed || 0} 个 · 部分执行 ${counts.partial || 0} 个 · 新增内容 ${counts.added || 0} 个 · 尚未进入样片 ${counts.not_in_sample || 0} 个`));
-    const list = node("div", "sample-trace-list");
-    (trace.shots || []).forEach((shot) => {
-      const card = node("article", `sample-trace-card status-${shot.status || "unknown"}`);
-      const heading = node("div", "sample-trace-heading");
-      heading.append(node("strong", "sample-trace-shot", shot.shot_id || "镜头"));
-      heading.append(node("span", "status-chip", shot.status_label || "待核对"));
-      card.append(heading);
-      const planned = shot.planned || {};
-      const planText = [planned.purpose, planned.subject_action, planned.screen_copy].filter(Boolean).join(" · ");
-      if (planText) card.append(node("p", "sample-trace-copy", `计划：${planText}`));
-      const actual = shot.actual;
-      if (actual) {
-        const actualText = [actual.source_label && `素材：${actual.source_label}`, actual.screen_copy && `画面文字：${actual.screen_copy}`].filter(Boolean).join(" · ");
-        if (actualText) card.append(node("p", "sample-trace-copy", `实际：${actualText}`));
-      }
-      if (shot.deviation?.reason) card.append(node("p", "sample-trace-deviation", shot.deviation.reason));
-      list.append(card);
-    });
-    tracePanel.append(list);
-    workbench.append(tracePanel);
-  }
-  container.append(workbench);
-}
-
-// 步骤阅读器：在深色壳内以浅色“阅读单”展示某一制作步骤的全部中间产物。
-function renderStepReader(project, snapshot) {
-  const shell = byId("operator-shell");
-  if (shell) shell.dataset.mode = "approval";
-  const main = byId("approval-main");
-  const stage = (project.stages || []).find((item) => item.id === stepReaderStageId);
-  if (!stage || !main) {
-    stepReaderStageId = null;
-    renderApprovalWorkbench(byId("approval-shell"), project, snapshot);
-    return;
-  }
-  const title = byId("approval-title");
-  if (title) title.textContent = project.title || "未命名项目";
-  const kicker = byId("approval-hero-kicker");
-  if (kicker) kicker.textContent = `正在查看：${stage.label}`;
-  const note = byId("approval-note");
-  if (note) note.textContent = stage.summary || "";
-  main.replaceChildren();
-  const reader = node("div", "approval-reader");
-  const head = node("div", "approval-reader-head");
-  const back = node("button", "quiet-button", APPROVAL_COPY.readerBack);
-  back.type = "button";
-  back.dataset.testid = "approval-reader-back";
-  back.addEventListener("click", () => {
-    stepReaderStageId = null;
-    renderApprovalWorkbench(byId("approval-shell"), project, snapshot);
-  });
-  head.append(back, node("h2", "approval-reader-title", `${stage.label} · 第 ${stage.version || 1} 版`));
-  reader.append(head);
-  const body = node("div", "approval-reader-body");
-  const editor = stage.editor;
-  const data = (editor && editor.data) || {};
-  const readers = {
-    research_review: (target, value) => renderResearch(target, value, { editable: false }),
-    proposal_choice: (target, value) => renderProposal(target, value, { editable: false }),
-    script_editor: (target, value) => renderScript(target, value, { editable: false, onOperation: () => {} }),
-    shot_mapping: (target, value) => renderShots(target, value),
-    asset_review: (target, value) => renderAssets(target, value, { editable: false }),
-    sample_review: (target, value) => renderReadonlySample(target, value),
-    edit_review: (target, value) => renderEdit(target, value),
-    delivery_review: (target, value) => renderDelivery(target, value, { editable: false, onOperation: () => {}, pendingOperations: [] }),
-    unavailable: (target) => target.append(node("p", "empty-copy", "该步骤暂无可展示的结构化内容")),
-  };
-  (readers[editor?.type] || readers.unavailable)(body, data);
-  reader.append(body);
-  main.append(reader);
-}
-
-// 批级驾驶舱：深色外框 + 浅色工作单，内容仍是横向比较与统一提交入口。
+// 批量工作台：统一展示候选比较和批量确认入口。
 function renderBatchApproval(project, snapshot) {
-  const shell = byId("operator-shell");
-  if (shell) shell.dataset.mode = "batch";
+  setPageMode("batch");
   const approvalShell = byId("approval-shell");
   if (approvalShell) approvalShell.hidden = false;
   document.title = `${APPROVAL_COPY.brand} · ${project.title || "批量"}`;
@@ -1887,7 +1962,7 @@ function renderBatchApproval(project, snapshot) {
   if (kicker) kicker.textContent = APPROVAL_COPY.batchKicker;
   const data = (project.workspace?.editor && project.workspace.editor.data) || {};
   const note = byId("approval-note");
-  if (note) note.textContent = data.phase_reason || APPROVAL_COPY.batchNote;
+  if (note) note.textContent = APPROVAL_COPY.batchNote;
   const state = byId("approval-meta-state");
   if (state) {
     state.textContent = APPROVAL_COPY.batchState;
@@ -1903,13 +1978,6 @@ function renderBatchApproval(project, snapshot) {
   main.append(sheet);
 }
 
-document.addEventListener("approval-open-step", (event) => {
-  const stageId = event.detail && event.detail.stageId;
-  if (!stageId) return;
-  stepReaderStageId = stageId;
-  render(store.get());
-});
-
 function render(snapshot) {
   const shell = byId("operator-shell");
   shell.dataset.viewState = snapshot.viewState;
@@ -1917,21 +1985,17 @@ function render(snapshot) {
   if (!snapshot.project) return;
 
   const project = snapshot.project;
-  // 批级驾驶舱：套用原型深色外框（topbar/hero/业务文案），内容进浅色工作单。
+  // 批量工作台使用浅色阅读界面，避免和单条审批的深色播放器混用。
   if (project.workspace?.editor?.type === "batch_review") {
-    shell.dataset.mode = "batch";
+    setPageMode("batch");
     renderBatchApproval(project, snapshot);
     return;
   }
-  // 单条审批工作台：审批模式优先于旧阶段编辑壳；步骤阅读器打开时显示该步中间产物。
+  // 单条审批工作台：所有阶段和材料浏览都由同一套 store 状态驱动。
   const approvalActive = isApprovalShellActive(project, snapshot);
-  shell.dataset.mode = approvalActive ? "approval" : "batch";
+  setPageMode(approvalActive ? "approval" : "default");
   if (approvalActive) {
-    if (stepReaderStageId) {
-      renderStepReader(project, snapshot);
-    } else {
-      renderApprovalWorkbench(byId("approval-shell"), project, snapshot);
-    }
+    renderApprovalWorkbench(byId("approval-shell"), project, snapshot);
     return;
   }
 
@@ -1974,11 +2038,10 @@ function render(snapshot) {
 
   const selected = project.stages.find((stage) => stage.id === snapshot.selectedStageId) || project.stages[0];
   if (!selected) return;
-  // 批级驾驶舱：无论选中哪个批级相位 tab，都渲染批级总览（阶段 tab 仅为进度指示），
-  // 不再落到各相位的 unavailable 空 editor（用户反馈：建批过程没有内容）。
+  // 无论批次处于哪个阶段，都渲染同一份批量总览，阶段只作为进度提示。
   const batchEditor = project.workspace?.editor?.type === "batch_review" ? project.workspace.editor : null;
   const editor = batchEditor || selected.editor;
-  byId("workspace-title").textContent = batchEditor ? "批量驾驶舱" : selected.label;
+  byId("workspace-title").textContent = batchEditor ? "本批视频" : selected.label;
   byId("workspace-status").textContent = batchEditor
     ? `${project.summary.current_stage} · ${project.summary.progress_percent}%`
     : `${selected.status} · 第 ${selected.version || 0} 版`;
@@ -1999,9 +2062,13 @@ function render(snapshot) {
 async function refresh({ showLoading = false } = {}) {
   if (showLoading) store.setLoading();
   try {
+    const project = await fetchProjectState(projectId);
+    store.setProject(project);
+    const isApprovalView = isApprovalShellActive(project, store.get())
+      || project.workspace?.editor?.type === "batch_review";
+    if (isApprovalView) return;
     const existingDrafts = store.get().drafts || {};
-    const [project, proposalDraft, scriptDraft, assetsDraft, deliveryDraft] = await Promise.all([
-      fetchProjectState(projectId),
+    const [proposalDraft, scriptDraft, assetsDraft, deliveryDraft] = await Promise.all([
       existingDrafts.proposal?.status === "local"
         ? Promise.resolve(existingDrafts.proposal)
         : fetchDraft(projectId, "proposal").catch(() => null),
@@ -2015,7 +2082,6 @@ async function refresh({ showLoading = false } = {}) {
         ? Promise.resolve(existingDrafts.delivery_review)
         : fetchDraft(projectId, "delivery_review").catch(() => null),
     ]);
-    store.setProject(project);
     snapshotStore.setDraft("proposal", proposalDraft?.status === "active" || proposalDraft?.status === "local" ? proposalDraft : null);
     snapshotStore.setDraft("script", scriptDraft?.status === "active" || scriptDraft?.status === "local" ? scriptDraft : null);
     snapshotStore.setDraft("assets", assetsDraft?.status === "active" || assetsDraft?.status === "local" ? assetsDraft : null);
@@ -2025,12 +2091,25 @@ async function refresh({ showLoading = false } = {}) {
   }
 }
 
+document.addEventListener("approval-select-stage", (event) => {
+  const stageId = event.detail?.stageId;
+  if (stageId) store.selectStage(stageId);
+});
+document.addEventListener("approval-select-artifact", (event) => {
+  const artifactId = event.detail?.artifactId;
+  if (artifactId) store.selectArtifact(artifactId);
+});
+document.addEventListener("approval-select-current", () => store.returnToReviewGate());
+window.addEventListener("popstate", () => {
+  store.syncSelectionFromUrl?.();
+});
+
 store.subscribe(render);
 refresh({ showLoading: true });
 // 审批动作完成后由 approval.js 发出刷新请求，本处统一重新拉取快照。
 document.addEventListener("approval-refresh-request", () => refresh());
 const stopWatching = watchProject(projectId, () => refresh());
-// 批级驾驶舱（契约 A §5）：SSE 只覆盖批根变化，轮询兜底让候选子项目变化
+// 批量工作台：SSE 只覆盖批根变化，轮询兜底让候选子项目变化
 // 也能唤醒批页；事件丢失/缺口时通过 operator-state 重新拉取收敛。
 let batchRevision = null;
 let batchWatchStopped = false;

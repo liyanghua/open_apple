@@ -7,13 +7,13 @@
 <link rel="stylesheet" href="/ui/operator/styles.css">
 </head>
 <body>
-<div class="operator-shell" id="operator-shell" data-view-state="loading" data-mode="batch">
+<div class="operator-shell" id="operator-shell" data-view-state="loading" data-mode="default">
   <div class="approval-shell" id="approval-shell" data-testid="approval-shell" hidden>
     <header class="approval-topbar">
       <div class="approval-brand">商品视频制作工作台</div>
       <div class="approval-top-meta">
         <span>商品短视频</span>
-        <span class="approval-state" id="approval-meta-state">正在读取</span>
+        <span class="approval-state" id="approval-meta-state" role="status" aria-live="polite">正在读取</span>
       </div>
     </header>
     <section class="approval-hero">
@@ -21,11 +21,11 @@
         <div>
           <p class="approval-hero-kicker" id="approval-hero-kicker">当前需要你确认</p>
           <h1 id="approval-title">正在读取项目</h1>
-          <p id="approval-note"></p>
+          <p id="approval-note" aria-live="polite"></p>
         </div>
         <div class="approval-hero-actions">
           <a class="quiet-button approval-return-batch" id="approval-return-batch" data-testid="return-to-batch" href="#" hidden>返回批量总览</a>
-          <a class="quiet-button approval-diagnostic-link" id="approval-diagnostic-link" href="/diagnostics/p/">查看诊断信息</a>
+          <a class="quiet-button approval-diagnostic-link" id="approval-diagnostic-link" href="/diagnostics/p/" hidden>查看诊断信息</a>
         </div>
       </div>
     </section>

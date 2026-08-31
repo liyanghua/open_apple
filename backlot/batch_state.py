@@ -195,6 +195,7 @@ def child_snapshot(project_dir: Path, child_dir: Path) -> dict[str, Any]:
         "pending_reviews": [],
         "preview_url": None,
         "evaluation": None,
+        "evaluation_hash": None,
         "audio_tracks": [],
         "gate_material": None,
     }
@@ -275,9 +276,11 @@ def child_snapshot(project_dir: Path, child_dir: Path) -> dict[str, Any]:
             (child_dir / "artifacts" / "evaluation_report.json").read_text(encoding="utf-8"))
     except Exception:
         _eval = None
+    if isinstance(_eval, Mapping) and _eval.get("artifact_sha256"):
+        snapshot["evaluation_hash"] = str(_eval["artifact_sha256"])
     snapshot.update(derive_candidate_business(
         snapshot, reviews_by_kind=_by_kind, evaluate=_eval,
-        media_ready=bool((snapshot.get("media") or {}).get("sample_url"))))
+        media_ready=bool(snapshot.get("preview_url"))))
     # Phase 2 展示层栅栏：提交中/待恢复 → 前端显示「批量提交进行中」，抑制中间态结论
     from backlot.fence import active_fence_for
 
@@ -429,6 +432,19 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
                 "failure": candidate.get("failure"),
                 "technical": bool(candidate.get("failure")) and str(candidate.get("status")) == "failed",
             },
+            # schema 1.1 fields used by the participant selection contract.
+            "subject_hash": snapshot.get("subject_hash"),
+            "workflow_revision": int(snapshot.get("workflow_revision") or 0),
+            "current_step": snapshot.get("current_step") or "",
+            "current_artifact": snapshot.get("current_artifact") or "",
+            "review_status": snapshot.get("review_status") or "not_ready",
+            "artifact_health": snapshot.get("artifact_health") or (
+                "corrupt" if phase == "corrupt" else "missing" if phase == "missing" else "unknown"
+            ),
+            "preview_url": snapshot.get("preview_url"),
+            "selection_eligible": snapshot.get("selection_eligible", False),
+            "selection_block_reason": snapshot.get("selection_block_reason"),
+            "evaluation_hash": snapshot.get("evaluation_hash"),
         })
 
     # 一致性：候选 revision 二次读取复核（unstable）；缺失/损坏/预算不一致（degraded）。

@@ -127,6 +127,27 @@ def test_candidate_view_carries_evaluation_and_audio(batch_project: Path):
     assert all(t["state"] == "not_planned" for t in second["media"]["audio_tracks"])
 
 
+def test_candidate_view_exposes_hashes_for_safe_selection(tmp_path: Path, monkeypatch):
+    batch_dir = _batch_root(tmp_path, n=1, statuses=["evaluated"])
+    root = batch_dir.parent
+    _child(root, "cand-01", with_sample=True)
+    _write(root / "cand-01" / "artifacts" / "evaluation_report.json", {
+        "scope": "sample", "status": "pass", "artifact_sha256": "e" * 64,
+        "hard_gate": {"checks": []}, "project_id": "cand-01",
+    })
+    _write(root / "cand-01" / "operator" / "reviews" / "sample.json", {
+        "review_id": "sample-review-1", "kind": "sample", "status": "approved",
+        "subject_hash": "a" * 64, "subject_version": 2,
+    })
+    monkeypatch.setattr(state_mod, "PROJECTS_DIR", root)
+
+    view = _data(load_operator_state(batch_dir))["candidates"][0]
+    assert view["subject_hash"] == "a" * 64
+    assert view["workflow_revision"] == 2
+    assert view["evaluation_hash"] == "e" * 64
+    assert view["selection_eligible"] is True
+
+
 def test_script_gate_lists_awaiting_candidates(batch_project: Path):
     state = load_operator_state(batch_project)
     review = state["pending_review"]

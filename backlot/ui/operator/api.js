@@ -121,9 +121,16 @@ export function watchProject(projectId, onChange) {
   return () => { clearTimeout(timer); source.close(); };
 }
 
-export async function batchSelectForEdit(projectId, aggregateRevision, candidateIds, reason) {
+export async function batchSelectForEdit(projectId, aggregateRevision, participantsOrIds, reason) {
+  const body = { aggregate_revision: aggregateRevision, reason };
+  if (Array.isArray(participantsOrIds) && participantsOrIds.some((item) => item && typeof item === "object")) {
+    body.participants = participantsOrIds;
+  } else {
+    // Keep the old payload for older server versions and archived clients.
+    body.candidate_ids = participantsOrIds;
+  }
   return call(`/api/v2/projects/${encodeURIComponent(projectId)}/batch/select`, {
-    method: "POST", body: { aggregate_revision: aggregateRevision, candidate_ids: candidateIds, reason }, mutation: true,
+    method: "POST", body, mutation: true,
   });
 }
 

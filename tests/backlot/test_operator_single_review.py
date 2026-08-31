@@ -316,20 +316,57 @@ def test_step_reader_exposes_every_stage_artifacts() -> None:
     approval = _read_operator("approval.js")
     css = _read_operator("styles.css")
     combined = _frontline_combined()
-    # 点击任意步骤 → 打开该步中间产物阅读器；可回到当前确认门。
-    assert "approval-open-step" in approval
-    assert "approval-open-step" in app
-    assert "approval-return-current" in approval
-    assert "approval-reader-back" in app
+    # 点击任意步骤 → 同一审批工作台切换当前阶段；可回到当前确认门。
+    assert "approval-select-stage" in approval
+    assert "approval-select-stage" in app
+    assert "approval-select-current" in approval
+    assert "approval-select-current" in app
     assert "回到当前确认" in combined
-    assert "approval-reader" in app
-    assert ".approval-reader" in css
-    # 九步中间产物全覆盖（复用现有只读渲染器 + 样片只读视图）
-    for renderer in ("renderResearch", "renderProposal", "renderScript", "renderShots",
-                     "renderAssets", "renderReadonlySample", "renderEdit", "renderDelivery"):
-        assert renderer in app, renderer
-    assert "renderStepReader" in app
-    assert "stepReaderStageId" in app
+    assert "approval-detail" in approval
+    assert ".approval-detail" in css
+    # 九步中间产物由统一适配器覆盖，不再直接复用旧阶段 renderer。
+    assert "buildApprovalViewModel" in approval
+    for renderer in ("renderResearch", "renderProposal", "renderScript", "renderAssets", "renderDelivery"):
+        assert renderer not in approval, renderer
+
+
+def test_approval_workbench_uses_one_browsing_state_for_stage_and_artifact() -> None:
+    app = _read_operator("app.js")
+    approval = _read_operator("approval.js")
+    store = _read_operator("store.js")
+    model = _read_operator("approval_model.js")
+    combined = _frontline_combined()
+    assert "reviewGateId" in store
+    assert "selectedArtifactId" in store
+    assert "selectArtifact" in store
+    assert "buildApprovalViewModel" in model
+    assert 'addEventListener("approval-select-stage"' in app
+    assert 'addEventListener("approval-select-artifact"' in app
+    assert "selectedStageId" in approval
+    assert "selectedArtifactId" in approval
+    assert "aria-current" in approval
+    assert "approval-detail" in approval
+    assert "回到当前确认" in combined
+
+
+def test_approval_workbench_keeps_actions_on_current_gate_only() -> None:
+    approval = _read_operator("approval.js")
+    app = _read_operator("app.js")
+    assert "canAct" in approval
+    assert "selectedStageId === reviewGateId" in approval
+    assert "approval-readonly-state" in approval
+    assert "approval-select-artifact" in approval
+    assert "renderConfirmation(project, model)" in approval or "renderConfirmation(model)" in approval
+    assert "stepReaderStageId" not in app
+
+
+def test_approval_interactions_are_keyboard_and_refresh_safe() -> None:
+    approval = _read_operator("approval.js")
+    store = _read_operator("store.js")
+    assert "<button" not in approval  # DOM is created through node(), not raw markup.
+    assert "setSelectedStage" in store or "selectStage" in store
+    assert "history.replaceState" in store
+    assert "aria-live" in approval or 'setAttribute("role", "status")' in approval
 
 
 # ---------------------------------------------------------------------------
@@ -346,9 +383,11 @@ def test_batch_workbench_uses_approval_chrome() -> None:
     assert "renderBatchApproval" in app
     assert "approval-sheet" in app
     assert ".approval-sheet" in css
-    # 批页也进深色壳：旧三栏壳在 batch 模式下隐藏。
-    assert 'data-mode="batch"' in html
+    # 初始壳保持中性，读取到批次后再切换浅色 batch 模式，避免加载时
+    # 被 batch 的强覆盖规则提前显示空审批壳。
+    assert 'data-mode="default"' in html
+    assert 'setPageMode("batch")' in app
     assert '#operator-shell[data-mode="batch"] .workbench' in css
-    # 保留批级能力：横向比较与统一提交入口不被裁掉。
-    for term in ("候选矩阵", "一键全部通过", "人工选择：选 1–2 条进入精剪", "进入精剪"):
+    # 保留批量比较、当前确认和统一选择能力。
+    for term in ("本批视频", "当前要做", "确认勾选的视频", "进入精剪"):
         assert term in app, term

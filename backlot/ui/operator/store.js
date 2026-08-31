@@ -76,11 +76,15 @@ function defaultStageId(project, stages, gate) {
   return stages.some((stage) => stageIdOf(stage) === workspaceId) ? workspaceId : stageIdOf(stages[0]) || null;
 }
 
-function updateUrl(selection) {
-  if (typeof window === "undefined" || !window.history?.replaceState) return;
+function updateUrl(selection, { replace = true } = {}) {
+  if (typeof window === "undefined" || !window.history) return;
   const query = serializeViewSelection(selection, window.location.search);
   const next = `${window.location.pathname}${query}${window.location.hash || ""}`;
-  window.history.replaceState(window.history.state, "", next);
+  if (replace && typeof window.history.replaceState === "function") {
+    window.history.replaceState(window.history.state, "", next);
+  } else if (!replace && typeof window.history.pushState === "function") {
+    window.history.pushState(window.history.state, "", next);
+  }
 }
 
 export function createOperatorStore(initialSearch = currentSearch()) {
@@ -104,8 +108,9 @@ export function createOperatorStore(initialSearch = currentSearch()) {
       const gate = reviewGateId(project, stages);
       const pending = project?.pending_review || {};
       const gateStage = stages.find((stage) => stageIdOf(stage) === gate);
+      const stageVersions = stages.map((stage) => [stageIdOf(stage), stage.version ?? stage.editor?.version ?? ""]).join(",");
       const signature = [project?.revision || "", gate || "", gateStage?.version ?? gateStage?.editor?.version ?? "",
-        pending.subject_hash || "", pending.subject_version || ""].join("|");
+        stageVersions, pending.subject_hash || "", pending.subject_version || ""].join("|");
       const changed = selectionSignature !== null && selectionSignature !== signature;
       const models = buildApprovalStages(project);
       const modelById = new Map(models.map((stage) => [stage.stageId, stage]));
@@ -132,17 +137,18 @@ export function createOperatorStore(initialSearch = currentSearch()) {
     setConflict(conflict) { snapshot = { ...snapshot, conflict }; emit(); },
     setError(message = "项目进度暂时无法读取，请稍后重试") { snapshot = { ...snapshot, viewState: "error", message }; emit(); },
     selectStage(stageId) {
-      const model = buildApprovalStages(snapshot.project).find((stage) => stage.stageId === stageId);
+      const requestedStageId = stageId === "scenePlan" ? "scene_plan" : stageId;
+      const model = buildApprovalStages(snapshot.project).find((stage) => stage.stageId === requestedStageId);
       if (!model) return;
       const artifactId = model.artifacts[0]?.id || null;
-      snapshot = { ...snapshot, selectedStageId: stageId, selectedArtifactId: artifactId };
-      updateUrl({ stageId, artifactId }); emit();
+      snapshot = { ...snapshot, selectedStageId: requestedStageId, selectedArtifactId: artifactId };
+      updateUrl({ stageId: requestedStageId, artifactId }, { replace: false }); emit();
     },
     selectArtifact(artifactId) {
       const model = buildApprovalStages(snapshot.project).find((stage) => stage.stageId === snapshot.selectedStageId);
       if (!model?.artifacts.some((artifact) => artifact.id === artifactId)) return;
       snapshot = { ...snapshot, selectedArtifactId: artifactId };
-      updateUrl({ stageId: snapshot.selectedStageId, artifactId }); emit();
+      updateUrl({ stageId: snapshot.selectedStageId, artifactId }, { replace: false }); emit();
     },
     returnToReviewGate() {
       const stageId = snapshot.reviewGateId;
@@ -150,7 +156,7 @@ export function createOperatorStore(initialSearch = currentSearch()) {
       const model = buildApprovalStages(snapshot.project).find((stage) => stage.stageId === stageId);
       const artifactId = model?.artifacts[0]?.id || null;
       snapshot = { ...snapshot, selectedStageId: stageId, selectedArtifactId: artifactId };
-      updateUrl({ stageId, artifactId }); emit();
+      updateUrl({ stageId, artifactId }, { replace: false }); emit();
     },
     resetToReviewGate() {
       const stageId = snapshot.reviewGateId;
@@ -158,7 +164,19 @@ export function createOperatorStore(initialSearch = currentSearch()) {
       const model = buildApprovalStages(snapshot.project).find((stage) => stage.stageId === stageId);
       const artifactId = model?.artifacts[0]?.id || null;
       snapshot = { ...snapshot, selectedStageId: stageId, selectedArtifactId: artifactId };
-      updateUrl({ stageId, artifactId }); emit();
+      updateUrl({ stageId, artifactId }, { replace: false }); emit();
+    },
+    syncSelectionFromUrl() {
+      if (!snapshot.project) return;
+      const selection = parseViewSelection();
+      const requestedStageId = selection.stageId === "scenePlan" ? "scene_plan" : selection.stageId;
+      const models = buildApprovalStages(snapshot.project);
+      const stage = models.find((item) => item.stageId === requestedStageId)
+        || models.find((item) => item.stageId === snapshot.reviewGateId)
+        || models[0];
+      const artifact = stage?.artifacts.find((item) => item.id === selection.artifactId) || stage?.artifacts[0];
+      snapshot = { ...snapshot, selectedStageId: stage?.stageId || null, selectedArtifactId: artifact?.id || null };
+      emit();
     },
     setNavigation(navigation) { snapshot = { ...snapshot, navigation }; emit(); },
     rememberBatchScroll(scrollTop) {

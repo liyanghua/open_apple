@@ -832,6 +832,18 @@
               "selection_eligible": {
                 "type": "boolean"
               },
+              "evaluation_hash": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                ],
+                "description": "评价报告指纹，用于提交前重新核对报告版本"
+              },
               "selection_block_reason": {
                 "oneOf": [
                   {
