@@ -380,3 +380,20 @@ Phase 4/5 收尾项：
 2. 不把“统一适配器已接入”描述为“九阶段产物已完整”；
 3. 新增专项计划 `docs/superpowers/plans/2026-08-31-single-review-artifact-completeness.md`，先补齐适配器、只读投影和阶段详情，再执行三档手动验收；
 4. 在专项完成前，单条页面继续作为只读查看入口，最终视觉验收保持未完成。
+
+### 6.11 九阶段产物完整性专项实施记录（2026-08-31）
+
+按 `docs/superpowers/plans/2026-08-31-single-review-artifact-completeness.md` 完成 Chunk 0–3 与 Task 4.1：
+
+- **Task 0.1 材料契约**：spec 新增 §9.5 九阶段材料契约表（ID/业务标题/必备字段/媒体动作 + 六条契约规则）；`risks` 规范为 `source_risks`；新增“同一事实只在一处完整呈现、摘要卡不重复正文”契约测试。
+- **Chunk 1 阶段适配器**：新增 `compactProposal`（含 `control_plan` 导演总控单、`production_budget`）、`compactScript`（开场/正文/结尾 × 口播/字幕/段落目标/画面重点/节奏/证明要求，工程字段排除，口播/屏幕文字只留数量入口）、`compactScenePlan`（源素材区间与成片时间轴分离）、`compactAssets`（含 `generation_tasks`）、`compactSample/compactEdit/compactCompose/compactPublish`（含 `compose_readiness`、`version_history`、`pending_changes`、`delivery_package`、`qa_evidence`）。
+- **Task 1.3 只读投影**：`_sample_editor` 补逐镜计划/实际口播、`caption_diff`、`creative_rule_diff`（来自 `sample_execution_trace` 制品），`operator_state.schema.json` 同步；未改变审批 API。
+- **Chunk 2 阶段详情**：`approval.js` 新增 `STAGE_DETAIL_READERS`（35+ 专用阅读器），九类阶段详情分流；`renderArtifactValue()` 降为纯文本 fallback；预览/下载转为播放器与下载动作；统一“未生成/正在准备/资料异常/播放失败”文案。
+- **Chunk 3 去重与无障碍**：工程字段只允许出现在 `isTechnicalArtifactKey` 过滤函数内；脚本/字幕/样片对照重复正文断言（`shot_comparison` 不再重复完整字幕）；键盘操作、`aria-live`、`aria-current`、`data-testid` 契约测试。
+- **Task 4.1 完整性测试**：九阶段最小 fixture 29 项业务字段断言；分镜时间轴/样片口播/成片检查/交付下载语义测试；缺失/处理中/失败/成片与交付缺失的降级测试（空数据不再产出“ready”空 payload）。
+
+验证记录：`PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot` → **370 passed, 1 skipped, 0 failed**；`node --check` 覆盖 `store.js / approval_model.js / approval.js / app.js / api.js / language.js`。
+
+提交：`2bfd5d1`（overview 批量报告基线）、`708539c`（审批壳基线）、`6748dd5`（文档基线）、`38c15f4`（Task 0.1 契约）、`42d1932`（Task 1.1 proposal/script）、`0c16842`（Task 1.2 scene_plan/assets）、`83727bb`（Task 1.3 sample/edit/compose/publish + 只读投影）、`a638247`（Chunk 2 详情阅读器）、`339bbf4`（Chunk 3 去重/无障碍契约）。
+
+**验收就绪**：九阶段产物完整性前置检查已可执行（见 `docs/reports/2026-08-28-single-review-manual-acceptance-checklist.md` 步骤 0 的逐阶段基线）；按约定，1180px/900px/390px 三档视觉走查由业务方在完整性检查通过后执行，本轮未引入浏览器自动化。

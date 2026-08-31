@@ -10,7 +10,7 @@
 
 **Reference:** `docs/superpowers/specs/2026-08-28-backlot-business-language-workbench-design.md`
 
-> **状态更新（2026-08-31）**：Phase 0–3 的审批事实、批量一致性和业务字段已完成；Phase 4–5 的连接契约、文案扫描和前端语法检查已完成，视觉验收按约定由业务方手动执行。单条审批壳、统一浏览状态和九阶段适配器已接入，但阶段产物仍有字段取错、关键信息缺失、重复和工程字段回流问题，不能标记为最终完成。产物整改转入专项计划：`docs/superpowers/plans/2026-08-31-single-review-artifact-completeness.md`。
+> **状态更新（2026-08-31）**：Phase 0–3 的审批事实、批量一致性和业务字段已完成；Phase 4–5 的连接契约、文案扫描和前端语法检查已完成，视觉验收按约定由业务方手动执行。单条审批壳、统一浏览状态和九阶段产物完整性整改均已落地（专项 `2026-08-31-single-review-artifact-completeness.md` Chunk 0–3 + Task 4.1 完成，回归 370 passed / 1 skipped / 0 failed）；三档视觉走查待业务方按产物完整性基线执行后，主计划最终验收方可关闭。
 
 ---
 
@@ -370,10 +370,10 @@ Phase 5  全量回归 + 文案扫描 + 报告 §6.6 记录
 
 | 项目 | 当前状态 | 后续动作 |
 |---|---|---|
-| 统一材料契约 | ⬜ 命名存在漂移，阶段 payload 仍有 fallback | 统一材料 ID，锁定必备业务字段 |
-| 阶段级适配器 | ⬜ proposal/script/scene_plan/assets/sample/compose/publish 尚不完整 | 按阶段增加 compact adapter，修复字段语义和媒体动作 |
-| 阶段详情渲染 | ⬜ 仍以通用递归渲染为主 | 增加九类只读业务阅读器，通用 renderer 只做 fallback |
-| 业务语言与去重 | ⬜ 脚本、字幕、口播存在重复和工程字段风险 | 增加重复内容及工程字段契约测试 |
-| 手动验收 | ⬜ 暂缓 | 产物完整性测试通过后，再执行 1180/900/390 三档走查 |
+| 统一材料契约 | ✅ 已锁定（spec §9.5 + `source_risks` 规范 ID + 契约测试） | 无 |
+| 阶段级适配器 | ✅ 八组 compact 适配器完成，工程字段排除 | 无 |
+| 阶段详情渲染 | ✅ `STAGE_DETAIL_READERS` 35+ 专用阅读器，通用 renderer 仅 fallback | 无 |
+| 业务语言与去重 | ✅ 工程字段/重复正文契约测试与无障碍契约落地 | 无 |
+| 手动验收 | ⏳ 待业务方执行 | 产物完整性走查通过后，再执行 1180/900/390 三档走查 |
 
 执行计划：`docs/superpowers/plans/2026-08-31-single-review-artifact-completeness.md`。在该计划完成前，主计划的“最终验收”保持未完成。

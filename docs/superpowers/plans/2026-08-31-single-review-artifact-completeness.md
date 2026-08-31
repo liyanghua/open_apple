@@ -138,9 +138,9 @@
 - Modify: `tests/backlot/test_operator_state.py`
 - Modify: `tests/backlot/test_operator_single_review.py`
 
-- [ ] 为九个阶段各准备最小 fixture，断言老工作台关键业务字段在新审批材料中至少出现一次。
-- [ ] 增加字段语义测试：分镜时间轴、样片口播、成片检查、交付下载不可为空或错位。
-- [ ] 增加缺失/处理中/失败/报告不完整/权限变化 fixture，确认只读降级不伪造结果。
+- [x] 为九个阶段各准备最小 fixture，断言老工作台关键业务字段在新审批材料中至少出现一次（`test_nine_stage_minimal_fixture_keeps_legacy_business_fields`，29 项断言）。
+- [x] 增加字段语义测试：分镜时间轴、样片口播、成片检查、交付下载不可为空或错位（`action_timing` 只含时间轴、`captions_voice` 含实际口播、`final_video`/`quality_conclusion`、`delivery_package`/`qa_evidence` 下载动作）。
+- [x] 增加缺失/处理中/失败/报告不完整/权限变化 fixture，确认只读降级不伪造结果（`test_degraded_states_never_fabricate_results` + `test_compose_and_publish_degrade_honestly_when_render_missing`；空数据不再产生“ready”空 payload）。
 
 ### Task 4.2：三档手动验收
 
@@ -173,8 +173,8 @@ node --check backlot/ui/operator/app.js
 
 ## 完成标准
 
-- [ ] 九阶段均有稳定、可读、非重复的业务材料。
-- [ ] 老工作台的关键产物没有因统一适配器而丢失。
-- [ ] 分镜、样片、成片、交付的媒体和检查信息可直接操作或查看。
-- [ ] 主界面不出现工程字段，制作记录仍可追溯必要技术事实。
-- [ ] `tests/backlot`、前端语法检查和三档手动验收全部通过。
+- [x] 九阶段均有稳定、可读、非重复的业务材料。
+- [x] 老工作台的关键产物没有因统一适配器而丢失。
+- [x] 分镜、样片、成片、交付的媒体和检查信息可直接操作或查看。
+- [x] 主界面不出现工程字段，制作记录仍可追溯必要技术事实。
+- [ ] `tests/backlot`、前端语法检查和三档手动验收全部通过（代码与测试已通过：370 passed / 1 skipped / 0 failed + `node --check`；三档手动验收待业务方执行）。

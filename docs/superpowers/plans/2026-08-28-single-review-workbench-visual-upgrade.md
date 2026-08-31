@@ -8,7 +8,7 @@
 
 **Tech Stack:** 原生 HTML、JavaScript modules、CSS、现有 Backlot operator API、pytest 静态契约测试；不新增浏览器自动化依赖，完成后由业务方手动验收。
 
-> **实施状态（2026-08-31）**：Task 1–7 的基础代码与契约测试已完成。单条审批页现由统一浏览状态和九阶段产物适配入口驱动，阶段/材料切换、历史只读、审批门权限、异常提示与 URL 恢复已接入；未引入浏览器自动化。但阶段产物回访发现 proposal/script/scene_plan/assets/sample/compose/publish 仍存在字段取错、关键产物缺失、重复展示和工程字段回流风险，Task 8（三档视觉和主线走查）必须等待产物完整性专项完成后执行。专项计划：`docs/superpowers/plans/2026-08-31-single-review-artifact-completeness.md`。
+> **实施状态（2026-08-31）**：Task 1–7 的基础代码与契约测试已完成；九阶段产物完整性专项（`2026-08-31-single-review-artifact-completeness.md`）已完成 Chunk 0–3 与 Task 4.1（材料契约、八组阶段适配器、只读投影补齐、35+ 阶段详情阅读器、去重/工程字段/无障碍契约、九阶段完整性测试；回归 370 passed / 1 skipped / 0 failed）。Task 8（三档视觉和主线走查）现在可以开始：先按 `2026-08-28-single-review-manual-acceptance-checklist.md` 步骤 0 走查九阶段材料，再执行 1180/900/390 三档检查。未引入浏览器自动化。
 
 **References:**
 

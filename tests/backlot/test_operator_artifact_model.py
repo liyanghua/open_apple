@@ -778,3 +778,145 @@ console.log(JSON.stringify({
     assert result["actualNarration"] == ["captions_voice"]
     assert result["plannedCaption"] == []
     assert result["comparisonHasCaption"] is False
+
+
+def test_nine_stage_minimal_fixture_keeps_legacy_business_fields() -> None:
+    """Task 4.1 契约：九阶段各有一个最小 fixture，老工作台关键业务字段在新审批材料中至少出现一次。"""
+    result = _node(
+        """
+const stages = buildApprovalStages({stages:[
+  {id:'research', status:'已完成', editor:{data:{
+    substages:[{id:'reference', label:'参考片怎么拍', state:'completed', message:'已拆解参考片'}],
+    reference:{title:'参考片', summary:'动作和结果成对', proof_method:'动作证明', preview_url:'/reference.mp4'},
+    breakdown:{identified:1, needs_review:0, missing:0, rows:[{visual_content:'刮擦冲突', start_seconds:0, end_seconds:2}]},
+    source_count:2, usable_count:1, sources:[{label:'素材 A', media_type:'video', summary:'产品近景', reviewed:true, preview_url:'/source.mp4'}],
+    risks:['缺少回弹结果镜头'],
+    matching:{rows:[{reference_intent:'展示回弹', match_reason:'动作一致', source_media_id:'素材 A', status:'已匹配'}]},
+    directions:[{title:'真实测试', promise:'用动作证明效果'}],
+    quality:{status:'pass', score:10, max_score:10},
+    proposal_handoff:{state:'ready', message:'可以进入创意方案'},
+  }}},
+  {id:'proposal', status:'已完成', editor:{data:{
+    concepts:[{id:'c1', title:'真实测试', hook:'开场直接做测试', core_message:'看得见的防油', target_audience:'厨房人群', tone:'直接可信', visual_approach:'第一视角实拍', why_this_works:'动作即证明', key_points:['防油'], cta:'立即下单'}],
+    selected_id:'c1', estimated_cost_usd:0.05,
+    control_plan:{plan_id:'cp-1', sections:[{id:'content_direction', label:'内容方向', summary:'方向摘要', rules:['规则一'], review:'approved', feedback:''}]},
+  }}},
+  {id:'script', status:'已完成', editor:{data:{
+    duration_seconds:16,
+    sections:[{id:'sec-1', label:'开场', text:'开场口播', screen_copy:'开场字幕', section_goal:'抓住注意', visual_intent:'冲突画面', pacing:'快节奏', evidence_requirements:['回弹结果']}],
+  }}},
+  {id:'scenePlan', status:'已完成', editor:{data:{
+    duration_seconds:4, reference_basis:{proof_method:'动作证明'},
+    shots:[{id:'shot-1', beat:'刮擦冲突', intent:'展示刮擦', screen_copy:'看得见的刮擦',
+            source_label:'素材A', source_in_seconds:3.0, source_out_seconds:5.0,
+            timeline_in_seconds:0.0, timeline_out_seconds:2.0,
+            source_summary:'产品近景', source_usable_for:['刮擦'],
+            mapping_reason:'参考机制要求“动作证明”',
+            reference_evidence:{mode:'structural_only', mechanism:'动作证明', rationale:'沿用结构机制'},
+            preview_url:'/source.mp4'}],
+  }}},
+  {id:'assets', status:'已完成', editor:{data:{
+    narration_status:'已准备', subtitle_status:'方案已锁定', music_status:'未安排背景音乐', estimated_cost_usd:0.05,
+    planned_count:2, prepared_count:1, waiting_confirmation_count:1, paid_generation_approved:false,
+    items:[{id:'a1', label:'画面生成 · 镜头1', type:'image_generation', provider:'flux', stage_label:'后续阶段', status:'等待确认', reason:'付费生成尚未获得批准', paid:true, cost_estimate_usd:0.01}],
+    execution_plan:{plan_id:'ep-1', status:'approved', shots:[{id:'shot-1', purpose:'展示刮擦', narration:'这是口播', screen_copy:'这是字幕',
+      generation_proposals:[{id:'gp-1', operation:'generate', model_family:'seedance', duration_seconds:2, aspect_ratio:'9:16', estimated_fast_cost_usd:0.1, estimated_standard_cost_usd:0.2, evidence_risk:'中'}], selected_generation_task_id:'gp-1'}]},
+  }}},
+  {id:'sample', status:'等待确认', editor:{data:{
+    preview_url:'/sample.mp4', duration_seconds:12, qa_status:'检查通过',
+    execution_trace:{shots:[{shot_id:'shot-1', status:'executed', status_label:'已按方案执行',
+      planned:{purpose:'展示擦净', screen_copy:'计划字幕', narration:'计划口播', reference_rules:['动作与结果成对']},
+      actual:{source_label:'oil', screen_copy:'实际字幕', narration:'实际口播'},
+      deviation:{reason:'字幕措辞调整'}}]},
+    audio_tracks:[{kind:'narration', label:'口播', planned:true, present:true, state:'present'}],
+    evaluation:{status:'pass', recommended_action:'approve', hard_gate_fails:[], advisory:{scored:true, summary:'观感不错', dimensions:[{name:'hook', score:8, note:'开头抓人'}]}},
+    caption_diff:{status:'executed', summary:'字幕按剧本意图进入样片'},
+    creative_rule_diff:{status:'executed', summary:'导演规则已绑定', rules:[{section:'内容方向', rule:'动作与结果成对', status:'bound', summary:'已绑定'}]},
+  }}},
+  {id:'edit', status:'已完成', editor:{data:{
+    change_scope:'删减镜头', reasons:['节奏偏慢'], affected_shot_count:1, preview_url:'/sample.mp4',
+    shots:[{id:'shot-1', title:'刮擦冲突', source_label:'素材A', duration_seconds:2, enabled:true, caption:'字幕一', narration:'口播一', preview_url:'/shot.mp4'}],
+    audio:{music_volume:0.8, sfx_volume:0.5, narration_enabled:true},
+  }}},
+  {id:'compose', status:'已完成', editor:{data:{
+    duration_seconds:16, qa_status:'检查通过', download_url:'/final.mp4',
+    player:{video_url:'/final.mp4', poster_url:'/final.jpg'},
+    format_label:'竖屏视频',
+    timeline:{duration_seconds:16, tracks:[{kind:'video', label:'画面', segments:[{id:'shot-1', label:'刮擦冲突', start_seconds:0, end_seconds:2}]}]},
+    evaluation:{status:'pass', recommended_action:'publish', hard_gate_fails:[], advisory:{scored:true, summary:'成片观感良好', dimensions:[{name:'hook', score:8}]}},
+    versions:[{id:'v1', label:'V1', active:true, qa_status:'检查通过', video_url:'/final.mp4', change_summary:'初始版本'}],
+    pending_changes:[{kind:'cover', label:'封面', summary:'等待生成新版'}],
+  }}},
+  {id:'publish', status:'已完成', editor:{data:{
+    duration_seconds:16, qa_status:'检查通过', download_url:'/final.mp4', format_label:'竖屏视频',
+    player:{video_url:'/final.mp4'},
+    delivery:{entries:[{platform:'douyin', platform_label:'抖音', status:'exported', status_label:'已导出', title:'发布标题', export_path:'publish/final.mp4'}],
+      package_files:[{relative_path:'publish/final.mp4', label:'final.mp4', kind:'video', download_url:'/dl/final.mp4'}],
+      notes:'交付说明',
+      qa_evidence:[{relative_path:'qa/l1a.json', label:'l1a.json', download_url:'/dl/l1a.json'}]},
+  }}},
+]});
+const stageText = (stageId) => JSON.stringify(stages.find((stage) => stage.stageId === stageId)?.artifacts.map((artifact) => artifact.payload));
+const everyStageHasReadyMaterial = stages.every((stage) => stage.artifacts.some((artifact) => artifact.health === 'ready'));
+console.log(JSON.stringify({
+  researchHasRisk: stageText('research').includes('缺少回弹结果镜头'),
+  researchHasReference: stageText('research').includes('动作和结果成对'),
+  proposalHasControlPlan: stageText('proposal').includes('内容方向'),
+  proposalHasBudget: stageText('proposal').includes('0.05'),
+  scriptHasParts: stageText('script').includes('开场'),
+  scriptHasProof: stageText('script').includes('回弹结果'),
+  sceneHasBothIntervals: stageText('scene_plan').includes('timeline_in_seconds') && stageText('scene_plan').includes('source_in_seconds'),
+  sceneTimelineValue: JSON.stringify(stages.find((stage) => stage.stageId === 'scene_plan').artifacts.find((artifact) => artifact.id === 'action_timing')?.payload).includes('"timeline_in_seconds":0'),
+  assetsHasTask: stageText('assets').includes('"selected":true') && stageText('assets').includes('"operation":"generate"'),
+  assetsHasNarrationStatus: stageText('assets').includes('已准备'),
+  sampleHasActualNarration: stageText('sample').includes('实际口播'),
+  sampleHasCaptionDiff: stageText('sample').includes('字幕按剧本意图进入样片'),
+  sampleHasRuleDiff: stageText('sample').includes('动作与结果成对'),
+  editHasReadiness: stageText('edit').includes('"ready":true'),
+  editHasPreview: stageText('edit').includes('/sample.mp4'),
+  composeHasVideo: stageText('compose').includes('/final.mp4'),
+  composeHasTimeline: stageText('compose').includes('画面'),
+  composeHasVersion: stageText('compose').includes('初始版本'),
+  publishHasPlatform: stageText('publish').includes('抖音'),
+  publishHasDownload: stageText('publish').includes('/dl/final.mp4'),
+  publishHasEvidence: stageText('publish').includes('/dl/l1a.json'),
+  everyStageHasReadyMaterial,
+}));
+"""
+    )
+    for key, flag in result.items():
+        assert flag is True, key
+
+
+def test_degraded_states_never_fabricate_results() -> None:
+    """Task 4.1 契约：缺失/处理中/失败/报告不完整时只读降级，不伪造业务结果。"""
+    result = _node(
+        """
+const stages = buildApprovalStages({stages:[
+  {id:'script', status:'已完成', editor:{data:{}}},
+  {id:'sample', status:'制作中', editor:{data:{}}},
+  {id:'assets', status:'处理失败', editor:{data:{}}},
+  {id:'scenePlan', status:'已完成', editor:{data:{shots:[{id:'shot-1'}]}}},
+]});
+const script = stages.find((stage) => stage.stageId === 'script');
+const sample = stages.find((stage) => stage.stageId === 'sample');
+const assets = stages.find((stage) => stage.stageId === 'assets');
+const scene = stages.find((stage) => stage.stageId === 'scene_plan');
+console.log(JSON.stringify({
+  scriptHealth: script.artifacts[0].health,
+  scriptPayloadNull: script.artifacts[0].payload === null,
+  sampleHealth: sample.artifacts[0].health,
+  sampleSummary: sample.artifacts[0].summary,
+  assetsHealth: assets.artifacts[0].health,
+  assetsSummary: assets.artifacts[0].summary,
+  sceneTimingHealth: scene.artifacts.find((artifact) => artifact.id === 'action_timing').health,
+}));
+"""
+    )
+    assert result["scriptHealth"] == "missing"
+    assert result["scriptPayloadNull"] is True
+    assert result["sampleHealth"] == "processing"
+    assert result["sampleSummary"] == "暂未提供"
+    assert result["assetsHealth"] == "failed"
+    assert result["assetsSummary"] == "暂未提供"
+    assert result["sceneTimingHealth"] == "missing"

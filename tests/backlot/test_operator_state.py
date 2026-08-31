@@ -963,3 +963,18 @@ def test_revision_value_is_not_part_of_its_own_hash() -> None:
     state["revision"] = "f" * 64
 
     assert operator_revision(state) == expected
+
+
+def test_compose_and_publish_degrade_honestly_when_render_missing() -> None:
+    """Task 4.1：成片/交付缺少渲染结果时只读降级，不伪造通过或交付。"""
+    from backlot.operator_state import project_operator_state
+
+    state = project_operator_state(_board_state())
+    compose = next(stage for stage in state["stages"] if stage["id"] == "compose")
+    publish = next(stage for stage in state["stages"] if stage["id"] == "publish")
+    compose_data = compose["editor"]["data"]
+    publish_data = publish["editor"]["data"]
+    assert compose_data["qa_status"] == "等待成片检查"
+    assert compose_data["download_url"] is None
+    assert publish_data["delivery"]["entries"] == []
+    assert publish_data["delivery"]["package_files"] == []

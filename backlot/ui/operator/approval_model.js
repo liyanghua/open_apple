@@ -411,6 +411,8 @@ function compactGenerationList(data) {
     source_summary: item?.source_summary,
     source_range: item?.source_range,
   })) : [];
+  if (!items.length && data.planned_count == null && data.prepared_count == null
+    && data.waiting_confirmation_count == null && data.paid_generation_approved == null) return null;
   return {
     planned_count: data.planned_count,
     prepared_count: data.prepared_count,
@@ -459,14 +461,16 @@ function compactNarrationSubtitles(data) {
   const execution = data?.execution_plan;
   const shots = Array.isArray(execution?.shots) ? execution.shots : [];
   // 逐镜口播/字幕只呈现覆盖情况，不重复完整正文。
+  const coverage = shots.map((shot) => ({
+    id: shot?.id,
+    narration_ready: hasValue(shot?.narration),
+    subtitle_ready: hasValue(shot?.screen_copy),
+  }));
+  if (!hasValue(data.narration_status) && !hasValue(data.subtitle_status) && !coverage.length) return null;
   return {
     narration_status: data.narration_status,
     subtitle_status: data.subtitle_status,
-    coverage: shots.map((shot) => ({
-      id: shot?.id,
-      narration_ready: hasValue(shot?.narration),
-      subtitle_ready: hasValue(shot?.screen_copy),
-    })),
+    coverage,
   };
 }
 
