@@ -212,3 +212,53 @@ console.log(JSON.stringify({replaced:window.history.replaced, pushed:window.hist
     )
     assert result["replaced"] == "/p/demo?from=batch&stage=sample&artifact=sample_video"
     assert result["pushed"] == "/p/demo?from=batch&stage=script&artifact=production_script"
+
+
+def test_material_ids_are_stable_unique_and_source_risks_canonical() -> None:
+    """Task 0.1 契约：素材风险材料规范 ID 为 source_risks，阶段内材料 ID 不得重复。"""
+    result = _node(
+        """
+const stages = buildApprovalStages({stages:[
+  {id:'research', status:'已完成', editor:{data:{risks:['风险一', '风险二']}}},
+]});
+const research = stages.find((stage) => stage.stageId === 'research');
+const ids = research.artifacts.map((artifact) => artifact.id);
+const sourceRisks = research.artifacts.find((artifact) => artifact.id === 'source_risks');
+const legacyRisks = research.artifacts.find((artifact) => artifact.id === 'risks');
+console.log(JSON.stringify({
+  ids,
+  duplicates: ids.filter((id, index) => ids.indexOf(id) !== index),
+  sourceRisksPayload: sourceRisks?.payload,
+  legacyRisksPresent: Boolean(legacyRisks),
+  sourceRisksHealth: sourceRisks?.health,
+}));
+"""
+    )
+    assert result["duplicates"] == []
+    assert result["sourceRisksPayload"] == ["风险一", "风险二"]
+    assert result["legacyRisksPresent"] is False
+    assert result["sourceRisksHealth"] == "ready"
+
+
+def test_summary_cards_never_embed_full_material_body() -> None:
+    """Task 0.1 契约：摘要卡只显示结论与入口，完整正文只在材料详情中出现。"""
+    result = _node(
+        """
+const longNarration = '开场口播正文'.repeat(200);
+const stages = buildApprovalStages({stages:[
+  {id:'script', status:'已完成', editor:{data:{sections:[
+    {id:'s1', label:'开场', text:longNarration, screen_copy:'开场字幕'},
+  ]}}},
+]});
+const script = stages.find((stage) => stage.stageId === 'script');
+const summaries = script.artifacts.map((artifact) => artifact.summary);
+console.log(JSON.stringify({
+  summaries,
+  anyEmbedsFullBody: summaries.some((summary) => summary.includes(longNarration)),
+  maxSummaryLength: Math.max(...summaries.map((summary) => summary.length)),
+}));
+"""
+    )
+    assert result["anyEmbedsFullBody"] is False
+    assert result["maxSummaryLength"] < 200
+

@@ -30,10 +30,10 @@
 - Modify: `tests/backlot/test_operator_artifact_model.py`
 - Modify: `docs/superpowers/specs/2026-08-28-backlot-business-language-workbench-design.md`
 
-- [ ] 记录九阶段每个材料的稳定 ID、业务标题、必备字段和允许的媒体动作。
-- [ ] 解决 `risks` / `source_risks` 命名漂移，更新测试和文档后只保留一个规范 ID。
-- [ ] 增加“同一事实只能在一个主材料中呈现，摘要卡不得重复完整正文”的契约。
-- [ ] 运行 `PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot/test_operator_artifact_model.py`。
+- [x] 记录九阶段每个材料的稳定 ID、业务标题、必备字段和允许的媒体动作（已落 spec §9.5 契约表）。
+- [x] 解决 `risks` / `source_risks` 命名漂移，更新测试和文档后只保留一个规范 ID（规范 ID = `source_risks`）。
+- [x] 增加“同一事实只能在一个主材料中呈现，摘要卡不得重复完整正文”的契约。
+- [x] 运行 `PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot/test_operator_artifact_model.py`（8 passed；全量 349 passed, 1 skipped）。
 
 ## Chunk 1：阶段级业务适配器
 

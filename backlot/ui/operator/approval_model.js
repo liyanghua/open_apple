@@ -12,7 +12,7 @@ const STAGE_MATERIALS = {
     ["reference_highlights", "参考片重点", ["reference", "highlights", "breakdown"]],
     ["reference_breakdown", "参考片分镜", ["breakdown"]],
     ["source_inventory", "素材情况", ["sources", "source_inventory", "source_summary"]],
-    ["risks", "素材风险", ["risks", "warnings", "quality.warnings"]],
+    ["source_risks", "素材风险", ["risks", "warnings", "quality.warnings"]],
     ["material_matching", "镜头与素材匹配", ["matching"]],
     ["content_directions", "可选方向", ["directions"]],
     ["decision_inbox", "待确认事项", ["decision_inbox"]],
@@ -264,7 +264,7 @@ function payloadForArtifact(data, descriptor) {
   if (id === "reference_highlights") return compactReference(data.reference) || dataValue(data, keys);
   if (id === "reference_breakdown") return compactBreakdown(data.breakdown);
   if (id === "source_inventory") return compactSources(data);
-  if (id === "risks") return Array.isArray(data.risks) ? data.risks : dataValue(data, keys);
+  if (id === "source_risks") return Array.isArray(data.risks) ? data.risks : dataValue(data, keys);
   if (id === "material_matching") return compactMatching(data.matching);
   if (id === "content_directions") return compactDirections(data.directions);
   if (id === "decision_inbox") return compactDecisionInbox(data.decision_inbox);

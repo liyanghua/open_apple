@@ -461,3 +461,70 @@ commit 中途进程退出时，协调记录保持 `committing` 和每个参与�
 | 确认交付 | 当前版本、平台状态、导出状态、文件、下载、失败原因和 QA 证据 | 不能只取 `package_files`，必须同时展示平台 entries 和下载动作 |
 
 共性约束：摘要卡只显示结论和入口；完整内容只在选中材料详情中出现一次；技术字段进入“制作记录”；预览和下载 URL 作为业务动作保留，不作为普通文本递归字段过滤。专项计划以此表作为实现和验收基线。
+
+### 9.5 九阶段材料契约（2026-08-31 专项 Task 0.1 锁定）
+
+本表是九阶段材料 ID、业务标题、必备字段和媒体动作的规范性契约：`backlot/ui/operator/approval_model.js` 的 `STAGE_MATERIALS` 与 `tests/backlot/test_operator_artifact_model.py` 以它为准，Chunk 1 适配器按它实现，Task 4.1 完整性测试按它断言。
+
+**契约规则：**
+
+1. 材料 ID 全局稳定、阶段内不重复；research 阶段素材风险材料的规范 ID 为 `source_risks`（废弃 `risks` 作为材料 ID 的用法）。
+2. 同一事实只在一个主材料中完整呈现：口播与屏幕文字的完整正文唯一主材料是 `production_script`；`narration`、`on_screen_text` 只保留数量摘要和定位入口。脚本计划（script 阶段）与样片执行（sample 阶段）是不同事实，可分别呈现，但摘要卡不得重复完整正文。
+3. 摘要卡只显示结论与入口（数量、状态、结论），完整内容只在选中材料详情出现一次。
+4. 工程字段（`plan_id`、`control_rule_refs`、`runtime`、`revision`、哈希、`source_media_id`、模型名、文件路径等）只进入“制作记录”，不出现在主材料 payload 与详情正文。
+5. 预览/下载地址是受控媒体动作（播放器、缩略图、下载按钮），不作为普通文本字段递归输出。
+6. 源素材区间（`source_in/out_seconds`）与成片时间轴（`timeline_in/out_seconds`）语义分离，禁止交叉使用。
+
+| 阶段 | 材料 ID | 业务标题 | 必备字段（业务语义） | 允许媒体动作 |
+|---|---|---|---|---|
+| 了解任务 | `task_understanding` | 任务理解 | 任务摘要、参考片摘要、平台与时长要求 | 无 |
+| | `research_path` | 研究步骤 | 五个研究子步骤的名称、状态、说明 | 无 |
+| | `research_template` | 分析方式 | 分析方式名称与摘要 | 无 |
+| | `reference_highlights` | 参考片重点 | 标题、摘要、钩子、证明方式、平均证据时长、运镜/字幕方式、段落顺序、复刻点、差异点 | 参考片播放 |
+| | `reference_breakdown` | 参考片分镜 | 逐镜：画面内容、时间区间、景别、机位、运动、对白、花字、音轨、音乐、分析注记 | 无（证据帧以数量呈现） |
+| | `source_inventory` | 素材情况 | 已检查/可用数量；逐素材：名称、类型、摘要、检查状态、可用用途、时长、分辨率、建议片段、风险 | 素材预览（按类型：视频/图片/音频） |
+| | `source_risks` | 素材风险 | 风险清单 | 无 |
+| | `material_matching` | 镜头与素材匹配 | 逐行：参考意图、匹配理由、推荐素材、状态、缺口 | 无 |
+| | `content_directions` | 可选方向 | 各方向：标题、承诺、保留、改变、避免 | 无 |
+| | `decision_inbox` | 待确认事项 | 事项标题、说明、影响 | 无 |
+| | `research_quality` | 检查结果 | 状态、得分、检查项与结论 | 无 |
+| | `proposal_handoff` | 下一步 | 状态、说明 | 无 |
+| 看创意方案 | `selected_direction` | 采用方向 | 标题、钩子、核心信息、目标人群、语气、视觉方法、有效原因、关键卖点、行动引导、时长、平台 | 无 |
+| | `alternative_directions` | 备选方向 | 各方向标题、钩子、核心信息与差异 | 无 |
+| | `selling_points` | 卖点和差异 | 关键卖点列表 | 无 |
+| | `control_plan` | 导演总控单 | 五章（内容方向/故事和节奏/视觉规则/事实和连续性/原创边界）的摘要与规则、章节复核与反馈 | 无（`plan_id`/`plan_version`/`evidence_refs` 进制作记录） |
+| | `production_budget` | 预计成本 | 预计总成本 | 无 |
+| 确认脚本 | `production_script` | 制作脚本 | 按开场/正文/结尾逐段：口播、屏幕文字、段落目标、画面重点、节奏、证明要求、时间区间 | 无（口播/字幕完整正文的唯一主材料） |
+| | `narration` | 口播 | 段数与总时长摘要 | 无（定位入口，完整正文见制作脚本） |
+| | `on_screen_text` | 屏幕文字 | 段数摘要 | 无（定位入口，完整正文见制作脚本） |
+| | `duration_check` | 时长检查 | 总时长与超时提示 | 无 |
+| 看分镜 | `shot_plan` | 镜头安排 | 逐镜：镜头目的、参考依据（模式/机制/理由）、自有素材、源素材区间、成片时间轴、素材能证明什么、画面重点、安排理由 | 素材预览 + 封面 |
+| | `source_mapping` | 素材对应 | 逐镜素材标签与证明关系 | 无 |
+| | `action_timing` | 动作和时长 | 成片时间轴 `timeline_in/out_seconds`（禁止与 `source_in/out_seconds` 混用） | 无 |
+| 确认制作准备 | `generation_list` | 生成清单 | 逐资产：名称、类型、状态、原因、付费标记、预计费用；计划/已备/待确认计数 | 无 |
+| | `visual_assets` | 画面素材 | 素材代理项：标签、状态、原因、素材摘要、建议片段 | 无 |
+| | `narration_subtitles` | 口播和字幕 | 口播/字幕状态 + 逐镜计划口播与字幕 | 无 |
+| | `music_budget` | 音乐和费用 | 音乐状态、已用费用 | 无 |
+| 查看样片 | `sample_video` | 样片 | 播放地址、时长、检查状态 | 样片播放 |
+| | `shot_comparison` | 镜头对照 | 计划/实际对照：目的、计划画面/字幕、实际素材/字幕、差异原因 | 无 |
+| | `captions_voice` | 字幕和口播 | 逐镜实际口播与字幕、字幕差异 `caption_diff`、导演规则差异 `creative_rule_diff`（Task 1.3 补只读投影） | 无 |
+| | `sound` | 声音 | 口播/BGM/原声三轨状态 | 无 |
+| | `system_checks` | 系统检查 | 硬门失败项、推荐结论 | 无 |
+| | `system_suggestions` | 系统建议 | 观感摘要与维度评分 | 无 |
+| | `production_basis` | 制作依据 | 执行摘要与逐镜参考规则 | 无 |
+| 完成剪辑 | `edit_result` | 剪辑结果 | 精剪状态、修改范围、原因、影响镜头数、修改前样片 | 样片播放 |
+| | `shot_order` | 镜头顺序 | 逐镜：标题、素材、时长、字幕、口播、保留状态 | 逐镜预览 + 封面 |
+| | `audio_captions` | 声音和字幕 | 音乐/音效音量、口播开关 | 无 |
+| | `compose_readiness` | 成片检查就绪 | 是否可进入成片检查的结论与依据 | 无（审批页只读，不暴露编辑能力） |
+| 检查成片 | `final_video` | 完整视频 | 播放地址、时长、当前版本 | 成片播放 + 下载 |
+| | `picture_sound` | 画面声音对照 | 画面/口播/文案/音乐音效四条时间轴 | 片段预览 |
+| | `quality_conclusion` | 质量结论 | `qa_status`、硬性检查、观感结论（不得只以 `qa_status` 概括） | 无 |
+| | `version_history` | 版本变化 | 版本列表：标识、激活状态、检查状态、变更说明 | 版本播放 + 封面 |
+| | `pending_changes` | 待处理问题 | 待处理变更（封面/前三秒/背景音乐/结尾/文案） | 无 |
+| 确认交付 | `delivery_video` | 交付视频 | 当前版本、播放/下载地址 | 交付播放 + 下载 |
+| | `file_info` | 文件信息 | 格式（分辨率）、时长 | 无 |
+| | `platforms_download` | 平台和下载 | 平台 entries：平台、状态、标题、描述、话题标签、时间、失败原因 | 下载动作 |
+| | `delivery_package` | 交付文件 | 交付包路径、文件清单、交付说明 | 下载动作 |
+| | `qa_evidence` | QA 证据 | 证据文件清单 | 下载动作 |
+
+新增材料 ID（`control_plan`、`production_budget`、`compose_readiness`、`version_history`、`pending_changes`、`delivery_package`、`qa_evidence`）随 Chunk 1 适配器接入 `STAGE_MATERIALS`；表中标注“Task 1.3 补只读投影”的字段由 `backlot/operator_state.py` 只读投影扩展提供，不改变审批 API。
