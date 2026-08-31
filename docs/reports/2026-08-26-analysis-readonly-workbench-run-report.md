@@ -310,3 +310,73 @@ Phase 4/5 收尾项：
 - 本轮不纳入自动化浏览器验收；按桌面 1180px、平板 900px、移动 390px 手动检查批量总览、快速查看、单条复核、返回批量、媒体失败、报告降级和权限变化。
 
 验证记录：`PYTHONPATH=. .venv/bin/pytest -q tests/backlot` → **309 passed, 1 skipped**；`node --check` 覆盖 operator 前端模块。完整 `tests/lib` 需要仓库外部的 gitignored `projects/` 运行数据，缺失时属于环境前置条件，不计入本轮回归结论。
+
+### 6.7 本轮原型对照回访：单条工作台仍需视觉升级
+
+对照基准：`.superpowers/brainstorm/49441-1787886628/actual-mainline-review.html`；真实页面：`/p/table-mat-batch-002-c1?from=batch&batch_id=table-mat-batch-002`。
+
+本轮确认的后端和交互基础已经存在：批次上下文、返回批量、快速查看只读、审批只读模式、三个人审门、五项样片确认、批量两步和异常恢复均有实现或契约测试。但真实单条页面首屏仍是旧的“项目总进度 + 左侧九步导航 + 中间阶段内容 + 右侧当前需要处理”，与原型的“当前确认说明 + 轻量九步进度 + 材料列表 / 视频说明 / 五项确认”存在结构性差距。
+
+需要在下一阶段完成的单条升级：
+
+- 用“现在需要你确认什么”替代项目进度和效率承诺作为首屏焦点；
+- 把视频播放器、当前产物、确认项和确认后流程固定为审批阅读顺序；
+- 将 `result_first`、`judge`、`L1a`、`VLM advisory`、文件路径等技术内容移入“制作记录”；
+- 审批模式只保留“退回修改”和“确认通过，继续制作”，不渲染编辑器、暂存修改和影响预览；
+- 复用现有审批事实和 API，不新增单条状态或视觉之外的后端协议。
+
+专项计划：`docs/superpowers/plans/2026-08-28-single-review-workbench-visual-upgrade.md`。本阶段仍按 1180px、900px、390px 三档手动验收，不引入 Playwright 作为完成门。
+
+### 6.8 单条工作台阶段与产物融合实施记录（2026-08-30）
+
+已完成单条审批展示层升级：
+
+- operator store 统一维护 `reviewGateId / selectedStageId / selectedArtifactId`；阶段和材料浏览写入 URL，刷新和浏览器返回可恢复，产物版本或 `subject_hash` 变化时回到当前确认门；
+- 新增统一九阶段产物适配器，复用 operator-state 的脚本、分镜、清单、样片、成片和交付数据，缺失/处理中/失败均返回业务状态；
+- 审批页不再直接调用旧阶段 renderer；左侧材料、中间单材料详情、右侧当前门/只读状态由同一 view model 驱动；
+- 阶段、材料、时间片段改为语义化键盘操作，补充选中态、焦点态和异步错误提示；技术 URL、哈希、报告元字段不回流到主界面；
+- 单条页面保持现有审批 API、审批事实和批量串联，不新增编辑器或 Studio 能力。
+
+验证记录：`PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot` → **340 passed, 1 skipped**；`node --check` 覆盖 `store.js`、`approval_model.js`、`approval.js`、`app.js`。按用户约定未引入或运行浏览器自动化；1180px、900px、390px 的视觉主线走查仍由业务方手动确认。
+
+### 6.9 历史成片总览新增「批量成片整体报告」（2026-08-31）
+
+按业务要求，把「当前批量成片的整体报告」落到 `/overview/`（历史成片总览）首屏，只读聚合、不触发任何付费调用（L3 仅读制品，与页面既有口径一致）。
+
+- 新增 `backlot/overview_state.py::_batch_report()`：聚合已发布成片（发布数/评分数/证书数/L1a 通过数/档位分布/TOP3/L3 均分/单维短板分布）、发布版本（正式版/已取代/基准/严格档全绿/豁免白名单）、模板池（50 条模板记录、43 张主模板、全部标定、容量判定分布）、产出覆盖（9/43 主模板已出片、34 张未产出）、素材缺口清单（动作域数 + P0 数）与在制状态；
+- 新增 `_inflight_runs()`：扫描未完成 publish 的模板 run，按「进行中（plan 已批）」「已备未启动（plan 待批但有推进）」「占位未启动」三档分类，业务阶段/状态文案复用 `backlot/operator_language.py`；当前快照 = 1 条进行中（sheet-22-video27 停在「确认制作准备」等待确认，08-28 13:00）、2 条已备未启动（sheet-12/34，已推进到看分镜）、7 个占位 run；
+- 修正已过时的口径文本：`known_limits` 原写死「sheet-01/04 无交付证书」，现改为按当前制品动态生成（当前 17/17 部均已绑定交付证书，该条不再出现）；
+- 页面：`backlot/ui/overview.html` 新增「批量成片整体报告」区块（6 张 KPI 卡 + 短板/缺口明细 + 自动提示），`overview.js::renderBatchReport()` 渲染，`overview.css` 增补卡片样式；`node --check` 通过。
+
+当前快照（2026-08-31，只读）：17 部已发布成片全部有 L3 评分与交付证书、L1a 全部 pass；L3 均分 8.23，推荐 1（sheet-01·视频1）、达标 10、观察 6（含短板 4，16/17 部短板均为 hook_clarity）；正式版 7 部（严格档全绿 6 + Goldset 豁免 1：sheet-01）、已取代 5、基准 5；主模板容量：受限 4 / 需压缩 29 / 素材缺口 10；素材缺口清单 4 个动作域均 P0，影响 23 个模板。
+
+验证：`PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot` → **346 passed, 1 skipped**；`tests/backlot/test_overview_view.py` 增加整体报告字段、进行中/占位分类与动态口径断言。
+
+### 6.10 九阶段产物完整性回访（2026-08-31）
+
+本次回访针对“老工作台其他阶段的产物是否完整迁移到单条审批工作台”进行代码级对照。结论是：统一浏览状态和三栏审批壳已接入，但九阶段产物适配尚未达到业务验收标准。
+
+**确定性问题：**
+
+- 分镜“动作和时长”把源素材区间当成成片时间轴，存在语义错位；
+- 创意方案未呈现导演总控单；
+- 脚本仍以原始 sections 递归展示，存在工程字段和口播/字幕重复；
+- 制作准备缺少生成任务预览、失败原因、实际费用和完整口播字幕内容；
+- 样片口播字段未完整投影，`caption_diff` 和 `creative_rule_diff` 未进入审批材料；
+- 精剪缺少“是否可以进入成片检查”的只读结果；
+- 成片检查容易退化为单一 `qa_status`，评价报告细节没有完整呈现；
+- 交付材料可能只显示 package files，平台状态、发布结果、下载动作和 QA 证据不完整；
+- 通用递归渲染无法同时承担镜头、时间轴、检查项、生成任务和交付文件的业务阅读。
+
+**回归结果：**
+
+- `node --check backlot/ui/operator/store.js backlot/ui/operator/approval_model.js backlot/ui/operator/approval.js backlot/ui/operator/app.js`：通过；
+- `tests/backlot/test_operator_ui_contract.py` + `tests/backlot/test_operator_single_review.py`：通过；
+- `tests/backlot/test_operator_artifact_model.py`：**5 passed / 1 failed**，失败为材料 ID `risks` 与既有测试期望 `source_risks` 不一致，说明阶段材料契约存在命名漂移。
+
+**处理决定：**
+
+1. 保留 Phase 0–5、批量/单条事实串联和基础审批壳的历史完成记录；
+2. 不把“统一适配器已接入”描述为“九阶段产物已完整”；
+3. 新增专项计划 `docs/superpowers/plans/2026-08-31-single-review-artifact-completeness.md`，先补齐适配器、只读投影和阶段详情，再执行三档手动验收；
+4. 在专项完成前，单条页面继续作为只读查看入口，最终视觉验收保持未完成。

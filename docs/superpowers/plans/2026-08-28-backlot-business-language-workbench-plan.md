@@ -10,6 +10,8 @@
 
 **Reference:** `docs/superpowers/specs/2026-08-28-backlot-business-language-workbench-design.md`
 
+> **状态更新（2026-08-31）**：Phase 0–3 的审批事实、批量一致性和业务字段已完成；Phase 4–5 的连接契约、文案扫描和前端语法检查已完成，视觉验收按约定由业务方手动执行。单条审批壳、统一浏览状态和九阶段适配器已接入，但阶段产物仍有字段取错、关键信息缺失、重复和工程字段回流问题，不能标记为最终完成。产物整改转入专项计划：`docs/superpowers/plans/2026-08-31-single-review-artifact-completeness.md`。
+
 ---
 
 ## Chunk 1: 业务文案与状态投影
@@ -214,20 +216,21 @@ git add backlot/ui/operator/app.js backlot/ui/operator/api.js backlot/batch_acti
 git commit -m "feat(backlot): clarify batch approval actions and outcomes"
 ```
 
-### Task 6: 补齐浏览器交互验收
+### Task 6: 补齐交互契约与手动验收准备
 
 **Files:**
-- Create: `tests/backlot/test_approval_workbench_playwright.py`
+- Modify: `tests/backlot/test_operator_ui_contract.py`
+- Modify: `tests/backlot/test_business_language_contract.py`
 - Modify: `design-demos/editorial-gallery/index.html` only if the fixture is kept as a visual regression page
 - Modify: `backlot/ui/operator/styles.css`
 
-- [ ] **Step 1: 写浏览器失败场景。**
+- [ ] **Step 1: 写静态交互契约。**
 
-覆盖桌面和移动端：批量首屏、只读候选抽屉、进入单条、返回批量、批量门确认、选择托盘、混合阶段、退回/失败候选、无合格候选和报告降级。服务端 fixture 还必须覆盖批次/候选不匹配、候选删除或归档、预览 URL 失效、媒体播放失败、状态刷新超时和加载后权限撤销；测试应断言动作被禁用或服务端拒绝，并出现规格中的中文恢复入口，而不只是扫描字符串。
+覆盖批量首屏、只读候选抽屉、进入单条、返回批量、批量门确认、选择托盘、混合阶段、退回/失败候选、无合格候选和报告降级。服务端 fixture 还必须覆盖批次/候选不匹配、候选删除或归档、预览 URL 失效、媒体播放失败、状态刷新超时和加载后权限撤销；测试断言动作被禁用或服务端拒绝，并出现规格中的中文恢复入口。
 
-- [ ] **Step 2: 运行失败场景确认缺口。**
+- [ ] **Step 2: 运行契约测试确认缺口。**
 
-Run: `pytest -q tests/backlot/test_approval_workbench_playwright.py`
+Run: `pytest -q tests/backlot/test_operator_ui_contract.py tests/backlot/test_business_language_contract.py`
 
 Expected: FAIL，直到页面具备稳定的 data attributes、返回上下文和业务文案。
 
@@ -235,15 +238,15 @@ Expected: FAIL，直到页面具备稳定的 data attributes、返回上下文�
 
 为批次来源、返回按钮、候选卡、当前产物、主动作、选择托盘和错误提示添加稳定 `data-testid`；检查 1180px、900px、390px 三个宽度无横向溢出，底部操作条不遮挡内容。
 
-- [ ] **Step 4: 运行浏览器测试并提交。**
+- [ ] **Step 4: 运行契约测试、完成三档手动检查并提交。**
 
-Run: `pytest -q tests/backlot/test_approval_workbench_playwright.py`
+Run: `pytest -q tests/backlot/test_operator_ui_contract.py tests/backlot/test_business_language_contract.py`
 
-Expected: PASS，桌面和移动端截图中没有品牌词、内部英文词或遮挡。
+Expected: PASS。随后由业务方在 1180px、900px、390px 手动检查桌面/平板/移动布局，确认没有品牌词、内部英文词、横向溢出或遮挡。
 
 ```bash
-git add tests/backlot/test_approval_workbench_playwright.py backlot/ui/operator/styles.css design-demos/editorial-gallery/index.html
-git commit -m "test(backlot): cover connected approval workbench flow"
+git add tests/backlot/test_operator_ui_contract.py tests/backlot/test_business_language_contract.py backlot/ui/operator/styles.css design-demos/editorial-gallery/index.html
+git commit -m "test(backlot): prepare connected workbench manual acceptance"
 ```
 
 ## Chunk 4: 回归与上线门槛
@@ -317,7 +320,7 @@ git commit -m "docs(backlot): record business-language workbench rollout"
 | `evaluation_hash` | = `evaluation_report.artifact_sha256`（报告本身的 hash，不与报告内被评媒体的 subject_hash 混用）。批量选择时服务端**重新读取报告**并校验 artifact_sha256 / scope / 候选绑定 / 报告完整性；旧报告缺字段→只读展示，不得参与写操作。 |
 | `batch_actions.py` | **不重构，补强**。现有已有 coordinator、prepare 校验、参与者状态、幂等重放、commit marker、needs_recovery（事务/恢复测试 19 passed）。缺口=每个候选**单独提交 pointer + 立即 drain outbox**（`project_commit.py:350`），第二候选提交前读取方可见第一候选已通过。→ 新增 **visibility_fence**：fence 未放行前，批量投影与候选单条页**读取旧事实**；全部 marker 齐全后才切 fence、统一放行 outbox。 |
 | 单条页编辑控件 | **保留代码不删除**；审批视图中不渲染、不授权。`renderTypedEditor`/draft/revision/restore 留后续编辑工作室。审批页使用**独立 approval/只读模式**（不能只依赖 `canEdit` 权限判断——有编辑权限用户仍会看到修改控件）。 |
-| Playwright | **不可用静态断言替代**；补齐 `requirements-dev.txt` 依赖 + 浏览器安装步骤；**缺依赖时明确失败**（不得 skipped 当通过）；静态断言仅作补充。 |
+| 浏览器验收 | **最终定案见 A4**：本轮不引入 Playwright 依赖；保留静态契约和 `data-testid`，由业务方按三档宽度手动验收。 |
 
 ### A2. 两个落库前的既有差异（纳入 Task1/Task2 前置）
 
@@ -333,7 +336,7 @@ Phase 1  业务语言映射 + 候选投影业务字段（schema 1.1；读取路�
 Phase 2  visibility_fence + 审批独副本模式（单条只读+通过/退回；不渲染编辑控件）
         + 批量投影/单条页在 fence 未放行前读旧事实 + outbox 统一放行
 Phase 3  批量两步（确认当前门 → 选择 1–2 条）+ 原子协调补强测试（故障注入/幂等/并发）
-Phase 4  Playwright 浏览器套件（设为必需验收门：依赖缺失=失败；桌面+移动 A–G 场景）
+Phase 4  静态交互契约 + 稳定 data-testid + 1180/900/390 三档业务方手动验收
 Phase 5  全量回归 + 文案扫描 + 报告 §6.6 记录
 ```
 
@@ -342,3 +345,35 @@ Phase 5  全量回归 + 文案扫描 + 报告 §6.6 记录
 ### A4. 验收方式调整（2026-08-28）
 
 根据本轮实施确认，Phase 4 不再以 Playwright 自动化作为完成门。本轮保留稳定 `data-testid`、导航/异常状态静态契约和响应式 CSS，由业务方在实现完成后按 1180px、900px、390px 三档手动验收；依赖安装、Chromium 下载和浏览器测试文件不进入本轮提交。Phase 5 的后端回归、文案扫描与前端语法检查仍为必需门。
+
+### A5. 实施状态与剩余工作（2026-08-28）
+
+| 阶段 | 状态 | 证据/说明 |
+|---|---|---|
+| Phase 0 契约审计 | ✅ 完成 | `subject_hash` 沿用 review hash；`evaluation_hash` 重读校验；五项确认映射已锁定 |
+| Phase 1 业务投影 | ✅ 完成 | 九步业务文案、候选业务字段、schema 1.1、读取纯净性已落地 |
+| Phase 2 一致性与审批模式 | ✅ 完成 | visibility fence、统一 outbox 放行、审批只读模式已落地 |
+| Phase 3 批量两步 | ✅ 完成 | participants + evaluation hash 重读；prepare 只校验不创建 |
+| Phase 4 连接与异常契约 | ✅ 完成 | 批单导航、快速查看、异常提示、`data-testid` 和响应式规则已落地；改为手动验收 |
+| Phase 5 回归与文案扫描 | ✅ 完成 | `tests/backlot` 通过，前端模块语法检查通过 |
+| 单条视觉升级 | ⏳ 基础壳已接入，产物整改中 | 统一浏览状态、审批三栏和材料入口已落地；九阶段产物完整性见 A7 |
+
+“Phase 0–5 完成”不等于“单条视觉升级完成”。专项计划完成前，不能把当前真实单条页描述为已达到原型设计。
+
+### A6. 单条视觉升级状态更新（2026-08-30）
+
+专项计划已完成 Task 1–7 的基础实现：单条审批入口、统一浏览状态、九阶段材料适配入口、审批三栏、只读确认和异常恢复均已接入；但本次阶段产物回访发现“适配器已接入”不等于“老工作台关键产物已完整迁移”。三档视觉走查必须等待产物完整性专项完成后执行，不能仅凭基础壳已渲染关闭专项计划。
+
+### A7. 九阶段产物完整性整改（2026-08-31）
+
+本次回访确认的剩余工作不改变审批事实和批量协议，专门补齐展示层与只读投影：
+
+| 项目 | 当前状态 | 后续动作 |
+|---|---|---|
+| 统一材料契约 | ⬜ 命名存在漂移，阶段 payload 仍有 fallback | 统一材料 ID，锁定必备业务字段 |
+| 阶段级适配器 | ⬜ proposal/script/scene_plan/assets/sample/compose/publish 尚不完整 | 按阶段增加 compact adapter，修复字段语义和媒体动作 |
+| 阶段详情渲染 | ⬜ 仍以通用递归渲染为主 | 增加九类只读业务阅读器，通用 renderer 只做 fallback |
+| 业务语言与去重 | ⬜ 脚本、字幕、口播存在重复和工程字段风险 | 增加重复内容及工程字段契约测试 |
+| 手动验收 | ⬜ 暂缓 | 产物完整性测试通过后，再执行 1180/900/390 三档走查 |
+
+执行计划：`docs/superpowers/plans/2026-08-31-single-review-artifact-completeness.md`。在该计划完成前，主计划的“最终验收”保持未完成。

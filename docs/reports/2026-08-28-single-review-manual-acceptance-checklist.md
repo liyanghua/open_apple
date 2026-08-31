@@ -3,6 +3,7 @@
 > 专项计划：`docs/superpowers/plans/2026-08-28-single-review-workbench-visual-upgrade.md` Chunk 4。
 > 验收方式：业务方按 1180px / 900px / 390px 三档宽度手动走查；本轮不引入 Playwright/Chromium 作为完成门。
 > 记录：走查结果由负责人反馈后写入 `docs/reports/2026-08-26-analysis-readonly-workbench-run-report.md` 验收小节。
+> **前置条件（2026-08-31）**：先完成 `docs/superpowers/plans/2026-08-31-single-review-artifact-completeness.md` 的九阶段产物完整性测试；仅有页面壳、阶段切换或静态契约通过，不能开始最终验收。
 
 ## 服务与账号
 
@@ -31,6 +32,8 @@ fixture 服务：`OPENMONTAGE_PROJECTS_DIR=.backlot/review-stage .venv/bin/pytho
 
 准备：浏览器 DevTools 设置为 1180px、900px、390px。每档检查下面 1–8。
 
+0. **阶段产物完整性**：在调整宽度前，逐个点击九个阶段，确认每个阶段至少有一个业务材料；分镜能看到参考依据/自有素材/两个时间区间，样片能看到口播/字幕/声音/检查，成片能看到检查结论，交付能看到平台和下载入口。若任一项缺失或错位，停止本轮验收并记录为代码整改项。
+
 1. **首屏任务**：打开页面即可读到“现在需要你确认什么”（状态标题 + 说明），不需要先看项目进度。
 2. **九步 rail**：横向轻量进度，只有“确认脚本 / 确认制作准备 / 查看样片”三个人审门高亮；等待门显示“现在需要你确认”。
 3. **材料列表**：样片门出现 样片/镜头对照/字幕和口播/声音效果/系统检查/系统建议/制作依据 七项；点击可选中查看。
@@ -48,5 +51,5 @@ fixture 服务：`OPENMONTAGE_PROJECTS_DIR=.backlot/review-stage .venv/bin/pytho
 
 ## 验收判定
 
-全部场景 × 三档宽度通过后：把真实单条页标记为“原型对齐完成”（更新 spec 状态行与报告验收小节）。
+九阶段产物完整性、全部场景 × 三档宽度均通过后：把真实单条页标记为“原型对齐完成”（更新 spec 状态行与报告验收小节）。
 任一失败：记录 URL、宽度、截图路径与现象，作为修复项提交后复走。
