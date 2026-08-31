@@ -397,3 +397,16 @@ Phase 4/5 收尾项：
 提交：`2bfd5d1`（overview 批量报告基线）、`708539c`（审批壳基线）、`6748dd5`（文档基线）、`38c15f4`（Task 0.1 契约）、`42d1932`（Task 1.1 proposal/script）、`0c16842`（Task 1.2 scene_plan/assets）、`83727bb`（Task 1.3 sample/edit/compose/publish + 只读投影）、`a638247`（Chunk 2 详情阅读器）、`339bbf4`（Chunk 3 去重/无障碍契约）。
 
 **验收就绪**：九阶段产物完整性前置检查已可执行（见 `docs/reports/2026-08-28-single-review-manual-acceptance-checklist.md` 步骤 0 的逐阶段基线）；按约定，1180px/900px/390px 三档视觉走查由业务方在完整性检查通过后执行，本轮未引入浏览器自动化。
+
+**第二轮：真实数据联调修复（2026-08-31 晚）**。review 指出第一轮以“适配器 fixture 通过”表述“真实链路完成”偏宽，并确认 4 个 P1 断链。本轮修复并闭环：
+
+1. **生成任务真实状态（P1-1）**：`compactGenerationTasks` 改为优先读取 `execution_plan.generation_tasks`（`load_operator_state` 从 `operator/shot-generation/tasks` 真实任务目录注入，注入逻辑抽为 `_inject_generation_tasks` 供生产与测试共享）；按 `proposal_id + shot_id` 关联生成方案，输出任务状态、质量、预览、实际费用、失败原因；`selected_generation_task_id` 与 `task_id` 比较（此前误与 proposal id 比较）；有方案无任务显示“尚未生成”。
+2. **样片计划/实际口播分离（P1-2）**：`compactCaptionsVoice` 输出 `planned_*/actual_*` 四列，实际缺失显示“实际口播未提供”，不再静默回退计划口播；音轨存在但无逐镜文本时提示文本核对入口。
+3. **参考片段证据保留（P1-3）**：`compactScenePlan` 保留 `description/start_seconds/end_seconds/preview_url/poster_url`；详情中“参考片段预览”与“自有素材预览”为两个独立媒体动作。
+4. **创意方向事实状态（P1-4）**：`selected_id` 未匹配时“采用方向”显示“尚未选定方向”，不再默认取第一个方向；“备选方向”列出全部方向；未选方向不派生卖点结论。
+5. **费用字段分离（P2-5）**：`_asset_editor` 拆为 `estimated_cost_usd`（清单预计总额）与 `spent_cost_usd`（实际已用），schema 同步。
+6. **脚本入口 payload（P2-6）**：删除 `source: "production_script"` 工程字段。
+
+新增真实投影集成测试 `test_real_operator_state_flows_through_approval_adapter`：`project_operator_state` 真实投影 + 真实任务目录注入 → node `buildApprovalStages`，端到端断言四个 P1 字段不丢、不伪造。`test_nine_stage_minimal_fixture_keeps_legacy_business_fields` 明确为适配器层测试，不单独作为真实产物完整性证据。
+
+验证记录：`PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot` → **375 passed, 1 skipped, 0 failed**；`node --check`、`git diff --check` 通过。三档视觉验收仍暂缓，待业务方按清单步骤 0 完成九阶段产物走查后执行。

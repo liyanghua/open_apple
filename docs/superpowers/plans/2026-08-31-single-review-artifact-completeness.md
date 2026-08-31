@@ -177,4 +177,23 @@ node --check backlot/ui/operator/app.js
 - [x] 老工作台的关键产物没有因统一适配器而丢失。
 - [x] 分镜、样片、成片、交付的媒体和检查信息可直接操作或查看。
 - [x] 主界面不出现工程字段，制作记录仍可追溯必要技术事实。
-- [ ] `tests/backlot`、前端语法检查和三档手动验收全部通过（代码与测试已通过：370 passed / 1 skipped / 0 failed + `node --check`；三档手动验收待业务方执行）。
+- [ ] `tests/backlot`、前端语法检查和三档手动验收全部通过（代码与测试已通过：375 passed / 1 skipped / 0 failed + `node --check`；三档手动验收待业务方执行）。
+
+## 修订记录（2026-08-31 第二轮：真实数据联调修复）
+
+第一轮把“适配器 fixture 通过”当作“真实链路完成”，review 发现 4 个 P1 与 2 个 P2 真实数据断链。本轮全部修复，并以真实投影集成测试闭环：
+
+| # | 问题 | 修复 | 回归测试 |
+|---|---|---|---|
+| P1-1 | 生成任务只读 `generation_proposals`，看不到真实任务 | `compactGenerationTasks` 优先读取 `execution_plan.generation_tasks`，按 `proposal_id + shot_id` 关联方案，输出状态/质量/预览/实际费用/失败原因；`selected_generation_task_id` 与 `task_id` 比较；有方案无任务显示“尚未生成” | `test_generation_tasks_cover_failed_and_unstarted_states` + 集成测试 |
+| P1-2 | 实际口播缺失时静默回退计划口播 | `compactCaptionsVoice` 计划/实际分开（`planned_*/actual_*`），缺失保持 null；阅读器显示“实际口播未提供/实际字幕未提供”；音轨存在时提示文本核对入口 | `test_sample_actual_narration_missing_is_never_replaced_by_plan` + 集成测试 |
+| P1-3 | 直接参考片段证据被丢弃 | `compactScenePlan` 保留 `description/start_seconds/end_seconds/preview_url/poster_url`；阅读器“参考片段预览”与“自有素材预览”两个媒体动作 | `test_scene_plan_keeps_reference_segment_evidence_distinct_from_source_preview`（两 URL 必须不同）+ 集成测试 |
+| P1-4 | 未选方向时默认取第一个方向并派生卖点 | `selected_id` 匹配才产出“采用方向”，否则 summary=“尚未选定方向”；全部方向进“备选方向”；未选方向不生成卖点 | `test_proposal_without_selected_direction_never_fabricates_first_concept` + 集成测试 |
+| P2-5 | 预计/已用费用共用字段 | `_asset_editor` 拆为 `estimated_cost_usd`（清单预计总额）+ `spent_cost_usd`（实际已用），schema 与阅读器同步 | 更新 `test_assets_adapter_...` |
+| P2-6 | 脚本入口 payload 含 `source: "production_script"` | 删除 `source` 字段，摘要入口只保留数量与时长 | 更新 `test_script_adapter_...` |
+
+**集成测试**：`test_real_operator_state_flows_through_approval_adapter` 走真实 `project_operator_state` 投影 + `_inject_generation_tasks`（与 `load_operator_state` 共享同一注入函数，真实任务目录读取）→ node `buildApprovalStages`，断言四个 P1 字段端到端不丢、不伪造。
+
+**验证**：`PYTHONPATH=. .venv/bin/python -m pytest -q tests/backlot` → **375 passed, 1 skipped, 0 failed**；`node --check` 与 `git diff --check` 通过。
+
+**状态收窄声明**：完成标准 1–4 仅在“适配器 fixture + 真实投影集成测试”双重证据下勾选；`test_nine_stage_minimal_fixture_keeps_legacy_business_fields` 是适配器层测试，不单独作为真实产物完整性证据。三档视觉验收仍待业务方在产物完整性走查（清单步骤 0）通过后执行。

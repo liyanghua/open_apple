@@ -374,6 +374,7 @@ Phase 5  全量回归 + 文案扫描 + 报告 §6.6 记录
 | 阶段级适配器 | ✅ 八组 compact 适配器完成，工程字段排除 | 无 |
 | 阶段详情渲染 | ✅ `STAGE_DETAIL_READERS` 35+ 专用阅读器，通用 renderer 仅 fallback | 无 |
 | 业务语言与去重 | ✅ 工程字段/重复正文契约测试与无障碍契约落地 | 无 |
+| 真实数据联调 | ✅ 4 个 P1（生成任务真实状态、计划/实际口播分离、参考片段证据、创意方向事实状态）+ 2 个 P2 已修复，`project_operator_state → buildApprovalStages` 集成测试闭环 | 无 |
 | 手动验收 | ⏳ 待业务方执行 | 产物完整性走查通过后，再执行 1180/900/390 三档走查 |
 
 执行计划：`docs/superpowers/plans/2026-08-31-single-review-artifact-completeness.md`。在该计划完成前，主计划的“最终验收”保持未完成。
