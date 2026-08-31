@@ -23,6 +23,8 @@ const STAGE_MATERIALS = {
     ["selected_direction", "采用方向", ["selected_direction", "concept", "concepts"]],
     ["alternative_directions", "备选方向", ["alternatives", "alternative_directions", "concepts"]],
     ["selling_points", "卖点和差异", ["selling_points", "key_selling_points", "core_message", "concepts"]],
+    ["control_plan", "导演总控单", ["control_plan"]],
+    ["production_budget", "预计成本", ["estimated_cost_usd"]],
   ],
   script: [
     ["production_script", "制作脚本", ["sections", "script", "production_script"]],
@@ -257,6 +259,75 @@ function compactHandoff(handoff) {
   };
 }
 
+function compactConcept(concept) {
+  if (!concept || typeof concept !== "object") return null;
+  return {
+    title: concept.title,
+    hook: concept.hook,
+    core_message: concept.core_message,
+    target_audience: concept.target_audience,
+    tone: concept.tone,
+    visual_approach: concept.visual_approach,
+    why_effective: concept.why_this_works,
+    key_points: Array.isArray(concept.key_points) ? concept.key_points : [],
+    cta: concept.cta,
+    duration_seconds: concept.duration_seconds,
+    target_platform: concept.target_platform,
+  };
+}
+
+function compactControlPlan(controlPlan) {
+  if (!controlPlan || typeof controlPlan !== "object" || !Array.isArray(controlPlan.sections)) return null;
+  // plan_id / plan_version / evidence_refs 等工程字段进入制作记录，不进主 payload。
+  return {
+    sections: controlPlan.sections.map((section) => ({
+      label: section?.label,
+      summary: section?.summary,
+      rules: Array.isArray(section?.rules) ? section.rules : [],
+      review: section?.review,
+      feedback: section?.feedback,
+    })),
+  };
+}
+
+function scriptSectionPart(sections, index) {
+  if (sections.length === 1) return "正文";
+  if (index === 0) return "开场";
+  if (index === sections.length - 1) return "结尾";
+  return "正文";
+}
+
+function compactScriptSections(sections) {
+  if (!Array.isArray(sections) || !sections.length) return null;
+  // 口播与屏幕文字的完整正文唯一主材料；control_rule_refs/review/feedback 等工程字段排除。
+  return {
+    sections: sections.map((section, index) => ({
+      part: scriptSectionPart(sections, index),
+      label: section?.label,
+      narration: section?.text,
+      screen_copy: section?.screen_copy,
+      section_goal: section?.section_goal,
+      visual_intent: section?.visual_intent,
+      pacing: section?.pacing,
+      evidence_requirements: Array.isArray(section?.evidence_requirements) ? section.evidence_requirements : [],
+      start_seconds: section?.start_seconds,
+      end_seconds: section?.end_seconds,
+    })),
+  };
+}
+
+function compactScriptEntry(data, field) {
+  // narration / on_screen_text：只保留数量摘要和定位入口，不重复完整正文。
+  const sections = Array.isArray(data?.sections) ? data.sections : [];
+  const count = sections.filter((section) => hasValue(section?.[field])).length;
+  if (!count) return null;
+  return {
+    section_count: count,
+    total_seconds: data.duration_seconds,
+    source: "production_script",
+  };
+}
+
 function payloadForArtifact(data, descriptor) {
   const [id, , keys] = descriptor;
   if (id === "research_path") return compactSubstages(data.substages);
@@ -274,19 +345,19 @@ function payloadForArtifact(data, descriptor) {
     const concepts = Array.isArray(data.concepts) ? data.concepts : [];
     const selectedId = data.selected_id;
     const selected = concepts.find((concept) => concept?.id === selectedId) || concepts[0];
-    if (id === "selected_direction") return selected || null;
-    if (id === "alternative_directions") return concepts.filter((concept) => concept?.id !== selectedId);
-    return selected?.key_points || selected?.selling_points || selected?.core_message || null;
+    if (id === "selected_direction") return compactConcept(selected);
+    if (id === "alternative_directions") {
+      const alternatives = concepts.filter((concept) => concept?.id !== selectedId).map(compactConcept);
+      return alternatives.length ? alternatives : null;
+    }
+    return selected?.key_points || selected?.core_message || null;
   }
-  if (["narration", "on_screen_text"].includes(id) && Array.isArray(data.sections)) {
+  if (id === "control_plan") return compactControlPlan(data.control_plan);
+  if (id === "production_budget") return hasValue(data.estimated_cost_usd) ? { estimated_cost_usd: data.estimated_cost_usd } : null;
+  if (id === "production_script") return compactScriptSections(data.sections);
+  if (["narration", "on_screen_text"].includes(id)) {
     const field = id === "narration" ? "text" : "screen_copy";
-    return data.sections.map((section) => ({
-      id: section?.id,
-      label: section?.label,
-      text: section?.[field],
-      start_seconds: section?.start_seconds,
-      end_seconds: section?.end_seconds,
-    })).filter((section) => hasValue(section.text));
+    return compactScriptEntry(data, field);
   }
   if (id === "duration_check" && hasValue(data.duration_seconds)) {
     return { duration_seconds: data.duration_seconds, status: data.status || "已检查" };
@@ -345,6 +416,10 @@ function artifactModel(data, descriptor, stageHealth) {
             ? `${payload.items.length} 条素材，可查看详情`
             : Array.isArray(payload?.rows)
               ? `${payload.rows.length} 个镜头，可查看详情`
+              : Array.isArray(payload?.sections)
+                ? `${payload.sections.length} 段，可查看详情`
+                : payload?.section_count != null
+                  ? `${payload.section_count} 段${payload.total_seconds != null ? `，共 ${payload.total_seconds} 秒` : ""}`
         : "已准备，可查看详情";
   return {
     id,

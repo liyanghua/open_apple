@@ -262,3 +262,109 @@ console.log(JSON.stringify({
     assert result["anyEmbedsFullBody"] is False
     assert result["maxSummaryLength"] < 200
 
+
+def test_proposal_adapter_reads_direction_fields_control_plan_and_budget() -> None:
+    """Task 1.1 契约：方案阶段业务字段完整，总控单不含工程字段，成本可读。"""
+    result = _node(
+        """
+const proposal = buildApprovalStages({stages:[{
+  id:'proposal', status:'已完成', editor:{data:{
+    concepts:[
+      {id:'c1', title:'真实测试', hook:'开场直接做测试', core_message:'看得见的防油',
+       target_audience:'厨房人群', tone:'直接可信', visual_approach:'第一视角实拍',
+       why_this_works:'动作即证明', key_points:['防油','耐用'], cta:'立即下单',
+       duration_seconds:16, target_platform:'douyin'},
+      {id:'c2', title:'实验室对比', hook:'实验室数据开场', core_message:'数据说话'},
+    ],
+    selected_id:'c1',
+    estimated_cost_usd:0.05,
+    control_plan:{plan_id:'plan-1', plan_version:2, sections:[
+      {id:'content_direction', label:'内容方向', summary:'方向摘要', rules:['规则一'], review:'approved', feedback:''},
+      {id:'story_pacing', label:'故事和节奏', summary:'节奏摘要', rules:[], review:'pending', feedback:''},
+    ]},
+  }}
+}]})[1];
+const selected = proposal.artifacts.find((artifact) => artifact.id === 'selected_direction');
+const controlPlan = proposal.artifacts.find((artifact) => artifact.id === 'control_plan');
+const budget = proposal.artifacts.find((artifact) => artifact.id === 'production_budget');
+console.log(JSON.stringify({
+  ids:proposal.artifacts.map((artifact) => artifact.id),
+  selected:selected?.payload,
+  controlPlan:controlPlan?.payload,
+  budget:budget?.payload,
+  alternatives:proposal.artifacts.find((artifact) => artifact.id === 'alternative_directions')?.payload,
+  points:proposal.artifacts.find((artifact) => artifact.id === 'selling_points')?.payload,
+}));
+"""
+    )
+    assert result["ids"] == [
+        "selected_direction", "alternative_directions", "selling_points",
+        "control_plan", "production_budget",
+    ]
+    selected = result["selected"]
+    assert selected["target_audience"] == "厨房人群"
+    assert selected["why_effective"] == "动作即证明"
+    assert selected["cta"] == "立即下单"
+    assert selected["tone"] == "直接可信"
+    assert selected["visual_approach"] == "第一视角实拍"
+    assert selected["key_points"] == ["防油", "耐用"]
+    assert result["alternatives"][0]["title"] == "实验室对比"
+    assert result["points"] == ["防油", "耐用"]
+    plan = result["controlPlan"]
+    assert [item["label"] for item in plan["sections"]] == ["内容方向", "故事和节奏"]
+    assert plan["sections"][0]["summary"] == "方向摘要"
+    assert plan["sections"][0]["rules"] == ["规则一"]
+    assert "plan_id" not in plan and "plan_version" not in plan
+    assert result["budget"]["estimated_cost_usd"] == 0.05
+
+
+def test_script_adapter_structures_sections_and_drops_engineering_fields() -> None:
+    """Task 1.1 契约：脚本按开场/正文/结尾结构化，工程字段不入主 payload，口播/屏幕文字只留数量入口。"""
+    result = _node(
+        """
+const script = buildApprovalStages({stages:[{
+  id:'script', status:'已完成', editor:{data:{
+    script_id:'s-1', script_version:3, status:'locked', duration_seconds:16,
+    sections:[
+      {id:'sec-1', label:'开场', text:'开场口播', screen_copy:'开场字幕', section_goal:'抓住注意',
+       visual_intent:'冲突画面', pacing:'快节奏', evidence_requirements:['回弹结果'],
+       control_rule_refs:['r1'], review:'approved', feedback:''},
+      {id:'sec-2', label:'正文', text:'正文口播', screen_copy:'正文字幕', section_goal:'证明效果',
+       visual_intent:'动作特写', pacing:'稳定', evidence_requirements:[], control_rule_refs:[], review:'approved', feedback:''},
+      {id:'sec-3', label:'结尾', text:'结尾口播', screen_copy:'结尾字幕', section_goal:'行动引导',
+       visual_intent:'产品收尾', pacing:'收束', evidence_requirements:[], control_rule_refs:[], review:'approved', feedback:''},
+    ],
+  }}
+}]})[2];
+const production = script.artifacts.find((artifact) => artifact.id === 'production_script');
+const narration = script.artifacts.find((artifact) => artifact.id === 'narration');
+const screenText = script.artifacts.find((artifact) => artifact.id === 'on_screen_text');
+console.log(JSON.stringify({
+  parts:production?.payload?.sections?.map((section) => section.part),
+  first:production?.payload?.sections?.[0],
+  hasEngineering: JSON.stringify(production?.payload).includes('control_rule_refs')
+    || JSON.stringify(production?.payload).includes('script_id')
+    || JSON.stringify(production?.payload).includes('"review"')
+    || JSON.stringify(production?.payload).includes('"feedback"'),
+  narration: narration?.payload,
+  narrationSummary: narration?.summary,
+  narrationHasText: JSON.stringify(narration?.payload || {}).includes('开场口播'),
+  screenText: screenText?.payload,
+}));
+"""
+    )
+    assert result["parts"] == ["开场", "正文", "结尾"]
+    first = result["first"]
+    assert first["narration"] == "开场口播"
+    assert first["screen_copy"] == "开场字幕"
+    assert first["section_goal"] == "抓住注意"
+    assert first["visual_intent"] == "冲突画面"
+    assert first["pacing"] == "快节奏"
+    assert first["evidence_requirements"] == ["回弹结果"]
+    assert result["hasEngineering"] is False
+    assert result["narration"] == {"section_count": 3, "total_seconds": 16, "source": "production_script"}
+    assert result["narrationHasText"] is False
+    assert result["screenText"] == {"section_count": 3, "total_seconds": 16, "source": "production_script"}
+    assert result["narrationSummary"] == "3 段，共 16 秒"
+
+

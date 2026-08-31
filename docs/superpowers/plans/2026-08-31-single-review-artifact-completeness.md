@@ -44,10 +44,10 @@
 - Modify: `backlot/ui/operator/approval_model.js`
 - Modify: `tests/backlot/test_operator_artifact_model.py`
 
-- [ ] 新增 `compactProposal()`：采用方向、备选方向、卖点、目标人群、语气、视觉方法、有效原因、行动引导、预计成本和导演总控单均可读。
-- [ ] 新增 `compactScript()`：按开场/正文/结尾输出口播、字幕、段落目标、画面重点、节奏、证明要求；`control_rule_refs`、review 和 feedback 进入制作记录或单独状态区。
-- [ ] 避免“制作脚本 / 口播 / 屏幕文字”重复渲染完整相同内容；摘要卡只保留数量和入口。
-- [ ] 测试工程字段不出现在主 payload，业务字段不为空时不会被通用 fallback 覆盖。
+- [x] 新增 `compactProposal()`：采用方向、备选方向、卖点、目标人群、语气、视觉方法、有效原因、行动引导、预计成本和导演总控单均可读（新增 `control_plan`、`production_budget` 材料）。
+- [x] 新增 `compactScript()`：按开场/正文/结尾输出口播、字幕、段落目标、画面重点、节奏、证明要求；`control_rule_refs`、review 和 feedback 进入制作记录或单独状态区。
+- [x] 避免“制作脚本 / 口播 / 屏幕文字”重复渲染完整相同内容；摘要卡只保留数量和入口（`narration`/`on_screen_text` 只输出 `section_count/total_seconds/source`）。
+- [x] 测试工程字段不出现在主 payload，业务字段不为空时不会被通用 fallback 覆盖（`test_proposal_adapter_reads_direction_fields_control_plan_and_budget`、`test_script_adapter_structures_sections_and_drops_engineering_fields`）。
 
 ### Task 1.2：补齐 scene_plan 和 assets
 
