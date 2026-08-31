@@ -40,6 +40,7 @@ const STAGE_MATERIALS = {
   assets: [
     ["generation_list", "生成清单", ["execution_plan", "generation_list", "shots"]],
     ["visual_assets", "画面素材", ["visual_assets", "assets", "image_assets"]],
+    ["generation_tasks", "生成任务", ["execution_plan.shots", "generation_tasks"]],
     ["narration_subtitles", "口播和字幕", ["narration", "subtitles", "narration_subtitles", "narration_status", "subtitle_status"]],
     ["music_budget", "音乐和费用", ["audio", "music", "budget", "cost", "music_status", "estimated_cost_usd"]],
   ],
@@ -328,6 +329,147 @@ function compactScriptEntry(data, field) {
   };
 }
 
+function shotEvidence(shot) {
+  const parts = [shot?.source_summary, Array.isArray(shot?.source_usable_for) && shot.source_usable_for.length ? shot.source_usable_for.join("、") : null];
+  return parts.filter(hasValue).join("；") || null;
+}
+
+function compactScenePlan(data) {
+  const shots = Array.isArray(data.shots) ? data.shots : [];
+  if (!shots.length) return null;
+  return {
+    duration_seconds: data.duration_seconds,
+    reference_basis: data.reference_basis && typeof data.reference_basis === "object" ? {
+      summary: data.reference_basis.summary,
+      beat_order: data.reference_basis.beat_order,
+      proof_method: data.reference_basis.proof_method,
+      avg_evidence_seconds: data.reference_basis.avg_evidence_seconds,
+    } : null,
+    shots: shots.map((shot) => ({
+      id: shot?.id,
+      title: shot?.beat,
+      purpose: shot?.intent,
+      screen_copy: shot?.screen_copy,
+      framing: shot?.framing,
+      movement: shot?.movement,
+      narrative_role: shot?.narrative_role,
+      source_label: shot?.source_label,
+      source_in_seconds: shot?.source_in_seconds,
+      source_out_seconds: shot?.source_out_seconds,
+      timeline_in_seconds: shot?.timeline_in_seconds,
+      timeline_out_seconds: shot?.timeline_out_seconds,
+      evidence: shotEvidence(shot),
+      mapping_reason: shot?.mapping_reason,
+      reference_evidence: shot?.reference_evidence && typeof shot.reference_evidence === "object" ? {
+        mode: shot.reference_evidence.mode,
+        mechanism: shot.reference_evidence.mechanism,
+        rationale: shot.reference_evidence.rationale,
+      } : null,
+      preview_url: shot?.preview_url,
+      poster_url: shot?.poster_url,
+    })),
+  };
+}
+
+function compactSourceMapping(data) {
+  const shots = Array.isArray(data.shots) ? data.shots : [];
+  const rows = shots.map((shot) => ({
+    id: shot?.id,
+    title: shot?.beat,
+    source_label: shot?.source_label,
+    evidence: shotEvidence(shot),
+    mapping_reason: shot?.mapping_reason,
+  })).filter((row) => hasValue(row.source_label) || hasValue(row.mapping_reason));
+  return rows.length ? { rows } : null;
+}
+
+function compactActionTiming(data) {
+  const shots = Array.isArray(data.shots) ? data.shots : [];
+  // 只允许成片时间轴语义（timeline_in/out 或投影中同为时间轴语义的 in/out），禁止回退到源素材区间。
+  const rows = shots.map((shot) => ({
+    id: shot?.id,
+    timeline_in_seconds: shot?.timeline_in_seconds ?? shot?.in_seconds,
+    timeline_out_seconds: shot?.timeline_out_seconds ?? shot?.out_seconds,
+  })).filter((row) => row.timeline_in_seconds != null && row.timeline_out_seconds != null);
+  return rows.length ? { rows } : null;
+}
+
+function compactGenerationList(data) {
+  const items = Array.isArray(data.items) ? data.items.map((item) => ({
+    label: item?.label,
+    type: item?.type,
+    stage_label: item?.stage_label,
+    status: item?.status,
+    reason: item?.reason,
+    paid: Boolean(item?.paid),
+    cost_estimate_usd: item?.cost_estimate_usd,
+    source_summary: item?.source_summary,
+    source_range: item?.source_range,
+  })) : [];
+  return {
+    planned_count: data.planned_count,
+    prepared_count: data.prepared_count,
+    waiting_confirmation_count: data.waiting_confirmation_count,
+    paid_generation_approved: Boolean(data.paid_generation_approved),
+    items,
+  };
+}
+
+function compactVisualAssets(data) {
+  const items = (Array.isArray(data.items) ? data.items : []).filter((item) => {
+    const kind = String(item?.type || item?.kind || "").toLowerCase();
+    return !["narration", "subtitle", "subtitles", "music", "audio"].includes(kind);
+  }).map((item) => ({
+    label: item?.label,
+    type: item?.type,
+    status: item?.status,
+    reason: item?.reason,
+    source_summary: item?.source_summary,
+    source_range: item?.source_range,
+  }));
+  return items.length ? { items } : null;
+}
+
+function compactGenerationTasks(data) {
+  const execution = data?.execution_plan;
+  if (!execution || typeof execution !== "object") return null;
+  const shots = Array.isArray(execution.shots) ? execution.shots : [];
+  const tasks = shots.flatMap((shot) => (Array.isArray(shot?.generation_proposals) ? shot.generation_proposals : [])
+    .map((proposal) => ({
+      shot_id: shot?.id,
+      shot_purpose: shot?.purpose,
+      operation: proposal?.operation,
+      duration_seconds: proposal?.duration_seconds,
+      aspect_ratio: proposal?.aspect_ratio,
+      estimated_fast_cost_usd: proposal?.estimated_fast_cost_usd,
+      estimated_standard_cost_usd: proposal?.estimated_standard_cost_usd,
+      evidence_risk: proposal?.evidence_risk,
+      selected: proposal?.id != null && shot?.selected_generation_task_id === proposal.id,
+    })));
+  if (!tasks.length) return null;
+  return { status: execution.status, tasks };
+}
+
+function compactNarrationSubtitles(data) {
+  const execution = data?.execution_plan;
+  const shots = Array.isArray(execution?.shots) ? execution.shots : [];
+  // 逐镜口播/字幕只呈现覆盖情况，不重复完整正文。
+  return {
+    narration_status: data.narration_status,
+    subtitle_status: data.subtitle_status,
+    coverage: shots.map((shot) => ({
+      id: shot?.id,
+      narration_ready: hasValue(shot?.narration),
+      subtitle_ready: hasValue(shot?.screen_copy),
+    })),
+  };
+}
+
+function compactMusicBudget(data) {
+  if (!hasValue(data.music_status) && !hasValue(data.estimated_cost_usd)) return null;
+  return { music_status: data.music_status, estimated_cost_usd: data.estimated_cost_usd };
+}
+
 function payloadForArtifact(data, descriptor) {
   const [id, , keys] = descriptor;
   if (id === "research_path") return compactSubstages(data.substages);
@@ -362,25 +504,14 @@ function payloadForArtifact(data, descriptor) {
   if (id === "duration_check" && hasValue(data.duration_seconds)) {
     return { duration_seconds: data.duration_seconds, status: data.status || "已检查" };
   }
-  if (id === "source_mapping" && Array.isArray(data.shots)) {
-    return data.shots.map((shot) => ({
-      id: shot?.id || shot?.shot_id,
-      title: shot?.title || shot?.purpose,
-      source_label: shot?.source_label || shot?.source?.label,
-      source_media_id: shot?.source_media_id || shot?.source?.id,
-    })).filter((shot) => hasValue(shot.title) || hasValue(shot.source_label) || hasValue(shot.source_media_id));
-  }
-  if (id === "action_timing" && Array.isArray(data.shots)) {
-    return data.shots.map((shot) => ({
-      id: shot?.id || shot?.shot_id,
-      start_seconds: shot?.start_seconds ?? shot?.source_in_seconds,
-      end_seconds: shot?.end_seconds ?? shot?.source_out_seconds,
-      duration_seconds: shot?.duration_seconds,
-    }));
-  }
-  if (id === "visual_assets" && Array.isArray(data.items)) {
-    return data.items.filter((item) => !["narration", "subtitle", "music", "audio"].includes(String(item?.kind || item?.type || "").toLowerCase()));
-  }
+  if (id === "shot_plan") return compactScenePlan(data);
+  if (id === "source_mapping") return compactSourceMapping(data);
+  if (id === "action_timing") return compactActionTiming(data);
+  if (id === "generation_list") return compactGenerationList(data);
+  if (id === "visual_assets") return compactVisualAssets(data);
+  if (id === "generation_tasks") return compactGenerationTasks(data);
+  if (id === "narration_subtitles") return compactNarrationSubtitles(data);
+  if (id === "music_budget") return compactMusicBudget(data);
   if (id === "captions_voice" && Array.isArray(data.execution_trace?.shots)) {
     return data.execution_trace.shots.map((shot) => ({
       id: shot?.shot_id,
@@ -416,10 +547,12 @@ function artifactModel(data, descriptor, stageHealth) {
             ? `${payload.items.length} 条素材，可查看详情`
             : Array.isArray(payload?.rows)
               ? `${payload.rows.length} 个镜头，可查看详情`
-              : Array.isArray(payload?.sections)
-                ? `${payload.sections.length} 段，可查看详情`
-                : payload?.section_count != null
-                  ? `${payload.section_count} 段${payload.total_seconds != null ? `，共 ${payload.total_seconds} 秒` : ""}`
+              : Array.isArray(payload?.shots)
+                ? `${payload.shots.length} 个镜头，可查看详情`
+                : Array.isArray(payload?.sections)
+                  ? `${payload.sections.length} 段，可查看详情`
+                  : payload?.section_count != null
+                    ? `${payload.section_count} 段${payload.total_seconds != null ? `，共 ${payload.total_seconds} 秒` : ""}`
         : "已准备，可查看详情";
   return {
     id,

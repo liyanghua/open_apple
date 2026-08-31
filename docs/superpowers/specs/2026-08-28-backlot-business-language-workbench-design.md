@@ -502,8 +502,9 @@ commit 中途进程退出时，协调记录保持 `committing` 和每个参与�
 | | `source_mapping` | 素材对应 | 逐镜素材标签与证明关系 | 无 |
 | | `action_timing` | 动作和时长 | 成片时间轴 `timeline_in/out_seconds`（禁止与 `source_in/out_seconds` 混用） | 无 |
 | 确认制作准备 | `generation_list` | 生成清单 | 逐资产：名称、类型、状态、原因、付费标记、预计费用；计划/已备/待确认计数 | 无 |
-| | `visual_assets` | 画面素材 | 素材代理项：标签、状态、原因、素材摘要、建议片段 | 无 |
-| | `narration_subtitles` | 口播和字幕 | 口播/字幕状态 + 逐镜计划口播与字幕 | 无 |
+| | `visual_assets` | 画面素材 | 画面类素材项：标签、状态、原因、素材摘要、建议片段 | 无 |
+| | `generation_tasks` | 生成任务 | 逐镜生成方案：生成方式、时长、画幅、费用档位、证据风险、是否选中 | 无（模型名进制作记录） |
+| | `narration_subtitles` | 口播和字幕 | 口播/字幕状态 + 逐镜覆盖情况（不重复完整正文） | 无 |
 | | `music_budget` | 音乐和费用 | 音乐状态、已用费用 | 无 |
 | 查看样片 | `sample_video` | 样片 | 播放地址、时长、检查状态 | 样片播放 |
 | | `shot_comparison` | 镜头对照 | 计划/实际对照：目的、计划画面/字幕、实际素材/字幕、差异原因 | 无 |
@@ -527,4 +528,4 @@ commit 中途进程退出时，协调记录保持 `committing` 和每个参与�
 | | `delivery_package` | 交付文件 | 交付包路径、文件清单、交付说明 | 下载动作 |
 | | `qa_evidence` | QA 证据 | 证据文件清单 | 下载动作 |
 
-新增材料 ID（`control_plan`、`production_budget`、`compose_readiness`、`version_history`、`pending_changes`、`delivery_package`、`qa_evidence`）随 Chunk 1 适配器接入 `STAGE_MATERIALS`；表中标注“Task 1.3 补只读投影”的字段由 `backlot/operator_state.py` 只读投影扩展提供，不改变审批 API。
+新增材料 ID（`control_plan`、`production_budget`、`generation_tasks`、`compose_readiness`、`version_history`、`pending_changes`、`delivery_package`、`qa_evidence`）随 Chunk 1 适配器接入 `STAGE_MATERIALS`；表中标注“Task 1.3 补只读投影”的字段由 `backlot/operator_state.py` 只读投影扩展提供，不改变审批 API。

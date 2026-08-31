@@ -56,10 +56,10 @@
 - Modify: `backlot/ui/operator/approval_model.js`
 - Modify: `tests/backlot/test_operator_artifact_model.py`
 
-- [ ] 新增 `compactScenePlan()`：每镜包含镜头目的、参考依据、自有素材、源素材区间、成片时间轴、素材能证明什么、画面重点和安排理由。
-- [ ] 明确 `timeline_in_seconds/out` 与 `source_in_seconds/out` 的语义，禁止交叉使用。
-- [ ] 新增 `compactAssets()`：生成清单、素材状态、生成任务、预览、失败原因、预计费用/已用费用和口播字幕状态统一输出。
-- [ ] 预览和下载地址作为受控媒体动作保留，不作为普通文本字段递归输出。
+- [x] 新增 `compactScenePlan()`：每镜包含镜头目的、参考依据、自有素材、源素材区间、成片时间轴、素材能证明什么、画面重点和安排理由。
+- [x] 明确 `timeline_in_seconds/out` 与 `source_in_seconds/out` 的语义，禁止交叉使用（`action_timing` 只输出时间轴字段，允许回退到投影中同为时间轴语义的 `in/out`，禁止回退到源区间）。
+- [x] 新增 `compactAssets()`：生成清单、素材状态、生成任务、预览、失败原因、预计费用/已用费用和口播字幕状态统一输出（新增 `generation_tasks` 材料）。
+- [x] 预览和下载地址作为受控媒体动作保留，不作为普通文本字段递归输出（分镜 `preview_url/poster_url` 随 payload 传递，模型名/provider 排除出主 payload）。
 
 ### Task 1.3：补齐 sample、edit、compose、publish
 

@@ -147,7 +147,7 @@ console.log(JSON.stringify({
     )
     assert result["gate"] == "sample"
     assert result["sceneHealth"] == "ready"
-    assert result["sceneSummary"] == "1 项，可查看详情"
+    assert result["sceneSummary"] == "1 个镜头，可查看详情"
     assert result["sampleReview"] == {
         "actionable": False,
         "reviewId": None,
@@ -366,5 +366,122 @@ console.log(JSON.stringify({
     assert result["narrationHasText"] is False
     assert result["screenText"] == {"section_count": 3, "total_seconds": 16, "source": "production_script"}
     assert result["narrationSummary"] == "3 段，共 16 秒"
+
+
+def test_scene_plan_adapter_separates_source_and_timeline_intervals() -> None:
+    """Task 1.2 契约：分镜区分源素材区间与成片时间轴，禁止交叉使用。"""
+    result = _node(
+        """
+const scene = buildApprovalStages({stages:[{
+  id:'scenePlan', status:'已完成', editor:{data:{
+    duration_seconds: 12,
+    reference_basis:{summary:'参考摘要', proof_method:'动作证明', beat_order:['冲突','结果'], avg_evidence_seconds:2},
+    shots:[
+      {id:'shot-1', beat:'刮擦冲突', intent:'展示刮擦', screen_copy:'看得见的刮擦', framing:'近景', movement:'固定',
+       source_label:'素材A', source_in_seconds:3.0, source_out_seconds:5.5,
+       timeline_in_seconds:0.0, timeline_out_seconds:2.5,
+       source_summary:'产品近景', source_usable_for:['刮擦'],
+       mapping_reason:'参考机制要求“动作证明”；自有素材呈现“产品近景”',
+       reference_evidence:{mode:'structural_only', mechanism:'动作证明', rationale:'沿用结构机制'},
+       preview_url:'/source.mp4', poster_url:'/source.jpg'},
+      {id:'shot-2', beat:'结果镜头', intent:'展示结果',
+       source_label:'素材B', source_in_seconds:1.0, source_out_seconds:3.0,
+       in_seconds:2.5, out_seconds:4.5},
+    ],
+  }}
+}]})[3];
+console.log(JSON.stringify({
+  plan:scene.artifacts.find((artifact) => artifact.id === 'shot_plan')?.payload,
+  mapping:scene.artifacts.find((artifact) => artifact.id === 'source_mapping')?.payload,
+  timing:scene.artifacts.find((artifact) => artifact.id === 'action_timing')?.payload,
+}));
+"""
+    )
+    plan = result["plan"]
+    assert plan["reference_basis"]["proof_method"] == "动作证明"
+    shot = plan["shots"][0]
+    assert shot["purpose"] == "展示刮擦"
+    assert shot["source_in_seconds"] == 3.0
+    assert shot["source_out_seconds"] == 5.5
+    assert shot["timeline_in_seconds"] == 0.0
+    assert shot["timeline_out_seconds"] == 2.5
+    assert shot["evidence"] == "产品近景；刮擦"
+    assert "动作证明" in shot["mapping_reason"]
+    assert shot["reference_evidence"]["mechanism"] == "动作证明"
+    assert shot["preview_url"] == "/source.mp4"
+    timing_rows = result["timing"]["rows"]
+    assert timing_rows[0] == {"id": "shot-1", "timeline_in_seconds": 0.0, "timeline_out_seconds": 2.5}
+    assert "source_in_seconds" not in timing_rows[0] and "source_out_seconds" not in timing_rows[0]
+    # 没有成片时间轴字段时只允许回退到投影的 in/out（同为时间轴语义），禁止回退到源素材区间。
+    assert timing_rows[1] == {"id": "shot-2", "timeline_in_seconds": 2.5, "timeline_out_seconds": 4.5}
+    mapping_row = result["mapping"]["rows"][0]
+    assert mapping_row["source_label"] == "素材A"
+    assert mapping_row["mapping_reason"] == shot["mapping_reason"]
+
+
+def test_assets_adapter_outputs_business_checklist_tasks_and_audio_status() -> None:
+    """Task 1.2 契约：制作准备输出清单、生成任务、费用与口播字幕状态，不重复正文、不泄漏模型名。"""
+    result = _node(
+        """
+const assets = buildApprovalStages({stages:[{
+  id:'assets', status:'已完成', editor:{data:{
+    narration_status:'已准备', subtitle_status:'方案已锁定，将在样片阶段生成', music_status:'未安排背景音乐',
+    estimated_cost_usd:0.05, planned_count:3, prepared_count:1, waiting_confirmation_count:1, paid_generation_approved:false,
+    items:[
+      {id:'a1', label:'源素材代理 · 素材A', type:'video_proxy', provider:'seedance', stage_label:'制作阶段', status:'已准备', reason:'文件已经生成并登记', paid:false, cost_estimate_usd:0, source_summary:'产品近景', source_range:'建议 3-5.5 秒'},
+      {id:'a2', label:'画面生成 · 镜头1', type:'image_generation', provider:'flux', stage_label:'后续阶段', status:'等待确认', reason:'付费生成尚未获得批准', paid:true, cost_estimate_usd:0.01},
+      {id:'a3', label:'口播音频', type:'narration', provider:'tts', stage_label:'制作阶段', status:'已准备', reason:'文件已经生成并登记', paid:true, cost_estimate_usd:0.02},
+    ],
+    execution_plan:{plan_id:'ep-1', plan_version:2, status:'approved',
+      shots:[
+        {id:'shot-1', purpose:'展示刮擦', narration:'这是口播', screen_copy:'这是字幕',
+         generation_proposals:[{id:'gp-1', operation:'generate', model_family:'seedance', duration_seconds:3, aspect_ratio:'9:16', estimated_fast_cost_usd:0.1, estimated_standard_cost_usd:0.2, evidence_risk:'中'}],
+         selected_generation_task_id:'gp-1'},
+      ],
+    },
+  }}
+}]})[4];
+const list = assets.artifacts.find((artifact) => artifact.id === 'generation_list');
+const narration = assets.artifacts.find((artifact) => artifact.id === 'narration_subtitles');
+console.log(JSON.stringify({
+  list:list?.payload,
+  listSummary:list?.summary,
+  visual:assets.artifacts.find((artifact) => artifact.id === 'visual_assets')?.payload,
+  tasks:assets.artifacts.find((artifact) => artifact.id === 'generation_tasks')?.payload,
+  narration:narration?.payload,
+  narrationHasText: JSON.stringify(narration?.payload || {}).includes('这是口播'),
+  music:assets.artifacts.find((artifact) => artifact.id === 'music_budget')?.payload,
+}));
+"""
+    )
+    list_payload = result["list"]
+    assert list_payload["planned_count"] == 3
+    assert list_payload["prepared_count"] == 1
+    assert list_payload["waiting_confirmation_count"] == 1
+    assert list_payload["paid_generation_approved"] is False
+    items = list_payload["items"]
+    assert len(items) == 3
+    assert items[1]["status"] == "等待确认"
+    assert items[1]["reason"] == "付费生成尚未获得批准"
+    assert items[1]["paid"] is True
+    assert items[1]["cost_estimate_usd"] == 0.01
+    assert "provider" not in items[1]
+    assert result["listSummary"] == "3 条素材，可查看详情"
+    assert [item["type"] for item in result["visual"]["items"]] == ["video_proxy", "image_generation"]
+    tasks = result["tasks"]
+    assert tasks["status"] == "approved"
+    task = tasks["tasks"][0]
+    assert task["shot_purpose"] == "展示刮擦"
+    assert task["operation"] == "generate"
+    assert task["aspect_ratio"] == "9:16"
+    assert task["evidence_risk"] == "中"
+    assert task["selected"] is True
+    assert "model_family" not in task
+    narration_payload = result["narration"]
+    assert narration_payload["narration_status"] == "已准备"
+    assert narration_payload["subtitle_status"] == "方案已锁定，将在样片阶段生成"
+    assert narration_payload["coverage"] == [{"id": "shot-1", "narration_ready": True, "subtitle_ready": True}]
+    assert result["narrationHasText"] is False
+    assert result["music"] == {"music_status": "未安排背景音乐", "estimated_cost_usd": 0.05}
 
 
