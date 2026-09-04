@@ -32,6 +32,11 @@
     "section_reviews": {"type": "object", "additionalProperties": {"enum": ["pending", "approved", "needs_adjustment"]}},
     "feedback": {"type": "object", "additionalProperties": {"type": "string"}},
     "research_refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "differentiation_plan_ref": {
+      "type": ["object", "null"],
+      "properties": {"name": {"type": "string", "const": "differentiation_plan"}, "path": {"type": "string"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+      "required": ["name", "path", "artifact_sha256"], "additionalProperties": false
+    },
     "hook_plan_ref": {
       "oneOf": [
         { "type": "null" },

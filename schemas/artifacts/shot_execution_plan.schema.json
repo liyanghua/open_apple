@@ -387,6 +387,61 @@
           "type": "string",
           "description": "键控配对字段：本 shot 对应 scene/slot（评审 P0-1，禁止位置推断）"
         },
+        "section_id": {
+          "type": "string",
+          "description": "键控配对字段：本 shot 对应 script section"
+        },
+        "claim_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "action_keys": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "evidence_row_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "source_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "source_interval": {
+          "type": "object",
+          "required": ["start_seconds", "end_seconds_exclusive"],
+          "properties": {
+            "start_seconds": {"type": "number", "minimum": 0},
+            "end_seconds_exclusive": {"type": "number", "exclusiveMinimum": 0}
+          },
+          "additionalProperties": false
+        },
+        "narration_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "screen_copy_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "tts_asset_hash": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "tts_measured_duration": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0
+        },
+        "caption_timeline_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
         "template_slot_ref": {
           "type": "string",
           "description": "键控配对字段：本 shot 对应 scene/slot（评审 P0-1，禁止位置推断）"

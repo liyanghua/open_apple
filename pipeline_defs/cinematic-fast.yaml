@@ -14,6 +14,30 @@ reference_input:
   analysis_depth: deep
   analysis_tools: [video_analyzer, scene_detect, frame_sampler]
 
+# The static stage lists below preserve the legacy reference-driven contract.
+# The loader resolves these mode-specific lists at runtime; selected mode
+# requirements replace (rather than union with) reference-only entries.
+mode_requirements:
+  reference_driven:
+    research_required_tools: [video_analyzer, scene_detect, frame_sampler]
+    research_required: [research_brief, source_media_review]
+    scene_plan_required: [script, creative_control_plan, source_media_review, video_analysis_brief, reference_fingerprint, research_breakdown, reference_source_matrix, research_synthesis]
+    research_produces: [research_brief, video_analysis_brief, source_media_review, media_index, reference_fingerprint, research_breakdown, reference_source_matrix, research_synthesis, research_scorecard, caption_style_fingerprint]
+  source_led:
+    research_required_tools: [scene_detect, frame_sampler]
+    research_required: [research_brief, source_media_review, media_index, research_breakdown, source_semantic_index, reference_source_matrix, research_synthesis, research_scorecard, caption_style_fingerprint]
+    scene_plan_required: [script, creative_control_plan, source_media_review, research_breakdown, reference_source_matrix, research_synthesis]
+    research_produces: [research_brief, source_media_review, media_index, research_breakdown, source_semantic_index, reference_source_matrix, research_synthesis, research_scorecard, caption_style_fingerprint]
+  source_led_template:
+    research_required_tools: [scene_detect, frame_sampler]
+    research_required: [research_brief, source_media_review, media_index, research_breakdown, source_semantic_index, reference_source_matrix, research_synthesis, research_scorecard, caption_style_fingerprint, template_pack]
+    scene_plan_required: [script, creative_control_plan, source_media_review, research_breakdown, reference_source_matrix, research_synthesis, template_run_plan]
+    research_produces: [research_brief, source_media_review, media_index, research_breakdown, source_semantic_index, reference_source_matrix, research_synthesis, research_scorecard, caption_style_fingerprint]
+  all_modes:
+    proposal_produces: [proposal_packet, creative_control_plan, hook_plan, decision_log]
+  batch_root:
+    produces: [differentiation_plan]
+
 orchestration:
   mode: executive-producer
   skill: pipelines/cinematic-fast/executive-producer

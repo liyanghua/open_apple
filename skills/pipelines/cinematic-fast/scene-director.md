@@ -11,6 +11,42 @@ Before mapping shots, require the canonical `script` artifact to have
 requirements, and control-rule references as constraints. A draft or partially
 reviewed script is not permission to enter Scene Plan.
 
+## Input mode and evidence propagation
+
+Read `project.json.input_mode` before mapping. For `source_led` and
+`source_led_template`, every `scenes[]` item and its one
+`metadata.source_mapping[]` item MUST carry the same `script_section_id`,
+`claim_ids`, `action_keys`, and `evidence_row_ids` as the approved Script
+section. The relationship is keyed by explicit IDs in both directions:
+`section.scene_id == scene.id` and
+`scene.script_section_id == mapping.script_section_id == section.id`. Never
+join by array position or ordinal.
+
+Every mapped `source_interval` must be contained by every referenced accepted
+matrix row's `source_time_range`; source-led v1 requires
+`scene.evidence_row_ids == mapping.evidence_row_ids == [mapping.matrix_row_id]`.
+That singular primary row owns the scene's source media, hash, and interval;
+supplemental claims require a separate section/scene. Its `source_hash` must
+remain the row's owned-source hash. Also record `subject_completeness`, `crop_strategy`, and
+`caption_safe_zone` from source semantic/crop evidence. A change to the claim,
+action, evidence row, source window, or section binding reopens Script/Scene
+Plan instead of being repaired silently in Assets.
+
+Mode-specific reference rules:
+
+- `reference_driven`: `direct_segment`, `structural_only`, or `none`, following
+  analyzed reference evidence.
+- `source_led`: only `none`; set
+  `metadata.reference_media_usage: not_applicable` and do not emit any
+  reference scene, interval, or path.
+- `source_led_template`: `structural_only` or `none`; template provenance may
+  explain the structural mechanism, but no reference interval/path is allowed.
+  Set `metadata.reference_media_usage: not_applicable`.
+
+Checkpoint completion is fail-closed for source-led modes: Scene Plan must
+match the approved Script evidence contract and canonical Research matrix
+before Assets can consume it.
+
 Every source mapping must be stored in `metadata.source_mapping[]`, keyed to the
 canonical scene and owned source interval. Each mapped scene must also have a
 non-empty canonical `scenes[].shot_intent`. Record every mapping in this shape:
@@ -35,6 +71,14 @@ originality_note: "how the treatment remains original"
 matrix_row_id: "resolved research matrix row"
 matrix_resolution_id: "resolution used for this shot"
 research_direction_ref: "selected differentiation direction"
+script_section_id: "explicit approved script section"
+claim_ids: ["exact Script claim IDs"]
+action_keys: ["exact Script action keys"]
+evidence_row_ids: ["exact accepted matrix row IDs"]
+source_hash: "owned source sha256"
+subject_completeness: "complete"
+crop_strategy: "center crop with protected subject bounds"
+caption_safe_zone: "top | bottom | explicit geometry"
 ```
 
 Accept a mapping only when all four fields explain the reference understanding,

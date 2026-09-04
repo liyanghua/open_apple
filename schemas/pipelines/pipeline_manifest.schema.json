@@ -151,6 +151,24 @@
         "analysis_tools": { "type": "array", "items": { "type": "string" } }
       }
     },
+    "mode_requirements": {
+      "type": "object",
+      "description": "Input-mode-specific artifact requirements and stage outputs.",
+      "properties": {
+        "reference_driven": { "$ref": "#/$defs/modeRequirements" },
+        "source_led": { "$ref": "#/$defs/modeRequirements" },
+        "source_led_template": { "$ref": "#/$defs/modeRequirements" },
+        "all_modes": { "$ref": "#/$defs/modeRequirements" },
+        "batch_root": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "produces": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "metadata": { "type": "object" },
     "orchestration": {
       "type": "object",
@@ -177,5 +195,34 @@
       "additionalProperties": false
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "modeRequirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "research_required": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "proposal_required": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "script_required": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "scene_plan_required": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "assets_required": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "sample_required": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "edit_required": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "compose_required": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "publish_required": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "research_produces": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "proposal_produces": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "script_produces": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "scene_plan_produces": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "assets_produces": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "sample_produces": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "edit_produces": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "compose_produces": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "publish_produces": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "research_required_tools": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "proposal_required_tools": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "scene_plan_required_tools": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    }
+  }
 }

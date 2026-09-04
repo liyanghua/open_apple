@@ -10,6 +10,7 @@ never auto-publishes candidates.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Mapping
 
 from lib.artifact_hashing import attach_hashes
@@ -44,6 +45,7 @@ def create_candidate_batch(
     budget: Mapping[str, Any] | None = None,
     source_media_refs: list[str] | None = None,
     diversity_mode: str = "warning",
+    differentiation_plan_ref: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not shared_research_refs:
         raise ValueError("candidate_batch requires at least one shared research ref")
@@ -129,6 +131,7 @@ def create_candidate_batch(
         ),
         "differentiation_axes": dict(differentiation_axes or {"hook": True, "pacing": True, "packaging": True, "audience": True, "duration": True}),
         "diversity_mode": diversity_mode,
+        "differentiation_plan_ref": dict(differentiation_plan_ref) if differentiation_plan_ref else None,
         "candidates": normalized,
         "selection": {"selected_candidate_ids": [], "selected_at": None, "reason": ""},
     }
@@ -284,6 +287,28 @@ def select_for_edit(
 
 
 def _seal(batch: dict[str, Any]) -> dict[str, Any]:
+    validate_candidate_batch_owner(batch)
     sealed = attach_hashes(batch)
     validate_artifact("candidate_batch", sealed)
     return sealed
+
+
+def validate_candidate_batch_owner(batch: Mapping[str, Any]) -> None:
+    ref = batch.get("differentiation_plan_ref")
+    if ref is not None and not (
+        isinstance(ref, Mapping) and ref.get("name") == "differentiation_plan"
+        and str(ref.get("path") or "").startswith("artifacts/")
+        and len(str(ref.get("artifact_sha256") or "")) == 64
+    ):
+        raise ValueError("candidate_batch has invalid differentiation_plan_ref")
+    if any("differentiation_plan_ref" in row for row in batch.get("candidates", []) if isinstance(row, Mapping)):
+        raise ValueError("candidate_batch candidates must not duplicate the root differentiation ref")
+
+
+def persist_candidate_batch(project_dir: Path, batch: Mapping[str, Any], *, sink=None) -> dict[str, Any]:
+    from lib.artifact_io import write_artifact_atomic
+    from lib.differentiation import validate_batch_plan_owner
+    validate_candidate_batch_owner(batch)
+    validate_batch_plan_owner(project_dir, batch)
+    sealed = _seal(dict(batch))
+    return write_artifact_atomic("artifacts/candidate_batch.json", "candidate_batch", sealed, project_dir=project_dir, sink=sink)

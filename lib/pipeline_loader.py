@@ -16,6 +16,9 @@ import jsonschema
 class PipelineManifestError(ValueError):
     """Raised when a manifest passes JSON Schema but violates workflow semantics."""
 
+
+INPUT_MODES = frozenset({"reference_driven", "source_led", "source_led_template"})
+
 PIPELINE_DEFS_DIR = Path(__file__).resolve().parent.parent / "pipeline_defs"
 SCHEMA_PATH = (
     Path(__file__).resolve().parent.parent
@@ -71,8 +74,138 @@ def load_pipeline(name: str, defs_dir: Optional[Path] = None) -> dict[str, Any]:
     schema = _load_manifest_schema()
     jsonschema.validate(instance=manifest, schema=schema)
     _validate_approval_groups(manifest)
+    _validate_mode_requirements(manifest)
 
     return manifest
+
+
+def _validate_mode_requirements(manifest: dict[str, Any]) -> None:
+    """Validate mode requirement keys beyond the JSON schema's shape checks."""
+    modes = manifest.get("mode_requirements") or {}
+    for mode in modes:
+        if mode not in INPUT_MODES and mode not in {"all_modes", "batch_root"}:
+            raise PipelineManifestError(
+                f"pipeline {manifest.get('name')}: unknown input mode {mode!r}"
+            )
+    stage_names = {stage.get("name") for stage in manifest.get("stages", [])}
+    for mode, values in modes.items():
+        if mode in {"all_modes", "batch_root"}:
+            continue
+        for key, artifacts in (values or {}).items():
+            if not isinstance(artifacts, list):
+                raise PipelineManifestError(
+                    f"pipeline {manifest.get('name')} mode {mode}: {key} must be a list"
+                )
+            if key.endswith(("_required", "_produces")):
+                stage = key.rsplit("_", 1)[0]
+                if stage not in stage_names:
+                    raise PipelineManifestError(
+                        f"pipeline {manifest.get('name')} mode {mode}: unknown stage in {key!r}"
+                    )
+
+
+def _normalise_external_reference(value: Any) -> dict[str, Any]:
+    if isinstance(value, bool):
+        return {"present": value, "paths": [], "usage": "analysis_only" if value else "not_applicable"}
+    if isinstance(value, (list, tuple)):
+        paths = [str(item) for item in value if str(item).strip()]
+        return {"present": bool(paths), "paths": paths, "usage": "analysis_only" if paths else "not_applicable"}
+    if isinstance(value, dict):
+        result = dict(value)
+        paths = result.get("paths")
+        if not isinstance(paths, list):
+            paths = []
+        result["paths"] = [str(item) for item in paths if str(item).strip()]
+        result.setdefault("present", bool(result["paths"]))
+        result.setdefault("usage", "analysis_only" if result["present"] else "not_applicable")
+        return result
+    return {"present": False, "paths": [], "usage": "not_applicable"}
+
+
+def _normalise_template_prior(value: Any) -> dict[str, Any]:
+    if isinstance(value, bool):
+        return {"present": value, "usage": "structural_only" if value else "not_applicable"}
+    if isinstance(value, str):
+        return {"present": bool(value), "usage": "structural_only" if value else "not_applicable", "template_pack_ref": value}
+    if isinstance(value, dict):
+        result = dict(value)
+        result.setdefault("present", bool(str(result.get("template_pack_ref") or "").strip()))
+        result.setdefault("usage", "structural_only" if result["present"] else "not_applicable")
+        return result
+    return {"present": False, "usage": "not_applicable"}
+
+
+def load_input_context(project_dir: str | Path) -> dict[str, Any]:
+    """Load and normalize the project's input-mode contract.
+
+    Projects created before input modes existed intentionally default to
+    ``reference_driven`` so their existing checkpoints remain resumable.
+    """
+    marker_path = Path(project_dir) / "project.json"
+    try:
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Project marker not found: {marker_path}")
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PipelineManifestError(f"Invalid project marker: {marker_path}") from exc
+    if not isinstance(marker, dict):
+        raise PipelineManifestError("project.json must be an object")
+    legacy_compat = "input_mode" not in marker or marker.get("input_mode_legacy_compat") is True
+    mode = marker.get("input_mode") or "reference_driven"
+    if mode not in INPUT_MODES:
+        raise PipelineManifestError(
+            f"Invalid input_mode {mode!r}; expected one of {sorted(INPUT_MODES)}"
+        )
+    external = _normalise_external_reference(marker.get("external_reference"))
+    template = _normalise_template_prior(marker.get("template_prior"))
+    owned_root = marker.get("owned_source_root") or "inputs/source"
+    if not isinstance(owned_root, str) or not owned_root.strip():
+        raise PipelineManifestError("owned_source_root must be a non-empty path")
+    if mode == "reference_driven" and not legacy_compat:
+        paths = external.get("paths") or []
+        if not external.get("present") or not paths:
+            raise PipelineManifestError(
+                "reference_driven projects require external_reference.present=true and at least one path"
+            )
+        unresolved = []
+        for raw in paths:
+            path = Path(raw)
+            if not path.is_absolute():
+                path = Path(project_dir) / path
+            if not path.exists():
+                unresolved.append(raw)
+        if unresolved:
+            raise PipelineManifestError(
+                f"external reference paths are not resolvable: {unresolved}"
+            )
+    if mode in {"source_led", "source_led_template"} and (
+        external.get("present") or external.get("paths")
+    ):
+        raise PipelineManifestError(
+            f"{mode} projects cannot declare external reference paths"
+        )
+    if mode == "source_led" and template.get("present"):
+        raise PipelineManifestError("source_led projects cannot declare a template prior")
+    if mode == "source_led_template":
+        if not template.get("present"):
+            raise PipelineManifestError("source_led_template projects require a template prior")
+        if not isinstance(template.get("template_pack_ref"), str) or not template["template_pack_ref"].strip():
+            raise PipelineManifestError(
+                "source_led_template projects require a non-empty template_pack_ref"
+            )
+        if template.get("usage") != "structural_only":
+            raise PipelineManifestError(
+                "source_led_template template_prior.usage must be structural_only"
+            )
+    return {
+        "project_id": marker.get("project_id"),
+        "pipeline_type": marker.get("pipeline_type"),
+        "input_mode": mode,
+        "external_reference": external,
+        "template_prior": template,
+        "owned_source_root": owned_root,
+        "legacy_compat": legacy_compat,
+    }
 
 
 def _validate_approval_groups(manifest: dict[str, Any]) -> None:
@@ -196,17 +329,59 @@ def get_stage_order(
     return order
 
 
-def get_required_tools(manifest: dict) -> set[str]:
+def get_required_tools(
+    manifest: dict,
+    *,
+    input_mode: str | None = None,
+    context: dict[str, Any] | None = None,
+) -> set[str]:
     """Collect tools across stages, sub-stages, and reference-input analysis."""
+    mode = input_mode or (context or {}).get("input_mode")
+    if mode is not None and mode not in INPUT_MODES:
+        raise PipelineManifestError(f"Invalid input_mode {mode!r}")
     tools: set[str] = set()
     for stage in manifest["stages"]:
+        tools.update(get_stage_required_tools(manifest, stage["name"], input_mode=mode))
         tools.update(stage.get("preferred_tools", []))
         tools.update(stage.get("fallback_tools", []))
         tools.update(stage.get("tools_available", []))
         for sub_stage in stage.get("sub_stages", []):
             tools.update(sub_stage.get("tools_available", []))
     tools.update(get_reference_input_config(manifest).get("analysis_tools", []))
+    if mode in {"source_led", "source_led_template"}:
+        # frame_sampler / scene_detect still analyze owned footage. The
+        # reference-video analyzer itself must not enter source-led preflight.
+        tools.discard("video_analyzer")
     return tools
+
+
+def get_stage_required_tools(
+    manifest: dict[str, Any], stage_name: str, *, input_mode: str | None = None,
+    context: dict[str, Any] | None = None,
+) -> list[str]:
+    """Return required tools for a stage after applying the input mode."""
+    stage = next(
+        (item for item in manifest.get("stages", []) if item.get("name") == stage_name),
+        None,
+    )
+    if stage is None:
+        return []
+    mode = input_mode or (context or {}).get("input_mode")
+    if mode is None:
+        return list(stage.get("required_tools", []))
+    if mode not in INPUT_MODES:
+        raise PipelineManifestError(f"Invalid input_mode {mode!r}")
+    modes = manifest.get("mode_requirements") or {}
+    key = f"{stage_name}_required_tools"
+    controlled = {
+        tool for values in modes.values() if isinstance(values, dict)
+        for tool in (values.get(key, []) or [])
+    }
+    result = [tool for tool in stage.get("required_tools", []) if tool not in controlled]
+    for tool in [*((modes.get("all_modes") or {}).get(key, []) or []), *((modes.get(mode) or {}).get(key, []) or [])]:
+        if tool not in result:
+            result.append(tool)
+    return result
 
 
 def get_stage_skill(manifest: dict, stage_name: str) -> Optional[str]:
@@ -217,12 +392,66 @@ def get_stage_skill(manifest: dict, stage_name: str) -> Optional[str]:
     return None
 
 
-def get_stage_produces(manifest: dict, stage_name: str) -> list[str]:
-    """Return every artifact declared as produced by a stage."""
-    for stage in manifest.get("stages", []):
-        if stage.get("name") == stage_name:
-            return list(stage.get("produces", []))
-    return []
+def _resolve_mode_artifacts(
+    manifest: dict[str, Any],
+    stage_name: str,
+    kind: str,
+    input_mode: str | None = None,
+) -> list[str]:
+    """Resolve mode-specific stage artifacts, replacing static mode entries."""
+    stage = next(
+        (item for item in manifest.get("stages", []) if item.get("name") == stage_name),
+        None,
+    )
+    if stage is None:
+        return []
+    base = list(stage.get(f"{kind}_artifacts_in" if kind == "required" else kind, []))
+    if input_mode is None:
+        return base
+    if input_mode not in INPUT_MODES:
+        raise PipelineManifestError(f"Invalid input_mode {input_mode!r}")
+    modes = manifest.get("mode_requirements") or {}
+    common = list((modes.get("all_modes") or {}).get(f"{stage_name}_{kind}", []))
+    selected = list((modes.get(input_mode) or {}).get(f"{stage_name}_{kind}", []))
+    # Any artifact named by a mode-specific variant is mode-controlled. Remove
+    # all such names from the legacy static list before adding the selected
+    # variant, preventing a union from keeping reference-only inputs alive.
+    controlled: set[str] = set()
+    for values in modes.values():
+        if not isinstance(values, dict):
+            continue
+        controlled.update(values.get(f"{stage_name}_{kind}", []) or [])
+    result = [name for name in base if name not in controlled]
+    for name in [*common, *selected]:
+        if name not in result:
+            result.append(name)
+    return result
+
+
+def get_stage_required_artifacts(
+    manifest: dict[str, Any], stage_name: str, *, input_mode: str | None = None,
+    context: dict[str, Any] | None = None,
+) -> list[str]:
+    """Return resolved stage inputs for an input mode.
+
+    ``context`` may be the result of :func:`load_input_context`; an explicit
+    ``input_mode`` wins when both are supplied.
+    """
+    mode = input_mode or (context or {}).get("input_mode")
+    return _resolve_mode_artifacts(manifest, stage_name, "required", mode)
+
+
+def get_stage_produces(
+    manifest: dict[str, Any], stage_name: str, *, input_mode: str | None = None,
+    context: dict[str, Any] | None = None,
+) -> list[str]:
+    """Return mode-resolved artifacts declared as produced by a stage."""
+    mode = input_mode or (context or {}).get("input_mode")
+    return _resolve_mode_artifacts(manifest, stage_name, "produces", mode)
+
+
+# Descriptive alias used by stage directors and external integrations.
+resolve_stage_requirements = get_stage_required_artifacts
 
 
 def get_stage_human_approval_default(manifest: dict, stage_name: str) -> Optional[bool]:

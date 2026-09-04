@@ -36,6 +36,36 @@ SHARED_RESEARCH_ARTIFACTS = (
 RESEARCH_CHECKPOINT_ARTIFACTS = SHARED_RESEARCH_ARTIFACTS
 
 
+def materialize_template_run_provenance(
+    project_dir: Path,
+    *,
+    template_pack_path: Path,
+    batch_project_id: str,
+) -> dict[str, Any]:
+    """Copy the canonical pack into a run and bind its batch-root ownership."""
+    if not template_pack_path.is_file():
+        raise FileNotFoundError(f"template pack not found: {template_pack_path}")
+    pack = json.loads(template_pack_path.read_text(encoding="utf-8"))
+    validate_artifact("template_pack", pack)
+    target = project_dir / "artifacts" / "template_pack.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(template_pack_path, target)
+    marker_path = project_dir / "project.json"
+    marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    prior = dict(marker.get("template_prior") or {})
+    prior.update({
+        "present": True,
+        "usage": "structural_only",
+        "template_pack_ref": "artifacts/template_pack.json",
+    })
+    marker["template_prior"] = prior
+    run = dict(marker.get("template_run") or {})
+    run["batch_project_id"] = str(batch_project_id)
+    marker["template_run"] = run
+    marker_path.write_text(json.dumps(marker, ensure_ascii=False, indent=2), encoding="utf-8")
+    return pack
+
+
 def shared_research_refs(source_project_dir: Path) -> list[dict[str, Any]]:
     """从共享研究源项目读取 9+ 制品的 artifact_sha256 引用，供 template_batch 记录。"""
     refs: list[dict[str, Any]] = []
@@ -59,6 +89,10 @@ def fork_template_run(
     source_project_dir: Path,
     pipeline_dir: Path,
     product_facts_path: Path | None = None,
+    input_mode: str | None = None,
+    template_prior: Mapping[str, Any] | None = None,
+    template_pack_path: Path | None = None,
+    batch_project_id: str | None = None,
 ) -> Path:
     """把一个 template run 项目播种为可从 proposal 开始的 main-chain 项目。
 
@@ -70,7 +104,18 @@ def fork_template_run(
         title=f"Template run {run_project}",
         pipeline_type="cinematic-fast",
         pipeline_dir=pipeline_dir,
+        input_mode=input_mode,
+        template_prior=template_prior,
+        owned_source_root="inputs/source",
     )
+    if template_pack_path is not None:
+        if not batch_project_id:
+            raise ValueError("template_pack_path requires batch_project_id")
+        materialize_template_run_provenance(
+            project_dir,
+            template_pack_path=template_pack_path,
+            batch_project_id=batch_project_id,
+        )
 
     # 1) 复制共享研究制品
     for name in SHARED_RESEARCH_ARTIFACTS:
@@ -117,6 +162,7 @@ def fork_template_run(
     marker_path = project_dir / "project.json"
     marker = json.loads(marker_path.read_text(encoding="utf-8"))
     marker["template_run"] = {
+        **dict(marker.get("template_run") or {}),
         "source_research_project": source_project_dir.name,
         "shared_research_refs": shared_research_refs(source_project_dir),
     }

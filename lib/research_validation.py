@@ -16,7 +16,11 @@ def _iter_evidence_paths(value: Any) -> Iterator[str]:
     """Yield candidate project-relative evidence paths referenced anywhere."""
     if isinstance(value, Mapping):
         for key, child in value.items():
-            if key in {"evidence_frames", "evidence_refs"} and isinstance(child, list):
+            if key in {
+                "evidence_frames",
+                "evidence_refs",
+                "representative_frames",
+            } and isinstance(child, list):
                 for item in child:
                     if isinstance(item, str):
                         yield item
@@ -76,8 +80,18 @@ def validate_proposal_research_handoff(
     proposal: Mapping[str, Any],
     synthesis: Mapping[str, Any],
     matrix: Mapping[str, Any],
+    *,
+    input_mode: str | None = None,
 ) -> None:
     """Ensure every concept remains traceable to the approved Research output."""
+    if input_mode is not None:
+        expected_mode = "reference" if input_mode == "reference_driven" else input_mode
+        actual_mode = matrix.get("matrix_mode", "reference")
+        if actual_mode != expected_mode:
+            raise ValueError(
+                f"reference_source_matrix.matrix_mode must be {expected_mode!r}; "
+                f"got {actual_mode!r}"
+            )
     direction_ids = {
         item.get("direction_id")
         for item in synthesis.get("differentiation_directions", [])

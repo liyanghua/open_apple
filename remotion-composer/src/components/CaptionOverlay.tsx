@@ -7,8 +7,6 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import { loadFont as loadLongCang } from "@remotion/google-fonts/LongCang";
-import { loadFont as loadMaShanZheng } from "@remotion/google-fonts/MaShanZheng";
 import {
   SAFE_ZONE_PROFILES,
   fitCjkFontSize,
@@ -23,8 +21,12 @@ import {
 import type { CaptionRecipeSpec } from "../cinematic/types";
 
 // 参考片书法花字字体（行书 + 楷书），供 vertical/brush caption 使用。
-const longCangFont = loadLongCang("normal", {}).fontFamily;
-const maShanZhengFont = loadMaShanZheng("normal", {}).fontFamily;
+// Keep the render path offline-safe.  The previous Google-font loaders made
+// one network request per weight during every headless sample render and
+// could time out before the first frame.  These names resolve through the
+// local/system font stack when available and fall back deterministically.
+const longCangFont = "Long Cang, Noto Sans CJK SC, sans-serif";
+const maShanZhengFont = "Ma Shan Zheng, Noto Sans CJK SC, sans-serif";
 
 // Word-level caption for TikTok-style highlight display
 export interface WordCaption {

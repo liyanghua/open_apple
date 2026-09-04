@@ -28,6 +28,7 @@ from pathlib import Path
 from lib.artifact_io import write_artifact_atomic
 from lib.template_mainline import _load
 from lib.template_run_plan import check_template_run_plan_ready
+from lib.template_batch import resolve_run_batch_differentiation_ref
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPELINE = "cinematic-fast"
@@ -64,17 +65,19 @@ def _sidecar_valid(sidecar: Path, expected: dict) -> bool:
         return False
 
 
-def _trim_proxy(source: Path, output: Path, src_in: float, duration: float) -> bool:
+def _trim_proxy(source: Path, output: Path, src_in: float, duration: float, *, width: int = PROXY_W,
+                height: int = PROXY_H) -> bool:
     """9:16 中心裁切 proxy，保留源帧率；sidecar 内容一致才跳过。"""
     sidecar = output.with_suffix(output.suffix + ".prep.json")
     expected = {"source_sha256": _sha256_file(source), "src_in": round(src_in, 3),
-                "duration": round(duration, 3), "out_sha256": _sha256_file(output) if output.is_file() else ""}
+                "duration": round(duration, 3), "width": width, "height": height,
+                "out_sha256": _sha256_file(output) if output.is_file() else ""}
     if output.is_file() and output.stat().st_size > 0 and _sidecar_valid(sidecar, expected):
         return False
     output.parent.mkdir(parents=True, exist_ok=True)
     vf = (
-        f"scale={PROXY_W}:{PROXY_H}:force_original_aspect_ratio=increase,"
-        f"crop={PROXY_W}:{PROXY_H}:x=(iw-ow)/2:y=(ih-oh)/2"
+        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height}:x=(iw-ow)/2:y=(ih-oh)/2"
     )
     cmd = ["ffmpeg", "-y", "-v", "error",
            "-ss", f"{src_in:.3f}", "-t", f"{duration:.3f}",
@@ -142,7 +145,7 @@ def _generate_bgm(project: Path, run: str, total_s: float) -> dict:
     return {"path": f"assets/music/{trimmed.name}", "cost_usd": bgm_cost, "source": str(source)}
 
 
-def _generate_proxies(project: Path, sp: dict) -> None:
+def _generate_proxies(project: Path, sp: dict, *, width: int = PROXY_W, height: int = PROXY_H) -> None:
     """逐镜 proxy（内容 hash 幂等）。"""
     import time
 
@@ -156,13 +159,31 @@ def _generate_proxies(project: Path, sp: dict) -> None:
         if not source.is_file():
             raise RuntimeError(f"素材缺失: {source}")
         out = video_dir / f"shot-{i:02d}-proxy.mp4"
+        binding = {
+            "source_path": str(source),
+            "source_sha256": _sha256_file(source),
+            "start_seconds": round(float(interval["start_seconds"]), 3),
+            "duration_seconds": round(float(duration), 3),
+            "width": width, "height": height, "fit": "cover", "fps": 30,
+        }
+        sidecar = out.with_suffix(out.suffix + ".binding.json")
+        try:
+            cached_binding = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            cached_binding = None
         t0 = time.time()
-        if _trim_proxy(source, out, float(interval["start_seconds"]), float(duration)):
+        if out.is_file() and cached_binding == binding:
+            continue
+        rebuilt = _trim_proxy(source, out, float(interval["start_seconds"]), float(duration), width=width, height=height)
+        if rebuilt or out.is_file():
+            sidecar.write_text(json.dumps(binding, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        if rebuilt:
             print(f"  proxy {out.name}: {duration:.2f}s in {time.time()-t0:.1f}s")
 
 
 def _build_manifest(project: Path, run: str, script: dict, sp: dict,
-                    tts_results: list[dict], bgm: dict, total_s: float) -> dict:
+                    tts_results: list[dict], bgm: dict, total_s: float, *,
+                    proxy_width: int = PROXY_W, proxy_height: int = PROXY_H) -> dict:
     """asset_manifest：完整登记 口播 + BGM + 逐镜 proxy + 成品混音（评审 P1-7）。"""
     audio_dir = project / "assets" / "audio"
     video_dir = project / "assets" / "video"
@@ -192,7 +213,7 @@ def _build_manifest(project: Path, run: str, script: dict, sp: dict,
             "id": f"proxy-{m['scene_id']}", "type": "video",
             "path": f"assets/video/{proxy.name}", "source_tool": "media_proxy",
             "scene_id": m["scene_id"],
-            "format": "mp4", "resolution": f"{PROXY_W}x{PROXY_H}",
+            "format": "mp4", "resolution": f"{proxy_width}x{proxy_height}",
             "generation_summary": f"逐镜 proxy（{m['template_slot_ref']} 语义窗口）",
             "provider": "ffmpeg-local", "cost_usd": 0.0,
             "duration_seconds": round(float(m["timeline_interval"]["end_seconds_exclusive"]
@@ -294,7 +315,21 @@ def _post_normalize(out: Path) -> None:
     tmp.replace(out)
 
 
-def prep(run: str) -> dict:
+def assert_paid_media_ready(project: Path, run_plan: dict, template: dict | None, *, pipeline_dir: Path) -> None:
+    """Apply the canonical batch-owner gate before any paid media operation."""
+    try:
+        input_mode, authoritative_ref = resolve_run_batch_differentiation_ref(project, pipeline_dir)
+    except ValueError as exc:
+        raise SystemExit(f"differentiation owner 无法验证，禁止付费媒体管线: {exc}") from exc
+    readiness = check_template_run_plan_ready(
+        run_plan, template=template, input_mode=input_mode,
+        authoritative_differentiation_plan_ref=authoritative_ref,
+    )
+    if not readiness.get("ready"):
+        raise SystemExit(f"template_run_plan 未就绪，禁止付费媒体管线: {readiness.get('blockers')}")
+
+
+def prep(run: str, *, profile: str = "social_vertical_1080p30") -> dict:
     project = ROOT / "projects" / run
     rp = _load(project / "artifacts" / "template_run_plan.json") or {}
     template_id = str(rp.get("template_id") or "")
@@ -302,11 +337,13 @@ def prep(run: str) -> dict:
     template = next((t for t in pack.get("templates", []) if t.get("template_id") == template_id), None)
     if template is None:
         raise SystemExit(f"template {template_id} not in pack")
-    readiness = check_template_run_plan_ready(rp, template=template)
-    if not readiness.get("ready"):
-        raise SystemExit(f"template_run_plan 未就绪，禁止付费媒体管线: {readiness.get('blockers')}")
+    assert_paid_media_ready(project, rp, template, pipeline_dir=ROOT / "projects")
     script = _load(project / "artifacts" / "script.json")
     sp = _load(project / "artifacts" / "scene_plan.json")
+    from lib.media_profiles import get_profile
+    render_profile = get_profile(profile)
+    proxy_width = 540
+    proxy_height = round(proxy_width * render_profile.height / render_profile.width)
     total_s = float(script["total_duration_seconds"])
     shot_plan = _load(project / "artifacts" / "shot_execution_plan.json") or {}
     # 跨阶段一致性（评审 P0-1）：shot_plan 必须与当前 script/scene_plan 键控一致；
@@ -322,6 +359,16 @@ def prep(run: str) -> dict:
             sync_assets_artifacts(project, template, pipeline_dir=ROOT / "projects", sink=sink)
         shot_plan = _load(project / "artifacts" / "shot_execution_plan.json") or {}
         assert not shot_plan_drift(project, template, sp, script, shot_plan), "同步后仍漂移（中止）"
+    from lib.template_alignment import shot_execution_plan_errors
+
+    execution_errors = shot_execution_plan_errors(
+        shot_plan, script, sp, audio_dir=project / "assets" / "audio"
+    )
+    if execution_errors:
+        raise SystemExit(
+            f"{run}: shot_execution_plan 跨制品绑定失败："
+            + "; ".join(execution_errors[:12])
+        )
     shots = [
         {"id": str(s["id"]),
          "duration_seconds": float(s["duration_seconds"]),
@@ -331,7 +378,7 @@ def prep(run: str) -> dict:
         for s in shot_plan.get("shots", [])
     ]
     # 逐镜 proxy（本地，内容 hash 幂等）
-    _generate_proxies(project, sp)
+    _generate_proxies(project, sp, width=proxy_width, height=proxy_height)
     # BGM（付费，幂等）
     bgm = _generate_bgm(project, run, total_s)
     # TTS（付费，内容 hash 幂等；overflow/error 阻断）
@@ -344,21 +391,32 @@ def prep(run: str) -> dict:
             f"{run}: TTS 存在 {len(bad)} 段未通过 voice-timeline-fit："
             + "; ".join(f"{r['section']}({r.get('status')})" for r in bad[:8])
             + " —— 禁止带缺句/超长口播进入混音与渲染（评审 P1-6）")
+    from lib.template_alignment import tts_binding_errors
+    binding_errors = tts_binding_errors(script, project / "assets" / "audio")
+    if binding_errors:
+        raise SystemExit(
+            f"{run}: TTS 与当前 script 绑定失败：" + "; ".join(binding_errors[:8])
+        )
     # 混音（内容 hash 幂等）
     _build_mix(project, sp, script, bgm, total_s)
 
     # 渲染契约四件套
     from lib.template_render import build_edit_decisions, build_final_props, build_render_plan
 
-    manifest = _build_manifest(project, run, script, sp, tts_results, bgm, total_s)
+    manifest = _build_manifest(project, run, script, sp, tts_results, bgm, total_s,
+                               proxy_width=proxy_width, proxy_height=proxy_height)
     fp = build_final_props(project, script, shots,
                            narration_mix="assets/audio/sample-mix.mp3",
-                           bgm_path=bgm["path"])
+                           bgm_path=bgm["path"], profile=profile,
+                           input_hashes={"script": script["semantic_sha256"],
+                                         "shot_execution_plan": shot_plan["semantic_sha256"]})
     render_plan = build_render_plan(project, mode="full", total_frames=int(round(total_s * 30)),
-                                    audio_path=project / "assets/audio/sample-mix.mp3")
+                                    audio_path=project / "assets/audio/sample-mix.mp3", profile=profile)
+    safe_zone = "taobao_detail_3_4" if "3_4" in profile else "douyin_9_16"
     edit_decisions = build_edit_decisions(project, shots, render_runtime="remotion",
                                           narration_mix="assets/audio/sample-mix.mp3",
-                                          bgm_path=bgm["path"], scene_plan=sp)
+                                          bgm_path=bgm["path"], scene_plan=sp,
+                                          safe_zone_profile=safe_zone)
 
     from backlot.project_commit import ProjectCommitStore
 
@@ -383,8 +441,9 @@ def prep(run: str) -> dict:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--run", default="template-run-sheet-05-video5-aks-zhuodian")
+    p.add_argument("--profile", default="social_vertical_1080p30")
     args = p.parse_args()
-    result = prep(args.run)
+    result = prep(args.run, profile=args.profile)
     print(f"\n{args.run} 媒体管线完成：{result['total_s']}s, TTS {len(result['tts'])} 段, "
           f"BGM {result['bgm']['path']}, manifest cost ${result['manifest']['total_cost_usd']}")
 

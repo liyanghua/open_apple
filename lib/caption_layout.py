@@ -14,6 +14,10 @@ SAFE_ZONE_PROFILES = {
     }
     for name in ("douyin_9_16", "wechat_9_16", "xiaohongshu_9_16")
 }
+SAFE_ZONE_PROFILES["taobao_detail_3_4"] = {
+    "left": 48, "right": 48, "top": 80, "bottom": 180,
+    "max_width": 984, "max_lines": 2, "line_height": 1.24,
+}
 
 _TRAILING_PUNCTUATION = re.compile(r"[\s，。！？；：、,.!?;:…]+$")
 

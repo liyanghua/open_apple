@@ -19,6 +19,7 @@ from typing import Any
 from lib.artifact_io import write_artifact_atomic
 from lib.checkpoint import write_checkpoint
 from lib.sample_execution_trace import build_sample_execution_trace
+from lib.template_alignment import apply_alignment_to_evaluation, build_semantic_alignment
 
 PIPELINE = "cinematic-fast"
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +34,21 @@ def _load(p: Path) -> dict | None:
 
 def _write(proj: Path, name: str, data: dict, *, sink=None) -> dict:
     return write_artifact_atomic(f"artifacts/{name}.json", name, data, project_dir=proj, sink=sink)
+
+
+def _resolve_review_output(proj: Path, render_plan: dict | None, l1a: dict | None) -> str:
+    """Resolve the reviewed sample path from canonical artifacts, not dimensions."""
+    candidates = [
+        ((l1a or {}).get("subject_ref") or {}).get("path"),
+        (render_plan or {}).get("sample_output_path"),
+        (render_plan or {}).get("output_path"),
+        "renders/sample-v1.mp4",
+        "renders/sample-v1-540x960.mp4",
+    ]
+    for value in candidates:
+        if value and (proj / str(value)).is_file():
+            return str(value)
+    raise FileNotFoundError("当前 render_plan/L1a 未指向可读取的样片文件")
 
 def _probe(proj: Path, output: str) -> dict:
     import subprocess
@@ -50,9 +66,11 @@ def _probe(proj: Path, output: str) -> dict:
 
 def build(proj: Path, *, run: str, l1a: dict, qa: dict, sink=None) -> dict:
     fp = _load(proj / "artifacts" / "final_props.json")
-    render_plan = _load(proj / "artifacts" / "render_plan.json")
+    render_plan = _load(proj / "artifacts" / "render_plan.json") or _load(proj / "artifacts" / "render_plan.sample.json")
     shot_plan = _load(proj / "artifacts" / "shot_execution_plan.json")
-    output = "renders/sample-v1-540x960.mp4"
+    script = _load(proj / "artifacts" / "script.json") or {}
+    scene_plan = _load(proj / "artifacts" / "scene_plan.json") or {}
+    output = _resolve_review_output(proj, render_plan, l1a)
     probe = _probe(proj, output)
     # 评审窗口以实际审片文件为准（render-gradient sample 层 300-450 帧），
     # 不按 full 时间线声称覆盖全集；scale 恒为 0.5。
@@ -69,8 +87,34 @@ def build(proj: Path, *, run: str, l1a: dict, qa: dict, sink=None) -> dict:
         "status": "pass",
     }
     sample_report_env = _write(proj, "sample_report", sample_report, sink=sink)
+    trace = build_sample_execution_trace(run, {
+        "script": script, "scene_plan": scene_plan,
+        "shot_execution_plan": shot_plan, "sample_report": sample_report,
+        "final_props": fp,
+    })
     # 评估报告（sample scope）来自 L1a
     hg = l1a.get("hard_gate") or {}
+    alignment_report = _load(proj / "analysis" / "alignment_check.json") or {}
+    from lib.template_alignment import adapt_legacy_alignment_report
+    semantic_checks = adapt_legacy_alignment_report(
+        alignment_report, sample_sha256=probe["sha256"],
+        script_sha256=str(script.get("semantic_sha256") or ""),
+    )
+    product_facts = _load(proj / "artifacts" / "product_facts.json") or {}
+    try:
+        from lib.pipeline_loader import load_input_context
+        input_mode = str(load_input_context(proj).get("input_mode") or "reference_driven")
+    except (FileNotFoundError, ValueError):
+        input_mode = "reference_driven"
+    alignment = build_semantic_alignment(
+        {"script": script, "scene_plan": scene_plan, "shot_execution_plan": shot_plan,
+         "final_props": fp or {}, "render": {"sha256": probe["sha256"]},
+         "sample_execution_trace": trace, "product_facts": product_facts,
+         "input_mode": input_mode},
+        scope="sample",
+        semantic_checks=semantic_checks,
+        audio_dir=proj / "assets" / "audio",
+    )
     evaluation = {
         "version": "1.0", "project_id": run, "scope": "sample", "created_at": datetime.now(timezone.utc).isoformat(),
         "judge_version": "technical_validator-0.1.0", "rubric_version": "l1a-v1.0",
@@ -78,13 +122,14 @@ def build(proj: Path, *, run: str, l1a: dict, qa: dict, sink=None) -> dict:
         "subject_hash": l1a.get("subject_hash"), "hard_gate": hg,
         "creative_advisory": l1a.get("creative_advisory") or {"scored": False, "dimensions": []},
         "repair_targets": l1a.get("repair_targets") or [],
+        "alignment": alignment,
         "status": l1a.get("status") or "revise", "recommended_action": l1a.get("recommended_action") or "repair",
     }
+    evaluation = apply_alignment_to_evaluation(evaluation, alignment)
+    if alignment["status"] != "pass":
+        raise ValueError(f"{run}: canonical alignment={alignment['status']}，禁止立 sample 门")
     eval_env = write_artifact_atomic("artifacts/evaluation_report.sample.json", "evaluation_report", evaluation, project_dir=proj, sink=sink)
     # execution trace
-    trace = build_sample_execution_trace(run, {
-        "shot_execution_plan": shot_plan, "sample_report": sample_report, "final_props": fp,
-    })
     trace_env = _write(proj, "sample_execution_trace", trace, sink=sink)
     # caption_policy_revision（模板驱动：逐镜 caption_treatment 无变更 → 与 lock 一致）
     lock = _load(proj / "artifacts" / "production_lock.json")
@@ -112,6 +157,30 @@ def main() -> None:
         raise SystemExit(f"{args.run}: artifacts/l1a_sample.json 缺失——请先跑 technical_validator（sample scope）再立门")
     if str(l1a.get("status") or "") != "pass":
         raise SystemExit(f"{args.run}: L1a(sample) 未通过（status={l1a.get('status')}），禁止立 sample 门")
+    alignment_path = proj / "analysis" / "alignment_check.json"
+    if alignment_path.is_file():
+        from lib.template_alignment import alignment_gate_errors, current_alignment_checks
+        try:
+            alignment_report = json.loads(alignment_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"{args.run}: alignment_check.json 无法读取") from exc
+        render_plan = _load(proj / "artifacts" / "render_plan.json") or _load(proj / "artifacts" / "render_plan.sample.json")
+        try:
+            review_output = _resolve_review_output(proj, render_plan, l1a)
+        except FileNotFoundError as exc:
+            raise SystemExit(f"{args.run}: {exc}") from exc
+        sample_path = proj / review_output
+        sample_hash = hashlib.sha256(sample_path.read_bytes()).hexdigest() if sample_path.is_file() else ""
+        script_data = _load(proj / "artifacts" / "script.json") or {}
+        checks = current_alignment_checks(
+            alignment_report, sample_sha256=sample_hash,
+            script_sha256=str(script_data.get("semantic_sha256") or ""),
+        )
+        if checks is None:
+            raise SystemExit(f"{args.run}: alignment_check.json 与当前样片/脚本不匹配，禁止立 sample 门")
+        alignment_errors = alignment_gate_errors(checks)
+        if alignment_errors:
+            raise SystemExit(f"{args.run}: 画面对齐硬门失败，禁止立 sample 门：" + "; ".join(alignment_errors[:8]))
     qa = {"status": "pass", "issues": []}
     envs = {}
     from backlot.project_commit import ProjectCommitStore

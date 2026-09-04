@@ -73,6 +73,37 @@ def build(proj: Path, *, run: str, l1a: dict, qa: dict, render_report_meta: dict
         "repair_targets": l1a.get("repair_targets") or [],
         "status": l1a.get("status") or "revise", "recommended_action": l1a.get("recommended_action") or "repair",
     }
+    try:
+        from lib.pipeline_loader import load_input_context
+        input_mode = str(load_input_context(proj).get("input_mode") or "reference_driven")
+    except (FileNotFoundError, ValueError):
+        input_mode = "reference_driven"
+    if input_mode in {"source_led", "source_led_template"}:
+        from lib.template_alignment import (
+            adapt_legacy_alignment_report,
+            apply_alignment_to_evaluation,
+            build_semantic_alignment,
+        )
+        script = _load(proj / "artifacts" / "script.json") or {}
+        scene_plan = _load(proj / "artifacts" / "scene_plan.json") or {}
+        shot_plan = _load(proj / "artifacts" / "shot_execution_plan.json") or {}
+        final_props = _load(proj / "artifacts" / "final_props.json") or {}
+        product_facts = _load(proj / "artifacts" / "product_facts.json") or {}
+        legacy = _load(proj / "analysis" / "alignment_check.final.json") or {}
+        semantic_checks = adapt_legacy_alignment_report(
+            legacy, sample_sha256=probe["sha256"],
+            script_sha256=str(script.get("semantic_sha256") or ""),
+        )
+        alignment = build_semantic_alignment(
+            {"input_mode": input_mode, "script": script, "scene_plan": scene_plan,
+             "shot_execution_plan": shot_plan, "final_props": final_props,
+             "product_facts": product_facts, "render": {"sha256": probe["sha256"]}},
+            scope="final", semantic_checks=semantic_checks,
+            audio_dir=proj / "assets" / "audio",
+        )
+        evaluation = apply_alignment_to_evaluation(evaluation, alignment)
+        if alignment["status"] != "pass":
+            raise ValueError(f"{run}: canonical final alignment={alignment['status']}，禁止 compose")
     eval_env = write_artifact_atomic("artifacts/evaluation_report.final.json", "evaluation_report", evaluation, project_dir=proj, sink=sink)
     return {"render_report": rr_env, "final_review": fr_env, "evaluation_report": eval_env}
 

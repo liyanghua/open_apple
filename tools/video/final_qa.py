@@ -58,7 +58,7 @@ class FinalQA(BaseTool):
         audio = next((s for s in probe.get("streams", []) if s.get("codec_type") == "audio"), {})
         issues = []
         accepted_pixel_formats = {profile.pixel_format}
-        if inputs.get("mode") == "quick" and profile_name == "social_vertical_sample_540p30":
+        if inputs.get("mode") == "quick" and profile_name in ("social_vertical_sample_540p30", "social_vertical_3_4_sample_540p30"):
             accepted_pixel_formats.add("yuvj420p")
         if (
             video.get("codec_name") != "h264"

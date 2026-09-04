@@ -19,6 +19,11 @@
       },
       "additionalProperties": true
     },
+    "differentiation_plan_ref": {
+      "type": ["object", "null"],
+      "properties": {"name": {"type": "string", "const": "differentiation_plan"}, "path": {"type": "string"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+      "required": ["name", "path", "artifact_sha256"], "additionalProperties": false
+    },
     "concept_options": {
       "type": "array",
       "items": {

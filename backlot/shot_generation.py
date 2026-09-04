@@ -90,8 +90,21 @@ class ShotGenerationService:
         except (OSError, json.JSONDecodeError):
             raise OperatorError.validation_failed("template_run_plan 损坏，禁止付费生成")
         from lib.template_run_plan import check_template_run_plan_ready, load_template_for_run_plan
+        from lib.template_batch import resolve_run_batch_differentiation_ref
 
-        result = check_template_run_plan_ready(run_plan, template=load_template_for_run_plan(run_plan))
+        try:
+            input_mode, authoritative_ref = resolve_run_batch_differentiation_ref(
+                self.project_dir, self.project_dir.parent
+            )
+        except ValueError as exc:
+            raise OperatorError.validation_failed(
+                f"differentiation owner 无法验证，禁止付费生成：{exc}"
+            ) from exc
+        result = check_template_run_plan_ready(
+            run_plan, template=load_template_for_run_plan(run_plan),
+            input_mode=input_mode,
+            authoritative_differentiation_plan_ref=authoritative_ref,
+        )
         if not result["ready"]:
             raise OperatorError.validation_failed(
                 "template_run_plan 未就绪，禁止付费生成：" + "; ".join(result["blockers"])

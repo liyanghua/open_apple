@@ -164,6 +164,59 @@
       "type": "string",
       "enum": ["proceed", "repair", "reject"]
     },
+    "alignment": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["contract_version", "scope", "status", "input_hashes", "per_shot_results", "repair_targets"],
+          "properties": {
+            "contract_version": {"type": "string", "const": "1.0"},
+            "scope": {"type": "string", "enum": ["sample", "final"]},
+            "status": {"type": "string", "enum": ["pass", "revise", "fail"]},
+            "input_hashes": {
+              "type": "object",
+              "required": ["script", "scene_plan", "shot_execution_plan", "final_props", "render"],
+              "properties": {
+                "script": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+                "scene_plan": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+                "shot_execution_plan": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+                "final_props": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+                "render": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+              },
+              "additionalProperties": false
+            },
+            "per_shot_results": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["scene_id", "shot_id", "action_match", "result_support", "narration_caption_match", "crop_completeness", "product_identity_match", "status", "reason_codes"],
+                "properties": {
+                  "scene_id": {"type": "string", "minLength": 1},
+                  "shot_id": {"type": "string", "minLength": 1},
+                  "action_match": {"type": "string", "enum": ["pass", "fail", "revise"]},
+                  "result_support": {"type": "string", "enum": ["pass", "fail", "revise"]},
+                  "narration_caption_match": {"type": "string", "enum": ["pass", "fail", "revise"]},
+                  "crop_completeness": {"type": "string", "enum": ["pass", "fail", "revise"]},
+                  "product_identity_match": {"type": "string", "enum": ["pass", "fail", "revise"]},
+                  "status": {"type": "string", "enum": ["pass", "fail", "revise"]},
+                  "reason_codes": {"type": "array", "items": {"type": "string"}}
+                },
+                "additionalProperties": false
+              }
+            },
+            "repair_targets": {"type": "array", "items": {"type": "object", "required": ["shot_id", "reason_codes"], "properties": {"shot_id": {"type": "string"}, "reason_codes": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false}}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "not": {"required": ["contract_version"]},
+          "additionalProperties": true
+        }
+      ]
+    },
     "optimization": {
       "type": ["object", "null"],
       "description": "Autoresearch 优化门禁区块（Autoresearch_Video_Remix_Integration_Design_2026-08-23.md §3.4）：status 表达 L1a 状态，optimization.passed 表达创意优化门禁，二者不可互相替代。enabled=false 时该区块可为 null",

@@ -259,7 +259,6 @@ def match_run_plan(
                     b["asset_type"] = "video"
                     b["reason"] = (f"素材池缺少「{action}」动作素材；该 slot 需付费生成，"
                                    f"禁止用其他动作素材顶替（语义错配）")
-                assigned[slot_id] = ""
                 continue
         used_stems.add(chosen)
         use_count[chosen] += 1

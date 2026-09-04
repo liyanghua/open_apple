@@ -420,6 +420,8 @@ def _section(title: str, summary: str, rules: list[str]) -> dict:
 
 def build_proposal(project: Path, template: dict, facts: dict, *, sink=None) -> dict[str, Any]:
     plan_id = str(template.get("template_id") or "")
+    run_plan = _load(project / "artifacts" / "template_run_plan.json") or {}
+    differentiation_plan_ref = run_plan.get("differentiation_plan_ref")
     ccp = {
         "version": "1.0",
         "project_id": project.name,
@@ -428,7 +430,10 @@ def build_proposal(project: Path, template: dict, facts: dict, *, sink=None) -> 
         "input_hashes": {
             "template_plan": str(_load(project / "artifacts" / "template_run_plan.json").get("artifact_sha256") or "a" * 64),
             "product_facts": str(facts.get("artifact_sha256") or "a" * 64),
+            **({"differentiation_plan": str(differentiation_plan_ref.get("artifact_sha256"))}
+               if isinstance(differentiation_plan_ref, dict) and differentiation_plan_ref.get("artifact_sha256") else {}),
         },
+        **({"differentiation_plan_ref": dict(differentiation_plan_ref)} if isinstance(differentiation_plan_ref, dict) else {}),
         "plan_id": plan_id,
         "plan_version": 1,
         "status": "draft",
@@ -491,6 +496,7 @@ def build_proposal(project: Path, template: dict, facts: dict, *, sink=None) -> 
     pp = {
         "version": "1.0",
         "creative_control_plan": ccp,
+        **({"differentiation_plan_ref": dict(differentiation_plan_ref)} if isinstance(differentiation_plan_ref, dict) else {}),
         "concept_options": concepts,
         "selected_concept": {"concept_id": "c1", "rationale": "proof-first 适配，最贴合模板 slot 动作与短视频节奏。"},
         "production_plan": {
@@ -640,6 +646,55 @@ def _bound_action(sp: Mapping[str, Any], scene: Mapping[str, Any]) -> str:
     return ""
 
 
+def _section_id_for_scene(scene_id: str) -> str:
+    """Derive a stable section key from the explicit scene key, never position."""
+    suffix = scene_id.removeprefix("scene-")
+    return f"sec-{suffix}" if suffix else f"sec-{scene_id}"
+
+
+def _source_led_matrix_rows(project: Path) -> tuple[str | None, dict[str, Mapping[str, Any]]]:
+    matrix = _load(project / "artifacts" / "reference_source_matrix.json") or {}
+    mode = matrix.get("matrix_mode")
+    rows = {
+        str(row.get("matrix_row_id")): row
+        for row in matrix.get("rows", [])
+        if isinstance(row, Mapping) and row.get("matrix_row_id")
+    }
+    return (str(mode) if mode in {"source_led", "source_led_template"} else None), rows
+
+
+def _source_led_copy(
+    mapping: Mapping[str, Any], rows_by_id: Mapping[str, Mapping[str, Any]]
+) -> tuple[str, str, list[str], list[str], list[str]]:
+    evidence_ids = [
+        str(value) for value in mapping.get("evidence_row_ids", []) if str(value).strip()
+    ]
+    if not evidence_ids and mapping.get("matrix_row_id"):
+        evidence_ids = [str(mapping["matrix_row_id"])]
+    if not evidence_ids:
+        raise ValueError(f"scene {mapping.get('scene_id')!r} has no evidence_row_ids")
+    rows = []
+    for row_id in evidence_ids:
+        row = rows_by_id.get(row_id)
+        if row is None or row.get("resolution") != "accept":
+            raise ValueError(f"scene {mapping.get('scene_id')!r} has unresolved evidence row {row_id!r}")
+        rows.append(row)
+    claim_ids = list(dict.fromkeys(
+        str(value) for row in rows for value in row.get("claim_ids", []) if str(value).strip()
+    ))
+    action_keys = list(dict.fromkeys(
+        str(value) for row in rows for value in row.get("action_keys", []) if str(value).strip()
+    ))
+    allowed = list(dict.fromkeys(
+        str(value) for row in rows for value in row.get("allowed_wording", []) if str(value).strip()
+    ))
+    if not claim_ids or not action_keys or not allowed:
+        raise ValueError(f"scene {mapping.get('scene_id')!r} evidence row is incomplete")
+    narration = allowed[0]
+    screen_copy = allowed[1] if len(allowed) > 1 else allowed[0]
+    return narration, screen_copy, claim_ids, action_keys, evidence_ids
+
+
 # 每动作的兜底口播（模板文案表里该动作行已被用完时使用；保证 口播动作 == 素材动作）。
 _ACTION_NARRATION: dict[str, tuple[str, str]] = {
     "防油易擦拭": ("油污汤汁，一擦就净。", "油污 · 一擦即净"),
@@ -651,7 +706,8 @@ _ACTION_NARRATION: dict[str, tuple[str, str]] = {
 }
 
 
-def build_script(project: Path, template: dict, sp: dict, ccp: dict, facts: dict, *, approved: bool = False, sink=None) -> dict:
+def build_script(project: Path, template: dict, sp: dict, ccp: dict, facts: dict, *,
+                 approved: bool = False, title: str | None = None, sink=None) -> dict:
     # 逐镜对齐：narration/花字必须与该 scene 绑定的素材画面一致（主链路语义）。
     # 关键：**narration 由素材动作派生**，不同模板 archetype 用各自的逐镜文案表，
     # 绝不套用 video1 的 8 镜（导致长模板 9+ 镜空口播）。
@@ -662,6 +718,12 @@ def build_script(project: Path, template: dict, sp: dict, ccp: dict, facts: dict
 
     row_actions = SLOT_ACTION_BY_TEMPLATE.get(tid) or []
     used_rows: set[int] = set()
+    source_led_mode, evidence_rows = _source_led_matrix_rows(project)
+    mapping_by_scene = {
+        str(mapping.get("scene_id")): mapping
+        for mapping in ((sp.get("metadata") or {}).get("source_mapping") or [])
+        if isinstance(mapping, Mapping) and mapping.get("scene_id")
+    }
 
     def _row_action(pos: int, narr: str, copy: str) -> str:
         """该表格行的动作 key：逐模板显式表优先（作者标定），否则文本打分回退。"""
@@ -681,10 +743,10 @@ def build_script(project: Path, template: dict, sp: dict, ccp: dict, facts: dict
             narr, copy = _ACTION_NARRATION[bound]
             return None, narr, copy, "proof", bound
         # 3) 无绑定信息（审计环境）→ 表内第一个未用行
-        for pos in range(len(our)):
+        for pos in range(len(rows)):
             if pos in used_rows:
                 continue
-            narr, copy, role = our[pos] if len(our[pos]) >= 3 else ("", "", "proof")
+            narr, copy, role = rows[pos] if len(rows[pos]) >= 3 else ("", "", "proof")
             if narr.strip():
                 used_rows.add(pos)
                 return pos, narr, copy, role, _row_action(pos, narr, copy)
@@ -693,11 +755,32 @@ def build_script(project: Path, template: dict, sp: dict, ccp: dict, facts: dict
     for i, scene in enumerate(sp["scenes"], start=1):
         bound = _bound_action(sp, scene)
         span = float(scene["end_seconds"]) - float(scene["start_seconds"])
-        if span < 1.0:
+        evidence_contract: dict[str, Any] = {}
+        if source_led_mode:
+            mapping = mapping_by_scene.get(str(scene.get("id") or ""))
+            if mapping is None:
+                raise ValueError(f"scene {scene.get('id')!r} has no explicit source mapping")
+            narr, copy, claim_ids, action_keys, evidence_row_ids = _source_led_copy(
+                mapping, evidence_rows
+            )
+            role = (
+                rows[i - 1][2]
+                if i - 1 < len(rows) and len(rows[i - 1]) >= 3
+                else "proof"
+            )
+            text_action = action_keys[0]
+            bound = text_action
+            aligned = True
+            evidence_contract = {
+                "claim_ids": claim_ids,
+                "action_keys": action_keys,
+                "evidence_row_ids": evidence_row_ids,
+            }
+        elif span < 1.0:
             # 闪帧卡位（0.1-0.5s）：物理放不下口播（voice-timeline-fit 会 overflow），
             # 只保留花字收尾，绝不硬塞一句导致 TTS 阻断（评审 P1-6 联动）。
             narr, copy, role = "", "", "cta"
-            for row in our:
+            for row in rows:
                 if len(row) >= 2 and not str(row[0] or "").strip():
                     copy = str(row[1] or "")
                     break
@@ -709,7 +792,9 @@ def build_script(project: Path, template: dict, sp: dict, ccp: dict, facts: dict
             pos, narr, copy, role, text_action = _pick_row(bound)
             aligned = bool(bound and text_action == bound)
         sections.append({
-            "id": f"sec-{i:03d}", "label": f"beat-{i}", "text": narr, "narration": narr,
+            "id": str(scene.get("script_section_id") or _section_id_for_scene(str(scene.get("id") or ""))),
+            "label": f"beat-{i}", "text": narr, "narration": narr,
+            "scene_id": str(scene.get("id") or ""),
             "screen_copy": copy, "section_goal": f"第 {i} 个模板 slot 动作", "beat_role": role,
             "viewer_state": {"hook": "好奇", "reveal": "被揭晓", "proof": "信服", "cta": "行动",
                              "problem": "疑虑", "escalation": "被放大", "payoff": "被解决", "other": ""}[role],
@@ -721,6 +806,7 @@ def build_script(project: Path, template: dict, sp: dict, ccp: dict, facts: dict
             "narration_action_key": text_action,
             "bound_material_action": bound,
             "narration_material_aligned": aligned,
+            **evidence_contract,
         })
     sc = {
         "version": "1.0",
@@ -728,7 +814,7 @@ def build_script(project: Path, template: dict, sp: dict, ccp: dict, facts: dict
         "script_version": 1, "status": ("approved" if approved else "draft"),
         "creative_control_ref": {"plan_id": str(template.get("template_id")), "plan_version": ccp.get("plan_version", 1),
                                  "artifact_sha256": str(ccp.get("artifact_sha256") or "a" * 64)},
-        "title": "透明桌垫 · 餐桌省心好物",
+        "title": title or "透明桌垫 · 餐桌省心好物",
         "total_duration_seconds": sp["scenes"][-1]["end_seconds"],
         "voice_performance": {"performance_intent": "清晰、节奏明快种草腔", "pacing_profile": "energetic",
                               "energy_curve": "先扬后收", "pause_policy": "每句独立", "sample_section_id": "sec-001"},
@@ -820,6 +906,38 @@ def scene_plan_data(project: Path, template: dict, rp: dict, ccp: dict, facts: d
         grounding=grounding,
         research_direction=research_direction,
     )
+    matrix_mode = matrix.get("matrix_mode")
+    if matrix_mode in {"source_led", "source_led_template"}:
+        rows_by_id = {
+            str(row.get("matrix_row_id")): row
+            for row in matrix.get("rows", [])
+            if isinstance(row, Mapping) and row.get("matrix_row_id")
+        }
+        scenes_by_id = {str(scene.get("id")): scene for scene in scenes}
+        for mapping in source_mapping:
+            scene_id = str(mapping.get("scene_id") or "")
+            row_id = str(mapping.get("matrix_row_id") or "")
+            row = rows_by_id.get(row_id)
+            if row is None or row.get("resolution") != "accept":
+                raise ValueError(
+                    f"source-led scene {scene_id!r} requires an accepted canonical evidence row"
+                )
+            contract = {
+                "script_section_id": _section_id_for_scene(scene_id),
+                "claim_ids": list(row.get("claim_ids") or []),
+                "action_keys": list(row.get("action_keys") or []),
+                "evidence_row_ids": [row_id],
+            }
+            if not contract["claim_ids"] or not contract["action_keys"]:
+                raise ValueError(f"source-led evidence row {row_id!r} is incomplete")
+            mapping.update(contract)
+            mapping["source_hash"] = str(row.get("source_hash") or "")
+            if matrix_mode == "source_led":
+                mapping["reference_evidence"] = {"mode": "none"}
+            scene = scenes_by_id.get(scene_id)
+            if scene is None:
+                raise ValueError(f"source mapping references unknown scene {scene_id!r}")
+            scene.update(contract)
     slot_ref_map = {m["scene_id"]: m["template_slot_ref"] for m in source_mapping}
     sp = {
         "version": "1.0", "caption_policy_version": "1.0",
@@ -829,7 +947,11 @@ def scene_plan_data(project: Path, template: dict, rp: dict, ccp: dict, facts: d
         "metadata": {"template_id": str(template.get("template_id")),
                      "template_pack_ref": "projects/template-pack-library/artifacts/template_pack.json",
                      "run_plan_ref": f"projects/{project.name}/artifacts/template_run_plan.json",
-                     "reference_media_usage": "analysis_only",
+                     "reference_media_usage": (
+                         "not_applicable"
+                         if matrix_mode in {"source_led", "source_led_template"}
+                         else "analysis_only"
+                     ),
                      "template_slot_ref": slot_ref_map, "source_mapping": source_mapping},
     }
     return sp
@@ -916,7 +1038,8 @@ def advance_run_full(run: str, *, pipeline_dir: Path | None = None, pack: dict |
     return get_completed_stages(PDIR, run, PIPELINE)
 
 
-def advance_to_assets(run: str, *, pipeline_dir: Path | None = None) -> str:
+def advance_to_assets(run: str, *, pipeline_dir: Path | None = None,
+                      output_profile: str = "social_vertical_1080p30") -> str:
     """推进到 assets 并写 awaiting_human（creative_lock terminal gate），返回下一 stage。
 
     前置（fail-closed）：template_run_plan 必须已**显式** approved——本函数绝不自动批准
@@ -943,7 +1066,8 @@ def advance_to_assets(run: str, *, pipeline_dir: Path | None = None) -> str:
     from backlot.project_commit import ProjectCommitStore
 
     with ProjectCommitStore(project).transaction(action={"action_id": f"advance-assets-{run}"}) as sink:
-        envs = build_assets(project, template, pipeline_dir=PDIR, sink=sink)
+        envs = build_assets(project, template, pipeline_dir=PDIR, sink=sink,
+                            output_profile=output_profile)
         write_checkpoint(PDIR, run, "assets", "awaiting_human", envs, pipeline_type=PIPELINE,
                          next_action={"summary": "assets 待审批（全 owned，无 paid 生成）", "verb": "await_user",
                                       "context_refs": ["artifacts/shot_execution_plan.json", "artifacts/asset_plan.json"]},

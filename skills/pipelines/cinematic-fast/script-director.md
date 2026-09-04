@@ -19,6 +19,37 @@ approval identity/time when all sections are locked. If the control plan is
 missing or not approved, stop and report that the user must finish the
 导演总控单 first.
 
+## Input mode and source-evidence closure
+
+Read `project.json.input_mode` before authoring. `reference_driven` keeps the
+existing reference-analysis contract. For `source_led` and
+`source_led_template`, `reference_source_matrix` is the canonical owned-source
+evidence matrix, not a synthetic reference-video artifact. Every section MUST
+declare non-empty, explicit `scene_id`, `claim_ids`, `action_keys`, and
+`evidence_row_ids`.
+
+For each source-led section:
+
+1. Source-led v1 requires exactly one `evidence_row_id` per section (one
+   section = one scene = one primary visual evidence row), and that row must
+   have `resolution: accept`. Put another claim in its own section/scene rather
+   than attaching off-screen supplemental evidence.
+2. Set `claim_ids` and `action_keys` exactly from that row; do not
+   add a claim or action inferred from template order, slot position, filename,
+   or generic product copy.
+3. Write `narration` and `screen_copy` using the row's `allowed_wording` and the
+   referenced `product_facts.claims[]`. Neither text may contain the row's
+   `prohibited_wording`; run `check_text_facts` on both strings.
+4. Keep `visual_intent` concrete about the owned-source action/result that will
+   prove the section. Human approval locks this evidence closure together with
+   the wording, rather than approving copy in isolation.
+
+In `source_led_template`, template dialogue and overlay text remain
+`analysis_only`. The template may determine beat duration, pacing, shot
+language, and caption treatment, but it must never supply claim IDs, evidence
+rows, narration, or screen copy. A completed/approved source-led script that
+cannot close every section to accepted evidence must fail closed.
+
 ## beat map（结构硬规则，禁止卖点清单）
 
 Read `skills/meta/reference-critic.md` + the `creative_control_plan`'s
@@ -50,7 +81,7 @@ If `artifacts/product_facts.json` exists, read it via `lib.product_facts.load_pr
 若项目有 `artifacts/template_run_plan.json`，script 以它为**节奏与叙事结构约束**，但**文案必须重写为本商品事实**：
 
 1. 读 `template_run_plan.slot_bindings` 与对应 `template_pack` 模板的 `slots[]`：取每个 slot 的 `shot_language`（景别/机位）、`duration_s`、`caption_treatment`、`overlay_text`、`dialogue`、`audio_layers`、`music_profile`，作为这一段**节奏/拍点/表现方式**的输入。
-2. **只借结构，不借文字**：模板 `dialogue`/`overlay_text` 是参考台词/花字，仅 `analysis_only`，**绝不进入**本 run 的 `narration` 或 `screen_copy`。每段换成用 `product_facts` 重写、并由 `lib.product_facts.check_text_facts` 校验过的台词与花字（见上节前向约束）。
+2. **只借结构，不借文字**：模板 `dialogue`/`overlay_text` 是参考台词/花字，仅 `analysis_only`，**绝不进入**本 run 的 `narration` 或 `screen_copy`。source-led-template 每段从其 canonical evidence rows 的 `allowed_wording` + `product_facts` 重写，并由 `lib.product_facts.check_text_facts` 校验（见上节前向约束）。
 3. Scene 时序按模板 slot 节奏派生（每 scene 对应一个 slot，`start/end_seconds` 累计自 slot `duration_s`），并写入 `creative_control_ref` 指向 `template_run_plan` 的 `artifact_sha256`。
 4. 每个 section 的 `beat_role` 仍须满足 beat map 硬规则（≥1 hook + ≥1 escalation/reveal + ≥1 payoff/cta），不允许把模板的平铺 slots 直接抄成卖点清单。
 5. `status: draft`，照常过 script 人工 gate（`awaiting_human`）；只有 `check_template_run_plan_ready` 可用的 binding 才允许进入后续 paid assets。

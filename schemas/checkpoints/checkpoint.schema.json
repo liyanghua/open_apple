@@ -18,6 +18,11 @@
     },
     "timestamp": { "type": "string", "format": "date-time" },
     "pipeline_type": { "type": "string", "description": "Pipeline manifest name" },
+    "input_mode": {
+      "type": "string",
+      "enum": ["reference_driven", "source_led", "source_led_template"],
+      "description": "Resolved project input mode; omitted on legacy checkpoints"
+    },
     "style_playbook": { "type": "string" },
     "checkpoint_policy": { "type": "string", "enum": ["guided", "manual_all", "auto_noncreative"] },
     "human_approval_required": { "type": "boolean" },

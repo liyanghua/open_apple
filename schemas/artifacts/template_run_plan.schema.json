@@ -25,6 +25,7 @@
       "additionalProperties": false
     },
     "adaptation_policy": { "type": "string", "description": "改编策略（如 proof-first / pain-first / story），由模板表达或人工指定" },
+    "differentiation_plan_ref": { "type": ["object", "null"], "required": ["name", "path", "artifact_sha256"], "properties": {"name": {"type": "string", "const": "differentiation_plan"}, "path": {"type": "string", "pattern": "^artifacts/[^.].*\\.json$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "additionalProperties": false },
     "slot_bindings": {
       "type": "array",
       "items": {

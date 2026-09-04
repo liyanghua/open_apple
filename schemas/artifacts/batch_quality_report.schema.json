@@ -115,6 +115,7 @@
         "additionalProperties": false
       }
     },
+    "dedup": {"type": "object", "required": ["thresholds", "comparisons", "status"], "properties": {"thresholds": {"type": "object", "additionalProperties": {"type": "number"}}, "comparisons": {"type": "array", "items": {"type": "object", "additionalProperties": true}}, "status": {"type": "string", "enum": ["pass", "needs_redesign"]}}, "additionalProperties": false},
     "human_review": {
       "type": "object",
       "properties": {

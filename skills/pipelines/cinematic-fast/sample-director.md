@@ -28,6 +28,29 @@ fields when present, `text_sources` from captions and narration, and
 in the sample must be surfaced to the user before sample approval; fixable
 failures become `repair_targets` and do not block the five effect checks.
 
+## Canonical semantic alignment gate
+
+For `source_led` and `source_led_template`, the sample gate is not complete
+after L1a alone. Build the canonical alignment block with
+`lib.template_alignment.build_semantic_alignment` from the current `script`,
+`scene_plan`, `shot_execution_plan`, `final_props`, and rendered sample. Store
+their five hashes under `evaluation_report.alignment.input_hashes`; a report
+bound to an older script or render is stale and must not be reused.
+
+Each proof shot must have a current semantic result for action support, visible
+result support, narration/caption agreement, and 3:4 crop completeness. Missing
+semantic review, a missing required action, wrong product identity, or caption
+conflict is fail-closed. Promote an alignment failure into the L1a hard-gate
+list with `apply_alignment_to_evaluation`; do not write an awaiting-human
+sample checkpoint when alignment is `fail` or `revise`. The five human effect
+checks remain mandatory and are not replaced by machine alignment.
+
+Build `sample_execution_trace` before alignment and evaluate only shots whose
+`sample_window.included` is true. Product identity comes from canonical
+`product_facts` / run input contract, never from the rendered `final_props`
+value being checked. `sample`, `compose`, and `publish` checkpoints require
+`alignment.status=pass` in source-led modes; `revise` routes to repair/reopen.
+
 ## L3 评分契约（video_judge，required_tools）
 
 `video_judge` 是 sample/compose 的 `required_tools`（`pipeline_defs/

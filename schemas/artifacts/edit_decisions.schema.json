@@ -183,7 +183,7 @@
     },
     "safe_zone_profile": {
       "type": "string",
-      "enum": ["douyin_9_16", "wechat_9_16", "xiaohongshu_9_16"]
+      "enum": ["douyin_9_16", "wechat_9_16", "xiaohongshu_9_16", "taobao_detail_3_4"]
     },
     "music": {
       "type": "object",

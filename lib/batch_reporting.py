@@ -16,8 +16,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from lib.artifact_hashing import semantic_sha256
+from lib.artifact_hashing import semantic_sha256, verify_hashes
 from lib.candidate_diversity import compare_candidate_pair
+from lib.differentiation import build_dedup_summary
+from schemas.artifacts import validate_artifact
 
 
 def _now() -> str:
@@ -77,6 +79,47 @@ def _candidates(batch_dir: Path) -> list[dict[str, Any]]:
     if not isinstance(index, Mapping):
         return []
     return [c for c in (index.get("candidates") or []) if isinstance(c, Mapping)]
+
+
+def _batch_index(batch_dir: Path) -> dict[str, Any] | None:
+    for name in ("candidate_batch.json", "template_batch.json"):
+        value = _read_json(batch_dir / "artifacts" / name)
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def _trusted_differentiation_plan(batch_dir: Path) -> tuple[dict[str, Any] | None, str | None]:
+    index = _batch_index(batch_dir)
+    if not isinstance(index, Mapping):
+        return None, "missing batch root index"
+    if "differentiation_plan_ref" not in index:
+        return None, None
+    ref = index.get("differentiation_plan_ref")
+    if not isinstance(ref, Mapping):
+        return None, "missing differentiation_plan_ref"
+    if ref.get("name") != "differentiation_plan":
+        return None, "invalid differentiation plan ref name"
+    raw_path = str(ref.get("path") or "")
+    if not raw_path.startswith("artifacts/") or ".." in Path(raw_path).parts or Path(raw_path).is_absolute():
+        return None, "invalid differentiation plan ref path"
+    path = (batch_dir / raw_path).resolve()
+    try:
+        path.relative_to((batch_dir / "artifacts").resolve())
+    except ValueError:
+        return None, "differentiation plan ref escapes artifacts"
+    plan = _read_json(path)
+    if not isinstance(plan, dict):
+        return None, "missing differentiation plan artifact"
+    try:
+        validate_artifact("differentiation_plan", plan)
+    except Exception:
+        return None, "invalid differentiation plan artifact"
+    if not verify_hashes(plan).valid or plan.get("artifact_sha256") != ref.get("artifact_sha256"):
+        return None, "differentiation plan hash mismatch"
+    if str(plan.get("batch_id") or "") != str(index.get("batch_id") or ""):
+        return None, "differentiation plan batch_id mismatch"
+    return plan, None
 
 
 def _child_dir(batch_dir: Path, candidate: Mapping[str, Any]) -> Path:
@@ -306,8 +349,13 @@ def build_batch_quality_report(
     candidates = _candidates(batch_dir)
     refs, input_hashes = _collect_source_refs(batch_dir, candidates)
     variant_plans = _load_variant_plans(batch_dir, candidates)
+    differentiation_plan, differentiation_error = _trusted_differentiation_plan(batch_dir)
+    if differentiation_plan is not None:
+        input_hashes["differentiation_plan"] = str(differentiation_plan["artifact_sha256"])
 
     warnings: list[dict[str, Any]] = []
+    if differentiation_error:
+        warnings.append({"code": "dedup_untrusted", "message": differentiation_error})
     quality_candidates: list[dict[str, Any]] = []
     for candidate in candidates:
         candidate_id = str(candidate.get("candidate_id") or "")
@@ -377,7 +425,7 @@ def build_batch_quality_report(
     if warnings:
         data_quality = {"status": "partial", "warnings": warnings}
 
-    return {
+    report = {
         "version": "1.0",
         "batch_id": batch_id,
         "run_id": run_id or f"run-{batch_id}",
@@ -389,9 +437,14 @@ def build_batch_quality_report(
         "data_quality": data_quality,
         "candidates": quality_candidates,
         "pairwise_diversity": pairwise,
+        "dedup": build_dedup_summary(differentiation_plan) if isinstance(differentiation_plan, Mapping) else {
+            "thresholds": {"action_jaccard": 0.8, "copy_ngram_dice": 0.85, "beat_duration_delta": 0.15},
+            "comparisons": [], "status": "needs_redesign",
+        },
         "human_review": {
             "selected_candidate_ids": [str(item) for item in ((_read_json(batch_dir / "artifacts" / "candidate_batch.json") or {}).get("selection", {}).get("selected_candidate_ids", []) or [])],
             "reason": str(((_read_json(batch_dir / "artifacts" / "candidate_batch.json") or {}).get("selection", {}) or {}).get("reason") or ""),
         },
         "recommendations": recommendations,
     }
+    return report

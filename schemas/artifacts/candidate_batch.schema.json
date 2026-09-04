@@ -71,6 +71,11 @@
       },
       "additionalProperties": false
     },
+    "differentiation_plan_ref": {
+      "type": ["object", "null"], "required": ["name", "path", "artifact_sha256"],
+      "properties": {"name": {"type": "string", "const": "differentiation_plan"}, "path": {"type": "string"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+      "additionalProperties": false
+    },
     "diversity_mode": {
       "type": "string",
       "enum": ["warning", "hard_gate", "legacy_read_only"],

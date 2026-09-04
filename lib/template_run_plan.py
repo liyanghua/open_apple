@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import uuid
+import re
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -38,6 +39,7 @@ def create_template_run(
     template_pack_ref: Mapping[str, Any],
     product_facts_ref: Mapping[str, Any],
     adaptation_policy: str = "proof-first",
+    differentiation_plan_ref: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """由模板创建 template_run_plan（slot_bindings 初始为 require-binding 的 unbound）。"""
     template_id = str(template.get("template_id") or "")
@@ -61,6 +63,7 @@ def create_template_run(
         "template_pack_ref": dict(template_pack_ref),
         "product_facts_ref": dict(product_facts_ref),
         "adaptation_policy": adaptation_policy,
+        "differentiation_plan_ref": dict(differentiation_plan_ref) if differentiation_plan_ref else None,
         "slot_bindings": bindings,
         "caption_policy": {"reference_text": "analysis_only", "copy_reference_caption": False},
         "status": "awaiting_human",
@@ -97,6 +100,9 @@ def bind_slot(
 def check_template_run_plan_ready(
     run_plan: Mapping[str, Any],
     template: Mapping[str, Any] | None = None,
+    *,
+    input_mode: str | None = None,
+    authoritative_differentiation_plan_ref: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """fail-closed：template_run_plan 是否可进入 paid assets（代码硬门，非描述）。
 
@@ -112,6 +118,11 @@ def check_template_run_plan_ready(
     status = str(run_plan.get("status") or "").strip()
     if status != "approved":
         blockers.append(f"template_run_plan 未批准（status={status or '未决'}），禁止付费生成")
+    if input_mode == "source_led_template":
+        try:
+            validate_differentiation_plan_ref(run_plan, authoritative_differentiation_plan_ref)
+        except ValueError as exc:
+            blockers.append(str(exc))
     bindings = run_plan.get("slot_bindings") or []
     if not bindings:
         blockers.append("template_run_plan slot_bindings 为空，禁止付费生成")
@@ -185,6 +196,29 @@ def check_template_run_plan_ready(
     if (run_plan.get("caption_policy") or {}).get("copy_reference_caption"):
         blockers.append("禁止复制参考花字/字幕（copy_reference_caption 必须为 false）")
     return {"ready": not blockers, "unbound_slots": unbound_slots, "blockers": blockers}
+
+
+def validate_differentiation_plan_ref(
+    run_plan: Mapping[str, Any], batch_plan_ref: Mapping[str, Any] | None
+) -> None:
+    """Fail closed unless a run consumes the batch root's exact dedup plan."""
+    run_ref = run_plan.get("differentiation_plan_ref")
+    if not _valid_differentiation_ref(run_ref) or not _valid_differentiation_ref(batch_plan_ref):
+        raise ValueError("run and batch require differentiation_plan_ref")
+    for field in ("name", "path", "artifact_sha256"):
+        if not str(run_ref.get(field) or "") or run_ref.get(field) != batch_plan_ref.get(field):
+            raise ValueError(f"run differentiation_plan_ref does not match batch ref: {field}")
+
+
+def _valid_differentiation_ref(value: Any) -> bool:
+    return (
+        isinstance(value, Mapping)
+        and value.get("name") == "differentiation_plan"
+        and isinstance(value.get("path"), str)
+        and value["path"].startswith("artifacts/")
+        and isinstance(value.get("artifact_sha256"), str)
+        and re.fullmatch(r"[a-f0-9]{64}", value["artifact_sha256"]) is not None
+    )
 
 
 def _check_compression_plan(comp: Mapping[str, Any], run_plan: Mapping[str, Any],

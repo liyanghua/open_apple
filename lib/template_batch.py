@@ -10,6 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from lib.artifact_hashing import attach_hashes, verify_hashes
+from lib.artifact_io import write_artifact_atomic
+from schemas.artifacts import validate_artifact
+
 def _batch_id() -> str:
     return f"template-batch-{uuid.uuid4().hex[:12]}"
 
@@ -18,6 +22,7 @@ def create_template_batch(
     template_pack: Mapping[str, Any],
     *,
     product_facts_ref: Mapping[str, Any],
+    batch_id: str | None = None,
     template_run_plan_refs: Mapping[str, Mapping[str, Any]] | None = None,
     shared_research_refs: list[Mapping[str, Any]] | None = None,
     max_parallel: int = 2,
@@ -25,6 +30,7 @@ def create_template_batch(
     max_retries_per_run: int = 1,
     publish_policy: str = "selective",
     render_runtime: str | None = None,
+    differentiation_plan_ref: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """由 template_pack 创建 template_batch：每条模板一个 run。
 
@@ -53,13 +59,14 @@ def create_template_batch(
             "attempts": 0,
             "failure_reason": None,
         })
-    return {
+    batch = {
         "version": "1.0",
-        "batch_id": _batch_id(),
+        "batch_id": str(batch_id or _batch_id()),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "template_pack_ref": {"artifact_sha256": pack_hash, "version": str(template_pack.get("version") or "1.0")},
         "product_facts_ref": dict(product_facts_ref),
         "shared_research_refs": list(shared_research_refs or []),
+        "differentiation_plan_ref": dict(differentiation_plan_ref) if differentiation_plan_ref else None,
         "runs": runs,
         "concurrency": {"max_parallel": max(1, int(max_parallel))},
         "budget": {"max_cost_usd": max_cost_usd, "max_retries_per_run": max(0, int(max_retries_per_run))},
@@ -73,6 +80,8 @@ def create_template_batch(
         "progress": None,
         "report_ref": None,
     }
+    validate_template_batch_owner(batch)
+    return batch
 
 
 def mark_pilot(batch: Mapping[str, Any], template_ids: list[str]) -> dict[str, Any]:
@@ -80,6 +89,71 @@ def mark_pilot(batch: Mapping[str, Any], template_ids: list[str]) -> dict[str, A
     updated = dict(batch)
     updated["pilot_run_ids"] = list(template_ids)
     return updated
+
+
+def validate_template_batch_owner(batch: Mapping[str, Any]) -> None:
+    """Ensure the batch root is the only owner of its differentiation ref."""
+    ref = batch.get("differentiation_plan_ref")
+    if ref is not None and not (
+        isinstance(ref, Mapping) and ref.get("name") == "differentiation_plan"
+        and str(ref.get("path") or "").startswith("artifacts/")
+        and len(str(ref.get("artifact_sha256") or "")) == 64
+    ):
+        raise ValueError("template_batch has invalid differentiation_plan_ref")
+    if any("differentiation_plan_ref" in run for run in batch.get("runs", []) if isinstance(run, Mapping)):
+        raise ValueError("template_batch runs must consume the root ref through template_run_plan")
+
+
+def persist_template_batch(project_dir: Path, batch: Mapping[str, Any], *, sink=None) -> dict[str, Any]:
+    from lib.differentiation import validate_batch_plan_owner
+    validate_template_batch_owner(batch)
+    validate_batch_plan_owner(project_dir, batch)
+    sealed = attach_hashes(dict(batch))
+    validate_artifact("template_batch", sealed)
+    return write_artifact_atomic("artifacts/template_batch.json", "template_batch", sealed, project_dir=project_dir, sink=sink)
+
+
+def resolve_run_batch_differentiation_ref(project: Path, pipeline_dir: Path) -> tuple[str | None, Mapping[str, Any] | None]:
+    """Resolve the authoritative batch-root ref declared by a canonical run marker."""
+    marker_path = project / "project.json"
+    try:
+        import json
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, None
+    input_mode = marker.get("input_mode")
+    if input_mode != "source_led_template":
+        return input_mode, None
+    template_run = marker.get("template_run") if isinstance(marker.get("template_run"), Mapping) else {}
+    batch_project_id = str(template_run.get("batch_project_id") or "")
+    if not batch_project_id:
+        raise ValueError("source_led_template run missing batch_project_id for differentiation owner")
+    root = pipeline_dir.resolve()
+    batch_dir = (root / batch_project_id).resolve()
+    try:
+        batch_dir.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("batch_project_id escapes pipeline root") from exc
+    for artifact_name in ("template_batch", "candidate_batch"):
+        path = batch_dir / "artifacts" / f"{artifact_name}.json"
+        try:
+            batch = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        validate_artifact(artifact_name, batch)
+        if not verify_hashes(batch).valid:
+            raise ValueError(f"{artifact_name} owner hash invalid")
+        members = batch.get("runs") if artifact_name == "template_batch" else batch.get("candidates")
+        if not any(
+            isinstance(item, Mapping) and str(item.get("project_id") or "") == project.name
+            for item in (members or [])
+        ):
+            raise ValueError(f"run {project.name!r} is not a member of authoritative {artifact_name}")
+        ref = batch.get("differentiation_plan_ref")
+        if not isinstance(ref, Mapping):
+            raise ValueError(f"{artifact_name} missing differentiation_plan_ref")
+        return input_mode, ref
+    raise ValueError("source_led_template run cannot locate authoritative batch artifact")
 
 
 def refresh_template_batch_status(

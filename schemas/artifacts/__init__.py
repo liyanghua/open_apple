@@ -38,6 +38,7 @@ ARTIFACT_NAMES = [
     "media_index",
     "reference_fingerprint",
     "research_breakdown",
+    "source_semantic_index",
     "reference_source_matrix",
     "research_synthesis",
     "research_scorecard",
@@ -70,6 +71,7 @@ ARTIFACT_NAMES = [
     "template_pack",
     "template_run_plan",
     "template_batch",
+    "differentiation_plan",
     "human_ab_review",
 ]
 
@@ -169,9 +171,19 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
             raise jsonschema.ValidationError(
                 "research breakdown coverage counts must add up to total"
             )
+    elif name == "source_semantic_index":
+        for entry in data.get("entries", []):
+            interval = entry["interval"]
+            if interval["end_seconds_exclusive"] <= interval["start_seconds"]:
+                raise jsonschema.ValidationError(
+                    "source semantic interval end must be greater than start"
+                )
     elif name == "reference_source_matrix":
+        matrix_mode = data.get("matrix_mode", "reference")
         for row in data.get("rows", []):
-            intervals = [row["reference_time_range"]]
+            intervals = []
+            if row.get("reference_time_range") is not None:
+                intervals.append(row["reference_time_range"])
             if row.get("source_time_range") is not None:
                 intervals.append(row["source_time_range"])
             for interval in intervals:
@@ -184,6 +196,13 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
             ):
                 raise jsonschema.ValidationError(
                     "accepted matrix rows require an owned source and interval"
+                )
+            if matrix_mode in {"source_led", "source_led_template"} and (
+                row.get("reference_scene_id") is not None
+                or row.get("reference_time_range") is not None
+            ):
+                raise jsonschema.ValidationError(
+                    "source-led matrix rows must not fabricate reference evidence"
                 )
     elif name == "research_scorecard":
         expected_checks = {
@@ -254,6 +273,39 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
             if hard_gate["pass"]:
                 raise jsonschema.ValidationError(
                     "evaluation_report: L1a coverage insufficient 时 hard_gate.pass 不得为 true"
+                )
+        alignment = data.get("alignment")
+        if isinstance(alignment, dict) and alignment.get("contract_version") == "1.0":
+            per_shot = alignment.get("per_shot_results", [])
+            for item in per_shot:
+                if not isinstance(item, dict):
+                    continue
+                dimensions = [
+                    item.get("action_match"), item.get("result_support"),
+                    item.get("narration_caption_match"), item.get("crop_completeness"),
+                    item.get("product_identity_match"),
+                ]
+                has_dimension_fail = any(value in {"fail", "no", "error"} for value in dimensions)
+                has_dimension_revise = any(value in {"revise", "partial"} for value in dimensions)
+                reason_codes = item.get("reason_codes") or []
+                expected_item = "fail" if has_dimension_fail else "revise" if has_dimension_revise else "pass"
+                if reason_codes and expected_item == "pass":
+                    expected_item = "fail"
+                if item.get("status") != expected_item:
+                    raise jsonschema.ValidationError(
+                        "evaluation_report alignment per-shot status contradicts dimensions/reason_codes"
+                    )
+            has_fail = any(item.get("status") == "fail" for item in per_shot if isinstance(item, dict))
+            has_revise = any(item.get("status") == "revise" for item in per_shot if isinstance(item, dict))
+            expected = "fail" if has_fail else "revise" if has_revise else "pass"
+            if alignment.get("status") != expected:
+                raise jsonschema.ValidationError(
+                    "evaluation_report alignment.status must match per_shot_results"
+                )
+            required_hashes = {"script", "scene_plan", "shot_execution_plan", "final_props", "render"}
+            if set(alignment.get("input_hashes", {})) != required_hashes:
+                raise jsonschema.ValidationError(
+                    "evaluation_report alignment.input_hashes must bind all canonical inputs"
                 )
     elif name == "production_lock":
         # Design_Review_2026-08-22.md P0-3: 口播必须是"已选择 TTS"或"无音频且有原因"。

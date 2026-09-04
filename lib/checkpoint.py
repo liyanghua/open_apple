@@ -50,6 +50,7 @@ SUPPLEMENTARY_ARTIFACTS = {
     "media_index",
     "reference_fingerprint",
     "research_breakdown",
+    "source_semantic_index",
     "reference_source_matrix",
     "research_synthesis",
     "research_scorecard",
@@ -62,14 +63,20 @@ SUPPLEMENTARY_ARTIFACTS = {
     "final_props",
     "sample_report",
     "sample_execution_trace",
+    "differentiation_plan",
 }
+
+_SCENE_MAPPING_EVIDENCE_FIELDS = (
+    "reference_basis", "source_fit", "mapping_reason", "originality_note",
+)
 
 FASTLINE_ARTIFACTS = frozenset({
     "media_index", "reference_fingerprint", "research_breakdown",
+    "source_semantic_index",
     "reference_source_matrix", "research_synthesis", "research_scorecard",
     "research_annotations", "production_lock",
     "approval_bundle", "asset_plan", "change_impact", "render_plan",
-    "final_props", "sample_report", "sample_execution_trace",
+    "final_props", "sample_report", "sample_execution_trace", "differentiation_plan",
 })
 
 # The fastline's director control plan is created during proposal and becomes
@@ -128,6 +135,300 @@ class CheckpointValidationError(ValueError):
     """Raised when a checkpoint or its canonical artifacts are invalid."""
 
 
+def _validate_source_led_scene_mapping(
+    scene_plan: dict[str, Any],
+    *,
+    input_mode: str = "source_led",
+    source_media_review: dict[str, Any] | None = None,
+    source_semantic_index: dict[str, Any] | None = None,
+    reference_source_matrix: dict[str, Any] | None = None,
+    research_synthesis: dict[str, Any] | None = None,
+    project_dir: Path | None = None,
+) -> None:
+    """Validate source-led mappings without consulting reference media.
+
+    Source-led projects ground every scene in reviewed owned footage and the
+    Research evidence matrix. They never need a reference duration or scene.
+    """
+    import math
+
+    def nonempty(value: Any) -> bool:
+        return isinstance(value, str) and bool(value.strip())
+
+    def interval(value: Any, label: str) -> tuple[float, float]:
+        if not isinstance(value, dict):
+            raise ValueError(f"{label} must be an object")
+        start = value.get("start_seconds")
+        end = value.get("end_seconds_exclusive")
+        if (
+            isinstance(start, bool) or isinstance(end, bool)
+            or not isinstance(start, (int, float)) or not isinstance(end, (int, float))
+            or not math.isfinite(start) or not math.isfinite(end)
+            or start < 0 or end <= start
+        ):
+            raise ValueError(f"{label} must be a non-empty half-open interval")
+        return float(start), float(end)
+
+    metadata = scene_plan.get("metadata") if isinstance(scene_plan, dict) else None
+    mappings = metadata.get("source_mapping") if isinstance(metadata, dict) else None
+    if not isinstance(mappings, list):
+        raise ValueError("metadata.source_mapping must be a list")
+    if metadata.get("reference_media_usage") != "not_applicable":
+        raise ValueError("source-led reference_media_usage must be not_applicable")
+    scenes = scene_plan.get("scenes")
+    if not isinstance(scenes, list) or not scenes:
+        raise ValueError("scene_plan must contain scenes")
+    scene_by_id: dict[str, dict[str, Any]] = {}
+    for scene in scenes:
+        if not isinstance(scene, dict) or not nonempty(scene.get("id")):
+            raise ValueError("every scene must have a non-empty id")
+        if not nonempty(scene.get("shot_intent")):
+            raise ValueError(f"scene {scene.get('id')!r} must have a non-empty shot_intent")
+        start = scene.get("start_seconds")
+        end = scene.get("end_seconds")
+        if (
+            isinstance(start, bool) or isinstance(end, bool)
+            or not isinstance(start, (int, float)) or not isinstance(end, (int, float))
+            or not math.isfinite(start) or not math.isfinite(end) or end <= start
+        ):
+            raise ValueError(f"scene {scene.get('id')!r} must have finite ordered timing")
+        if scene["id"] in scene_by_id:
+            raise ValueError("scene ids must be unique")
+        scene_by_id[scene["id"]] = scene
+
+    owned_sources = {
+        item.get("path"): item
+        for item in (source_media_review or {}).get("files", [])
+        if isinstance(item, dict) and item.get("reviewed") is True and nonempty(item.get("path"))
+    }
+    matrix_rows = {
+        item.get("matrix_row_id"): item
+        for item in (reference_source_matrix or {}).get("rows", [])
+        if isinstance(item, dict) and nonempty(item.get("matrix_row_id"))
+    }
+    if reference_source_matrix is not None:
+        matrix_mode = reference_source_matrix.get("matrix_mode")
+        if matrix_mode != input_mode:
+            raise ValueError(
+                f"source-led matrix_mode must match input_mode {input_mode!r}; "
+                f"got {matrix_mode!r}"
+            )
+    semantic_entries: list[dict[str, Any]] = []
+    if source_semantic_index is not None:
+        if source_semantic_index.get("input_mode") != input_mode:
+            raise ValueError("source_semantic_index.input_mode must match project input_mode")
+        for entry in source_semantic_index.get("entries", []):
+            if not isinstance(entry, dict) or not nonempty(entry.get("source_path")):
+                raise ValueError("source_semantic_index entries require source_path")
+            semantic_entries.append(entry)
+    elif reference_source_matrix is not None:
+        raise ValueError("source-led scene validation requires source_semantic_index")
+    mapped_ids: list[str] = []
+    allowed_modes = {"none"} if input_mode == "source_led" else {"none", "structural_only"}
+    for mapping in mappings:
+        if not isinstance(mapping, dict):
+            raise ValueError("every source mapping must be an object")
+        scene_id = mapping.get("scene_id")
+        if scene_id not in scene_by_id:
+            raise ValueError("every source mapping must reference a declared scene")
+        mapped_ids.append(scene_id)
+        source_path = mapping.get("source_path")
+        source = owned_sources.get(source_path)
+        if source is None:
+            raise ValueError(f"mapping for {scene_id!r} must use a reviewed owned source path")
+        evidence = mapping.get("reference_evidence")
+        if not isinstance(evidence, dict):
+            raise ValueError(f"mapping for {scene_id!r} requires reference_evidence")
+        mode = evidence.get("mode")
+        if mode not in allowed_modes:
+            raise ValueError(
+                f"{input_mode} reference_evidence.mode must be one of {sorted(allowed_modes)}; got {mode!r}"
+            )
+        for field in _SCENE_MAPPING_EVIDENCE_FIELDS:
+            if not nonempty(mapping.get(field)):
+                raise ValueError(f"mapping for {scene_id!r} requires non-empty {field}")
+        if mode == "structural_only":
+            for field in ("mechanism", "rationale"):
+                if not nonempty(evidence.get(field)):
+                    raise ValueError(f"structural_only evidence requires {field}")
+        for field in ("reference_scene_id", "reference_interval", "reference_path", "reference_paths"):
+            if field in evidence and evidence.get(field) not in (None, [], ""):
+                raise ValueError(f"source-led scene mapping must not include {field}")
+        for field in ("reference_path", "reference_paths", "reference_media_path", "reference_media"):
+            value = mapping.get(field)
+            if value not in (None, [], ""):
+                raise ValueError(f"source-led scene mapping must not include {field}")
+        source_start, source_end = interval(mapping.get("source_interval"), "source_interval")
+        timeline_start, timeline_end = interval(mapping.get("timeline_interval"), "timeline_interval")
+        scene = scene_by_id[scene_id]
+        if not math.isclose(timeline_start, float(scene.get("start_seconds")), abs_tol=1e-6) or not math.isclose(
+            timeline_end, float(scene.get("end_seconds")), abs_tol=1e-6
+        ):
+            raise ValueError(f"timeline_interval for {scene_id!r} must match canonical scene timing")
+        probe = source.get("technical_probe")
+        duration = probe.get("duration_seconds") if isinstance(probe, dict) else None
+        if source.get("media_type") in {"video", "audio"} and (
+            isinstance(duration, bool) or not isinstance(duration, (int, float))
+            or not math.isfinite(duration) or source_end > duration
+        ):
+            raise ValueError(f"source_interval for {scene_id!r} exceeds owned source duration")
+        if reference_source_matrix is not None:
+            primary_row_id = mapping.get("matrix_row_id")
+            if mapping.get("evidence_row_ids") != [primary_row_id]:
+                raise ValueError(
+                    f"mapping for {scene_id!r} matrix_row_id requires evidence_row_ids == [matrix_row_id]"
+                )
+            row = matrix_rows.get(primary_row_id)
+            if row is None or row.get("resolution") == "pending":
+                raise ValueError(f"mapping for {scene_id!r} requires a resolved research matrix row")
+            matrix_media_id = row.get("source_media_id")
+            path_entries = [
+                entry for entry in semantic_entries
+                if entry.get("source_path") == source_path
+            ]
+            if not path_entries:
+                raise ValueError(f"mapping for {scene_id!r} is missing source semantic evidence")
+            media_entries = [
+                entry for entry in path_entries
+                if entry.get("media_id") == matrix_media_id == source.get("media_id")
+            ]
+            if not media_entries:
+                raise ValueError(f"mapping for {scene_id!r} has inconsistent source media_id")
+            hash_entries = [
+                entry for entry in media_entries
+                if entry.get("source_hash") == row.get("source_hash")
+            ]
+            if not hash_entries:
+                raise ValueError(f"mapping for {scene_id!r} source hash does not match semantic index")
+            if mapping.get("source_hash") != row.get("source_hash"):
+                raise ValueError(
+                    f"mapping for {scene_id!r} source_hash must equal primary evidence row"
+                )
+            if source.get("source_hash") not in (None, row.get("source_hash")):
+                raise ValueError(
+                    f"mapping for {scene_id!r} source hash does not match source review"
+                )
+            if project_dir is not None:
+                source_file = Path(str(source_path))
+                if not source_file.is_absolute():
+                    source_file = project_dir / source_file
+                if source_file.is_file():
+                    import hashlib
+
+                    digest = hashlib.sha256()
+                    with source_file.open("rb") as handle:
+                        for chunk in iter(lambda: handle.read(65536), b""):
+                            digest.update(chunk)
+                    if digest.hexdigest() != row.get("source_hash"):
+                        raise ValueError(
+                            f"mapping for {scene_id!r} source_hash does not match source file"
+                        )
+            matrix_interval = row.get("source_time_range")
+            matrix_start, matrix_end = interval(matrix_interval, "matrix source_time_range")
+            interval_entries = []
+            for entry in hash_entries:
+                semantic_start, semantic_end = interval(
+                    entry.get("interval"), "semantic source interval"
+                )
+                if math.isclose(semantic_start, matrix_start, abs_tol=1e-6) and math.isclose(
+                    semantic_end, matrix_end, abs_tol=1e-6
+                ):
+                    interval_entries.append(entry)
+            if not interval_entries:
+                raise ValueError(
+                    f"matrix row for {scene_id!r} has no exact semantic source interval"
+                )
+            if len(interval_entries) != 1:
+                raise ValueError(
+                    f"matrix row for {scene_id!r} matches duplicate semantic entries"
+                )
+            semantic = interval_entries[0]
+            if (semantic.get("quality") or {}).get("usable") is not True:
+                raise ValueError(f"mapping for {scene_id!r} source semantic quality.usable must be true")
+            if (semantic.get("crop_safety") or {}).get("subject_complete_in_3_4") is not True:
+                raise ValueError(
+                    f"mapping for {scene_id!r} source semantic "
+                    "crop_safety.subject_complete_in_3_4 must be true"
+                )
+            representative_frames = {
+                value for value in semantic.get("representative_frames", [])
+                if isinstance(value, str) and value
+            }
+            row_frames = {
+                value for value in row.get("evidence_frames", [])
+                if isinstance(value, str) and value
+            }
+            if not representative_frames or not row_frames or not row_frames <= representative_frames:
+                raise ValueError(
+                    f"mapping for {scene_id!r} has missing or inconsistent representative evidence"
+                )
+            if matrix_media_id is not None and source.get("media_id") != matrix_media_id:
+                source_frames = {
+                    value for value in source.get("representative_frames", [])
+                    if isinstance(value, str) and value
+                }
+                row_frames = {
+                    value for value in row.get("evidence_frames", [])
+                    if isinstance(value, str) and value
+                }
+                if not (source_frames & row_frames):
+                    raise ValueError(
+                        f"mapping for {scene_id!r} must use the approved research matrix source"
+                    )
+            if mapping.get("matrix_resolution_id") != row.get("resolution"):
+                raise ValueError(f"mapping for {scene_id!r} must use the research matrix resolution")
+            direction_ref = mapping.get("research_direction_ref")
+            if not nonempty(direction_ref):
+                raise ValueError(f"mapping for {scene_id!r} requires research_direction_ref")
+            if research_synthesis is not None:
+                directions = {
+                    item.get("direction_id") for item in research_synthesis.get("differentiation_directions", [])
+                    if isinstance(item, dict)
+                }
+                if direction_ref not in directions:
+                    raise ValueError(f"mapping for {scene_id!r} references an unknown research direction")
+            if source_start < matrix_start or source_end > matrix_end:
+                raise ValueError(
+                    f"mapping for {scene_id!r} must stay within the approved research matrix source interval"
+                )
+    if len(mapped_ids) != len(set(mapped_ids)) or set(mapped_ids) != set(scene_by_id):
+        raise ValueError("scene_plan requires exactly one mapping per scene")
+
+
+def _validate_source_led_template_prior(
+    project_dir: Path, input_context: dict[str, Any]
+) -> None:
+    """Require source-led template priors to resolve to an intact template pack."""
+    if input_context.get("input_mode") != "source_led_template":
+        return
+    template = input_context.get("template_prior")
+    reference = template.get("template_pack_ref") if isinstance(template, dict) else None
+    if not isinstance(reference, str) or not reference.strip():
+        raise ValueError("source_led_template requires template_pack_ref")
+    from pathlib import PurePosixPath
+    relative = PurePosixPath(reference)
+    if (
+        relative.is_absolute()
+        or len(relative.parts) < 2
+        or relative.parts[0] != "artifacts"
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
+        raise ValueError("template_pack_ref must be a project-relative artifacts path")
+    target = (Path(project_dir).resolve() / Path(*relative.parts)).resolve()
+    artifacts_root = (Path(project_dir).resolve() / "artifacts").resolve()
+    if artifacts_root not in target.parents:
+        raise ValueError("template_pack_ref must stay inside project artifacts")
+    try:
+        with target.open(encoding="utf-8") as handle:
+            pack = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"template_pack_ref cannot be resolved: {exc}") from exc
+    from lib.artifact_hashing import verify_hashes
+    if not verify_hashes(pack).valid:
+        raise ValueError("template_pack artifact hash verification failed")
+    validate_artifact("template_pack", pack)
+
+
 def _validate_style_playbook(style_playbook: str | None) -> None:
     """Fail closed when a checkpoint names a visual identity that cannot load."""
 
@@ -165,6 +466,17 @@ def _validate_artifacts_for_stage(
     required_artifacts: list[str] = []
     validated_artifacts: dict[str, dict[str, Any]] = {}
     contract_v2 = False
+    input_mode: str | None = None
+    input_context: dict[str, Any] | None = None
+    if project_dir is not None and pipeline_type == "cinematic-fast":
+        try:
+            from lib.pipeline_loader import load_input_context
+            input_context = load_input_context(project_dir)
+            input_mode = input_context.get("input_mode")
+        except FileNotFoundError:
+            # Checkpoint-only tests and legacy callers may validate before a
+            # marker exists; preserve the historical reference-driven path.
+            input_mode = "reference_driven"
     if pipeline_type and pipeline_type != "unknown":
         try:
             from lib.pipeline_loader import get_stage_produces, load_pipeline_readonly
@@ -172,7 +484,9 @@ def _validate_artifacts_for_stage(
             manifest = load_pipeline_readonly(pipeline_type)
             contract_v2 = manifest.get("artifact_contract_version") == 2
             if contract_v2:
-                required_artifacts = get_stage_produces(manifest, stage)
+                required_artifacts = get_stage_produces(
+                    manifest, stage, input_mode=input_mode
+                )
         except Exception:
             contract_v2 = False
 
@@ -230,7 +544,73 @@ def _validate_artifacts_for_stage(
                 f"Artifact {artifact_name!r} failed schema validation: {exc}"
             ) from exc
 
+    if (
+        pipeline_type == "cinematic-fast"
+        and stage in {"sample", "compose", "publish"}
+        and status in {"completed", "awaiting_human"}
+    ):
+        from lib.template_alignment import alignment_checkpoint_gate
+
+        evaluation = validated_artifacts.get("evaluation_report")
+        if evaluation is None and project_dir is not None and stage == "publish":
+            for filename in ("evaluation_report.final.json", "evaluation_report.json"):
+                candidate = project_dir / "artifacts" / filename
+                if candidate.is_file():
+                    try:
+                        evaluation = json.loads(candidate.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError) as exc:
+                        raise CheckpointValidationError(
+                            f"publish gate: cannot read {filename}: {exc}"
+                        ) from exc
+                    break
+        current_hashes: dict[str, str] = {}
+        for canonical_name in ("script", "scene_plan", "shot_execution_plan", "final_props"):
+            current = validated_artifacts.get(canonical_name)
+            if current is None and project_dir is not None:
+                candidate = project_dir / "artifacts" / f"{canonical_name}.json"
+                if candidate.is_file():
+                    try:
+                        current = json.loads(candidate.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError):
+                        current = None
+            if isinstance(current, dict):
+                digest = current.get("artifact_sha256") or current.get("semantic_sha256")
+                if digest:
+                    current_hashes[canonical_name] = str(digest)
+        sample_report = validated_artifacts.get("sample_report")
+        render_report = validated_artifacts.get("render_report")
+        if render_report is None and project_dir is not None and stage == "publish":
+            candidate = project_dir / "artifacts" / "render_report.json"
+            if candidate.is_file():
+                try:
+                    render_report = json.loads(candidate.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    render_report = None
+        render_hash = None
+        if isinstance(sample_report, dict):
+            render_hash = (sample_report.get("probe") or {}).get("sha256")
+        if isinstance(render_report, dict):
+            render_hash = render_report.get("video_master_sha256") or render_hash
+        if render_hash is None and isinstance(evaluation, dict):
+            render_hash = evaluation.get("subject_hash")
+        if render_hash:
+            current_hashes["render"] = str(render_hash)
+        alignment_errors = alignment_checkpoint_gate(
+            evaluation, input_mode=input_mode or "reference_driven", stage=stage,
+            current_hashes=current_hashes,
+        )
+        if alignment_errors:
+            raise CheckpointValidationError("; ".join(alignment_errors))
+
     if pipeline_type == "cinematic-fast" and stage == "research" and status == "completed":
+        try:
+            if project_dir is None:
+                raise ValueError("research input-mode validation requires project_dir")
+            _validate_source_led_template_prior(project_dir, input_context or {})
+        except Exception as exc:
+            raise CheckpointValidationError(
+                f"cinematic-fast research input-mode gate failed: {exc}"
+            ) from exc
         try:
             from lib.research_validation import validate_research_completion
 
@@ -294,11 +674,45 @@ def _validate_artifacts_for_stage(
                 research_checkpoint["artifacts"]["reference_source_matrix"],
             )
             validate_proposal_research_handoff(
-                validated_artifacts["proposal_packet"], synthesis, matrix
+                validated_artifacts["proposal_packet"], synthesis, matrix,
+                input_mode=input_mode,
             )
         except Exception as exc:
             raise CheckpointValidationError(
                 f"cinematic-fast proposal research handoff failed: {exc}"
+            ) from exc
+
+    if (
+        pipeline_type == "cinematic-fast"
+        and stage == "script"
+        and status in {"awaiting_human", "completed"}
+        and input_mode in {"source_led", "source_led_template"}
+    ):
+        try:
+            from lib.artifact_io import unwrap_checkpoint_artifact
+            from lib.cinematic_fast_validation import validate_script_evidence_closure
+
+            if project_dir is None:
+                raise ValueError("source-led script evidence validation requires project_dir")
+            with (project_dir / "checkpoint_research.json").open(encoding="utf-8") as handle:
+                research_checkpoint = json.load(handle)
+            matrix = unwrap_checkpoint_artifact(
+                project_dir,
+                "reference_source_matrix",
+                research_checkpoint["artifacts"]["reference_source_matrix"],
+            )
+            product_facts = unwrap_checkpoint_artifact(
+                project_dir, "product_facts", "artifacts/product_facts.json"
+            )
+            script = validated_artifacts["script"]
+            if status == "completed" and script.get("status") != "approved":
+                raise ValueError("completed source-led script must have status 'approved'")
+            validate_script_evidence_closure(
+                script, matrix, product_facts, input_mode=input_mode
+            )
+        except Exception as exc:
+            raise CheckpointValidationError(
+                f"cinematic-fast script evidence closure failed: {exc}"
             ) from exc
 
     if (
@@ -318,14 +732,10 @@ def _validate_artifacts_for_stage(
             with research_checkpoint_path.open(encoding="utf-8") as handle:
                 research_checkpoint = json.load(handle)
             source_envelope = research_checkpoint["artifacts"]["source_media_review"]
-            analysis_envelope = research_checkpoint["artifacts"]["video_analysis_brief"]
             matrix_envelope = research_checkpoint["artifacts"]["reference_source_matrix"]
             synthesis_envelope = research_checkpoint["artifacts"].get("research_synthesis")
             source_media_review = unwrap_checkpoint_artifact(
                 project_dir, "source_media_review", source_envelope
-            )
-            video_analysis_brief = unwrap_checkpoint_artifact(
-                project_dir, "video_analysis_brief", analysis_envelope
             )
             reference_source_matrix = unwrap_checkpoint_artifact(
                 project_dir, "reference_source_matrix", matrix_envelope
@@ -335,8 +745,55 @@ def _validate_artifacts_for_stage(
                 if synthesis_envelope is not None
                 else None
             )
+            scene_plan = validated_artifacts["scene_plan"]
+            if input_mode in {"source_led", "source_led_template"}:
+                with (project_dir / "checkpoint_script.json").open(encoding="utf-8") as handle:
+                    script_checkpoint = json.load(handle)
+                script = unwrap_checkpoint_artifact(
+                    project_dir,
+                    "script",
+                    script_checkpoint["artifacts"]["script"],
+                )
+                if script.get("status") != "approved":
+                    raise ValueError("source-led scene plan requires approved script")
+                product_facts = unwrap_checkpoint_artifact(
+                    project_dir, "product_facts", "artifacts/product_facts.json"
+                )
+                from lib.cinematic_fast_validation import (
+                    validate_scene_evidence_closure,
+                    validate_script_evidence_closure,
+                )
+
+                validate_script_evidence_closure(
+                    script, reference_source_matrix, product_facts,
+                    input_mode=input_mode,
+                )
+                validate_scene_evidence_closure(
+                    scene_plan, script, reference_source_matrix,
+                    input_mode=input_mode,
+                )
+                semantic_envelope = research_checkpoint["artifacts"]["source_semantic_index"]
+                source_semantic_index = unwrap_checkpoint_artifact(
+                    project_dir, "source_semantic_index", semantic_envelope
+                )
+                _validate_source_led_scene_mapping(
+                    scene_plan,
+                    input_mode=input_mode,
+                    source_media_review=source_media_review,
+                    source_semantic_index=source_semantic_index,
+                    reference_source_matrix=reference_source_matrix,
+                    research_synthesis=research_synthesis,
+                    project_dir=project_dir,
+                )
+                return
+            else:
+                analysis_envelope = research_checkpoint["artifacts"]["video_analysis_brief"]
+                video_analysis_brief = unwrap_checkpoint_artifact(
+                    project_dir, "video_analysis_brief", analysis_envelope
+                )
+                scene_plan_for_validation = scene_plan
             validate_scene_mapping(
-                validated_artifacts["scene_plan"],
+                scene_plan_for_validation,
                 source_media_review,
                 video_analysis_brief,
                 reference_source_matrix,
@@ -345,6 +802,35 @@ def _validate_artifacts_for_stage(
         except Exception as exc:
             raise CheckpointValidationError(
                 f"cinematic-fast scene mapping validation failed: {exc}"
+            ) from exc
+
+    if (
+        pipeline_type == "cinematic-fast"
+        and stage == "assets"
+        and status in {"awaiting_human", "completed"}
+        and input_mode in {"source_led", "source_led_template"}
+    ):
+        try:
+            from lib.artifact_io import unwrap_checkpoint_artifact
+            from lib.template_alignment import shot_execution_plan_errors
+
+            if project_dir is None:
+                raise ValueError("source-led shot execution validation requires project_dir")
+            script = unwrap_checkpoint_artifact(
+                project_dir, "script", "artifacts/script.json"
+            )
+            scene_plan = unwrap_checkpoint_artifact(
+                project_dir, "scene_plan", "artifacts/scene_plan.json"
+            )
+            errors = shot_execution_plan_errors(
+                validated_artifacts["shot_execution_plan"], script, scene_plan,
+                audio_dir=project_dir / "assets" / "audio",
+            )
+            if errors:
+                raise ValueError("; ".join(errors[:12]))
+        except Exception as exc:
+            raise CheckpointValidationError(
+                f"cinematic-fast shot execution closure failed: {exc}"
             ) from exc
 
 
@@ -376,6 +862,22 @@ def validate_checkpoint(
     if not isinstance(artifacts, dict):
         raise CheckpointValidationError("Checkpoint artifacts must be a dictionary")
 
+    if project_dir is not None and pipeline_type == "cinematic-fast":
+        try:
+            from lib.pipeline_loader import load_input_context
+            context = load_input_context(project_dir)
+            checkpoint_mode = checkpoint.get("input_mode")
+            if not context.get("legacy_compat") and checkpoint_mode is None:
+                raise CheckpointValidationError(
+                    "Checkpoint must include input_mode for a canonical project marker"
+                )
+            if checkpoint_mode is not None and checkpoint_mode != context.get("input_mode"):
+                raise CheckpointValidationError(
+                    "Checkpoint input_mode does not match project.json input_mode"
+                )
+        except FileNotFoundError:
+            pass
+
     _validate_artifacts_for_stage(
         stage, status, artifacts, pipeline_type, project_dir=project_dir, sink=sink
     )
@@ -397,6 +899,10 @@ def init_project(
     pipeline_type: str,
     pipeline_dir: Optional[Path] = None,
     style_playbook: Optional[str] = None,
+    input_mode: Optional[str] = None,
+    external_reference: Any = None,
+    template_prior: Any = None,
+    owned_source_root: Optional[str] = None,
 ) -> Path:
     """Initialize a project workspace with the canonical layout + marker file.
 
@@ -408,6 +914,9 @@ def init_project(
     Returns the project directory.
     """
     _validate_style_playbook(style_playbook)
+    from lib.pipeline_loader import INPUT_MODES, _normalise_external_reference, _normalise_template_prior
+    if input_mode is not None and input_mode not in INPUT_MODES:
+        raise ValueError(f"Invalid input_mode {input_mode!r}; expected one of {sorted(INPUT_MODES)}")
     base = pipeline_dir or PROJECTS_DIR
     project_dir = base / project_id
     for sub in (
@@ -436,6 +945,56 @@ def init_project(
     marker["pipeline_type"] = pipeline_type
     if style_playbook is not None:
         marker["style_playbook"] = style_playbook
+    explicit_mode = input_mode is not None or (
+        "input_mode" in marker and marker.get("input_mode_legacy_compat") is not True
+    )
+    mode = input_mode or marker.get("input_mode") or "reference_driven"
+    if mode not in INPUT_MODES:
+        raise ValueError(f"Invalid input_mode {mode!r}; expected one of {sorted(INPUT_MODES)}")
+    external = _normalise_external_reference(
+        external_reference if external_reference is not None else marker.get("external_reference")
+    )
+    template = _normalise_template_prior(
+        template_prior if template_prior is not None else marker.get("template_prior")
+    )
+    if mode in {"source_led", "source_led_template"} and (
+        external.get("present") or external.get("paths")
+    ):
+        raise ValueError(f"{mode} projects cannot declare external reference paths")
+    if mode == "reference_driven" and explicit_mode:
+        paths = external.get("paths") or []
+        if not external.get("present") or not paths:
+            raise ValueError(
+                "reference_driven projects require external_reference.present=true and at least one path"
+            )
+        unresolved = []
+        for raw in paths:
+            path = Path(raw)
+            if not path.is_absolute():
+                path = project_dir / path
+            if not path.exists():
+                unresolved.append(raw)
+        if unresolved:
+            raise ValueError(f"external reference paths are not resolvable: {unresolved}")
+    if mode == "source_led" and template.get("present"):
+        raise ValueError("source_led projects cannot declare a template prior")
+    if mode == "source_led_template":
+        if not template.get("present"):
+            raise ValueError("source_led_template projects require a template prior")
+        if not isinstance(template.get("template_pack_ref"), str) or not template["template_pack_ref"].strip():
+            raise ValueError(
+                "source_led_template projects require a non-empty template_pack_ref"
+            )
+        if template.get("usage") != "structural_only":
+            raise ValueError("source_led_template template_prior.usage must be structural_only")
+    marker["input_mode"] = mode
+    marker["external_reference"] = external
+    marker["template_prior"] = template
+    marker["owned_source_root"] = owned_source_root or marker.get("owned_source_root") or "inputs/source"
+    if input_mode is not None:
+        marker.pop("input_mode_legacy_compat", None)
+    elif not explicit_mode:
+        marker["input_mode_legacy_compat"] = True
 
     with open(marker_path, "w", encoding="utf-8") as f:
         json.dump(marker, f, indent=2)
@@ -610,7 +1169,22 @@ def _enforce_stage_prerequisites(
     if stage not in stages:
         return
 
+    # Resolve mode-specific stage inputs.  Reference-only artifacts must not be
+    # inherited by source-led runs, while genuinely required source-led
+    # artifacts must exist before lifecycle advancement.
+    mode_required: list[str] = []
+    if pipeline_type == "cinematic-fast" and stage != "research":
+        try:
+            from lib.pipeline_loader import get_stage_required_artifacts, load_input_context, load_pipeline_readonly
+            context = load_input_context(pipeline_dir / project_id)
+            mode_required = get_stage_required_artifacts(
+                load_pipeline_readonly(pipeline_type), stage, context=context
+            )
+        except FileNotFoundError:
+            mode_required = []
+
     incomplete: list[str] = []
+    available_artifacts: set[str] = set()
     unapproved: list[str] = []
     for predecessor in stages[: stages.index(stage)]:
         path = _checkpoint_path(pipeline_dir, project_id, predecessor)
@@ -636,6 +1210,8 @@ def _enforce_stage_prerequisites(
         if checkpoint.get("status") != "completed":
             incomplete.append(predecessor)
             continue
+        if isinstance(checkpoint.get("artifacts"), dict):
+            available_artifacts.update(checkpoint["artifacts"])
         if _stage_requires_approval(pipeline_type, predecessor) and not checkpoint.get(
             "human_approved"
         ):
@@ -652,6 +1228,12 @@ def _enforce_stage_prerequisites(
             + "; ".join(details)
             + f". Pipeline order: {stages}."
         )
+    if mode_required:
+        missing_inputs = [name for name in mode_required if name not in available_artifacts]
+        if missing_inputs:
+            raise CheckpointValidationError(
+                f"PREREQUISITE VIOLATION: stage {stage!r} missing mode-specific input artifacts: {missing_inputs}"
+            )
 
 
 def _archive_superseded_checkpoint(path: Path, stage: str) -> None:
@@ -855,8 +1437,9 @@ def write_checkpoint(
     # Backfill identity fields from the project marker so omitted kwargs
     # cannot bypass either gate enforcement or style validation.
     marker = None
+    input_mode = None
     marker_path = pipeline_dir / project_id / PROJECT_MARKER_FILENAME
-    if marker_path.exists() and (not pipeline_type or not style_playbook):
+    if marker_path.exists():
         try:
             with open(marker_path, encoding="utf-8") as f:
                 marker = json.load(f)
@@ -867,6 +1450,7 @@ def write_checkpoint(
             pipeline_type = marker["pipeline_type"]
         if not style_playbook and marker.get("style_playbook"):
             style_playbook = marker["style_playbook"]
+        input_mode = marker.get("input_mode") or "reference_driven"
     _validate_style_playbook(style_playbook)
 
     valid_stages = (
@@ -940,6 +1524,7 @@ def write_checkpoint(
         "version": "1.0",
         "project_id": project_id,
         "pipeline_type": pipeline_type or "unknown",
+        **({"input_mode": input_mode} if input_mode else {}),
         "stage": stage,
         "status": status,
         "timestamp": datetime.now(timezone.utc).isoformat(),

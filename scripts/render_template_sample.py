@@ -30,18 +30,30 @@ def _load(project: Path, name: str) -> dict:
 def build_payload(project: Path) -> dict:
     pp = _load(project, "proposal_packet")
     plan = pp.get("production_plan") or pp
+    script = _load(project, "script")
+    scene_plan = _load(project, "scene_plan")
+    shot_plan = _load(project, "shot_execution_plan")
+    from lib.template_alignment import shot_execution_plan_errors
+
+    execution_errors = shot_execution_plan_errors(
+        shot_plan, script, scene_plan, audio_dir=project / "assets" / "audio"
+    )
+    if execution_errors:
+        raise SystemExit(
+            "shot_execution_plan 跨制品绑定失败：" + "; ".join(execution_errors[:12])
+        )
     return {
         "final_props": _load(project, "final_props"),
         "asset_manifest": _load(project, "asset_manifest"),
-        "scene_plan": _load(project, "scene_plan"),
+        "scene_plan": scene_plan,
         "caption_style_fingerprint": _load(project, "caption_style_fingerprint"),
-        "script": _load(project, "script"),
+        "script": script,
         "render_runtime": plan.get("render_runtime") or "remotion",
         "renderer_family": plan.get("renderer_family") or "product-reveal",
     }
 
 
-def render(run: str, mode: str) -> dict:
+def render(run: str, mode: str, profile: str | None = None) -> dict:
     project = ROOT / "projects" / run
     import sys
 
@@ -49,6 +61,7 @@ def render(run: str, mode: str) -> dict:
     from tools.tool_registry import registry
 
     payload = build_payload(project)
+    render_profile = profile or "social_vertical_1080p30"
     registry.discover()
     vc = registry._tools["video_compose"]
     if mode == "full":
@@ -59,14 +72,14 @@ def render(run: str, mode: str) -> dict:
             "sample_payload": payload,
             "asset_manifest": payload["asset_manifest"],
             "output_path": str(project / "renders/sample-v1.mp4"),
-            "profile": "social_vertical_1080p30",
+            "profile": render_profile,
             "project_dir": str(project),
             "remotion_timeout_ms": timeout_ms,
         })
     else:
         fp = payload["final_props"]
         total_frames = int(fp.get("durationInFrames") or 0)
-        render_plan = {"mode": "sample", "profile": "tiktok",
+        render_plan = {"mode": "sample", "profile": (profile or "social_vertical_sample_540p30"),
                        "sample": {"startFrame": 0, "endFrameExclusive": 450,
                                   "scale": 0.5, "qaMode": "quick"}}
         result = vc.execute({
@@ -88,8 +101,9 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--run", default="template-run-sheet-05-video5-aks-zhuodian")
     p.add_argument("--mode", choices=["full", "quick"], default="full")
+    p.add_argument("--profile", default=None)
     args = p.parse_args()
-    r = render(args.run, args.mode)
+    r = render(args.run, args.mode, profile=args.profile)
     print(f"== {args.mode} success:", r["success"], "| error:", r["error"])
     if r["success"]:
         print("== final_review_status:", (r["data"] or {}).get("final_review_status"))

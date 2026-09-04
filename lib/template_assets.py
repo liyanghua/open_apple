@@ -9,6 +9,8 @@ gap_strategy=none、coverage=enough、generation_proposals=[]；否则标 gap �
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -16,9 +18,15 @@ from typing import Any, Mapping
 from lib.artifact_io import write_artifact_atomic
 from lib.template_mainline import _load, scene_plan_data
 from lib.template_run_plan import check_template_run_plan_ready
+from lib.template_batch import resolve_run_batch_differentiation_ref
 from schemas.artifacts import validate_artifact
 
 PIPELINE = "cinematic-fast"
+
+
+def _content_hash(value: Any) -> str:
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _owned_path_tail(project_path: str) -> str:
@@ -30,30 +38,47 @@ def _owned_path_tail(project_path: str) -> str:
 
 def build_shot_execution_plan(project: Path, template: dict, sp: dict, ccp: dict, script: dict) -> dict:
     plan_id = str(template.get("template_id") or "")
-    # 键控配对（评审 P0-1）：scene/slot/section 全部按显式引用（scene_id / template_slot_ref / start_seconds）
-    # 查找，禁止 enumerate 与 slots[i-1] 位置取值——防跨阶段制品漂移。
+    # 键控配对（评审 P0-1）：scene/slot/section 全部按显式引用。
     slots_by_id = {str(s.get("slot_id") or ""): s for s in (template.get("slots") or [])}
     scenes_by_id = {str(s.get("id") or ""): s for s in (sp.get("scenes") or [])}
-    sections_by_start = {
-        round(float(x.get("start_seconds") or 0), 3): x for x in (script.get("sections") or [])
-        if isinstance(x, Mapping)
+    sections_by_scene = {
+        str(x.get("scene_id") or ""): x for x in (script.get("sections") or [])
+        if isinstance(x, Mapping) and x.get("scene_id")
     }
     shots = []
     for i, m in enumerate(sp["metadata"]["source_mapping"], start=1):
         scene = scenes_by_id.get(str(m["scene_id"])) or {}
         slot = slots_by_id.get(str(m.get("template_slot_ref") or "")) or {}
-        section = sections_by_start.get(round(float(scene.get("start_seconds") or 0), 3)) or {}
+        section = sections_by_scene.get(str(scene.get("id") or "")) or {}
         source_tail = _owned_path_tail(m["source_path"])
         has_gap = not m.get("matrix_row_id")
+        evidence_fields = {
+            "claim_ids": list(section.get("claim_ids") or m.get("claim_ids") or []),
+            "action_keys": list(section.get("action_keys") or m.get("action_keys") or []),
+            "evidence_row_ids": list(section.get("evidence_row_ids") or m.get("evidence_row_ids") or []),
+        }
+        narration = str(section.get("narration") or section.get("text") or "") if section else ""
+        screen_copy = str(section.get("screen_copy") or "") if section else ""
+        source_interval = {
+            "start_seconds": m["source_interval"]["start_seconds"],
+            "end_seconds_exclusive": m["source_interval"]["end_seconds_exclusive"],
+        }
+        source_hash = str(m.get("source_hash") or "")
+        canonical_evidence = (
+            all(evidence_fields.values())
+            and len(source_hash) == 64
+            and all(ch in "0123456789abcdef" for ch in source_hash)
+        )
         shots.append({
             "id": f"shot-{i:02d}",
             "order": i,
             "scene_id": str(m["scene_id"]),
+            "section_id": str(section.get("id") or ""),
             "template_slot_ref": str(m.get("template_slot_ref") or ""),
             "purpose": str(scene.get("description") or f"模板 slot {m.get('template_slot_ref')}"),
             "duration_seconds": round(m["timeline_interval"]["end_seconds_exclusive"] - m["timeline_interval"]["start_seconds"], 3),
-            "narration": str(section.get("narration") or section.get("text") or "") if section else "",
-            "screen_copy": str(section.get("screen_copy") or "") if section else "",
+            "narration": narration,
+            "screen_copy": screen_copy,
             "subject_action": str(scene.get("description") or "")[:80],
             "setting": str(slot.get("scene") or "室内/桌面"),
             "framing": "9:16 中景/近景，产品主体与动作结果可读",
@@ -76,6 +101,18 @@ def build_shot_execution_plan(project: Path, template: dict, sp: dict, ccp: dict
             "control_rule_refs": ["content_direction.rules[0]", "story_pacing.rules[1]"],
             "generation_proposals": [],
             "selected_generation_task_id": None,
+            "source_interval": source_interval,
+            "narration_hash": _content_hash({"section_id": section.get("id"), "text": narration}),
+            "screen_copy_hash": _content_hash({"section_id": section.get("id"), "text": screen_copy}),
+            "tts_asset_hash": None,
+            "tts_measured_duration": None,
+            "caption_timeline_hash": _content_hash({
+                "section_id": section.get("id"),
+                "screen_copy": screen_copy,
+                "start_seconds": section.get("start_seconds"),
+                "end_seconds": section.get("end_seconds"),
+            }),
+            **({**evidence_fields, "source_hash": source_hash} if canonical_evidence else {}),
         })
     refs = {
         "creative_control_ref": {"artifact": "creative_control_plan", "version": int(ccp.get("plan_version") or 1),
@@ -93,6 +130,52 @@ def build_shot_execution_plan(project: Path, template: dict, sp: dict, ccp: dict
         **refs,
         "shots": shots,
     }
+
+
+def bind_tts_assets(
+    project: Path,
+    bindings: Mapping[str, tuple[Path, float]],
+    *,
+    sink=None,
+) -> dict[str, Any]:
+    """Bind generated narration files and measured durations into the shot plan.
+
+    The section id is the stable join key.  Rewriting through artifact I/O
+    refreshes both canonical hashes so downstream render/evaluation inputs
+    cannot keep referring to the pre-TTS plan.
+    """
+    plan = _load(project / "artifacts" / "shot_execution_plan.json")
+    if not isinstance(plan, dict):
+        raise ValueError("shot_execution_plan is required before TTS binding")
+    seen: set[str] = set()
+    shots = []
+    for raw in plan.get("shots") or []:
+        shot = dict(raw)
+        section_id = str(shot.get("section_id") or "")
+        binding = bindings.get(section_id)
+        if binding is not None:
+            audio_path, measured_duration = binding
+            if not audio_path.is_file():
+                raise FileNotFoundError(f"TTS asset not found for {section_id}: {audio_path}")
+            duration = float(measured_duration)
+            if duration <= 0:
+                raise ValueError(f"TTS measured duration must be positive for {section_id}")
+            section_duration = float(shot.get("duration_seconds") or 0)
+            if duration > section_duration + 1e-6:
+                raise ValueError(f"TTS measured duration exceeds shot duration for {section_id}")
+            shot["tts_asset_hash"] = hashlib.sha256(audio_path.read_bytes()).hexdigest()
+            shot["tts_measured_duration"] = round(duration, 3)
+            seen.add(section_id)
+        shots.append(shot)
+    missing = sorted(set(bindings) - seen)
+    if missing:
+        raise ValueError(f"TTS bindings reference unknown sections: {', '.join(missing)}")
+    updated = dict(plan)
+    updated["shots"] = shots
+    return write_artifact_atomic(
+        "artifacts/shot_execution_plan.json", "shot_execution_plan",
+        updated, project_dir=project, sink=sink,
+    )
 
 
 def build_asset_plan(project: Path, sp: dict, shot_plan: dict) -> dict:
@@ -122,8 +205,12 @@ def build_asset_plan(project: Path, sp: dict, shot_plan: dict) -> dict:
     }
 
 
-def build_production_lock(project: Path, template: dict, ccp: dict, script: dict) -> dict:
+def build_production_lock(project: Path, template: dict, ccp: dict, script: dict, *,
+                          output_profile: str = "social_vertical_1080p30") -> dict:
     plan_id = str(template.get("template_id") or "")
+    from lib.media_profiles import get_profile
+    profile = get_profile(output_profile)
+    safe_zone = "taobao_detail_3_4" if "3_4" in output_profile else "9:16 bottom"
     return {
         "version": "1.0",
         "project_id": project.name,
@@ -138,10 +225,10 @@ def build_production_lock(project: Path, template: dict, ccp: dict, script: dict
             "bgm": {"provider": "suno", "profile": "轻快节奏电商 BGM"},
             "mix": {"narration": "doubao", "music": "suno", "ducking_db": -6},
             "font": {"family": "MaShanZheng", "stroke": 0, "fill": "#FFFFFF"},
-            "captions": {"source": "script.sections[].screen_copy", "safe_zone": "9:16 bottom"},
+            "captions": {"source": "script.sections[].screen_copy", "safe_zone": safe_zone},
             "cta": {"text": "点进看细节，69 元更省心。"},
             "platform": "tiktok",
-            "output": {"resolution": "1080x1920", "fps": 30, "format": "mp4"},
+            "output": {"resolution": f"{profile.width}x{profile.height}", "fps": profile.fps, "format": "mp4", "profile": output_profile},
             "render_runtime": "remotion",
             "composition_mode": "templated",
         },
@@ -193,15 +280,29 @@ def shot_plan_drift(project: Path, template: dict, sp: dict, script: dict, shot_
     """
     slots_by_id = {str(s.get("slot_id") or ""): s for s in (template.get("slots") or [])}
     scenes_by_id = {str(s.get("id") or ""): s for s in (sp.get("scenes") or [])}
-    sections_by_start = {
-        round(float(x.get("start_seconds") or 0), 3): x for x in (script.get("sections") or [])
-        if isinstance(x, Mapping)
+    sections_by_id = {
+        str(x.get("id") or ""): x for x in (script.get("sections") or [])
+        if isinstance(x, Mapping) and x.get("id")
     }
-    drift: list[str] = []
+    from lib.template_alignment import shot_execution_plan_errors
+
+    drift: list[str] = shot_execution_plan_errors(
+        shot_plan, script, sp, audio_dir=project / "assets" / "audio"
+    )
     for shot in shot_plan.get("shots", []):
         scene = scenes_by_id.get(str(shot.get("scene_id") or "")) or {}
         slot = slots_by_id.get(str(shot.get("template_slot_ref") or "")) or {}
-        section = sections_by_start.get(round(float(scene.get("start_seconds") or 0), 3)) or {}
+        section = sections_by_id.get(str(shot.get("section_id") or "")) or {}
+        if not section:
+            # Read-only compatibility for pre-section_id artifacts.  New
+            # renders are guarded by lib.template_alignment and require the
+            # explicit field; this fallback only lets sync report old drift.
+            section = next((x for x in (script.get("sections") or [])
+                            if isinstance(x, Mapping)
+                            and round(float(x.get("start_seconds") or 0), 3)
+                            == round(float(scene.get("start_seconds") or 0), 3)), {})
+            if not section:
+                drift.append(f"{shot.get('id')}.section_id: missing or unknown")
         expected = {
             "narration": str(section.get("narration") or section.get("text") or "") if section else "",
             "screen_copy": str(section.get("screen_copy") or "") if section else "",
@@ -214,7 +315,8 @@ def shot_plan_drift(project: Path, template: dict, sp: dict, script: dict, shot_
     return drift
 
 
-def sync_assets_artifacts(project: Path, template: dict, *, pipeline_dir: Path, sink=None) -> dict:
+def sync_assets_artifacts(project: Path, template: dict, *, pipeline_dir: Path, sink=None,
+                          output_profile: str = "social_vertical_1080p30") -> dict:
     """从**当前** script/scene_plan 重派生 assets 四制品（修复 rebuild 后漂移；评审 P0-1）。
 
     不改审批语义：重派生后 status 保持 approved（经 batch_approval 决策），并刷新 checkpoint 信封。
@@ -239,7 +341,8 @@ def sync_assets_artifacts(project: Path, template: dict, *, pipeline_dir: Path, 
     asset_env = write_artifact_atomic("artifacts/asset_plan.json", "asset_plan",
                                       build_asset_plan(project, sp, shot_plan), project_dir=project, sink=sink)
     lock_env = write_artifact_atomic("artifacts/production_lock.json", "production_lock",
-                                     build_production_lock(project, template, ccp, script), project_dir=project, sink=sink)
+                                     build_production_lock(project, template, ccp, script,
+                                                            output_profile=output_profile), project_dir=project, sink=sink)
     env_map = {"shot_execution_plan": shot_env, "asset_plan": asset_env, "production_lock": lock_env}
     bundle = build_approval_bundle(project, sp, shot_plan, asset_env["data"], lock_env["data"], envelope_map=env_map)
     bundle_env = write_artifact_atomic("artifacts/approval_bundle.json", "approval_bundle", bundle, project_dir=project, sink=sink)
@@ -248,7 +351,8 @@ def sync_assets_artifacts(project: Path, template: dict, *, pipeline_dir: Path, 
             "production_lock": lock_env, "approval_bundle": bundle_env}
 
 
-def build_assets(project: Path, template: dict, *, pipeline_dir: Path, sink=None) -> dict:
+def build_assets(project: Path, template: dict, *, pipeline_dir: Path, sink=None,
+                 output_profile: str = "social_vertical_1080p30") -> dict:
     """产 assets 四制品并写 checkpoint（awaiting_human，creative_lock terminal）。"""
     sp = _load(project / "artifacts" / "scene_plan.json")
     ccp = _load(project / "artifacts" / "creative_control_plan.json")
@@ -256,7 +360,14 @@ def build_assets(project: Path, template: dict, *, pipeline_dir: Path, sink=None
     # 硬门：进入付费前必须 template_run_plan ready（无 unbound + 不复制参考花字）。
     # 传 template：校验每个 binding 的 slot_id 必须是模板已知 slot（缺 slot 绑定即阻断）。
     rp = _load(project / "artifacts" / "template_run_plan.json") or {}
-    readiness = check_template_run_plan_ready(rp, template=template)
+    try:
+        input_mode, authoritative_ref = resolve_run_batch_differentiation_ref(project, pipeline_dir)
+    except ValueError as exc:
+        raise SystemExit(f"differentiation owner 无法验证，禁止 paid assets: {exc}") from exc
+    readiness = check_template_run_plan_ready(
+        rp, template=template, input_mode=input_mode,
+        authoritative_differentiation_plan_ref=authoritative_ref,
+    )
     if not readiness.get("ready"):
         raise SystemExit(f"template_run_plan 未就绪，禁止 paid assets: {readiness.get('blockers')}")
 
@@ -266,7 +377,8 @@ def build_assets(project: Path, template: dict, *, pipeline_dir: Path, sink=None
     asset_env = write_artifact_atomic("artifacts/asset_plan.json", "asset_plan",
                                       build_asset_plan(project, sp, shot_plan), project_dir=project, sink=sink)
     lock_env = write_artifact_atomic("artifacts/production_lock.json", "production_lock",
-                                     build_production_lock(project, template, ccp, script), project_dir=project, sink=sink)
+                                     build_production_lock(project, template, ccp, script,
+                                                            output_profile=output_profile), project_dir=project, sink=sink)
     # 事务内读磁盘会看到未提交内容 → 用本次写入的信封索引（envelope_map）构建 bundle refs。
     env_map = {name: env for name, env in (("shot_execution_plan", shot_env), ("asset_plan", asset_env),
                                            ("production_lock", lock_env))}

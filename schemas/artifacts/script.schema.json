@@ -91,6 +91,31 @@
           "id": {
             "type": "string"
           },
+          "scene_id": {
+            "type": "string",
+            "description": "键控配对字段：本 section 对应的 scene"
+          },
+          "claim_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1},
+            "description": "Source-led Research evidence rows授权的商品主张 IDs"
+          },
+          "action_keys": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1},
+            "description": "当前段落必须由画面展示的动作语义 keys"
+          },
+          "evidence_row_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1},
+            "description": "Canonical reference_source_matrix rows；source-led 每段必填"
+          },
           "label": {
             "type": "string"
           },

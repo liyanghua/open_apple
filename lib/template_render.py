@@ -34,11 +34,16 @@ def _sha256(path: Path) -> str:
 
 def build_final_props(project: Path, script: dict, shots: list[dict], *,
                       narration_mix: str = "assets/audio/sample-mix.mp3",
-                      bgm_path: str = "assets/music/bgm-16s.mp3") -> dict:
+                      bgm_path: str = "assets/music/bgm-16s.mp3",
+                      profile: str = "social_vertical_1080p30",
+                      input_hashes: dict[str, str] | None = None) -> dict:
     """final_props：footage={shot_NN: proxy path}, scenes（按 shot 时长），captions（词级/句级），audio{mix}。
     narration_mix / bgm_path 必须与实际资产一致（不再硬编码 16s，避免 BGM 文件名不匹配导致渲染失败）。"""
-    fps = 30
-    width, height = 1080, 1920
+    from lib.media_profiles import get_profile
+
+    media_profile = get_profile(profile)
+    fps = media_profile.fps
+    width, height = media_profile.width, media_profile.height
     footage: dict[str, str] = {}
     scenes = []
     captions = []
@@ -50,12 +55,20 @@ def build_final_props(project: Path, script: dict, shots: list[dict], *,
         dur_frames = int(round(dur * fps))
         proxy = f"assets/video/shot-{shot_id.split('-')[-1]}-proxy.mp4"
         footage[key] = proxy
-        scenes.append({
+        scene = {
             "id": shot_id, "assetId": f"proxy-{shot_id}", "footageKey": key,
             "fromFrame": cursor_frames, "toFrameExclusive": cursor_frames + dur_frames,
             "durationInFrames": dur_frames, "playbackMode": "normal", "playbackRate": 1.0,
             "sourceInSeconds": 0.0, "sourceOutSeconds": dur,
-        })
+        }
+        for field in (
+            "scene_id", "section_id", "claim_ids", "action_keys", "evidence_row_ids",
+            "product_id", "product_name", "sku", "source_hash", "source_interval",
+            "evidence_type",
+        ):
+            if field in s:
+                scene[field] = s[field]
+        scenes.append(scene)
         # caption：该 shot 的 screen_copy（取自 script section）
         text = str(s.get("screen_copy") or "").strip()
         if text:
@@ -69,7 +82,8 @@ def build_final_props(project: Path, script: dict, shots: list[dict], *,
     }}
     return {
         "version": "1.0", "project_id": project.name, "created_at": datetime.now(timezone.utc).isoformat(),
-        "producer": "template-compose-director@1.0", "input_hashes": {"script": "a" * 64},
+        "producer": "template-compose-director@1.0",
+        "input_hashes": input_hashes or {"script": "a" * 64},
         "compositionId": "Explainer", "fps": fps, "width": width, "height": height,
         "durationInFrames": cursor_frames, "footage": footage, "scenes": scenes,
         "captions": captions, "audio": audio,
@@ -79,7 +93,8 @@ def build_final_props(project: Path, script: dict, shots: list[dict], *,
 def build_edit_decisions(project: Path, shots: list[dict], render_runtime: str = "remotion", *,
                          narration_mix: str = "assets/audio/sample-mix.mp3",
                          bgm_path: str = "assets/music/bgm-16s.mp3",
-                         scene_plan: dict | None = None) -> dict:
+                         scene_plan: dict | None = None,
+                         safe_zone_profile: str = "douyin_9_16") -> dict:
     """edit_decisions：引用**实际**资产名（评审 P1-7——不得硬编码 narration-mix/bgm-16s）。
 
     narration_mix / bgm_path 必须与 build_final_props 一致（真实混音产物 + 按片长裁切的 BGM）。
@@ -116,7 +131,7 @@ def build_edit_decisions(project: Path, shots: list[dict], render_runtime: str =
         "version": "1.0", "cuts": cuts, "render_runtime": render_runtime,
         "renderer_family": "product-reveal", "composition_mode": "templated",
         "caption_render_mode": "remotion_overlay", "caption_source": "artifacts/final_props.json#captions",
-        "safe_zone_profile": "douyin_9_16",
+        "safe_zone_profile": safe_zone_profile,
         "audio": {"narration": {"segments": [{"asset_id": "sample-mix", "start_seconds": 0.0}]},
                   "music": {"asset_id": bgm_id, "ducking": False, "volume": 1.0}},
         "subtitles": {"enabled": True, "font": "Noto Sans CJK SC", "font_size": 42,

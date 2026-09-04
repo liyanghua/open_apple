@@ -17,6 +17,7 @@ class AspectRatio(str, Enum):
     SQUARE_1_1 = "1:1"
     CINEMATIC_21_9 = "21:9"
     STANDARD_4_3 = "4:3"
+    PORTRAIT_3_4 = "3:4"
 
 
 @dataclass(frozen=True)
@@ -144,6 +145,28 @@ SOCIAL_VERTICAL_SAMPLE_540P30 = MediaProfile(
 )
 
 
+SOCIAL_VERTICAL_3_4_1080P30 = MediaProfile(
+    name="social_vertical_3_4_1080p30", width=1080, height=1440,
+    aspect_ratio=AspectRatio.PORTRAIT_3_4, fps=30, codec="libx264",
+    audio_codec="aac", crf=18, pixel_format="yuv420p", caption_format="srt",
+    notes="淘宝详情页主图 3:4 竖版交付 profile",
+)
+
+SOCIAL_VERTICAL_3_4_2160P30 = MediaProfile(
+    name="social_vertical_3_4_2160p30", width=2160, height=2880,
+    aspect_ratio=AspectRatio.PORTRAIT_3_4, fps=30, codec="libx264",
+    audio_codec="aac", crf=18, pixel_format="yuv420p", caption_format="srt",
+    notes="淘宝详情页主图 3:4 竖版高清主片 profile",
+)
+
+SOCIAL_VERTICAL_3_4_SAMPLE_540P30 = MediaProfile(
+    name="social_vertical_3_4_sample_540p30", width=540, height=720,
+    aspect_ratio=AspectRatio.PORTRAIT_3_4, fps=30, codec="libx264",
+    audio_codec="aac", crf=18, pixel_format="yuv420p", caption_format="srt",
+    notes="3:4 0.5x approval sample profile",
+)
+
+
 # ---- Profile registry ----
 
 ALL_PROFILES: dict[str, MediaProfile] = {
@@ -152,6 +175,8 @@ ALL_PROFILES: dict[str, MediaProfile] = {
         INSTAGRAM_REELS, INSTAGRAM_FEED,
         TIKTOK, LINKEDIN, CINEMATIC, GENERIC_HD, SOCIAL_VERTICAL_1080P30,
         SOCIAL_VERTICAL_SAMPLE_540P30,
+        SOCIAL_VERTICAL_3_4_1080P30, SOCIAL_VERTICAL_3_4_SAMPLE_540P30,
+        SOCIAL_VERTICAL_3_4_2160P30,
     ]
 }
 

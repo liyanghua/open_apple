@@ -92,7 +92,8 @@ def _tts_lock_valid(lock: Path, text: str, *, speech_rate: int) -> bool:
     )
 
 
-def generate(run: str, *, max_workers: int = 4) -> list[dict]:
+def generate(run: str, *, max_workers: int = 4,
+             section_ids: set[str] | list[str] | None = None) -> list[dict]:
     registry.discover()
     tts = registry._tools.get("doubao_tts")
     project = ROOT / "projects" / run
@@ -100,7 +101,10 @@ def generate(run: str, *, max_workers: int = 4) -> list[dict]:
     audio_dir = project / "assets" / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
 
-    sections = [s for s in script["sections"] if str(s.get("narration") or s.get("text") or "").strip()]
+    selected = {str(value) for value in section_ids} if section_ids is not None else None
+    sections = [s for s in script["sections"]
+                if str(s.get("narration") or s.get("text") or "").strip()
+                and (selected is None or str(s.get("id") or "") in selected)]
     if not sections:
         return []
     # 并行生成（doubao 异步轮询，单段 1-2 分钟；逐段串行会拖垮批量跑片时间线）。
