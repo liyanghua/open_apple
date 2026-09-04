@@ -78,6 +78,7 @@ def test_template_run_plan_hard_gate_rejects_violations():
         "version": "1.0", "run_id": "r", "template_id": "t",
         "template_pack_ref": {"artifact_sha256": "a" * 64, "version": "1.0"},
         "product_facts_ref": {"artifact_sha256": "b" * 64}, "adaptation_policy": "p",
+        "differentiation_plan_ref": {"name": "differentiation_plan", "path": "artifacts/differentiation_plan.json", "artifact_sha256": "d" * 64},
         "status": "awaiting_human",
         "caption_policy": {"reference_text": "analysis_only", "copy_reference_caption": False},
     }
@@ -109,7 +110,7 @@ def test_create_template_batch_null_ref_when_not_persisted():
 def test_check_template_run_plan_ready_fail_closed():
     from lib.template_run_plan import check_template_run_plan_ready, is_slot_paid_allowed
 
-    ready = {"status": "approved", "slot_bindings": [
+    ready = {"status": "approved", "differentiation_plan_ref": {"name": "differentiation_plan", "path": "artifacts/differentiation_plan.json", "artifact_sha256": "d" * 64}, "slot_bindings": [
         {"slot_id": "a", "source": "owned", "source_media_id": "m", "reason": "r"},
         {"slot_id": "b", "source": "generate", "asset_type": "video", "reason": "r"},
     ]}
@@ -166,6 +167,7 @@ def test_template_run_plan_schema_accepts_compression_contract():
         "template_pack_ref": {"artifact_sha256": "a" * 64, "version": "1.0"},
         "product_facts_ref": {"artifact_sha256": "b" * 64},
         "adaptation_policy": "proof-first", "status": "approved",
+        "differentiation_plan_ref": {"name": "differentiation_plan", "path": "artifacts/differentiation_plan.json", "artifact_sha256": "d" * 64},
         "slot_bindings": [{"slot_id": "s1", "source": "owned",
                            "source_media_id": "m", "reason": "r"}],
         "caption_policy": {"reference_text": "analysis_only", "copy_reference_caption": False},

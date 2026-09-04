@@ -36,8 +36,10 @@ def _fresh_run(tmp_path: Path, template_id: str, template: dict, facts: dict) ->
     return tmp_path / run_id
 
 
-def test_advance_run_full_walks_proposal_script_scene_plan(tmp_path: Path):
+def test_advance_run_full_walks_proposal_script_scene_plan(tmp_path: Path, monkeypatch):
     import json
+    from tests.lib._tablemat_pool import install_complete_pool
+    install_complete_pool(monkeypatch, tmp_path)
     pack = json.loads(PACK.read_text(encoding="utf-8"))
     template = next(t for t in pack["templates"] if t["template_id"] == "sheet-01-video1-aks-zhuodian")
     facts = json.loads(ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))

@@ -8,6 +8,7 @@
 5. 输入内容变化 → 禁止复用旧 proxy/mix（内容 hash 幂等 sidecar 校验）
 """
 from __future__ import annotations
+import pytest
 
 import json
 from pathlib import Path
@@ -27,12 +28,26 @@ def _make_run():
          "scene": "室内/桌面", "caption_treatment": "subtitle",
          "dialogue": "透明软玻璃桌垫，贴合桌面，防水防油易清洁"} for i in range(1, 9)
     ]
+    # 8 槽覆盖 6 个动作域（与真实 sheet-01 模板一致）：
+    # 防油×2 / 无甲醛×1 / 桌角×1 / 铺开×1 / 防刮×1 / 餐桌×2 —— 容量可行且保留显式复用。
+    slots[1] = {**slots[1], "overlay_text": "0甲醛 检测报告"}
+    slots[2] = {**slots[2], "overlay_text": "桌角贴合不翘边"}
+    slots[3] = {**slots[3], "overlay_text": "自动铺开对齐"}
+    slots[4] = {**slots[4], "overlay_text": "防水油 克洗易清洁"}
     slots[5] = {**slots[5], "overlay_text": "防水油 克洗易清洁"}
     slots[6] = {**slots[6], "overlay_text": "防刮耐磨"}
+    slots[7] = {**slots[7], "overlay_text": "餐桌场景 生活好物"}
     template = {"template_id": "sheet-test", "slots": slots}
     run = create_template_run(template, template_pack_ref={"artifact_sha256": "a" * 64},
                               product_facts_ref={"artifact_sha256": "b" * 64})
     return template, run
+
+
+@pytest.fixture(autouse=True)
+def _complete_pool(monkeypatch, tmp_path):
+    """桌垫测试需要完整 6 动作素材池（真实 v8 池仅 4 条，缺 防刮/防油易擦拭）。"""
+    from tests.lib._tablemat_pool import install_complete_pool
+    install_complete_pool(monkeypatch, tmp_path)
 
 
 def test_match_run_plan_semantic_alignment_and_hap_false_positive_guard():
@@ -405,23 +420,24 @@ def test_capacity_verdict_three_branches():
     # 6 域各 1：全量可行（每域 ≤ 容量、单素材 2s ≤ 12/3）→ 池每域 1 支 → LIMITED
     t_limited = tmpl(["防油易擦拭", "无甲醛检测", "桌角对齐-挤压不变形",
                       "防刮", "自动铺开对齐", "餐桌场景"])
-    SLOT_ACTION_BY_TEMPLATE["sheet-test"] = t_limited["__domains"]
-    v = capacity_verdict(t_limited)
-    assert v["verdict"] == "DIVERSIFY_LIMITED" and v["full_solvable"] is True
+    try:
+        SLOT_ACTION_BY_TEMPLATE["sheet-test"] = t_limited["__domains"]
+        v = capacity_verdict(t_limited)
+        assert v["verdict"] == "DIVERSIFY_LIMITED" and v["full_solvable"] is True
 
-    # 三域各减至 1 时全域 H2 可过（D=6：2 ≤ 6/3）→ COMPRESS（全域剪枝：防油/无甲醛各减 1）
-    t_compress = tmpl(["防油易擦拭", "防油易擦拭", "无甲醛检测", "桌角对齐-挤压不变形"])
-    SLOT_ACTION_BY_TEMPLATE["sheet-test"] = t_compress["__domains"]
-    v = capacity_verdict(t_compress)
-    assert v["verdict"] == "COMPRESS", v
+        # 三域各减至 1 时全域 H2 可过（D=6：2 ≤ 6/3）→ COMPRESS（全域剪枝：防油/无甲醛各减 1）
+        t_compress = tmpl(["防油易擦拭", "防油易擦拭", "无甲醛检测", "桌角对齐-挤压不变形"])
+        SLOT_ACTION_BY_TEMPLATE["sheet-test"] = t_compress["__domains"]
+        v = capacity_verdict(t_compress)
+        assert v["verdict"] == "COMPRESS", v
 
-    # 餐桌 2 镜 + 无甲醛 1：压缩到 1 镜仍 2s > (2+2)/3 → MARK_GAP
-    t_gap = tmpl(["餐桌场景", "餐桌场景", "无甲醛检测"])
-    SLOT_ACTION_BY_TEMPLATE["sheet-test"] = t_gap["__domains"]
-    v = capacity_verdict(t_gap)
-    assert v["verdict"] == "MARK_GAP", v
-
-    del SLOT_ACTION_BY_TEMPLATE["sheet-test"]
+        # 餐桌 2 镜 + 无甲醛 1：压缩到 1 镜仍 2s > (2+2)/3 → MARK_GAP
+        t_gap = tmpl(["餐桌场景", "餐桌场景", "无甲醛检测"])
+        SLOT_ACTION_BY_TEMPLATE["sheet-test"] = t_gap["__domains"]
+        v = capacity_verdict(t_gap)
+        assert v["verdict"] == "MARK_GAP", v
+    finally:
+        SLOT_ACTION_BY_TEMPLATE.pop("sheet-test", None)
 
 
 def test_capacity_readiness_failclosed_and_compress_blocks_original():

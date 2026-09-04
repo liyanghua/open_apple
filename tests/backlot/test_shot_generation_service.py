@@ -137,6 +137,30 @@ def test_browser_cannot_supply_prompt_or_external_reference_paths(tmp_path) -> N
         )
 
 
+def test_source_led_template_shot_generation_rejects_missing_authoritative_batch(tmp_path) -> None:
+    project = _project(tmp_path)
+    marker = json.loads((project / "project.json").read_text(encoding="utf-8"))
+    marker.update({"input_mode": "source_led_template", "template_run": {"batch_project_id": "missing-batch"}})
+    (project / "project.json").write_text(json.dumps(marker), encoding="utf-8")
+    run_plan = {"status": "approved", "template_id": "", "differentiation_plan_ref": {"name": "differentiation_plan", "path": "artifacts/differentiation_plan.json", "artifact_sha256": "e" * 64}, "slot_bindings": [{"slot_id": "s", "source": "owned", "source_media_id": "m", "reason": "r"}]}
+    (project / "artifacts" / "template_run_plan.json").write_text(json.dumps(run_plan), encoding="utf-8")
+    with pytest.raises(OperatorError, match="differentiation"):
+        ShotGenerationService(project, selector=FakeSelector(), run_async=False).quote(shot_id="shot-1", proposal_id="proposal-1", quality="fast")
+
+
+def test_source_led_template_shot_generation_rejects_mismatched_batch_ref(tmp_path, monkeypatch) -> None:
+    import lib.template_batch as template_batch
+    project = _project(tmp_path)
+    marker = json.loads((project / "project.json").read_text(encoding="utf-8"))
+    marker["input_mode"] = "source_led_template"
+    (project / "project.json").write_text(json.dumps(marker), encoding="utf-8")
+    run_plan = {"status": "approved", "template_id": "", "differentiation_plan_ref": {"name": "differentiation_plan", "path": "artifacts/differentiation_plan.json", "artifact_sha256": "e" * 64}, "slot_bindings": [{"slot_id": "s", "source": "owned", "source_media_id": "m", "reason": "r"}]}
+    (project / "artifacts" / "template_run_plan.json").write_text(json.dumps(run_plan), encoding="utf-8")
+    monkeypatch.setattr(template_batch, "resolve_run_batch_differentiation_ref", lambda *_: ("source_led_template", {"name": "differentiation_plan", "path": "artifacts/differentiation_plan.json", "artifact_sha256": "d" * 64}))
+    with pytest.raises(OperatorError, match="does not match"):
+        ShotGenerationService(project, selector=FakeSelector(), run_async=False).quote(shot_id="shot-1", proposal_id="proposal-1", quality="fast")
+
+
 def test_adopting_a_standard_clip_updates_execution_plan_and_asset_manifest_together(tmp_path) -> None:
     selector = FakeSelector()
     service = ShotGenerationService(_project(tmp_path), selector=selector, run_async=False)

@@ -2,13 +2,26 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lib.template_run_plan import create_template_run
+
 from lib.template_source_match import (
     best_action,
     build_source_mappings,
     match_run_plan,
     resolve_matrix_grounding,
 )
+
+@pytest.fixture(autouse=True)
+def _complete_pool(monkeypatch, tmp_path):
+    """真实 v8 池只有 4 条素材；本文件的合成 slot 需要完整 6 动作池。
+
+    只用测试自身 monkeypatch 覆盖了 _clip_stems 的用例会被其覆盖（不冲突）。
+    """
+    from tests.lib._tablemat_pool import install_complete_pool
+    install_complete_pool(monkeypatch, tmp_path)
+
 
 _SLOTS = [
     {"slot_id": f"s{i}", "ordinal": i, "duration_s": 2.0,
@@ -51,9 +64,24 @@ def test_match_run_plan_exact_action_first_then_explicit_reuse():
     assert all(r for r in reasons)  # 每个绑定都有理由
 
 
+
+_BALANCED_STEMS = [
+    "product_透明桌垫-防油易擦拭",
+    "product_透明桌垫-无甲醛检测",
+    "product_透明桌垫-桌角对齐-挤压不变形",
+    "product_透明桌垫-自动铺开对齐",
+    "product_透明桌垫-防刮",
+    "product_透明桌垫-餐桌场景",
+]
+
+
+def _balanced_assigned() -> dict[str, str]:
+    """8 个 2s 槽位均衡摊到 6 条素材（每条 1-2 窗，容量合法）。
+    匹配器的集中分配语义由其他用例覆盖；本类用 h， focus = 映射器不重叠/跨度不变式。"""
+    return {f"s{i}": _BALANCED_STEMS[(i - 1) % 6] for i in range(1, 9)}
+
 def test_build_source_mappings_distinct_inpoints_non_overlapping():
-    run = _make_run()
-    assigned = match_run_plan(_SLOTS, run)
+    assigned = _balanced_assigned()
     scenes = [
         {"id": f"scene-{i:03d}", "start_seconds": float((i - 1) * 2.0), "end_seconds": float(i * 2.0)}
         for i in range(1, 9)
@@ -82,8 +110,7 @@ def test_build_source_mappings_distinct_inpoints_non_overlapping():
 
 def test_source_interval_span_matches_timeline_span():
     """source_interval 长度必须 == timeline span；绝不拉成整段 matrix 区间。"""
-    run = _make_run()
-    assigned = match_run_plan(_SLOTS, run)
+    assigned = _balanced_assigned()
     scenes = [
         {"id": f"scene-{i:03d}", "start_seconds": float((i - 1) * 2.0), "end_seconds": float(i * 2.0)}
         for i in range(1, 9)
@@ -162,6 +189,35 @@ def test_same_domain_media_are_load_balanced(monkeypatch):
     assert counts == {stems[0]: 2, stems[1]: 2}
 
 
+def test_missing_action_generate_slot_is_not_assigned_or_rewritten_as_owned(monkeypatch):
+    import lib.template_source_match as source_match
+    from lib.artifact_hashing import attach_hashes
+    from schemas.artifacts import validate_artifact
+
+    monkeypatch.setattr(
+        source_match, "_clip_stems",
+        lambda: ["product_透明桌垫-防油易擦拭"],
+    )
+    slot = {
+        "slot_id": "missing-action", "ordinal": 1, "duration_s": 2.0,
+        "visual_content": "自动铺开", "overlay_text": "展开即平整",
+    }
+    run = create_template_run(
+        {"template_id": "custom-generate", "slots": [slot]},
+        template_pack_ref={"artifact_sha256": "a" * 64, "version": "1.0"},
+        product_facts_ref={"artifact_sha256": "b" * 64},
+    )
+
+    assigned = source_match.match_run_plan([slot], run)
+
+    assert "missing-action" not in assigned
+    binding = run["slot_bindings"][0]
+    assert binding["source"] == "generate"
+    assert binding["source_media_id"] is None
+    assert binding["asset_type"] == "video"
+    validate_artifact("template_run_plan", attach_hashes(run))
+
+
 def test_capacity_and_h2_scale_per_physical_media(monkeypatch):
     import json
     from pathlib import Path
@@ -179,9 +235,13 @@ def test_capacity_and_h2_scale_per_physical_media(monkeypatch):
     assert verdict["full_solvable"] is True
 
 
-def test_window_capacity_exhaustion_is_fail_closed():
+def test_window_capacity_exhaustion_is_fail_closed(monkeypatch):
     import pytest
+    import lib.template_source_match as tsm
     from lib.template_source_match import build_source_mappings
+    # 该用例聚焦映射器 H3/H4：给自动铺开素材一个 2.0s 短时长，使 5×2.0s 槽确定性耗尽
+    monkeypatch.setattr(tsm, "_clip_durations",
+                        lambda: {"product_透明桌垫-自动铺开对齐": 2.0})
 
     scenes = [{"id": f"scene-{i}", "start_seconds": 2.0 * i,
                "end_seconds": 2.0 * (i + 1), "template_slot_ref": f"s{i}"} for i in range(5)]

@@ -1,6 +1,7 @@
 """Unit tests for lib.template_batch（批量控制面 + run 状态刷新）。"""
 
 from __future__ import annotations
+import pytest
 
 from pathlib import Path
 
@@ -24,6 +25,13 @@ def test_create_batch_and_mark_pilot():
     assert all(r["status"] == "planned" for r in b["runs"])
     b = mark_pilot(b, ["t1"])
     assert b["pilot_run_ids"] == ["t1"]
+
+
+@pytest.fixture(autouse=True)
+def _complete_pool(monkeypatch, tmp_path):
+    """桌垫测试需要完整 6 动作素材池（真实 v8 池仅 4 条）。"""
+    from tests.lib._tablemat_pool import install_complete_pool
+    install_complete_pool(monkeypatch, tmp_path)
 
 
 def test_refresh_status_reflects_completed_scene_plan(tmp_path: Path):

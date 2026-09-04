@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import pytest
 
 from lib.artifact_io import write_artifact_atomic
 from lib.checkpoint import get_completed_stages, get_next_stage
@@ -27,6 +28,7 @@ def _setup_run(tmp_path: Path, template: dict, facts: dict, *, approved: bool = 
     match_run_plan(template.get("slots") or [], rp)
     if approved:
         rp["status"] = "approved"
+        rp["differentiation_plan_ref"] = {"name": "differentiation_plan", "path": "artifacts/differentiation_plan.json", "artifact_sha256": "d" * 64}
     write_artifact_atomic("artifacts/template_run_plan.json", "template_run_plan", rp, project_dir=tmp_path / run_id)
     return run_id
 
@@ -42,7 +44,23 @@ def test_assets_gate_blocks_unapproved_run_plan(tmp_path: Path):
         build_assets(tmp_path / run_id, template, pipeline_dir=tmp_path)
 
 
-def test_advance_to_assets_writes_awaiting_human_no_paid(tmp_path: Path):
+def test_assets_gate_requires_authoritative_batch_ref_for_new_source_led_template(tmp_path: Path):
+    pack = json.loads(PACK.read_text(encoding="utf-8"))
+    template = next(t for t in pack["templates"] if t["template_id"] == "sheet-01-video1-aks-zhuodian")
+    facts = json.loads(ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
+    run_id = _setup_run(tmp_path, template, facts)
+    marker_path = tmp_path / run_id / "project.json"
+    marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    marker["input_mode"] = "source_led_template"
+    marker["template_run"]["batch_project_id"] = "batch-root"
+    marker_path.write_text(json.dumps(marker), encoding="utf-8")
+    with pytest.raises(SystemExit, match="differentiation"):
+        build_assets(tmp_path / run_id, template, pipeline_dir=tmp_path)
+
+
+def test_advance_to_assets_writes_awaiting_human_no_paid(tmp_path: Path, monkeypatch):
+    from tests.lib._tablemat_pool import install_complete_pool
+    install_complete_pool(monkeypatch, tmp_path)
     pack = json.loads(PACK.read_text(encoding="utf-8"))
     template = next(t for t in pack["templates"] if t["template_id"] == "sheet-01-video1-aks-zhuodian")
     facts = json.loads(ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))

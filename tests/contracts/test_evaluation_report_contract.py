@@ -54,6 +54,19 @@ def test_minimal_pass_report_validates():
     validate_artifact("evaluation_report", _base_report())
 
 
+def test_legacy_alignment_without_contract_version_remains_compatible():
+    report = _base_report(alignment={"status": "pass", "checks": []})
+
+    validate_artifact("evaluation_report", report)
+
+
+def test_canonical_alignment_requires_complete_strict_shape():
+    report = _base_report(alignment={"contract_version": "1.0", "status": "pass"})
+
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance=report, schema=load_schema("evaluation_report"))
+
+
 def test_pass_requires_hard_gate_pass():
     report = _base_report(hard_gate={"pass": False, "checks": []})
     with pytest.raises(jsonschema.ValidationError):
