@@ -371,6 +371,29 @@ git commit -m "feat(cinematic-fast): gate generated product shot alignment"
 
 ## Chunk 5 — Silver-ion pilot migration and end-to-end acceptance
 
+### Task 8.5: Make browser acquisition completeness auditable
+
+**Files:**
+
+- Modify: `schemas/artifacts/product_page_capture.schema.json`
+- Modify: `schemas/artifacts/__init__.py`
+- Test: `tests/contracts/test_product_page_acquisition.py`
+- Test: `tests/lib/test_product_fact_reconciliation.py`
+
+**TDD contract:** New browser captures use ProductPageCapture 1.1 and may be
+marked `complete` only when identity, selected SKU, parameter table, main
+gallery, and detail content are all recorded with evidence. The declared fact
+count must match the captured candidates, volatile exclusions must be counted,
+and legacy 1.0 artifacts remain readable. Reconciliation must preserve every
+stable captured fact while excluding explicitly volatile price/stock/promotion
+facts.
+
+**Pilot application:** Revisit the supplied Tmall URL in the browser, capture
+the five required surfaces, include all visible stable parameters and
+claim-bearing main-image text as page claims, keep unverified test/certification
+language at page-claim or needs-human strength, and rebuild downstream hashes
+before reopening Script review.
+
 ### Task 9: Rebuild the silver-ion Research and Assets artifacts
 
 **Files:**
@@ -460,4 +483,3 @@ After the sample passes:
 3. Review the branch diff against `origin/main` for schema compatibility and migration safety.
 4. Record the silver-ion pilot evidence and remaining Beta limitations.
 5. Use `superpowers:finishing-a-development-branch` to present merge options; do not merge until the user explicitly chooses.
-

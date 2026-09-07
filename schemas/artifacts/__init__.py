@@ -194,6 +194,52 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
                 raise jsonschema.ValidationError(
                     "complete product capture requires screenshot and selected SKU asset evidence"
                 )
+            if data.get("version") == "1.1":
+                scope = data.get("capture_scope") or {}
+                canonical_surfaces = {
+                    "identity",
+                    "selected_sku",
+                    "parameter_table",
+                    "main_gallery",
+                    "detail_content",
+                }
+                required_surfaces = set(scope.get("required_surfaces") or [])
+                captured_surfaces = set(scope.get("captured_surfaces") or [])
+                if not canonical_surfaces.issubset(required_surfaces):
+                    raise jsonschema.ValidationError(
+                        "complete product capture requires canonical surface coverage"
+                    )
+                missing_surfaces = required_surfaces - captured_surfaces
+                if missing_surfaces:
+                    raise jsonschema.ValidationError(
+                        "complete product capture has missing surface coverage: "
+                        + ", ".join(sorted(missing_surfaces))
+                    )
+                surface_evidence = scope.get("surface_evidence") or {}
+                missing_evidence = [
+                    surface
+                    for surface in sorted(required_surfaces)
+                    if not surface_evidence.get(surface)
+                ]
+                if missing_evidence:
+                    raise jsonschema.ValidationError(
+                        "complete product capture has surfaces without evidence: "
+                        + ", ".join(missing_evidence)
+                    )
+                fact_candidates = data.get("fact_candidates") or []
+                if scope.get("fact_candidate_count") != len(fact_candidates):
+                    raise jsonschema.ValidationError(
+                        "product capture fact candidate count does not match captured facts"
+                    )
+                volatile_count = sum(
+                    1
+                    for fact in fact_candidates
+                    if isinstance(fact, dict) and fact.get("volatile") is True
+                )
+                if scope.get("excluded_volatile_count") != volatile_count:
+                    raise jsonschema.ValidationError(
+                        "product capture volatile exclusion count does not match captured facts"
+                    )
     elif name == "reference_source_matrix":
         matrix_mode = data.get("matrix_mode", "reference")
         for row in data.get("rows", []):

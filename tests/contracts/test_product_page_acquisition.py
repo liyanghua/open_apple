@@ -79,6 +79,37 @@ def _ledger() -> dict:
     })
 
 
+def _complete_v11_capture() -> dict:
+    capture = _capture()
+    capture["version"] = "1.1"
+    capture["capture_scope"] = {
+        "required_surfaces": [
+            "identity",
+            "selected_sku",
+            "parameter_table",
+            "main_gallery",
+            "detail_content",
+        ],
+        "captured_surfaces": [
+            "identity",
+            "selected_sku",
+            "parameter_table",
+            "main_gallery",
+            "detail_content",
+        ],
+        "surface_evidence": {
+            "identity": ["capture_evidence.screenshots[0]"],
+            "selected_sku": ["product_asset_ledger:page-asset-selected-sku"],
+            "parameter_table": ["capture_evidence.screenshots[0]"],
+            "main_gallery": ["product_asset_ledger:page-asset-selected-sku"],
+            "detail_content": ["capture_evidence.screenshots[0]"],
+        },
+        "fact_candidate_count": 1,
+        "excluded_volatile_count": 0,
+    }
+    return attach_hashes(capture)
+
+
 def test_product_page_capture_and_asset_ledger_are_canonical_artifacts() -> None:
     validate_artifact("product_page_capture", _capture())
     validate_artifact("product_asset_ledger", _ledger())
@@ -166,4 +197,26 @@ def test_page_claim_cannot_be_labeled_as_qualified_report() -> None:
     capture["fact_candidates"][0]["evidence_status"] = "qualified_report"
 
     with pytest.raises(jsonschema.ValidationError, match="qualified"):
+        validate_artifact("product_page_capture", capture)
+
+
+def test_v11_complete_capture_accepts_auditable_surface_coverage() -> None:
+    validate_artifact("product_page_capture", _complete_v11_capture())
+
+
+def test_v11_complete_capture_rejects_missing_required_surface() -> None:
+    capture = _complete_v11_capture()
+    capture["capture_scope"]["captured_surfaces"].remove("parameter_table")
+    capture = attach_hashes(capture)
+
+    with pytest.raises(jsonschema.ValidationError, match="surface coverage"):
+        validate_artifact("product_page_capture", capture)
+
+
+def test_v11_complete_capture_rejects_fact_count_drift() -> None:
+    capture = _complete_v11_capture()
+    capture["capture_scope"]["fact_candidate_count"] = 99
+    capture = attach_hashes(capture)
+
+    with pytest.raises(jsonschema.ValidationError, match="fact candidate count"):
         validate_artifact("product_page_capture", capture)
