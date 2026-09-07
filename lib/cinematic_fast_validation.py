@@ -146,6 +146,22 @@ def _validate_owner_evidence_sets(
         raise ValueError(f"{label} claim_ids must equal its evidence rows")
     if actions != row_actions:
         raise ValueError(f"{label} action_keys must equal its evidence rows")
+    routed_rows = [row for row in rows if _nonempty(row.get("visual_route"))]
+    if routed_rows:
+        routes = {str(row["visual_route"]) for row in routed_rows}
+        if len(routes) != 1 or owner.get("visual_route") not in routes:
+            raise ValueError(f"{label} visual_route must equal its evidence row")
+        if owner.get("claim_visual_requirements") != routed_rows[0].get(
+            "claim_visual_requirements"
+        ):
+            raise ValueError(
+                f"{label} claim_visual_requirements must equal its evidence row"
+            )
+        expected_reference = routed_rows[0].get("generation_reference")
+        if owner.get("generation_reference") != expected_reference:
+            raise ValueError(
+                f"{label} generation_reference must equal its evidence row"
+            )
     return rows
 
 

@@ -261,6 +261,23 @@ def test_source_led_script_rejects_claim_or_action_not_owned_by_matrix_rows() ->
         )
 
 
+def test_source_led_script_visual_route_must_equal_its_matrix_row() -> None:
+    matrix = _matrix()
+    matrix["rows"][0]["visual_route"] = "generated_from_product_image"
+    matrix["rows"][0]["generation_reference"] = {
+        "asset_id": "page-asset-main-03-clean-v1",
+        "sha256": "d" * 64,
+    }
+    script = _script()
+    script["sections"][0]["visual_route"] = "owned_source"
+    script["sections"][0]["generation_reference"] = None
+
+    with pytest.raises(ValueError, match="visual_route.*evidence row"):
+        validate_script_evidence_closure(
+            script, matrix, _facts(), input_mode="source_led_template"
+        )
+
+
 @pytest.mark.parametrize(
     "field,text,message",
     [

@@ -196,6 +196,8 @@ best_action = _best_action
 def match_run_plan(
     slots: list[Mapping[str, Any]],
     run: dict,  # template_run_plan（含 slot_bindings），就地更新绑定
+    *,
+    preserve_existing: bool = False,
 ) -> dict[str, str]:
     """把每个 slot 绑定到自有素材（no-dup 优先 + 显式复用）。返回 {slot_id: stem}。
 
@@ -204,6 +206,34 @@ def match_run_plan(
     slot 动作来源：逐模板显式表（SLOT_ACTION_BY_TEMPLATE）优先，否则关键词打分 _best_action。
     """
     bindings = run.get("slot_bindings") or []
+    if preserve_existing:
+        by_id = {
+            str(binding.get("slot_id") or ""): binding
+            for binding in bindings
+            if isinstance(binding, Mapping)
+        }
+        assigned: dict[str, str] = {}
+        for slot in slots:
+            slot_id = str(slot.get("slot_id") or "")
+            binding = by_id.get(slot_id)
+            media_id = str((binding or {}).get("source_media_id") or "").strip()
+            if not slot_id or not isinstance(binding, Mapping):
+                raise ValueError("evidence-locked run requires one explicit binding per template slot")
+            source = str(binding.get("source") or "")
+            if source == "owned" and not media_id:
+                raise ValueError(
+                    f"evidence-locked slot {slot_id!r} requires an owned source_media_id"
+                )
+            if source == "generate" and not str(binding.get("asset_type") or "").strip():
+                raise ValueError(
+                    f"evidence-locked slot {slot_id!r} requires a generated asset_type"
+                )
+            if source not in {"owned", "generate"}:
+                raise ValueError(
+                    f"evidence-locked slot {slot_id!r} must be owned or generate"
+                )
+            assigned[slot_id] = media_id
+        return assigned
     stems = _clip_stems()
     if not stems:
         raise SystemExit("无自有素材池，无法匹配（先确认 V8 product 视频存在）")
