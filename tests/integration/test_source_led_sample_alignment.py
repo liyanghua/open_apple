@@ -13,6 +13,7 @@ from lib.template_alignment import (
     alignment_report_semantic_checks,
     apply_alignment_to_evaluation,
     build_semantic_alignment,
+    route_human_review_channel,
 )
 from lib.template_assets import _content_hash
 from lib.template_render import build_final_props
@@ -71,6 +72,49 @@ def _artifacts() -> dict:
     }
 
 
+def _generated_artifacts() -> dict:
+    artifacts = _artifacts()
+    reference = {
+        "asset_id": "clean-ref-1", "parent_asset_id": "page-main-1",
+        "local_path": "assets/product_page/derived/clean.png",
+        "sha256": "6" * 64, "sku_scope": ["towel"],
+    }
+    requirement = {
+        "required_subjects": ["target_product"],
+        "required_actions": ["pour_water"],
+        "required_results": ["visible_water_contact_result"],
+    }
+    section = artifacts["script"]["sections"][0]
+    scene = artifacts["scene_plan"]["scenes"][0]
+    mapping = artifacts["scene_plan"]["metadata"]["source_mapping"][0]
+    shot = artifacts["shot_execution_plan"]["shots"][0]
+    for owner in (section, scene, mapping, shot):
+        owner.update({
+            "visual_route": "generated_from_product_image",
+            "claim_visual_requirements": requirement,
+            "generation_reference": reference,
+        })
+    mapping.pop("source_hash", None); mapping.pop("source_interval", None)
+    shot.pop("source_hash", None); shot.pop("source_interval", None)
+    shot.update({"evidence_role": "visual_expression_only", "evidence_type": "demonstration"})
+    artifacts["final_props"]["shots"][0].update({
+        "visual_route": "generated_from_product_image",
+        "reference_hash": reference["sha256"],
+    })
+    return artifacts
+
+
+def _generated_check(**overrides) -> dict:
+    check = {
+        "shot_id": "shot-001", "action_match": "pass", "result_support": "pass",
+        "narration_caption_match": "pass", "product_identity_match": "pass",
+        "crop_completeness": "pass", "generated_text_integrity": "pass",
+        "voice_caption_timing_match": "pass",
+    }
+    check.update(overrides)
+    return check
+
+
 def test_source_led_alignment_binds_all_hashes_and_passes() -> None:
     report = build_semantic_alignment(
         _artifacts(), scope="sample", expected_product_id="towel",
@@ -84,6 +128,49 @@ def test_source_led_alignment_binds_all_hashes_and_passes() -> None:
         "shot_execution_plan": "3" * 64, "final_props": "4" * 64,
         "render": "5" * 64,
     }
+
+
+def test_generated_alignment_requires_reference_identity_text_timing_and_crop() -> None:
+    passed = build_semantic_alignment(
+        _generated_artifacts(), scope="sample",
+        semantic_checks=[_generated_check()],
+    )
+    row = passed["per_shot_results"][0]
+    assert passed["status"] == "pass"
+    assert row["reference_hash_match"] == "pass"
+    assert row["generated_text_integrity"] == "pass"
+    assert row["voice_caption_timing_match"] == "pass"
+    assert row["generated_media_role"] == "visual_expression_only"
+
+    failed_artifacts = _generated_artifacts()
+    failed_artifacts["final_props"]["shots"][0]["reference_hash"] = "7" * 64
+    failed = build_semantic_alignment(
+        failed_artifacts, scope="sample",
+        semantic_checks=[_generated_check(
+            generated_text_integrity="fail",
+            voice_caption_timing_match="fail",
+            product_identity_match="fail",
+            crop_completeness="fail",
+        )],
+    )
+    codes = set(failed["per_shot_results"][0]["reason_codes"])
+    assert failed["status"] == "fail"
+    assert {
+        "generated_reference_hash_mismatch", "generated_text_or_logo_corruption",
+        "voice_caption_timing_mismatch", "product_identity_mismatch", "crop_incomplete",
+    } <= codes
+
+
+def test_generated_media_cannot_be_promoted_to_real_proof() -> None:
+    artifacts = _generated_artifacts()
+    artifacts["shot_execution_plan"]["shots"][0]["evidence_type"] = "real_proof"
+
+    report = build_semantic_alignment(
+        artifacts, scope="sample", semantic_checks=[_generated_check()],
+    )
+
+    assert report["status"] == "fail"
+    assert "generated_evidence_escalation" in report["per_shot_results"][0]["reason_codes"]
 
 
 def test_real_canonical_final_props_builder_preserves_alignment_metadata(tmp_path) -> None:
@@ -267,17 +354,109 @@ def test_source_led_checkpoint_gate_requires_passing_alignment() -> None:
         }],
         "repair_targets": [],
     }
-    for stage in ("sample", "compose", "publish"):
+    for stage in ("compose", "publish"):
         for evaluation in (None, {"alignment": {"status": "revise"}}, {"alignment": {"status": "fail"}}):
             assert alignment_checkpoint_gate(evaluation, input_mode="source_led", stage=stage, current_hashes=current)
-        expected_scope = "sample" if stage == "sample" else "final"
+        expected_scope = "final"
         good = {"alignment": {**passing, "scope": expected_scope}}
         assert alignment_checkpoint_gate(good, input_mode="source_led", stage=stage, current_hashes=current) == []
         stale = {"alignment": {**passing, "scope": expected_scope,
                                 "input_hashes": {**current, "render": "9" * 64}}}
         assert alignment_checkpoint_gate(stale, input_mode="source_led", stage=stage, current_hashes=current)
+    # 样片门只有 pass 通过；revise 必须退回 edit/reopen，不能靠普通人审覆盖。
+    assert alignment_checkpoint_gate(
+        {"alignment": passing}, input_mode="source_led", stage="sample",
+        current_hashes=current) == []
+    sample_revise = {
+        **passing,
+        "status": "revise",
+        "per_shot_results": [{
+            "scene_id": "scene-001", "shot_id": "shot-001",
+            "action_match": "revise", "result_support": "revise",
+            "narration_caption_match": "pass", "crop_completeness": "pass",
+            "product_identity_match": "pass", "status": "revise",
+            "reason_codes": ["action_support_weak", "result_support_weak"],
+        }],
+        "repair_targets": [{"shot_id": "shot-001", "reason_codes": ["action_support_weak", "result_support_weak"]}],
+    }
+    assert alignment_checkpoint_gate(
+        {"alignment": sample_revise}, input_mode="source_led", stage="sample",
+        current_hashes=current)
+    # 硬性冲突（产品身份）在样片门也拒绝
+    hard = {
+        **passing,
+        "status": "fail",
+        "per_shot_results": [{
+            "scene_id": "scene-001", "shot_id": "shot-001",
+            "action_match": "pass", "result_support": "pass",
+            "narration_caption_match": "pass", "crop_completeness": "pass",
+            "product_identity_match": "fail", "status": "fail",
+            "reason_codes": ["product_identity_mismatch"],
+        }],
+        "repair_targets": [{"shot_id": "shot-001", "reason_codes": ["product_identity_mismatch"]}],
+    }
+    assert alignment_checkpoint_gate(
+        {"alignment": hard}, input_mode="source_led", stage="sample",
+        current_hashes=current)
     assert alignment_checkpoint_gate(None, input_mode="reference_driven", stage="sample") == []
     assert alignment_checkpoint_gate({"alignment": {"status": "fail"}}, input_mode="reference_driven", stage="sample") == []
+
+
+def test_route_human_review_channel_preserves_known_semantic_failures() -> None:
+    alignment = {
+        "contract_version": "1.0", "scope": "sample", "status": "fail",
+        "input_hashes": {},
+        "per_shot_results": [
+            {
+                "scene_id": "scene-001", "shot_id": "shot-001",
+                "action_match": "fail", "result_support": "fail",
+                "narration_caption_match": "pass", "crop_completeness": "pass",
+                "product_identity_match": "pass", "status": "fail",
+                "reason_codes": ["action_missing", "result_unsupported"],
+            },
+            {
+                "scene_id": "scene-002", "shot_id": "shot-002",
+                "action_match": "pass", "result_support": "pass",
+                "narration_caption_match": "pass", "crop_completeness": "pass",
+                "product_identity_match": "fail", "status": "fail",
+                "reason_codes": ["product_identity_mismatch"],
+            },
+        ],
+        "repair_targets": [
+            {"shot_id": "shot-001", "reason_codes": ["action_missing", "result_unsupported"]},
+            {"shot_id": "shot-002", "reason_codes": ["product_identity_mismatch"]},
+        ],
+    }
+
+    routed = route_human_review_channel(alignment)
+
+    assert routed["status"] == "fail"  # shot-002 硬冲突 → 保持 fail
+    shot_001 = next(item for item in routed["per_shot_results"] if item["shot_id"] == "shot-001")
+    assert shot_001["status"] == "fail"
+    assert shot_001["action_match"] == "fail"
+
+
+def test_route_human_review_channel_cannot_make_known_failures_approvable() -> None:
+    current = {"script": "1" * 64, "scene_plan": "2" * 64, "shot_execution_plan": "3" * 64,
+               "final_props": "4" * 64, "render": "5" * 64}
+    alignment = {
+        "contract_version": "1.0", "scope": "sample", "status": "fail",
+        "input_hashes": current,
+        "per_shot_results": [{
+            "scene_id": "scene-001", "shot_id": "shot-001",
+            "action_match": "fail", "result_support": "fail",
+            "narration_caption_match": "pass", "crop_completeness": "fail",
+            "product_identity_match": "pass", "status": "fail",
+            "reason_codes": ["action_missing", "result_unsupported", "crop_incomplete"],
+        }],
+        "repair_targets": [{"shot_id": "shot-001",
+                            "reason_codes": ["action_missing", "result_unsupported", "crop_incomplete"]}],
+    }
+    routed = route_human_review_channel(alignment)
+    assert routed["status"] == "fail"
+    assert alignment_checkpoint_gate(
+        {"alignment": routed}, input_mode="source_led", stage="sample",
+        current_hashes=current)
 
 
 def test_source_led_checkpoint_rejects_crafted_minimal_alignment_bypass() -> None:

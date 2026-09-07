@@ -412,6 +412,7 @@ def build_semantic_alignment(
         if not actual:
             reasons.append("actual_shot_missing")
         check = provided.get(shot_id) or {}
+        generated_route = shot.get("visual_route") == "generated_from_product_image"
         dimensions = {field: _dimension(check.get(field)) for field in required_dimensions}
         if source_led and not check:
             reasons.append("semantic_review_missing")
@@ -453,8 +454,37 @@ def build_semantic_alignment(
             reasons.append("crop_incomplete")
         elif crop == "revise":
             repair_reasons.append("crop_incomplete")
+        generated_fields: dict[str, Any] = {}
+        if generated_route:
+            planned_reference = shot.get("generation_reference") if isinstance(shot.get("generation_reference"), Mapping) else {}
+            planned_reference_hash = str(planned_reference.get("sha256") or "")
+            actual_reference_hash = str(actual.get("reference_hash") or "")
+            reference_hash_match = (
+                "pass"
+                if planned_reference_hash and actual_reference_hash == planned_reference_hash
+                else "fail"
+            )
+            generated_text_integrity = _dimension(check.get("generated_text_integrity")) or "fail"
+            voice_caption_timing_match = _dimension(check.get("voice_caption_timing_match")) or "fail"
+            if reference_hash_match == "fail":
+                reasons.append("generated_reference_hash_mismatch")
+            if generated_text_integrity != "pass":
+                reasons.append("generated_text_or_logo_corruption")
+            if voice_caption_timing_match != "pass":
+                reasons.append("voice_caption_timing_mismatch")
+            if (
+                shot.get("evidence_role") != "visual_expression_only"
+                or shot.get("evidence_type") == "real_proof"
+            ):
+                reasons.append("generated_evidence_escalation")
+            generated_fields = {
+                "reference_hash_match": reference_hash_match,
+                "generated_text_integrity": generated_text_integrity,
+                "voice_caption_timing_match": voice_caption_timing_match,
+                "generated_media_role": "visual_expression_only",
+            }
         status = "fail" if reasons else "revise" if repair_reasons or product_match == "revise" else "pass"
-        results.append({"scene_id": str(shot.get("scene_id") or ""), "shot_id": shot_id, "action_match": action_match, "result_support": result_support, "narration_caption_match": caption_match, "crop_completeness": crop, "product_identity_match": product_match, "status": status, "reason_codes": reasons + repair_reasons})
+        results.append({"scene_id": str(shot.get("scene_id") or ""), "shot_id": shot_id, "action_match": action_match, "result_support": result_support, "narration_caption_match": caption_match, "crop_completeness": crop, "product_identity_match": product_match, **generated_fields, "status": status, "reason_codes": reasons + repair_reasons})
     hashes = {}
     for key, artifact_key in (("script", "script"), ("scene_plan", "scene_plan"),
                               ("shot_execution_plan", "shot_execution_plan"), ("final_props", "final_props")):
@@ -500,6 +530,8 @@ HARD_CONFLICT_CODES = frozenset({
     "action_missing", "result_unsupported", "crop_incomplete",
     "caption_conflict", "semantic_review_missing",
     "semantic_coverage_mismatch", "semantic_dimensions_missing",
+    "generated_reference_hash_mismatch", "generated_text_or_logo_corruption",
+    "voice_caption_timing_mismatch", "generated_evidence_escalation",
 })
 
 
@@ -601,7 +633,15 @@ def alignment_checkpoint_gate(
     seen_shots: set[str] = set()
     seen_scenes: set[str] = set()
     for item in per_shot:
-        if not isinstance(item, Mapping) or set(item) != required_result_fields:
+        allowed_result_fields = required_result_fields | {
+            "reference_hash_match", "generated_text_integrity",
+            "voice_caption_timing_match", "generated_media_role",
+        }
+        if (
+            not isinstance(item, Mapping)
+            or not required_result_fields <= set(item)
+            or not set(item) <= allowed_result_fields
+        ):
             return [f"{stage} gate: alignment per_shot canonical shape is incomplete"]
         shot_id = str(item.get("shot_id") or "")
         scene_id = str(item.get("scene_id") or "")
@@ -614,6 +654,13 @@ def alignment_checkpoint_gate(
             item.get("narration_caption_match"), item.get("crop_completeness"),
             item.get("product_identity_match"),
         )
+        if item.get("generated_media_role") == "visual_expression_only":
+            generated_dimensions = (
+                item.get("reference_hash_match"), item.get("generated_text_integrity"),
+                item.get("voice_caption_timing_match"),
+            )
+            if any(value != "pass" for value in generated_dimensions):
+                return [f"{stage} gate: generated shot checks must be exactly pass"]
         reasons = [str(code) for code in (item.get("reason_codes") or [])]
         hard = [code for code in reasons if code in _HARD_CODES]
         if stage != "sample":

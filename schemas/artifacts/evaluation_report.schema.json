@@ -200,6 +200,10 @@
                   "narration_caption_match": {"type": "string", "enum": ["pass", "fail", "revise"]},
                   "crop_completeness": {"type": "string", "enum": ["pass", "fail", "revise"]},
                   "product_identity_match": {"type": "string", "enum": ["pass", "fail", "revise"]},
+                  "reference_hash_match": {"type": "string", "enum": ["pass", "fail", "revise"]},
+                  "generated_text_integrity": {"type": "string", "enum": ["pass", "fail", "revise"]},
+                  "voice_caption_timing_match": {"type": "string", "enum": ["pass", "fail", "revise"]},
+                  "generated_media_role": {"const": "visual_expression_only"},
                   "status": {"type": "string", "enum": ["pass", "fail", "revise"]},
                   "reason_codes": {"type": "array", "items": {"type": "string"}}
                 },

@@ -51,6 +51,15 @@ Build `sample_execution_trace` before alignment and evaluate only shots whose
 value being checked. `sample`, `compose`, and `publish` checkpoints require
 `alignment.status=pass` in source-led modes; `revise` routes to repair/reopen.
 
+For `generated_from_product_image` shots, fail closed unless the rendered shot
+retains the approved clean-reference hash and the same SKU, color, texture and
+structure; contains no generated or corrupted text/logo; completes the required
+action and visible result inside the 3:4 safe crop; and overlaps the matching
+voice/subtitle timing window. Record `generated_text_integrity` and
+`voice_caption_timing_match` per shot. Generated footage remains
+`visual_expression_only` and must never upgrade a merchant claim into visual
+proof.
+
 ## L3 评分契约（video_judge，required_tools）
 
 `video_judge` 是 sample/compose 的 `required_tools`（`pipeline_defs/
