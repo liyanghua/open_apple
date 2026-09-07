@@ -148,6 +148,36 @@ class ReviewService:
         )
         return review
 
+    def stage_supersede_pending(
+        self,
+        sink: Any,
+        *,
+        kinds: set[str],
+        decided_by: str,
+        reason: str,
+    ) -> None:
+        """Supersede pending downstream reviews in the caller's transaction."""
+        decided_at = self.clock().isoformat()
+        for current in self.list():
+            if (
+                current.get("status") != "awaiting_human"
+                or current.get("kind") not in kinds
+            ):
+                continue
+            superseded = dict(current)
+            superseded.update(
+                status="superseded",
+                decided_by=decided_by,
+                reason=reason,
+                decided_at=decided_at,
+            )
+            self._validate(superseded)
+            sink.stage_json(
+                f"operator/reviews/{current['review_id']}.json",
+                superseded,
+                schema="operator_review",
+            )
+
     def create(
         self,
         *,

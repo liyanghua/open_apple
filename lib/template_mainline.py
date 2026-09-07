@@ -1898,6 +1898,7 @@ def rebuild_aligned_run(run: str, *, pipeline_dir: Path | None = None) -> None:
                                           if int(str(s.get("ordinal") or 0)) in kept_ordinals]}
     from backlot.project_commit import ProjectCommitStore
     store = ProjectCommitStore(project)
+    operator_managed = (project / "operator" / "operator-managed").exists()
     try:
         with store.transaction(action={"action_id": f"rebuild-script-{run}"}) as sink:
             rp2 = json.loads(json.dumps(rp))
@@ -1922,6 +1923,24 @@ def rebuild_aligned_run(run: str, *, pipeline_dir: Path | None = None) -> None:
                 },
                 sink=sink,
             )
+            if operator_managed:
+                from backlot.operator_reviews import ReviewService
+
+                reviews = ReviewService(project, store=store)
+                reviews.stage_supersede_pending(
+                    sink,
+                    kinds={"creative_lock", "sample"},
+                    decided_by="cinematic-fast-rebuild",
+                    reason="上游语义或脚本已重建，下游审核失效",
+                )
+                reviews.stage_create(
+                    sink,
+                    kind="script_lock",
+                    subject_id="script-v1",
+                    subject_version=1,
+                    subject_hash=str(sc_env["semantic_sha256"]),
+                    submitted_by="cinematic-fast-rebuild",
+                )
     finally:
         if _overlay is not None:
             _tid, _rows, _acts = _overlay

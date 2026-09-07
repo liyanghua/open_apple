@@ -160,6 +160,54 @@ def test_rebuild_alignment_reopens_script_gate_and_invalidates_downstream(tmp_pa
     assert not (project / "checkpoint_scene_plan.json").exists()
 
 
+def test_rebuild_alignment_replaces_stale_operator_review_with_script_gate(
+    tmp_path: Path, monkeypatch
+):
+    import json
+    from backlot.operator_reviews import ReviewService
+    from backlot.project_commit import ProjectCommitStore
+    from tests.lib._tablemat_pool import install_complete_pool
+
+    install_complete_pool(monkeypatch, tmp_path)
+    pack = json.loads(PACK.read_text(encoding="utf-8"))
+    template = next(
+        t for t in pack["templates"]
+        if t["template_id"] == "sheet-01-video1-aks-zhuodian"
+    )
+    facts = json.loads(
+        ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json")
+        .read_text(encoding="utf-8")
+    )
+    project = _fresh_run(tmp_path, template["template_id"], template, facts)
+    ProjectCommitStore(project).initialize()
+    run_id = project.name
+    advance_run_full(run_id, pipeline_dir=tmp_path, pack=pack)
+    advance_run_full(
+        run_id, pipeline_dir=tmp_path, pack=pack, approve_control_plan=True
+    )
+    advance_run_full(run_id, pipeline_dir=tmp_path, pack=pack, approve_script=True)
+    ReviewService(project).create(
+        kind="creative_lock",
+        subject_id="old-assets",
+        subject_version=1,
+        subject_hash="c" * 64,
+        submitted_by="test",
+    )
+
+    rebuild_aligned_run(run_id, pipeline_dir=tmp_path)
+
+    reviews = ReviewService(project).list()
+    pending = [review for review in reviews if review["status"] == "awaiting_human"]
+    assert len(pending) == 1
+    assert pending[0]["kind"] == "script_lock"
+    checkpoint = json.loads(
+        (project / "checkpoint_script.json").read_text(encoding="utf-8")
+    )
+    assert pending[0]["subject_hash"] == checkpoint["artifacts"]["script"]["semantic_sha256"]
+    stale_assets = [review for review in reviews if review["kind"] == "creative_lock"]
+    assert stale_assets[-1]["status"] == "superseded"
+
+
 def test_source_led_scene_and_script_use_evidence_semantics_not_template_copy(tmp_path: Path):
     import json
 
