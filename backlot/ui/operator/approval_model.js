@@ -537,6 +537,7 @@ function compactGenerationList(data) {
       estimated_cost_usd: option?.estimated_cost_usd,
       supports_native_3_4: option?.supports_native_3_4 === true,
       supports_local_reference: option?.supports_local_reference === true,
+      selected: option?.selected === true,
     })) : [],
     processing_summary: item?.processing_summary,
     output_path: item?.output_path,

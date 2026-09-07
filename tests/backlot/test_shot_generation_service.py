@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,18 @@ class FakeSelector:
 
     def estimate_cost(self, inputs: dict) -> float:
         return 1.21 if inputs["model_variant"] == "fast" else 1.52
+
+    def get_info(self) -> dict:
+        return {
+            "name": "seedance_video", "provider": "seedance", "status": "available",
+            "input_schema": {"properties": {
+                "prompt": {"type": "string"}, "operation": {"type": "string"},
+                "image_path": {"type": "string"}, "duration": {"type": "string"},
+                "aspect_ratio": {"type": "string", "enum": ["3:4"]},
+                "resolution": {"type": "string"}, "model_variant": {"type": "string"},
+                "output_path": {"type": "string"}, "generate_audio": {"type": "boolean"},
+            }},
+        }
 
     def execute(self, inputs: dict) -> ToolResult:
         self.calls.append(inputs)
@@ -72,6 +85,80 @@ def _project(tmp_path: Path, *, status: str = "approved") -> Path:
     return project
 
 
+def _generated_product_project(tmp_path: Path, *, approved: bool) -> tuple[Path, str]:
+    from lib.template_assets import image_to_video_approval_subject_hash
+
+    project = tmp_path / "product-i2v"
+    (project / "artifacts").mkdir(parents=True)
+    reference_path = project / "assets/product_page/derived/ref.png"
+    reference_path.parent.mkdir(parents=True)
+    reference_bytes = b"clean-product-reference"
+    reference_path.write_bytes(reference_bytes)
+    (project / "project.json").write_text(json.dumps({
+        "project_id": "product-i2v", "pipeline_type": "cinematic-fast",
+        "budget_total_usd": 10,
+    }), encoding="utf-8")
+    reference = {
+        "asset_id": "clean-ref-1", "parent_asset_id": "page-main-1",
+        "local_path": "assets/product_page/derived/ref.png",
+        "sha256": hashlib.sha256(reference_bytes).hexdigest(),
+        "sku_scope": ["sku-1"],
+    }
+    shot = {
+        "id": "shot-1", "narration": "商品页标注 10A 级抗菌",
+        "screen_copy": "商品页标注 · 10A 级抗菌",
+    }
+    candidate = {
+        "tool": "seedance_video", "provider": "seedance", "model": "fast",
+        "estimated_cost_usd": 1.21, "supports_local_reference": True,
+        "supports_native_3_4": True,
+    }
+    proposal = {
+        "id": "generate-shot-01", "operation": "image_to_video",
+        "prompt": "保持商品身份，只做产品英雄展示", "duration_seconds": 4,
+        "aspect_ratio": "3:4", "reference_paths": [reference["local_path"]],
+        "reference_asset_id": reference["asset_id"], "reference_hash": reference["sha256"],
+        "provider_candidates": [candidate],
+        "selected_provider_candidate": candidate,
+        "provider_selection_status": "locked" if approved else "awaiting_human",
+        "required_actions": ["product_hero_display"],
+        "required_results": ["product_identity_remains_visible"],
+        "consistency_requirements": ["保持商品身份"],
+        "prohibitions": ["不得模拟抗菌实验"], "retry_limit": 2,
+        "estimated_fast_cost_usd": 1.21, "estimated_standard_cost_usd": 1.52,
+        "evidence_risk": "high", "evidence_role": "visual_expression_only",
+    }
+    approval_hash = image_to_video_approval_subject_hash(shot, proposal)
+    proposal["approval_subject_hash"] = approval_hash
+    plan = attach_hashes({
+        "version": "1.0", "project_id": "product-i2v", "plan_id": "plan-1",
+        "plan_version": 1, "status": "approved", "shots": [{**shot,
+            "visual_route": "generated_from_product_image",
+            "generation_reference": reference,
+            "generation_proposals": [proposal],
+        }],
+    })
+    (project / "artifacts/shot_execution_plan.json").write_text(json.dumps(plan), encoding="utf-8")
+    (project / "artifacts/asset_plan.json").write_text(json.dumps({
+        "paid_generation_approved": approved,
+        "approved_paid_subject_hashes": [approval_hash] if approved else [],
+        "planned_assets": [{
+            "id": "generated-shot-01", "type": "generated_video", "shot_id": "shot-1",
+            "approval_subject_hash": approval_hash, "generation_reference": reference,
+            "paid": True, "exists": False,
+        }],
+    }), encoding="utf-8")
+    (project / "artifacts/product_asset_ledger.json").write_text(json.dumps({
+        "assets": [{
+            **reference, "asset_role": "derived_clean_reference",
+            "usage_role": "generation_reference", "clean_reference_status": "ready",
+            "identity_check": {"status": "pass"}, "ocr_residual_text": [],
+            "generation_eligibility": "eligible",
+        }],
+    }), encoding="utf-8")
+    return project, approval_hash
+
+
 def test_quote_is_read_only_and_resolves_locked_server_side_proposal(tmp_path) -> None:
     selector = FakeSelector()
     service = ShotGenerationService(_project(tmp_path), selector=selector, run_async=False)
@@ -97,6 +184,65 @@ def test_generation_requires_locked_plan_and_matching_confirmed_quote(tmp_path) 
             actor_id="u1", idempotency_key="one", shot_id="shot-1", proposal_id="proposal-1",
             plan_version=1, quality="fast", confirmed_estimated_cost_usd=0.5,
         )
+
+
+def test_product_image_generation_requires_current_approved_subject_hash(tmp_path) -> None:
+    from lib.product_image_asset_execution import ProductImageAssetExecutor
+
+    selector = FakeSelector()
+    project, approval_hash = _generated_product_project(tmp_path, approved=False)
+    executor = ProductImageAssetExecutor(project, tool_resolver=lambda _name: selector)
+    service = ShotGenerationService(
+        project, selector=selector, product_executor=executor, run_async=False
+    )
+
+    with pytest.raises(OperatorError, match="当前商品图生成方案"):
+        service.enqueue(
+            actor_id="u1", idempotency_key="blocked", shot_id="shot-1",
+            proposal_id="generate-shot-01", plan_version=1, quality="fast",
+            confirmed_estimated_cost_usd=1.21,
+        )
+    assert selector.calls == []
+
+    asset_plan_path = project / "artifacts/asset_plan.json"
+    asset_plan = json.loads(asset_plan_path.read_text(encoding="utf-8"))
+    asset_plan["paid_generation_approved"] = True
+    asset_plan["approved_paid_subject_hashes"] = [approval_hash]
+    asset_plan_path.write_text(json.dumps(asset_plan), encoding="utf-8")
+    plan_path = project / "artifacts/shot_execution_plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan["shots"][0]["generation_proposals"][0]["provider_selection_status"] = "locked"
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    task = service.enqueue(
+        actor_id="u1", idempotency_key="approved", shot_id="shot-1",
+        proposal_id="generate-shot-01", plan_version=1, quality="fast",
+        confirmed_estimated_cost_usd=1.21,
+    )
+    assert task["status"] == "completed"
+    assert len(selector.calls) == 1
+
+
+def test_product_image_generation_rejects_stale_prompt_after_approval(tmp_path) -> None:
+    from lib.product_image_asset_execution import ProductImageAssetExecutor
+
+    selector = FakeSelector()
+    project, _approval_hash = _generated_product_project(tmp_path, approved=True)
+    plan_path = project / "artifacts/shot_execution_plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan["shots"][0]["generation_proposals"][0]["prompt"] = "已被修改的新提示词"
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+    executor = ProductImageAssetExecutor(project, tool_resolver=lambda _name: selector)
+    service = ShotGenerationService(
+        project, selector=selector, product_executor=executor, run_async=False
+    )
+    with pytest.raises(OperatorError, match="方案已变化"):
+        service.enqueue(
+            actor_id="u1", idempotency_key="stale", shot_id="shot-1",
+            proposal_id="generate-shot-01", plan_version=1, quality="fast",
+            confirmed_estimated_cost_usd=1.21,
+        )
+    assert selector.calls == []
 
 
 def test_fast_generation_is_idempotent_persistent_and_seeded_for_standard(tmp_path) -> None:

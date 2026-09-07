@@ -67,6 +67,37 @@ def _bundle_state(project_dir: Path, bundle_id: str) -> tuple[Path, dict[str, An
     )
 
 
+def _assert_bundle_artifact_refs_current(
+    project_dir: Path, bundle: dict[str, Any]
+) -> None:
+    """Reject approval when any reviewed artifact changed after bundle creation."""
+    from backlot.operator_errors import OperatorError
+
+    for ref in bundle.get("artifact_refs") or []:
+        if not isinstance(ref, dict) or not isinstance(ref.get("path"), str):
+            raise OperatorError("review_stale", "审批内容引用已失效，请刷新后重试", 409)
+        path = (project_dir / ref["path"]).resolve()
+        try:
+            path.relative_to(project_dir.resolve())
+            current = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            raise OperatorError("review_stale", "审批内容引用已失效，请刷新后重试", 409) from exc
+        if not isinstance(current, dict):
+            raise OperatorError("review_stale", "审批内容引用已失效，请刷新后重试", 409)
+        unhashed = {
+            key: value for key, value in current.items()
+            if key not in {"semantic_sha256", "artifact_sha256"}
+        }
+        recomputed = attach_hashes(unhashed)
+        if (
+            current.get("semantic_sha256") != recomputed.get("semantic_sha256")
+            or current.get("artifact_sha256") != recomputed.get("artifact_sha256")
+            or ref.get("semantic_sha256") != current.get("semantic_sha256")
+            or ref.get("artifact_sha256") != current.get("artifact_sha256")
+        ):
+            raise OperatorError("review_stale", "审批内容已更新，请刷新后重试", 409)
+
+
 def _approval_input_hash(checkpoint: dict[str, Any]) -> str:
     """Hash creative inputs while ignoring mutable gate bookkeeping.
 
@@ -179,7 +210,33 @@ def build_approval_bundle(
     bundle_id = f"{project_id}-{group_name}"
     previous = list(_bundle_dir(project_dir, create=sink is None).glob(f"{bundle_id}-v*-*.json"))
     version = max([int(p.name.split("-v", 1)[1].split("-", 1)[0]) for p in previous] or [0]) + 1
-    body = {"version": "1.0", "project_id": project_id, "created_at": datetime.now(timezone.utc).isoformat(), "producer": "approval_groups", "input_hashes": input_hashes, "bundle_id": bundle_id, "bundle_version": version, "group": group_name, "terminal_stage": group["terminal_stage"], "members": group["members"], "artifact_refs": refs, "status": "awaiting_human"}
+    scope_fields: dict[str, Any] = {}
+    asset_plan_path = project_dir / "artifacts" / "asset_plan.json"
+    if asset_plan_path.is_file():
+        try:
+            asset_plan = json.loads(asset_plan_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            asset_plan = {}
+        planned_assets = [item for item in asset_plan.get("planned_assets", []) if isinstance(item, dict)]
+        cleanup_subjects = [
+            str(item.get("approval_subject_hash") or "")
+            for item in planned_assets
+            if item.get("type") == "clean_product_reference"
+            and item.get("paid") is True and item.get("exists") is False
+        ]
+        video_subjects = [
+            str(item.get("approval_subject_hash") or "")
+            for item in planned_assets
+            if item.get("type") == "generated_video"
+            and item.get("paid") is True and item.get("exists") is False
+        ]
+        subjects = cleanup_subjects or video_subjects
+        if subjects and all(len(value) == 64 for value in subjects):
+            scope_fields = {
+                "approval_scope": "clean_reference" if cleanup_subjects else "image_to_video",
+                "approval_subject_hashes": sorted(set(subjects)),
+            }
+    body = {"version": "1.0", "project_id": project_id, "created_at": datetime.now(timezone.utc).isoformat(), "producer": "approval_groups", "input_hashes": input_hashes, "bundle_id": bundle_id, "bundle_version": version, "group": group_name, "terminal_stage": group["terminal_stage"], "members": group["members"], "artifact_refs": refs, **scope_fields, "status": "awaiting_human"}
     bundle = attach_hashes(body)
     _write_bundle(
         _bundle_dir(project_dir, create=sink is None)
@@ -192,7 +249,10 @@ def build_approval_bundle(
 
 
 def lock_execution_after_creative_lock(
-    project_dir: Path, *, approved_by: str, sink=None
+    project_dir: Path, *, approved_by: str,
+    approval_scope: str | None = None,
+    approved_subject_hashes: list[str] | None = None,
+    sink=None,
 ) -> dict[str, dict[str, Any]]:
     """Lock the shot execution plan + authorize paid generation after the
     creative_lock bundle is approved.
@@ -205,21 +265,75 @@ def lock_execution_after_creative_lock(
 
     envelopes: dict[str, dict[str, Any]] = {}
     approved_at = datetime.now(timezone.utc).isoformat()
+    if approval_scope not in {None, "clean_reference", "image_to_video", "all_paid_assets"}:
+        raise ValueError(f"unsupported approval scope: {approval_scope}")
+    approved_subject_set = set(approved_subject_hashes or [])
+    ap_path = project_dir / "artifacts" / "asset_plan.json"
+    try:
+        current_asset_plan = json.loads(ap_path.read_text(encoding="utf-8")) if ap_path.is_file() else None
+    except (OSError, json.JSONDecodeError):
+        current_asset_plan = None
+    if approval_scope in {"clean_reference", "image_to_video"}:
+        if not isinstance(current_asset_plan, dict):
+            raise ValueError("scoped creative approval requires asset_plan")
+        scoped_type = "clean_product_reference" if approval_scope == "clean_reference" else "generated_video"
+        expected_subjects = {
+            str(item.get("approval_subject_hash") or "")
+            for item in current_asset_plan.get("planned_assets", [])
+            if isinstance(item, dict) and item.get("type") == scoped_type
+            and item.get("paid") is True and item.get("exists") is False
+        }
+        if not expected_subjects or approved_subject_set != expected_subjects:
+            raise ValueError("approved subject hashes do not match the current paid asset plan")
+        if approval_scope == "image_to_video":
+            try:
+                ledger = json.loads((project_dir / "artifacts/product_asset_ledger.json").read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ValueError("纯产品参考图尚未审核通过") from exc
+            assets_by_id = {
+                str(item.get("asset_id")): item for item in ledger.get("assets", [])
+                if isinstance(item, dict) and item.get("asset_id")
+            }
+            for item in current_asset_plan.get("planned_assets", []):
+                if not isinstance(item, dict) or item.get("type") != "generated_video":
+                    continue
+                reference = item.get("generation_reference") or {}
+                asset = assets_by_id.get(str(reference.get("asset_id") or ""), {})
+                if (
+                    asset.get("clean_reference_status") != "ready"
+                    or (asset.get("identity_check") or {}).get("status") != "pass"
+                    or bool(asset.get("ocr_residual_text"))
+                    or asset.get("generation_eligibility") != "eligible"
+                    or asset.get("sha256") != reference.get("sha256")
+                ):
+                    raise ValueError("纯产品参考图尚未审核通过")
+
+    should_lock_execution = approval_scope != "clean_reference"
     sep_path = project_dir / "artifacts" / "shot_execution_plan.json"
-    if sep_path.is_file():
+    if should_lock_execution and sep_path.is_file():
         try:
             sep = json.loads(sep_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             sep = None
         if isinstance(sep, dict):
             sep = dict(sep)
+            if approval_scope == "image_to_video":
+                for shot in sep.get("shots", []):
+                    if not isinstance(shot, dict) or shot.get("visual_route") != "generated_from_product_image":
+                        continue
+                    for proposal in shot.get("generation_proposals", []):
+                        if not isinstance(proposal, dict):
+                            continue
+                        if proposal.get("approval_subject_hash") in approved_subject_set:
+                            if not isinstance(proposal.get("selected_provider_candidate"), dict):
+                                raise ValueError("image-to-video provider selection is missing")
+                            proposal["provider_selection_status"] = "locked"
             sep["status"] = "approved"
             sep["approval"] = {"approved_by": approved_by, "approved_at": approved_at}
             envelopes["shot_execution_plan"] = write_artifact_atomic(
                 "artifacts/shot_execution_plan.json", "shot_execution_plan", sep,
                 project_dir=project_dir, sink=sink,
             )
-    ap_path = project_dir / "artifacts" / "asset_plan.json"
     if ap_path.is_file():
         try:
             ap = json.loads(ap_path.read_text(encoding="utf-8"))
@@ -227,7 +341,27 @@ def lock_execution_after_creative_lock(
             ap = None
         if isinstance(ap, dict):
             ap = dict(ap)
-            ap["paid_generation_approved"] = True
+            if approval_scope is None:
+                ap["approval_scope"] = "all_paid_assets"
+                ap["approved_paid_subject_hashes"] = sorted({
+                    str(item.get("approval_subject_hash"))
+                    for item in ap.get("planned_assets", [])
+                    if isinstance(item, dict) and item.get("paid") is True
+                    and item.get("approval_subject_hash")
+                })
+                ap["paid_generation_approved"] = True
+            else:
+                ap["approval_scope"] = approval_scope
+                ap["approved_paid_subject_hashes"] = sorted(approved_subject_set)
+                ap["paid_generation_approved"] = approval_scope in {"image_to_video", "all_paid_assets"}
+                if approval_scope == "image_to_video":
+                    for item in ap.get("planned_assets", []):
+                        if not isinstance(item, dict) or item.get("type") != "generated_video":
+                            continue
+                        if item.get("approval_subject_hash") in approved_subject_set:
+                            generation_plan = item.get("generation_plan")
+                            if isinstance(generation_plan, dict):
+                                generation_plan["provider_selection_status"] = "locked"
             envelopes["asset_plan"] = write_artifact_atomic(
                 "artifacts/asset_plan.json", "asset_plan", ap,
                 project_dir=project_dir, sink=sink,
@@ -242,6 +376,8 @@ def approve_bundle(
     approved_by: str,
     expected_version: int | None = None,
     expected_hash: str | None = None,
+    expected_approval_scope: str | None = None,
+    expected_subject_hashes: list[str] | None = None,
     sink=None,
 ) -> Path:
     """Approve a bundle: a pure approval-group state transition.
@@ -261,6 +397,14 @@ def approve_bundle(
         or (expected_hash is not None and bundle.get("semantic_sha256") != expected_hash)
     ):
         raise OperatorError("review_stale", "审批内容已更新，请刷新后重试", 409)
+    bundle_scope = bundle.get("approval_scope")
+    bundle_subjects = sorted(bundle.get("approval_subject_hashes") or [])
+    if (
+        bundle_scope != expected_approval_scope
+        or bundle_subjects != sorted(expected_subject_hashes or [])
+    ):
+        raise OperatorError("review_stale", "付费审批范围已更新，请刷新后重试", 409)
+    _assert_bundle_artifact_refs_current(project_dir, bundle)
     if bundle["status"] != "awaiting_human": raise ValueError("only awaiting_human bundles can be approved")
     body = {k: v for k, v in bundle.items() if k not in {"semantic_sha256", "artifact_sha256", "status", "approved_by"}}
     body.update({"status": "approved", "approved_by": approved_by})

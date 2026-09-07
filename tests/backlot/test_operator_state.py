@@ -866,8 +866,8 @@ def test_asset_editor_explains_product_image_fallback_as_selling_point_coverage(
         "planned_assets": [{
             "id": "generated-shot-05",
             "type": "generated_video",
-            "provider": "selection_pending",
-            "model": "selection_pending",
+            "provider": "grok",
+            "model": "grok-imagine-video",
             "cost_estimate_usd": 1.21,
             "paid": True,
             "output_path": "assets/video/shot-05-generated.mp4",
@@ -934,6 +934,7 @@ def test_asset_editor_explains_product_image_fallback_as_selling_point_coverage(
     assert item["generation_plan"]["retry_limit"] == 2
     assert item["generation_options"][0]["service"] == "grok"
     assert item["generation_options"][0]["version"] == "grok-imagine-video"
+    assert item["generation_options"][0]["selected"] is True
     assert item["alignment_status"] == "pass"
     validate_operator_state(state)
 

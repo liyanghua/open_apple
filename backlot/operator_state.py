@@ -1216,6 +1216,10 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
                 "estimated_cost_usd": _number(candidate.get("estimated_cost_usd")),
                 "supports_native_3_4": candidate.get("supports_native_3_4") is True,
                 "supports_local_reference": candidate.get("supports_local_reference") is True,
+                "selected": (
+                    _safe_text(candidate.get("provider")) == _safe_text(item.get("provider"))
+                    and _safe_text(candidate.get("model")) == _safe_text(item.get("model"))
+                ),
             }
             for candidate in item.get("provider_candidates") or []
             if isinstance(candidate, Mapping)

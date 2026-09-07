@@ -1853,6 +1853,10 @@ def advance_to_assets(run: str, *, pipeline_dir: Path | None = None,
             subject_version=int(bundle["bundle_version"]),
             subject_hash=str(envs["approval_bundle"]["semantic_sha256"]),
             submitted_by="cinematic-fast-assets",
+            approval_scope=str(bundle.get("approval_scope") or "") or None,
+            approval_subject_hashes=[
+                str(value) for value in bundle.get("approval_subject_hashes") or []
+            ],
         )
     from lib.checkpoint import get_next_stage
     return str(get_next_stage(PDIR, run, PIPELINE) or "none")

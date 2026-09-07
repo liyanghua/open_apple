@@ -321,6 +321,7 @@ def test_assets_generation_list_explains_product_image_generation_route() -> Non
         "生成动作",
         "预期结果",
         "生成服务候选",
+        "本次拟用",
         "最多重试",
         "AI 视觉表达，不是商品事实证明",
     ):

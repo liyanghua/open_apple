@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import tempfile
 import threading
@@ -17,6 +18,7 @@ from lib.artifact_hashing import attach_hashes, semantic_sha256
 from lib.config_model import BudgetMode
 from schemas.artifacts import validate_artifact
 from tools.cost_tracker import CostTracker
+from lib.template_assets import image_to_video_approval_subject_hash
 
 
 def _atomic_write(path: Path, value: dict[str, Any]) -> None:
@@ -43,7 +45,14 @@ class ShotGenerationService:
     confirmation. Prompt text and all media paths are resolved server-side.
     """
 
-    def __init__(self, project_dir: Path, *, selector: Any | None = None, run_async: bool = True) -> None:
+    def __init__(
+        self,
+        project_dir: Path,
+        *,
+        selector: Any | None = None,
+        product_executor: Any | None = None,
+        run_async: bool = True,
+    ) -> None:
         self.project_dir = Path(project_dir).resolve()
         self.run_async = run_async
         self._lock = threading.RLock()
@@ -53,6 +62,7 @@ class ShotGenerationService:
             registry.ensure_discovered()
             selector = registry.get("video_selector")
         self.selector = selector
+        self.product_executor = product_executor
 
     @property
     def task_dir(self) -> Path:
@@ -129,6 +139,82 @@ class ShotGenerationService:
             raise OperatorError.validation_failed("生成任务内容不正确")
         return task
 
+    def _validated_product_reference_path(self, proposal: dict[str, Any]) -> Path:
+        reference_id = str(proposal.get("reference_asset_id") or "")
+        reference_hash = str(proposal.get("reference_hash") or "")
+        references = proposal.get("reference_paths") or []
+        if len(references) != 1 or not isinstance(references[0], str):
+            raise OperatorError.validation_failed("图生视频必须绑定一张已审核纯产品参考图")
+        relative = references[0]
+        if not relative.startswith("assets/product_page/derived/"):
+            raise OperatorError.validation_failed("商品图补拍只能使用项目内已审核的纯产品参考图")
+        candidate = (self.project_dir / relative).resolve()
+        if self.project_dir not in candidate.parents or not candidate.is_file():
+            raise OperatorError.validation_failed("纯产品参考图不存在或不属于当前项目")
+        try:
+            ledger = json.loads(
+                (self.project_dir / "artifacts/product_asset_ledger.json").read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OperatorError.validation_failed("商品图台账缺失，禁止图生视频") from exc
+        asset = next(
+            (
+                item for item in ledger.get("assets", [])
+                if isinstance(item, dict) and item.get("asset_id") == reference_id
+            ),
+            None,
+        )
+        if not isinstance(asset, dict):
+            raise OperatorError.validation_failed("纯产品参考图未登记，禁止图生视频")
+        if (
+            asset.get("clean_reference_status") != "ready"
+            or (asset.get("identity_check") or {}).get("status") != "pass"
+            or bool(asset.get("ocr_residual_text"))
+            or asset.get("generation_eligibility") != "eligible"
+            or str(asset.get("local_path") or "") != relative
+            or str(asset.get("sha256") or "") != reference_hash
+        ):
+            raise OperatorError.validation_failed("纯产品参考图尚未通过身份、文字与生成资格检查")
+        actual_hash = hashlib.sha256(candidate.read_bytes()).hexdigest()
+        if actual_hash != reference_hash:
+            raise OperatorError.validation_failed("纯产品参考图文件已变化，请重新审核")
+        return candidate
+
+    def _assert_product_image_generation_approved(
+        self, shot: dict[str, Any], proposal: dict[str, Any]
+    ) -> None:
+        if shot.get("visual_route") != "generated_from_product_image":
+            return
+        if proposal.get("operation") != "image_to_video":
+            raise OperatorError.validation_failed("商品图补拍只允许已审核的图生视频方案")
+        expected_hash = image_to_video_approval_subject_hash(shot, proposal)
+        if proposal.get("approval_subject_hash") != expected_hash:
+            raise OperatorError.validation_failed("商品图生成方案已变化，请重新审核")
+        try:
+            asset_plan = json.loads(
+                (self.project_dir / "artifacts/asset_plan.json").read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OperatorError.validation_failed("当前商品图生成方案尚未获得批准") from exc
+        approved_hashes = set(asset_plan.get("approved_paid_subject_hashes") or [])
+        planned = next(
+            (
+                item for item in asset_plan.get("planned_assets", [])
+                if isinstance(item, dict)
+                and item.get("type") == "generated_video"
+                and item.get("shot_id") == shot.get("id")
+            ),
+            None,
+        )
+        if (
+            asset_plan.get("paid_generation_approved") is not True
+            or expected_hash not in approved_hashes
+            or not isinstance(planned, dict)
+            or planned.get("approval_subject_hash") != expected_hash
+        ):
+            raise OperatorError.validation_failed("当前商品图生成方案尚未获得批准")
+        self._validated_product_reference_path(proposal)
+
     def _write_task(self, task: dict[str, Any]) -> None:
         _atomic_write(self._task_path(str(task["task_id"])), task)
 
@@ -173,11 +259,16 @@ class ShotGenerationService:
         references = proposal.get("reference_paths") or []
         resolved_paths = []
         for relative in references:
-            if not isinstance(relative, str) or not relative.startswith("inputs/source/"):
-                raise OperatorError.validation_failed("生成参考只能使用项目自有素材")
-            candidate = (self.project_dir / relative).resolve()
-            if self.project_dir not in candidate.parents or not candidate.exists():
-                raise OperatorError.validation_failed("生成参考素材不存在或不属于当前项目")
+            if not isinstance(relative, str):
+                raise OperatorError.validation_failed("生成参考只能使用项目内素材")
+            if relative.startswith("assets/product_page/derived/"):
+                candidate = self._validated_product_reference_path(proposal)
+            elif relative.startswith("inputs/source/"):
+                candidate = (self.project_dir / relative).resolve()
+                if self.project_dir not in candidate.parents or not candidate.exists():
+                    raise OperatorError.validation_failed("生成参考素材不存在或不属于当前项目")
+            else:
+                raise OperatorError.validation_failed("生成参考只能使用项目内素材")
             resolved_paths.append(str(candidate))
         if inputs["operation"] == "image_to_video":
             if not resolved_paths:
@@ -202,7 +293,7 @@ class ShotGenerationService:
         parent_task_id: str | None = None,
     ) -> dict[str, Any]:
         plan = self._load_plan()
-        _shot, proposal = self._find(plan, shot_id, proposal_id)
+        shot, proposal = self._find(plan, shot_id, proposal_id)
         seed = None
         if quality == "standard":
             if not parent_task_id:
@@ -214,7 +305,25 @@ class ShotGenerationService:
             if not isinstance(seed, int):
                 raise OperatorError.validation_failed("预览没有可复用的 seed，请重新生成预览")
         inputs = self._inputs(proposal, quality=quality, seed=seed)
-        estimated = round(float(self.selector.estimate_cost(inputs)), 2)
+        selected_candidate = (
+            proposal.get("selected_provider_candidate")
+            if shot.get("visual_route") == "generated_from_product_image"
+            and isinstance(proposal.get("selected_provider_candidate"), dict)
+            else None
+        )
+        if selected_candidate is not None:
+            candidate_cost = selected_candidate.get("estimated_cost_usd")
+            estimated = round(float(
+                candidate_cost
+                if isinstance(candidate_cost, (int, float))
+                else proposal.get("estimated_standard_cost_usd") or 0
+            ), 2)
+            provider = str(selected_candidate.get("provider") or "")
+            model = str(selected_candidate.get("model") or "")
+        else:
+            estimated = round(float(self.selector.estimate_cost(inputs)), 2)
+            provider = "seedance"
+            model = f"Seedance 2.0 {'Fast' if quality == 'fast' else 'Standard'}"
         return {
             "plan_id": plan["plan_id"],
             "plan_version": plan["plan_version"],
@@ -222,8 +331,8 @@ class ShotGenerationService:
             "shot_id": shot_id,
             "proposal_id": proposal_id,
             "quality": quality,
-            "provider": "seedance",
-            "model": f"Seedance 2.0 {'Fast' if quality == 'fast' else 'Standard'}",
+            "provider": provider,
+            "model": model,
             "variant": quality,
             "duration_seconds": int(inputs["duration"]),
             "resolution": inputs["resolution"],
@@ -278,6 +387,9 @@ class ShotGenerationService:
                 quality=quality,
                 parent_task_id=parent_task_id,
             )
+            plan = self._load_plan()
+            shot, proposal = self._find(plan, shot_id, proposal_id)
+            self._assert_product_image_generation_approved(shot, proposal)
             if quote["plan_version"] != plan_version:
                 raise OperatorError.validation_failed("镜头执行单已更新，请重新查看费用")
             if abs(float(confirmed_estimated_cost_usd) - quote["estimated_cost_usd"]) > 1e-9:
@@ -328,6 +440,7 @@ class ShotGenerationService:
             if plan.get("artifact_sha256") != task["plan_hash"]:
                 raise ValueError("镜头执行单已变更，已取消这次生成")
             _shot, proposal = self._find(plan, task["shot_id"], task["proposal_id"])
+            self._assert_product_image_generation_approved(_shot, proposal)
             inputs = self._inputs(proposal, quality=task["quality"], seed=task.get("seed"), task_id=task_id)
 
             def record_remote(remote: dict[str, Any]) -> None:
@@ -339,8 +452,34 @@ class ShotGenerationService:
                     }
                     self._write_task(current)
 
-            inputs["_status_callback"] = record_remote
-            result = self.selector.execute(inputs)
+            if _shot.get("visual_route") == "generated_from_product_image":
+                if self.product_executor is None:
+                    from lib.product_image_asset_execution import ProductImageAssetExecutor
+
+                    self.product_executor = ProductImageAssetExecutor(self.project_dir)
+                receipt = self.product_executor.execute(
+                    shot=_shot,
+                    proposal=proposal,
+                    quality=task["quality"],
+                    idempotency_key=task_id,
+                    output_path=str(Path(inputs["output_path"]).resolve().relative_to(self.project_dir)),
+                    status_callback=record_remote,
+                )
+                from tools.base_tool import ToolResult
+
+                result = ToolResult(
+                    success=True,
+                    data={
+                        "output_path": str(self.project_dir / receipt["output_path"]),
+                        "selected_tool": receipt["tool"],
+                        "selected_provider": receipt["provider"],
+                        "model": receipt["model"],
+                    },
+                    cost_usd=receipt["actual_cost_usd"],
+                )
+            else:
+                inputs["_status_callback"] = record_remote
+                result = self.selector.execute(inputs)
             with self._lock:
                 current = self._load_task(task_id)
                 if not result.success:

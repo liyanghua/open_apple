@@ -214,6 +214,7 @@
           "minItems": 1,
           "items": {"$ref": "#/$defs/provider_candidate"}
         },
+        "selected_provider_candidate": {"$ref": "#/$defs/provider_candidate"},
         "provider_selection_status": {
           "enum": ["awaiting_human", "locked"]
         },
@@ -518,7 +519,7 @@
                 "items": {
                   "allOf": [
                     {"$ref": "#/$defs/generation_proposal"},
-                    {"required": ["provider_capability", "provider_candidates", "provider_selection_status", "reference_asset_id", "reference_hash", "required_actions", "required_results", "retry_limit", "approval_subject_hash", "evidence_role"]}
+                    {"required": ["provider_capability", "provider_candidates", "selected_provider_candidate", "provider_selection_status", "reference_asset_id", "reference_hash", "required_actions", "required_results", "retry_limit", "approval_subject_hash", "evidence_role"]}
                   ]
                 }
               }

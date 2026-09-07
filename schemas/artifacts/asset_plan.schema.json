@@ -15,6 +15,8 @@
       "generation_reference": {"$ref": "#/$defs/generation_reference"},
       "provider_candidates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/provider_candidate"}},
       "approval_subject_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+      "reference_source": {"$ref": "#/$defs/reference_source"},
+      "cleanup_plan": {"$ref": "#/$defs/cleanup_plan"},
       "evidence_role": {"enum": ["owned_visual_evidence", "visual_expression_reference_only", "visual_expression_only"]},
       "generation_plan": {"$ref": "#/$defs/generation_plan"},
       "source_selection": {
@@ -80,18 +82,32 @@
       {
         "if": {"properties": {"type": {"const": "clean_product_reference"}}, "required": ["type"]},
         "then": {
-          "required": ["visual_route", "generation_reference", "evidence_role", "exists"],
+          "required": ["visual_route", "evidence_role", "exists"],
           "properties": {
             "visual_route": {"const": "generated_from_product_image"},
-            "paid": {"const": false},
-            "exists": {"const": true},
             "evidence_role": {"const": "visual_expression_reference_only"}
-          }
+          },
+          "oneOf": [
+            {
+              "required": ["generation_reference"],
+              "properties": {"paid": {"const": false}, "exists": {"const": true}}
+            },
+            {
+              "required": ["approval_subject_hash", "reference_source", "cleanup_plan"],
+              "properties": {"paid": {"const": true}, "exists": {"const": false}},
+              "not": {"required": ["generation_reference"]}
+            }
+          ]
         }
       }
     ]
     }},
     "paid_generation_approved": {"type": "boolean"},
+    "approval_scope": {"enum": ["clean_reference", "image_to_video", "all_paid_assets"]},
+    "approved_paid_subject_hashes": {
+      "type": "array", "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+    },
     "audio_plan": {
       "type": "object",
       "properties": {
@@ -104,6 +120,28 @@
     }
   },
   "$defs": {
+    "reference_source": {
+      "type": "object",
+      "required": ["asset_id", "local_path", "sha256", "sku_scope"],
+      "properties": {
+        "asset_id": {"type": "string", "minLength": 1},
+        "local_path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "sku_scope": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      },
+      "additionalProperties": false
+    },
+    "cleanup_plan": {
+      "type": "object",
+      "required": ["operation", "prompt", "identity_requirements", "ocr_required"],
+      "properties": {
+        "operation": {"const": "image_edit"},
+        "prompt": {"type": "string", "minLength": 1},
+        "identity_requirements": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "ocr_required": {"const": true}
+      },
+      "additionalProperties": false
+    },
     "generation_reference": {
       "type": "object",
       "required": ["asset_id", "parent_asset_id", "local_path", "sha256", "sku_scope"],
@@ -131,7 +169,7 @@
     },
     "generation_plan": {
       "type": "object",
-      "required": ["operation", "prompt", "duration_seconds", "aspect_ratio", "required_actions", "required_results", "consistency_requirements", "prohibitions", "retry_limit", "approval_subject_hash", "provider_selection_status"],
+      "required": ["operation", "prompt", "duration_seconds", "aspect_ratio", "required_actions", "required_results", "consistency_requirements", "prohibitions", "retry_limit", "approval_subject_hash", "provider_selection_status", "selected_provider_candidate"],
       "properties": {
         "operation": {"const": "image_to_video"},
         "prompt": {"type": "string", "minLength": 1},
@@ -144,6 +182,7 @@
         "retry_limit": {"type": "integer", "minimum": 0, "maximum": 3},
         "approval_subject_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
         "provider_selection_status": {"enum": ["awaiting_human", "locked"]}
+        ,"selected_provider_candidate": {"$ref": "#/$defs/provider_candidate"}
       },
       "additionalProperties": false
     }

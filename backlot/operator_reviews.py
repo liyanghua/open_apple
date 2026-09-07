@@ -43,6 +43,11 @@ EFFECT_CONFIRMATION_KEYS = (
 EFFECT_CONFIRMATION_VALUES = frozenset({"pass", "adjust", "redirect"})
 
 
+def _safe_approval_scope(value: Any) -> str | None:
+    scope = str(value or "")
+    return scope if scope in {"clean_reference", "image_to_video", "all_paid_assets"} else None
+
+
 class ReviewService:
     def __init__(
         self,
@@ -88,15 +93,19 @@ class ReviewService:
         if list(self.validator.iter_errors(review)):
             raise OperatorError.validation_failed("待确认内容不符合要求")
 
-    def create(
+    def stage_create(
         self,
+        sink: Any,
         *,
         kind: str,
         subject_id: str,
         subject_version: int,
         subject_hash: str,
         submitted_by: str,
+        approval_scope: str | None = None,
+        approval_subject_hashes: list[str] | None = None,
     ) -> dict[str, Any]:
+        """Stage a review inside the producer's existing project transaction."""
         review_id = (
             f"{self.store.project_id}-{kind}-v{subject_version}-{uuid.uuid4().hex[:10]}"
         )
@@ -115,29 +124,55 @@ class ReviewService:
             "created_at": self.clock().isoformat(),
             "decided_at": None,
         }
+        if approval_scope:
+            review["approval_scope"] = approval_scope
+            review["approval_subject_hashes"] = sorted(set(approval_subject_hashes or []))
         self._validate(review)
+        for current in self.list():
+            if current.get("kind") == kind and current.get("status") == "awaiting_human":
+                superseded = dict(current)
+                superseded.update(
+                    status="superseded",
+                    decided_by=submitted_by,
+                    reason="已有更新版本等待确认",
+                    decided_at=self.clock().isoformat(),
+                )
+                self._validate(superseded)
+                sink.stage_json(
+                    f"operator/reviews/{current['review_id']}.json",
+                    superseded,
+                    schema="operator_review",
+                )
+        sink.stage_json(
+            f"operator/reviews/{review_id}.json", review, schema="operator_review"
+        )
+        return review
+
+    def create(
+        self,
+        *,
+        kind: str,
+        subject_id: str,
+        subject_version: int,
+        subject_hash: str,
+        submitted_by: str,
+        approval_scope: str | None = None,
+        approval_subject_hashes: list[str] | None = None,
+    ) -> dict[str, Any]:
         with self.store.transaction(
-            action={"action_id": f"create-{review_id}", "type": "create_review"},
-            result={"status": "awaiting_human", "review_id": review_id},
+            action={"action_id": f"create-{kind}-{subject_id}", "type": "create_review"},
+            result={"status": "awaiting_human"},
             audit={"event_type": "review_created", "actor_id": submitted_by},
         ) as sink:
-            for current in self.list():
-                if current.get("kind") == kind and current.get("status") == "awaiting_human":
-                    superseded = dict(current)
-                    superseded.update(
-                        status="superseded",
-                        decided_by=submitted_by,
-                        reason="已有更新版本等待确认",
-                        decided_at=self.clock().isoformat(),
-                    )
-                    self._validate(superseded)
-                    sink.stage_json(
-                        f"operator/reviews/{current['review_id']}.json",
-                        superseded,
-                        schema="operator_review",
-                    )
-            sink.stage_json(
-                f"operator/reviews/{review_id}.json", review, schema="operator_review"
+            review = self.stage_create(
+                sink,
+                kind=kind,
+                subject_id=subject_id,
+                subject_version=subject_version,
+                subject_hash=subject_hash,
+                submitted_by=submitted_by,
+                approval_scope=approval_scope,
+                approval_subject_hashes=approval_subject_hashes,
             )
         return review
 
@@ -275,6 +310,10 @@ class ReviewService:
             subject_version=version,
             subject_hash=subject_hash,
             submitted_by="legacy-compat",
+            approval_scope=_safe_approval_scope(bundle.get("approval_scope")),
+            approval_subject_hashes=[
+                str(value) for value in bundle.get("approval_subject_hashes") or []
+            ],
         )
 
     def decide(
@@ -340,6 +379,8 @@ class ReviewService:
                             approved_by=actor_id,
                             expected_version=expected_version,
                             expected_hash=expected_hash,
+                            expected_approval_scope=review.get("approval_scope"),
+                            expected_subject_hashes=list(review.get("approval_subject_hashes") or []),
                             sink=sink,
                         )
                         # creative_lock 审批 = 素材创意门：锁定执行单 + 授权付费。
@@ -347,7 +388,11 @@ class ReviewService:
                         from lib.approval_groups import lock_execution_after_creative_lock
 
                         locked_envelopes = lock_execution_after_creative_lock(
-                            self.project_dir, approved_by=actor_id, sink=sink
+                            self.project_dir,
+                            approved_by=actor_id,
+                            approval_scope=review.get("approval_scope"),
+                            approved_subject_hashes=list(review.get("approval_subject_hashes") or []),
+                            sink=sink,
                         )
                     else:
                         reject_bundle(
@@ -367,7 +412,15 @@ class ReviewService:
                 checkpoint = None
                 if checkpoint_path.exists():
                     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-                if decision == "approved" and checkpoint is not None:
+                cleanup_only = (
+                    review.get("kind") == "creative_lock"
+                    and review.get("approval_scope") == "clean_reference"
+                )
+                if decision == "approved" and checkpoint is not None and not cleanup_only:
+                    if review["kind"] == "script_lock":
+                        locked_envelopes["script"] = self._stage_approved_script(
+                            sink, review=review, actor_id=actor_id, checkpoint=checkpoint
+                        )
                     checkpoint.update(
                         status="completed",
                         human_approval_required=True,
@@ -386,6 +439,25 @@ class ReviewService:
                     # the next stage's in_progress checkpoint and the first
                     # queued orchestration run event in this same generation.
                     self._stage_next_transition(sink, review_id, stage)
+                elif decision == "approved" and checkpoint is not None and cleanup_only:
+                    checkpoint.update(
+                        status="awaiting_human",
+                        human_approval_required=True,
+                        human_approved=False,
+                        next_action={
+                            "summary": "已批准纯产品参考图生成；生成并审核参考图后将打开新版制作准备",
+                            "verb": "generate_clean_reference",
+                            "context_refs": ["artifacts/asset_plan.json", "artifacts/product_asset_ledger.json"],
+                        },
+                    )
+                    artifacts = checkpoint.setdefault("artifacts", {})
+                    for name, envelope in locked_envelopes.items():
+                        artifacts[name] = envelope
+                    sink.stage_json(
+                        checkpoint_path.relative_to(self.project_dir).as_posix(),
+                        checkpoint,
+                        schema="checkpoint",
+                    )
                 elif decision == "rejected" and checkpoint is not None:
                     sink.stage_json(
                         f"history/operator-{stage}-{review_id}.json",
@@ -426,6 +498,105 @@ class ReviewService:
         except _Replay as replay:
             return replay.review
         return decided
+
+    def _stage_approved_script(
+        self,
+        sink: Any,
+        *,
+        review: Mapping[str, Any],
+        actor_id: str,
+        checkpoint: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Lock the exact reviewed Script snapshot in the review transaction.
+
+        A completed checkpoint pointing at a ``draft`` Script is internally
+        contradictory and lets Scene Plan consume an artifact that the Script
+        Director explicitly forbids.  The review hash therefore guards the
+        draft snapshot; only after that check do we replace it with the
+        approved, newly hashed canonical artifact.
+        """
+        record = (checkpoint.get("artifacts") or {}).get("script")
+        if not isinstance(record, Mapping):
+            raise OperatorError.validation_failed("脚本检查点缺少可审批的 script 制品")
+        reviewed_hash = str(record.get("semantic_sha256") or "")
+        if reviewed_hash != str(review.get("subject_hash") or ""):
+            raise OperatorError("review_stale", "待确认脚本已更新，请刷新后重试", 409)
+        script = record.get("data")
+        if not isinstance(script, Mapping):
+            raise OperatorError.validation_failed("脚本检查点缺少可审批的 script 内容")
+        approved_script = {
+            key: value
+            for key, value in script.items()
+            if key not in {"semantic_sha256", "artifact_sha256"}
+        }
+        approved_script.update(
+            status="approved",
+            approval={
+                "approved_by": actor_id,
+                "approved_at": self.clock().isoformat(),
+            },
+        )
+        from lib.artifact_io import write_artifact_atomic
+
+        return write_artifact_atomic(
+            "artifacts/script.json",
+            "script",
+            approved_script,
+            project_dir=self.project_dir,
+            sink=sink,
+        )
+
+    def reconcile_approved_script_artifact(self) -> dict[str, Any] | None:
+        """Repair legacy approvals that completed the gate but left Script draft.
+
+        This is intentionally narrow: it only accepts an already-approved
+        ``script_lock`` whose subject hash still matches the checkpoint-bound
+        draft.  It cannot manufacture or infer human approval.
+        """
+        checkpoint_path = self.project_dir / "checkpoint_script.json"
+        try:
+            checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        record = (checkpoint.get("artifacts") or {}).get("script")
+        script = record.get("data") if isinstance(record, Mapping) else None
+        if not isinstance(script, Mapping):
+            return None
+        if script.get("status") == "approved":
+            return dict(record)
+        subject_hash = str(record.get("semantic_sha256") or "")
+        approved = [
+            item for item in self.list()
+            if item.get("kind") == "script_lock"
+            and item.get("status") == "approved"
+            and item.get("subject_hash") == subject_hash
+        ]
+        if not approved:
+            return None
+        review = approved[-1]
+        actor_id = str(review.get("decided_by") or "operator")
+        with self.store.transaction(
+            action={
+                "action_id": f"reconcile-{review['review_id']}-script-artifact",
+                "type": "reconcile_script_approval",
+            },
+            result={"status": "approved", "review_id": review["review_id"]},
+            audit={"event_type": "script_approval_reconciled", "actor_id": actor_id},
+        ) as sink:
+            envelope = self._stage_approved_script(
+                sink, review=review, actor_id=actor_id, checkpoint=checkpoint
+            )
+            repaired_checkpoint = dict(checkpoint)
+            repaired_checkpoint.update(
+                status="completed",
+                human_approval_required=True,
+                human_approved=True,
+            )
+            artifacts = dict(repaired_checkpoint.get("artifacts") or {})
+            artifacts["script"] = envelope
+            repaired_checkpoint["artifacts"] = artifacts
+            sink.stage_json("checkpoint_script.json", repaired_checkpoint, schema="checkpoint")
+        return envelope
 
     def _stage_batch_approval_decision(
         self, sink: Any, entry: Mapping[str, Any]
@@ -522,6 +693,15 @@ class ReviewService:
             if isinstance(pipeline_type, str) and pipeline_type and pipeline_type != "unknown":
                 return pipeline_type
         return None
+
+    def _input_mode(self) -> str | None:
+        """Resolve the canonical input mode for approval-created checkpoints."""
+        try:
+            data = json.loads((self.project_dir / "project.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        value = data.get("input_mode") if isinstance(data, Mapping) else None
+        return value if isinstance(value, str) and value else None
 
     def _next_stage_name(self, stage: str) -> str | None:
         """The stage immediately after ``stage`` in the pipeline's stage order."""
@@ -649,6 +829,9 @@ class ReviewService:
             "stage": next_stage,
             "artifacts": {},
         }
+        input_mode = self._input_mode()
+        if input_mode is not None:
+            next_checkpoint["input_mode"] = input_mode
         label = STAGE_LABELS.get(next_stage, next_stage)
         next_checkpoint.update(
             status="in_progress",

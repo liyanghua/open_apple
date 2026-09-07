@@ -2447,7 +2447,7 @@
                     "type": "array",
                     "items": {
                       "type": "object",
-                      "required": ["service", "version", "tool", "estimated_cost_usd", "supports_native_3_4", "supports_local_reference"],
+                      "required": ["service", "version", "tool", "estimated_cost_usd", "supports_native_3_4", "supports_local_reference", "selected"],
                       "properties": {
                         "service": {"type": "string"},
                         "version": {"type": "string"},
@@ -2455,6 +2455,7 @@
                         "estimated_cost_usd": {"$ref": "#/$defs/nullable_number"},
                         "supports_native_3_4": {"type": "boolean"},
                         "supports_local_reference": {"type": "boolean"}
+                        ,"selected": {"type": "boolean"}
                       },
                       "additionalProperties": false
                     }

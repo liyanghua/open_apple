@@ -372,6 +372,8 @@ def test_generated_product_route_builds_reviewable_image_to_video_assets(tmp_pat
     assert proposal["reference_hash"] == generation_reference["sha256"]
     assert proposal["aspect_ratio"] == "3:4"
     assert proposal["provider_candidates"] == providers
+    assert proposal["selected_provider_candidate"] == providers[0]
+    assert proposal["provider_selection_status"] == "awaiting_human"
     assert proposal["evidence_role"] == "visual_expression_only"
     assert len(proposal["approval_subject_hash"]) == 64
 
@@ -385,8 +387,10 @@ def test_generated_product_route_builds_reviewable_image_to_video_assets(tmp_pat
     assert clean_reference["paid"] is False
     assert generated["paid"] is True
     assert generated["exists"] is False
-    assert generated["provider"] == "selection_pending"
+    assert generated["provider"] == "mock"
+    assert generated["model"] == "mock-product-v1"
     assert generated["generation_reference"] == generation_reference
+    assert generated["generation_plan"]["selected_provider_candidate"] == providers[0]
     assert generated["generation_plan"]["approval_subject_hash"] == proposal["approval_subject_hash"]
     assert "source_selection" not in generated
     validate_artifact("shot_execution_plan", shot_plan)

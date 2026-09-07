@@ -31,6 +31,23 @@ def _content_hash(value: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def image_to_video_approval_subject_hash(
+    shot: Mapping[str, Any], proposal: Mapping[str, Any]
+) -> str:
+    """Hash every operator-visible input that authorizes one paid I2V call."""
+    return _content_hash({
+        "shot_id": str(shot.get("id") or ""),
+        "reference_hash": proposal.get("reference_hash"),
+        "prompt": proposal.get("prompt"),
+        "provider_candidates": proposal.get("provider_candidates") or [],
+        "selected_provider_candidate": proposal.get("selected_provider_candidate"),
+        "duration_seconds": proposal.get("duration_seconds"),
+        "aspect_ratio": proposal.get("aspect_ratio"),
+        "narration": str(shot.get("narration") or ""),
+        "screen_copy": str(shot.get("screen_copy") or ""),
+    })
+
+
 def _discover_i2v_provider_candidates(
     *, duration_seconds: float, reference_path: str
 ) -> list[dict[str, Any]]:
@@ -233,6 +250,7 @@ def build_shot_execution_plan(
             )
             if not candidates:
                 raise ValueError("generated shot has no configured 3:4 local-reference image-to-video provider")
+            selected_provider_candidate = deepcopy(candidates[0])
             duration = max(4, min(15, int(math.ceil(
                 m["timeline_interval"]["end_seconds_exclusive"]
                 - m["timeline_interval"]["start_seconds"]
@@ -253,16 +271,21 @@ def build_shot_execution_plan(
                 "淘宝 3:4 竖版产品镜头，主体和动作结果始终位于中心安全区；"
                 "画面不得生成任何文字、额外包装或虚构检测场景。"
             )
-            approval_subject_hash = _content_hash({
-                "shot_id": f"shot-{i:02d}",
-                "reference_hash": generation_reference.get("sha256"),
-                "prompt": prompt,
-                "provider_candidates": candidates,
-                "duration_seconds": duration,
-                "aspect_ratio": "3:4",
-                "narration": narration,
-                "screen_copy": screen_copy,
-            })
+            approval_subject_hash = image_to_video_approval_subject_hash(
+                {
+                    "id": f"shot-{i:02d}",
+                    "narration": narration,
+                    "screen_copy": screen_copy,
+                },
+                {
+                    "reference_hash": generation_reference.get("sha256"),
+                    "prompt": prompt,
+                    "provider_candidates": candidates,
+                    "selected_provider_candidate": selected_provider_candidate,
+                    "duration_seconds": duration,
+                    "aspect_ratio": "3:4",
+                },
+            )
             known_costs = [
                 float(item["estimated_cost_usd"])
                 for item in candidates
@@ -274,6 +297,7 @@ def build_shot_execution_plan(
                 "prompt": prompt,
                 "provider_capability": "video_generation",
                 "provider_candidates": candidates,
+                "selected_provider_candidate": selected_provider_candidate,
                 "provider_selection_status": "awaiting_human",
                 "duration_seconds": duration,
                 "aspect_ratio": "3:4",
@@ -498,8 +522,8 @@ def build_asset_plan(
             planned.append({
                 "id": f"generated-shot-{i:02d}",
                 "type": "generated_video",
-                "provider": "selection_pending",
-                "model": "selection_pending",
+                "provider": str((proposal.get("selected_provider_candidate") or {}).get("provider") or "selection_pending"),
+                "model": str((proposal.get("selected_provider_candidate") or {}).get("model") or "selection_pending"),
                 "cost_estimate_usd": max(known_costs) if known_costs else 0.0,
                 "paid": True,
                 "output_path": f"assets/video/shot-{i:02d}-generated.mp4",
@@ -519,6 +543,7 @@ def build_asset_plan(
                         "required_actions", "required_results", "consistency_requirements",
                         "prohibitions", "retry_limit", "approval_subject_hash",
                         "provider_selection_status",
+                        "selected_provider_candidate",
                     )
                 },
                 "processing_plan": {
@@ -623,6 +648,22 @@ def build_approval_bundle(project: Path, sp: dict, shot_plan: dict, asset_plan: 
         return {"name": name, "path": path, "semantic_sha256": str(data.get("semantic_sha256") or "a" * 64),
                 "artifact_sha256": str(data.get("artifact_sha256") or "a" * 64)}
     members = ["proposal", "scene_plan", "assets"]
+    paid_cleanup_hashes = sorted({
+        str(item.get("approval_subject_hash"))
+        for item in asset_plan.get("planned_assets", [])
+        if isinstance(item, Mapping) and item.get("type") == "clean_product_reference"
+        and item.get("paid") is True and item.get("exists") is False
+        and item.get("approval_subject_hash")
+    })
+    paid_video_hashes = sorted({
+        str(item.get("approval_subject_hash"))
+        for item in asset_plan.get("planned_assets", [])
+        if isinstance(item, Mapping) and item.get("type") == "generated_video"
+        and item.get("paid") is True and item.get("exists") is False
+        and item.get("approval_subject_hash")
+    })
+    approval_scope = "clean_reference" if paid_cleanup_hashes else "image_to_video" if paid_video_hashes else None
+    approval_subject_hashes = paid_cleanup_hashes or paid_video_hashes
     return {
         "version": "1.0",
         "project_id": project.name,
@@ -635,6 +676,10 @@ def build_approval_bundle(project: Path, sp: dict, shot_plan: dict, asset_plan: 
         "terminal_stage": "assets",
         "members": members,
         "artifact_refs": [ref(n) for n in ("proposal_packet", "creative_control_plan", "scene_plan", "asset_plan", "production_lock", "shot_execution_plan")],
+        **({
+            "approval_scope": approval_scope,
+            "approval_subject_hashes": approval_subject_hashes,
+        } if approval_scope else {}),
         "status": "awaiting_human",
     }
 

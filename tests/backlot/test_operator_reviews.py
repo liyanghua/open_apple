@@ -58,6 +58,87 @@ def test_creative_approval_is_one_atomic_terminal_transition(tmp_path) -> None:
     assert getattr(race.value, "code", None) == "review_already_decided"
 
 
+def test_review_persists_exact_paid_approval_scope(tmp_path) -> None:
+    from backlot.operator_reviews import ReviewService
+
+    project, store, bundle = _creative(tmp_path)
+    subject_hash = "d" * 64
+    review = ReviewService(project, store=store).create(
+        kind="creative_lock", subject_id=bundle["bundle_id"],
+        subject_version=bundle["bundle_version"], subject_hash=bundle["semantic_sha256"],
+        submitted_by="operator", approval_scope="clean_reference",
+        approval_subject_hashes=[subject_hash],
+    )
+
+    assert review["approval_scope"] == "clean_reference"
+    assert review["approval_subject_hashes"] == [subject_hash]
+
+
+def test_script_approval_atomically_locks_script_artifact_and_checkpoint(tmp_path) -> None:
+    from backlot.operator_reviews import ReviewService
+    from backlot.project_commit import ProjectCommitStore
+    from lib.artifact_io import write_artifact_atomic
+
+    project = tmp_path / "demo"
+    (project / "artifacts").mkdir(parents=True)
+    (project / "project.json").write_text(
+        '{"project_id":"demo","pipeline_type":"cinematic-fast","input_mode":"source_led"}'
+    )
+    store = ProjectCommitStore(project)
+    store.initialize()
+    with store.transaction(action={"action_id": "draft-script"}) as sink:
+        envelope = write_artifact_atomic(
+            "artifacts/script.json",
+            "script",
+            {
+                "version": "1.0",
+                "script_id": "script-1",
+                "script_version": 1,
+                "status": "draft",
+                "title": "测试脚本",
+                "total_duration_seconds": 3,
+                "sections": [{
+                    "id": "sec-001", "text": "测试口播",
+                    "start_seconds": 0, "end_seconds": 3,
+                }],
+            },
+            project_dir=project,
+            sink=sink,
+        )
+        sink.stage_json(
+            "checkpoint_script.json",
+            {
+                "version": "1.0", "project_id": "demo",
+                "pipeline_type": "cinematic-fast", "stage": "script",
+                "status": "awaiting_human", "human_approval_required": True,
+                "human_approved": False, "artifacts": {"script": envelope},
+            },
+            schema="checkpoint",
+        )
+
+    service = ReviewService(project, store=store)
+    review = service.create(
+        kind="script_lock", subject_id="script-v1", subject_version=1,
+        subject_hash=envelope["semantic_sha256"], submitted_by="writer",
+    )
+    service.decide(
+        review_id=review["review_id"], decision="approved", actor_id="operator",
+        reason="脚本确认通过", expected_version=1,
+        expected_hash=envelope["semantic_sha256"],
+    )
+
+    script = json.loads((project / "artifacts/script.json").read_text())
+    checkpoint = json.loads((project / "checkpoint_script.json").read_text())
+    assert script["status"] == "approved"
+    assert script["approval"]["approved_by"] == "operator"
+    assert checkpoint["status"] == "completed"
+    assert checkpoint["human_approved"] is True
+    assert checkpoint["artifacts"]["script"]["semantic_sha256"] == script["semantic_sha256"]
+    assert checkpoint["artifacts"]["script"]["data"] == script
+    next_checkpoint = json.loads((project / "checkpoint_scene_plan.json").read_text())
+    assert next_checkpoint["input_mode"] == "source_led"
+
+
 def test_sample_rejection_keeps_media_and_removes_current_checkpoint(tmp_path) -> None:
     from backlot.operator_reviews import ReviewService
     from backlot.project_commit import ProjectCommitStore

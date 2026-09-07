@@ -984,7 +984,8 @@ function renderGenerationListDetail(container, payload) {
         item.generation_options.forEach((option) => {
           const cost = option.estimated_cost_usd != null ? ` · 预计 $${Number(option.estimated_cost_usd).toFixed(3)}` : " · 待询价";
           const support = option.supports_native_3_4 && option.supports_local_reference ? " · 支持 3:4 本地图" : " · 能力需复核";
-          expressionColumn.append(node("p", "approval-detail-copy", `${option.service || "待选服务"} / ${option.version || "默认版本"}${cost}${support}`));
+          const selected = option.selected ? "本次拟用 · " : "备选 · ";
+          expressionColumn.append(node("p", "approval-detail-copy", `${selected}${option.service || "待选服务"} / ${option.version || "默认版本"}${cost}${support}`));
         });
       }
       const alignmentLabel = item.alignment_status === "pass"
