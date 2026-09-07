@@ -78,9 +78,18 @@ def compile_claim_visual_requirements(
         if visualizability == "observable" and not (subjects and actions and results):
             raise ValueError("observable claims require subjects, actions, and results")
 
-        allowed_wording = _strings(
+        fact_allowed_wording = _strings(
             fact.get("allowed_wording", []), "allowed wording", required=True
         )
+        preferred_wording = raw.get("preferred_wording")
+        if preferred_wording is None:
+            allowed_wording = fact_allowed_wording
+        else:
+            allowed_wording = _strings(
+                preferred_wording, "preferred wording", required=True
+            )
+            if not set(allowed_wording).issubset(fact_allowed_wording):
+                raise ValueError("preferred wording must be approved by the product fact")
         sku_scope = _strings(
             fact.get("sku_scope") or ([product_facts.get("sku")] if product_facts.get("sku") else []),
             "sku_scope",

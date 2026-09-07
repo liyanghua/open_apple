@@ -383,8 +383,8 @@ def build_source_research_artifacts(*, project_id: str, input_mode: str,
                 "evidence_strength": "strong" if route == "owned_source" else "weak",
                 "evidence_class": str(selected_entry.get("evidence_class") or "static_feature"),
                 "required_evidence_class": (
-                    "dynamic_result"
-                    if requirement.get("visualizability") == "observable" and required_results
+                    str(selected_entry.get("evidence_class") or "static_feature")
+                    if route == "owned_source"
                     else "static_feature"
                 ),
                 "requires_visible_result": (

@@ -75,6 +75,50 @@ def test_compile_non_observable_claim_never_promotes_generated_media_to_evidence
     assert requirement["evidence_policy"]["generated_media_role"] == "visual_expression_only"
 
 
+def test_compile_claim_can_select_an_ordered_subset_of_approved_wording() -> None:
+    from lib.product_image_routing import compile_claim_visual_requirements
+
+    facts = _facts()
+    facts["claims"][0]["allowed_wording"] = [
+        "商品页标注10A级抗菌",
+        "画面展示柔胭粉毛巾，抗菌为商品页声明",
+    ]
+    requirement = compile_claim_visual_requirements(
+        facts,
+        [{
+            "product_fact_ref": "product_facts.claims[0]",
+            "visualizability": "non_observable",
+            "required_subjects": ["target_product"],
+            "required_actions": ["slow_product_reveal"],
+            "required_results": ["selected_sku_remains_identifiable"],
+            "forbidden_substitutions": [],
+            "preferred_wording": [
+                "画面展示柔胭粉毛巾，抗菌为商品页声明",
+                "商品页标注10A级抗菌",
+            ],
+        }],
+    )[0]
+
+    assert requirement["allowed_wording"] == [
+        "画面展示柔胭粉毛巾，抗菌为商品页声明",
+        "商品页标注10A级抗菌",
+    ]
+
+    with pytest.raises(ValueError, match="preferred wording"):
+        compile_claim_visual_requirements(
+            facts,
+            [{
+                "product_fact_ref": "product_facts.claims[0]",
+                "visualizability": "contextual",
+                "required_subjects": ["target_product"],
+                "required_actions": ["slow_product_reveal"],
+                "required_results": ["selected_sku_remains_identifiable"],
+                "forbidden_substitutions": [],
+                "preferred_wording": ["独立检测已经证明抗菌"],
+            }],
+        )
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
