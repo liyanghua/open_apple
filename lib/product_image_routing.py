@@ -165,3 +165,144 @@ def validate_clean_reference_asset(
     if previous_hash != output_hash:
         raise ValueError("clean reference transform output hash does not match asset hash")
     return deepcopy(dict(asset))
+
+
+def _candidate_decision(
+    requirement: Mapping[str, Any], candidate: Mapping[str, Any]
+) -> dict[str, Any]:
+    subjects = set(_strings(candidate.get("observed_subject", []), "observed_subject"))
+    actions = set(_strings(candidate.get("observed_actions", []), "observed_actions"))
+    results = set(_strings(candidate.get("observed_results", []), "observed_results"))
+    required_subjects = set(requirement.get("required_subjects") or [])
+    required_actions = set(requirement.get("required_actions") or [])
+    required_results = set(requirement.get("required_results") or [])
+    forbidden = set(requirement.get("forbidden_substitutions") or [])
+    rejection_reasons: list[str] = []
+    if not required_subjects.issubset(subjects):
+        rejection_reasons.append("missing required subjects")
+    if not required_actions.issubset(actions):
+        rejection_reasons.append("missing required actions")
+    if not required_results.issubset(results):
+        rejection_reasons.append("missing required visible results")
+    substitutions = sorted(forbidden & (subjects | actions | results))
+    if substitutions:
+        rejection_reasons.append(
+            "contains forbidden substitution: " + ", ".join(substitutions)
+        )
+    if (candidate.get("crop_safety") or {}).get("subject_complete_in_3_4") is not True:
+        rejection_reasons.append("subject or result is incomplete after 3:4 crop")
+    if (candidate.get("quality") or {}).get("usable") is not True:
+        rejection_reasons.append("candidate quality is not usable")
+    source_hash = str(candidate.get("source_hash") or "")
+    interval = candidate.get("interval")
+    if not _SHA256.fullmatch(source_hash):
+        rejection_reasons.append("candidate source hash is missing or invalid")
+    if not isinstance(interval, Mapping):
+        rejection_reasons.append("candidate interval is missing")
+    else:
+        start, end = interval.get("start_seconds"), interval.get("end_seconds_exclusive")
+        if (
+            isinstance(start, bool)
+            or isinstance(end, bool)
+            or not isinstance(start, (int, float))
+            or not isinstance(end, (int, float))
+            or start < 0
+            or end <= start
+        ):
+            rejection_reasons.append("candidate interval is invalid")
+    frames = candidate.get("representative_frames")
+    if not isinstance(frames, list) or not frames:
+        rejection_reasons.append("candidate representative frames are missing")
+
+    return {
+        "media_id": str(candidate.get("media_id") or ""),
+        "source_path": str(candidate.get("source_path") or ""),
+        "source_hash": source_hash,
+        "source_time_range": dict(interval) if isinstance(interval, Mapping) else None,
+        "evidence_frames": list(frames or []),
+        "confidence": float((candidate.get("quality") or {}).get("confidence") or 0),
+        "status": "accepted" if not rejection_reasons else "rejected",
+        "rejection_reasons": rejection_reasons,
+    }
+
+
+def _eligible_clean_reference(
+    requirement: Mapping[str, Any], reference: Mapping[str, Any]
+) -> bool:
+    sku_scope = set(str(item) for item in requirement.get("sku_scope") or [])
+    reference_skus = set(str(item) for item in reference.get("sku_scope") or [])
+    claim_ref = str(requirement.get("product_fact_ref") or "")
+    candidate_assets = set(str(item) for item in requirement.get("candidate_page_asset_ids") or [])
+    return (
+        bool(sku_scope & reference_skus)
+        and claim_ref in set(str(item) for item in reference.get("claim_refs") or [])
+        and str(reference.get("parent_asset_id") or "") in candidate_assets
+        and reference.get("clean_reference_status") == "ready"
+        and not reference.get("ocr_residual_text")
+        and (reference.get("identity_check") or {}).get("status") == "pass"
+        and reference.get("generation_eligibility") == "eligible"
+        and bool(_SHA256.fullmatch(str(reference.get("sha256") or "")))
+        and bool(str(reference.get("local_path") or "").strip())
+    )
+
+
+def route_claim_coverage(
+    requirement: Mapping[str, Any],
+    *,
+    owned_candidates: Sequence[Mapping[str, Any]],
+    clean_references: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Choose owned footage, product-image generation, or fail-closed omit."""
+    evaluated = [_candidate_decision(requirement, item) for item in owned_candidates]
+    accepted = [item for item in evaluated if item["status"] == "accepted"]
+    accepted.sort(key=lambda item: item["confidence"], reverse=True)
+    if accepted:
+        selected = accepted[0]
+        return {
+            "visual_route": "owned_source",
+            "route_reason": "owned candidate covers the required subject, action, result, and 3:4 crop",
+            "claim_visual_requirements": deepcopy(dict(requirement)),
+            "owned_candidates": evaluated,
+            "selected_source": {
+                key: deepcopy(selected[key])
+                for key in (
+                    "media_id", "source_path", "source_hash", "source_time_range",
+                    "evidence_frames", "confidence",
+                )
+            },
+            "generation_reference": None,
+            "generation_spec": None,
+        }
+
+    ready_reference = next(
+        (item for item in clean_references if _eligible_clean_reference(requirement, item)),
+        None,
+    )
+    if ready_reference is not None:
+        return {
+            "visual_route": "generated_from_product_image",
+            "route_reason": "owned candidates did not cover the required action and result; a reviewed clean product reference is ready",
+            "claim_visual_requirements": deepcopy(dict(requirement)),
+            "owned_candidates": evaluated,
+            "selected_source": None,
+            "generation_reference": {
+                key: deepcopy(ready_reference[key])
+                for key in ("asset_id", "parent_asset_id", "local_path", "sha256", "sku_scope")
+            },
+            "generation_spec": {
+                "operation": "image_to_video",
+                "required_actions": list(requirement.get("required_actions") or []),
+                "required_results": list(requirement.get("required_results") or []),
+                "evidence_role": "visual_expression_only",
+            },
+        }
+
+    return {
+        "visual_route": "omit",
+        "route_reason": "no owned candidate or reviewed SKU-safe clean reference satisfies the visual requirement",
+        "claim_visual_requirements": deepcopy(dict(requirement)),
+        "owned_candidates": evaluated,
+        "selected_source": None,
+        "generation_reference": None,
+        "generation_spec": None,
+    }

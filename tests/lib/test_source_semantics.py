@@ -7,7 +7,7 @@ from pathlib import Path
 import jsonschema
 import pytest
 
-from lib.artifact_hashing import attach_hashes, semantic_sha256
+from lib.artifact_hashing import attach_hashes, semantic_sha256, verify_hashes
 from lib.checkpoint import (
     FASTLINE_ARTIFACTS,
     SUPPLEMENTARY_ARTIFACTS,
@@ -35,6 +35,16 @@ def _product_facts() -> dict:
                 "claim": "画面可展示吸水过程",
                 "status": "needs_evidence",
                 "evidence": "自有素材实拍",
+                "allowed_wording": [
+                    "可见吸水过程",
+                    "水分快速被带走",
+                    "水分被毛巾带走",
+                    "吸水结果清晰可见",
+                ],
+                "prohibited_wording": ["吸水率 99%"],
+                "product_page_refs": ["product_page_capture.fact_candidates[0]"],
+                "page_asset_ids": ["page-asset-selected-sku"],
+                "page_evidence_ids": ["page-shot-001"],
             },
             {
                 "claim": "吸水率 99%",
@@ -56,6 +66,12 @@ def _observation() -> dict:
         "observed_subject": ["毛巾", "水流", "手部"],
         "observed_actions": ["pour_water", "absorb"],
         "observed_results": ["倒水后水面明显减少"],
+        "evidence_class": "dynamic_result",
+        "temporal_evidence": {
+            "before": {"start_seconds": 1.2, "end_seconds_exclusive": 2.0},
+            "action": {"start_seconds": 2.0, "end_seconds_exclusive": 3.2},
+            "result": {"start_seconds": 3.2, "end_seconds_exclusive": 4.8},
+        },
         "crop_safety": {
             "subject_complete_in_3_4": True,
             "safe_caption_regions": ["top", "bottom"],
@@ -69,6 +85,8 @@ def _observation() -> dict:
                 "allowed_wording": ["可见吸水过程", "水分快速被带走"],
                 "prohibited_wording": ["吸水率 99%"],
                 "evidence_strength": "strong",
+                "required_evidence_class": "dynamic_result",
+                "requires_visible_result": True,
             }
         ],
     }
@@ -104,6 +122,12 @@ def test_builder_creates_schema_valid_index_and_canonical_source_led_matrix() ->
             "observed_subject": ["毛巾", "水流", "手部"],
             "observed_actions": ["pour_water", "absorb"],
             "observed_results": ["倒水后水面明显减少"],
+            "evidence_class": "dynamic_result",
+            "temporal_evidence": {
+                "before": {"start_seconds": 1.2, "end_seconds_exclusive": 2.0},
+                "action": {"start_seconds": 2.0, "end_seconds_exclusive": 3.2},
+                "result": {"start_seconds": 3.2, "end_seconds_exclusive": 4.8},
+            },
             "allowed_claim_ids": ["absorb-visible"],
             "crop_safety": {
                 "subject_complete_in_3_4": True,
@@ -121,9 +145,37 @@ def test_builder_creates_schema_valid_index_and_canonical_source_led_matrix() ->
     assert row["claim_ids"] == ["absorb-visible"]
     assert row["action_keys"] == ["pour_water", "absorb"]
     assert row["product_fact_refs"] == ["product_facts.claims[0]"]
+    assert row["product_page_refs"] == ["product_page_capture.fact_candidates[0]"]
+    assert row["page_asset_ids"] == ["page-asset-selected-sku"]
+    assert row["page_evidence_ids"] == ["page-shot-001"]
     assert row["allowed_wording"] == ["可见吸水过程", "水分快速被带走"]
     assert row["prohibited_wording"] == ["吸水率 99%"]
     assert row["evidence_strength"] == "strong"
+    assert row["evidence_class"] == "dynamic_result"
+    assert row["required_evidence_class"] == "dynamic_result"
+    assert row["requires_visible_result"] is True
+    assert row["visual_route"] == "owned_source"
+    assert row["selected_source"]["media_id"] == "towel-023"
+    assert row["generation_reference"] is None
+    assert row["claim_visual_requirements"]["required_actions"] == [
+        "pour_water", "absorb"
+    ]
+
+
+def test_existing_source_matrix_can_be_enriched_from_product_fact_provenance() -> None:
+    from lib.source_semantics import enrich_matrix_product_provenance
+
+    matrix = _build_artifacts()["reference_source_matrix"]
+    for field in ("product_page_refs", "page_asset_ids", "page_evidence_ids"):
+        matrix["rows"][0].pop(field)
+
+    enriched = enrich_matrix_product_provenance(matrix, _product_facts())
+
+    row = enriched["rows"][0]
+    assert row["product_page_refs"] == ["product_page_capture.fact_candidates[0]"]
+    assert row["page_asset_ids"] == ["page-asset-selected-sku"]
+    assert row["page_evidence_ids"] == ["page-shot-001"]
+    assert verify_hashes(enriched).valid
 
 
 def test_builder_rejects_binding_to_forbidden_product_fact() -> None:
@@ -133,6 +185,145 @@ def test_builder_rejects_binding_to_forbidden_product_fact() -> None:
     from lib.source_semantics import build_source_research_artifacts
 
     with pytest.raises(ValueError, match="forbidden product fact"):
+        build_source_research_artifacts(
+            project_id="demo",
+            input_mode="source_led",
+            observations=[observation],
+            product_facts=_product_facts(),
+        )
+
+
+def test_builder_rejects_wording_not_allowed_by_product_fact() -> None:
+    observation = _observation()
+    observation["claim_bindings"][0]["allowed_wording"] = ["一触即收"]
+
+    from lib.source_semantics import build_source_research_artifacts
+
+    with pytest.raises(ValueError, match="allowed wording.*product fact"):
+        build_source_research_artifacts(
+            project_id="demo",
+            input_mode="source_led",
+            observations=[observation],
+            product_facts=_product_facts(),
+        )
+
+
+def test_dynamic_result_claim_requires_before_action_and_result_phases() -> None:
+    observation = _observation()
+    observation["temporal_evidence"].pop("result")
+
+    from lib.source_semantics import build_source_research_artifacts
+
+    with pytest.raises(ValueError, match="before.*action.*result|temporal"):
+        build_source_research_artifacts(
+            project_id="demo",
+            input_mode="source_led",
+            observations=[observation],
+            product_facts=_product_facts(),
+        )
+
+
+def test_dynamic_result_temporal_phases_must_stay_inside_observation_interval() -> None:
+    observation = _observation()
+    observation["temporal_evidence"]["result"] = {
+        "start_seconds": 4.2,
+        "end_seconds_exclusive": 5.2,
+    }
+
+    from lib.source_semantics import build_source_research_artifacts
+
+    with pytest.raises(ValueError, match="inside.*observation interval|temporal"):
+        build_source_research_artifacts(
+            project_id="demo",
+            input_mode="source_led",
+            observations=[observation],
+            product_facts=_product_facts(),
+        )
+
+
+def test_dynamic_result_scene_interval_must_cover_before_action_and_result() -> None:
+    artifacts = _build_artifacts("source_led")
+    matrix = artifacts["reference_source_matrix"]
+    row = matrix["rows"][0]
+    scene_plan = {
+        "scenes": [{"id": "s1", "shot_intent": "完整吸水过程", "start_seconds": 0, "end_seconds": 1}],
+        "metadata": {"reference_media_usage": "not_applicable", "source_mapping": [{
+            "scene_id": "s1", "source_path": "inputs/source/towel-023.mp4",
+            "source_interval": {"start_seconds": 2.0, "end_seconds_exclusive": 3.0},
+            "timeline_interval": {"start_seconds": 0, "end_seconds_exclusive": 1},
+            "reference_evidence": {"mode": "none"},
+            "reference_basis": "owned observation", "source_fit": "只覆盖倒水动作",
+            "mapping_reason": "缺动作前和结果态", "originality_note": "owned only",
+            "matrix_row_id": row["matrix_row_id"], "evidence_row_ids": [row["matrix_row_id"]],
+            "source_hash": row["source_hash"], "matrix_resolution_id": "accept",
+            "research_direction_ref": "direction-1",
+        }]},
+    }
+    source_review = {"files": [{
+        "media_id": "towel-023", "path": "inputs/source/towel-023.mp4",
+        "media_type": "video", "reviewed": True,
+        "technical_probe": {"duration_seconds": 8},
+    }]}
+
+    with pytest.raises(ValueError, match="before.*action.*result|temporal"):
+        _validate_source_led_scene_mapping(
+            scene_plan, input_mode="source_led", source_media_review=source_review,
+            source_semantic_index=artifacts["source_semantic_index"],
+            reference_source_matrix=matrix,
+            research_synthesis={"differentiation_directions": [{"direction_id": "direction-1"}]},
+        )
+
+
+def test_roller_action_without_visible_result_cannot_support_absorption() -> None:
+    observation = _observation()
+    observation["observed_actions"] = ["roller_move"]
+    observation["observed_results"] = []
+    observation["evidence_class"] = "dynamic_action"
+    observation.pop("temporal_evidence")
+
+    from lib.source_semantics import build_source_research_artifacts
+
+    with pytest.raises(ValueError, match="visible result|evidence class"):
+        build_source_research_artifacts(
+            project_id="demo",
+            input_mode="source_led",
+            observations=[observation],
+            product_facts=_product_facts(),
+        )
+
+
+def test_metaphor_prop_cannot_be_promoted_to_product_fact_evidence() -> None:
+    observation = _observation()
+    observation["evidence_class"] = "metaphor_prop"
+    observation.pop("temporal_evidence")
+
+    from lib.source_semantics import build_source_research_artifacts
+
+    with pytest.raises(ValueError, match="metaphor"):
+        build_source_research_artifacts(
+            project_id="demo",
+            input_mode="source_led",
+            observations=[observation],
+            product_facts=_product_facts(),
+        )
+
+
+def test_measurement_evidence_cannot_support_a_different_measurement_type() -> None:
+    observation = _observation()
+    observation["observed_actions"] = ["read_fluorescent_agent_detector"]
+    observation["observed_results"] = ["检测屏显示荧光剂 0.00"]
+    observation["evidence_class"] = "measurement"
+    observation["measurement_type"] = "fluorescent_agent"
+    observation.pop("temporal_evidence")
+    observation["claim_bindings"][0].update(
+        required_evidence_class="measurement",
+        required_measurement_type="weight",
+        requires_visible_result=False,
+    )
+
+    from lib.source_semantics import build_source_research_artifacts
+
+    with pytest.raises(ValueError, match="measurement type"):
         build_source_research_artifacts(
             project_id="demo",
             input_mode="source_led",
@@ -390,6 +581,11 @@ def test_source_led_scene_validation_allows_two_semantic_windows_for_same_path()
     first = _observation()
     second = deepcopy(first)
     second["interval"] = {"start_seconds": 5, "end_seconds_exclusive": 7}
+    second["temporal_evidence"] = {
+        "before": {"start_seconds": 5, "end_seconds_exclusive": 5.5},
+        "action": {"start_seconds": 5.5, "end_seconds_exclusive": 6.2},
+        "result": {"start_seconds": 6.2, "end_seconds_exclusive": 7},
+    }
     second["representative_frames"] = ["analysis/media/towel-023/frame_0002.jpg"]
     second["claim_bindings"][0].update(
         claim_id="absorb-result",
@@ -405,7 +601,7 @@ def test_source_led_scene_validation_allows_two_semantic_windows_for_same_path()
         "scenes": [{"id": "s1", "shot_intent": "proof result", "start_seconds": 0, "end_seconds": 1}],
         "metadata": {"reference_media_usage": "not_applicable", "source_mapping": [{
             "scene_id": "s1", "source_path": "inputs/source/towel-023.mp4",
-            "source_interval": {"start_seconds": 5.2, "end_seconds_exclusive": 6.2},
+            "source_interval": {"start_seconds": 5, "end_seconds_exclusive": 7},
             "timeline_interval": {"start_seconds": 0, "end_seconds_exclusive": 1},
             "reference_evidence": {"mode": "none"}, "reference_basis": "owned observation",
             "source_fit": "visible result", "mapping_reason": "second semantic window",

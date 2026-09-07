@@ -149,6 +149,28 @@ def _validate_owner_evidence_sets(
     return rows
 
 
+def _validate_owner_provenance_sets(
+    owner: Mapping[str, Any], rows: list[Mapping[str, Any]], *, label: str
+) -> None:
+    """Keep ProductBible/page provenance attached to every downstream owner."""
+    for field in (
+        "product_fact_refs", "product_page_refs", "page_asset_ids", "page_evidence_ids",
+    ):
+        expected = {
+            str(value)
+            for row in rows
+            for value in (row.get(field) or [])
+            if str(value).strip()
+        }
+        actual = {
+            str(value) for value in (owner.get(field) or []) if str(value).strip()
+        }
+        if field == "product_fact_refs" and not actual:
+            raise ValueError(f"{label} requires product_fact_refs")
+        if actual != expected:
+            raise ValueError(f"{label} {field} must equal its evidence rows")
+
+
 def _validate_fact_refs(
     rows: list[Mapping[str, Any]], product_facts: Mapping[str, Any]
 ) -> None:
@@ -238,6 +260,7 @@ def validate_script_evidence_closure(
         if len(section.get("evidence_row_ids") or []) != 1:
             raise ValueError(f"{label} requires exactly one evidence_row_ids entry in source-led v1")
         rows = _validate_owner_evidence_sets(section, rows_by_id, label=label)
+        _validate_owner_provenance_sets(section, rows, label=label)
         _validate_fact_refs(rows, product_facts)
         _validate_section_wording(section, rows, label=label)
         for field in ("narration", "screen_copy"):
@@ -305,22 +328,37 @@ def validate_scene_evidence_closure(
             raise ValueError(
                 f"script section {section_id!r} requires exactly one evidence_row_ids entry in source-led v1"
             )
-        _validate_owner_evidence_sets(
+        section_rows = _validate_owner_evidence_sets(
             section, rows_by_id, label=f"script section {section_id!r}"
         )
-        for field in ("claim_ids", "action_keys", "evidence_row_ids"):
+        _validate_owner_provenance_sets(
+            section, section_rows, label=f"script section {section_id!r}"
+        )
+        for field in (
+            "claim_ids", "action_keys", "evidence_row_ids", "product_fact_refs",
+            "product_page_refs", "page_asset_ids", "page_evidence_ids",
+        ):
             if set(scene.get(field) or []) != set(section.get(field) or []):
                 raise ValueError(f"{label} {field} must equal script section")
-        _validate_owner_evidence_sets(scene, rows_by_id, label=label)
+        scene_rows = _validate_owner_evidence_sets(scene, rows_by_id, label=label)
+        _validate_owner_provenance_sets(scene, scene_rows, label=label)
         mapping = mapping_by_scene.get(scene_id)
         if mapping is None:
             raise ValueError(f"{label} requires exactly one source mapping")
         if mapping.get("script_section_id") != section_id:
             raise ValueError(f"mapping for {scene_id!r} script_section_id must equal scene")
-        for field in ("claim_ids", "action_keys", "evidence_row_ids"):
+        for field in (
+            "claim_ids", "action_keys", "evidence_row_ids", "product_fact_refs",
+            "product_page_refs", "page_asset_ids", "page_evidence_ids",
+        ):
             if set(mapping.get(field) or []) != set(section.get(field) or []):
                 raise ValueError(f"mapping for {scene_id!r} {field} must equal script section")
-        _validate_owner_evidence_sets(mapping, rows_by_id, label=f"mapping for {scene_id!r}")
+        mapping_rows = _validate_owner_evidence_sets(
+            mapping, rows_by_id, label=f"mapping for {scene_id!r}"
+        )
+        _validate_owner_provenance_sets(
+            mapping, mapping_rows, label=f"mapping for {scene_id!r}"
+        )
         primary_row_id = mapping.get("matrix_row_id")
         if scene.get("evidence_row_ids") != [primary_row_id]:
             raise ValueError(

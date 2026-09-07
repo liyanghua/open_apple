@@ -30,6 +30,9 @@ def _matrix() -> dict:
                 "claim_ids": ["absorb-visible"],
                 "action_keys": ["pour_water", "absorb"],
                 "product_fact_refs": ["product_facts.claims[0]"],
+                "product_page_refs": ["product_page_capture.fact_candidates[0]"],
+                "page_asset_ids": ["page-asset-selected-sku"],
+                "page_evidence_ids": ["page-shot-001"],
                 "allowed_wording": ["可见吸水过程", "水分快速被带走"],
                 "prohibited_wording": ["吸水率 99%"],
             }
@@ -68,6 +71,10 @@ def _section() -> dict:
         "claim_ids": ["absorb-visible"],
         "action_keys": ["pour_water", "absorb"],
         "evidence_row_ids": ["evidence-001"],
+        "product_fact_refs": ["product_facts.claims[0]"],
+        "product_page_refs": ["product_page_capture.fact_candidates[0]"],
+        "page_asset_ids": ["page-asset-selected-sku"],
+        "page_evidence_ids": ["page-shot-001"],
         "visual_intent": "展示倒水和吸收结果",
     }
 
@@ -86,6 +93,10 @@ def _scene_plan() -> dict:
         "claim_ids": ["absorb-visible"],
         "action_keys": ["pour_water", "absorb"],
         "evidence_row_ids": ["evidence-001"],
+        "product_fact_refs": ["product_facts.claims[0]"],
+        "product_page_refs": ["product_page_capture.fact_candidates[0]"],
+        "page_asset_ids": ["page-asset-selected-sku"],
+        "page_evidence_ids": ["page-shot-001"],
     }
     return {
         "version": "1.0",
@@ -157,7 +168,79 @@ def test_source_led_matrix_rejects_legacy_noncanonical_row_ids() -> None:
         validate_artifact("reference_source_matrix", matrix)
 
 
-@pytest.mark.parametrize("field", ["claim_ids", "action_keys", "evidence_row_ids"])
+def test_source_led_matrix_accepts_generated_route_without_fake_source_interval() -> None:
+    matrix = _matrix()
+    matrix.update({
+        "version": "1.0", "project_id": "towel", "created_at": "2026-09-07T00:00:00Z",
+        "producer": "test", "input_hashes": {"product_facts": HASH},
+        "semantic_sha256": "b" * 64, "artifact_sha256": "c" * 64, "unmatched_gaps": [],
+    })
+    matrix["rows"][0].update({
+        "reference_scene_id": None,
+        "reference_time_range": None,
+        "reference_intent": "商品图驱动的吸水动作视觉表达",
+        "source_media_id": None,
+        "source_time_range": None,
+        "match_reason": "无合格自有素材；使用已审核纯产品参考图",
+        "confidence": 0.9,
+        "evidence_frames": [],
+        "unmatched_gap": None,
+        "evidence_strength": "weak",
+        "evidence_class": "static_feature",
+        "required_evidence_class": "dynamic_result",
+        "requires_visible_result": True,
+        "temporal_evidence": None,
+        "visual_route": "generated_from_product_image",
+        "claim_visual_requirements": {
+            "visualizability": "observable",
+            "required_subjects": ["target_product", "water"],
+            "required_actions": ["continuous_pour_water", "water_contacts_towel"],
+            "required_results": ["visible_water_contact_result"],
+            "forbidden_substitutions": ["single_droplet_only", "roller_only"],
+            "sku_scope": ["6276962282892"],
+            "evidence_policy": {
+                "fact_basis": "merchant_page_claim",
+                "generated_media_role": "visual_expression_only",
+                "generated_media_can_prove_claim": False,
+            },
+        },
+        "owned_candidates": [],
+        "selected_source": None,
+        "generation_reference": {
+            "asset_id": "page-asset-main-03-clean-v1",
+            "parent_asset_id": "page-asset-main-03",
+            "local_path": "assets/product_page/derived/main-03-clean-v1.png",
+            "sha256": "d" * 64,
+            "sku_scope": ["6276962282892"],
+        },
+        "generation_spec": {
+            "operation": "image_to_video",
+            "required_actions": ["continuous_pour_water", "water_contacts_towel"],
+            "required_results": ["visible_water_contact_result"],
+            "evidence_role": "visual_expression_only",
+        },
+        "route_reason": "owned candidates did not cover the required action and result",
+    })
+    matrix["rows"][0].pop("source_hash", None)
+
+    validate_artifact("reference_source_matrix", matrix)
+
+
+def test_generated_route_rejects_fabricated_owned_source_fields() -> None:
+    matrix = _matrix()
+    matrix.update({
+        "version": "1.0", "project_id": "towel", "created_at": "2026-09-07T00:00:00Z",
+        "producer": "test", "input_hashes": {"product_facts": HASH},
+        "semantic_sha256": "b" * 64, "artifact_sha256": "c" * 64, "unmatched_gaps": [],
+    })
+    row = matrix["rows"][0]
+    row["visual_route"] = "generated_from_product_image"
+
+    with pytest.raises(Exception):
+        validate_artifact("reference_source_matrix", matrix)
+
+
+@pytest.mark.parametrize("field", ["claim_ids", "action_keys", "evidence_row_ids", "product_fact_refs"])
 def test_source_led_script_requires_explicit_evidence_fields(field: str) -> None:
     script = _script()
     script["sections"][0].pop(field)
@@ -228,6 +311,27 @@ def test_source_led_scene_rejects_evidence_drift(owner: str) -> None:
     target["claim_ids"] = ["soft-touch"]
 
     with pytest.raises(ValueError, match="claim_ids.*script section"):
+        validate_scene_evidence_closure(
+            plan, _script(), _matrix(), input_mode="source_led_template"
+        )
+
+
+@pytest.mark.parametrize(
+    "field,replacement",
+    [
+        ("product_fact_refs", ["product_facts.claims[1]"]),
+        ("product_page_refs", []),
+        ("page_asset_ids", []),
+        ("page_evidence_ids", []),
+    ],
+)
+def test_source_led_scene_rejects_product_fact_or_page_evidence_drift(
+    field: str, replacement: list[str]
+) -> None:
+    plan = _scene_plan()
+    plan["metadata"]["source_mapping"][0][field] = replacement
+
+    with pytest.raises(ValueError, match=field):
         validate_scene_evidence_closure(
             plan, _script(), _matrix(), input_mode="source_led_template"
         )

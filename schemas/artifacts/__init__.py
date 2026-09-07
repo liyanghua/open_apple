@@ -68,6 +68,8 @@ ARTIFACT_NAMES = [
     "batch_run_report",
     "batch_quality_report",
     "product_facts",
+    "product_page_capture",
+    "product_asset_ledger",
     "template_pack",
     "template_run_plan",
     "template_batch",
@@ -178,6 +180,20 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
                 raise jsonschema.ValidationError(
                     "source semantic interval end must be greater than start"
                 )
+    elif name == "product_page_capture":
+        identity = data.get("page_identity") or {}
+        if data.get("acquisition_status") == "complete":
+            url_sku = str(identity.get("url_sku_id") or "")
+            selected_sku = str(identity.get("selected_sku_id") or "")
+            if not selected_sku or (url_sku and selected_sku != url_sku):
+                raise jsonschema.ValidationError(
+                    "complete product capture requires URL SKU to match selected SKU"
+                )
+            screenshots = (data.get("capture_evidence") or {}).get("screenshots") or []
+            if not screenshots or not data.get("asset_refs"):
+                raise jsonschema.ValidationError(
+                    "complete product capture requires screenshot and selected SKU asset evidence"
+                )
     elif name == "reference_source_matrix":
         matrix_mode = data.get("matrix_mode", "reference")
         for row in data.get("rows", []):
@@ -191,12 +207,21 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
                     raise jsonschema.ValidationError(
                         "reference/source matrix interval end must be greater than start"
                     )
-            if row["resolution"] in {"accept", "replace_source"} and (
-                not row.get("source_media_id") or row.get("source_time_range") is None
-            ):
-                raise jsonschema.ValidationError(
-                    "accepted matrix rows require an owned source and interval"
-                )
+            visual_route = row.get("visual_route")
+            if row["resolution"] in {"accept", "replace_source"}:
+                if visual_route == "generated_from_product_image":
+                    if (
+                        row.get("source_media_id") is not None
+                        or row.get("source_time_range") is not None
+                        or "source_hash" in row
+                    ):
+                        raise jsonschema.ValidationError(
+                            "generated matrix rows must not fabricate owned source evidence"
+                        )
+                elif not row.get("source_media_id") or row.get("source_time_range") is None:
+                    raise jsonschema.ValidationError(
+                        "accepted matrix rows require an owned source and interval"
+                    )
             if matrix_mode in {"source_led", "source_led_template"} and (
                 row.get("reference_scene_id") is not None
                 or row.get("reference_time_range") is not None
