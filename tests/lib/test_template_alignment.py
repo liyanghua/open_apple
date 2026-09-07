@@ -76,6 +76,35 @@ def test_shot_execution_plan_accepts_exact_cross_artifact_binding() -> None:
     assert shot_execution_plan_errors(shot_plan, script, scene_plan) == []
 
 
+def test_generated_shot_uses_reference_binding_instead_of_owned_source_binding() -> None:
+    shot_plan, script, scene_plan = _cross_artifacts()
+    reference = {
+        "asset_id": "clean-ref-01",
+        "sha256": "d" * 64,
+    }
+    for owner in (
+        script["sections"][0],
+        scene_plan["scenes"][0],
+        scene_plan["metadata"]["source_mapping"][0],
+        shot_plan["shots"][0],
+    ):
+        owner["visual_route"] = "generated_from_product_image"
+        owner["generation_reference"] = dict(reference)
+    mapping = scene_plan["metadata"]["source_mapping"][0]
+    shot = shot_plan["shots"][0]
+    mapping.pop("source_hash")
+    mapping.pop("source_interval")
+    shot.pop("source_hash")
+    shot.pop("source_interval")
+
+    assert shot_execution_plan_errors(shot_plan, script, scene_plan) == []
+
+    shot["generation_reference"]["sha256"] = "e" * 64
+    assert any("generation_reference" in error for error in shot_execution_plan_errors(
+        shot_plan, script, scene_plan
+    ))
+
+
 def test_tts_binding_rejects_sidecar_for_old_script(tmp_path: Path) -> None:
     audio = tmp_path / "assets" / "audio"
     audio.mkdir(parents=True)

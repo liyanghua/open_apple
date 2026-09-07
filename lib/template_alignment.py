@@ -107,11 +107,28 @@ def shot_execution_plan_errors(
                     errors.append(f"{shot_id}.{field} mapping drift")
                 if set(shot.get(field) or []) != expected:
                     errors.append(f"{shot_id}.{field} does not match section")
-            expected_source_hash = str(mapping.get("source_hash") or "")
-            if str(shot.get("source_hash") or "") != expected_source_hash:
-                errors.append(f"{shot_id}.source_hash does not match mapping")
-            if shot.get("source_interval") != mapping.get("source_interval"):
-                errors.append(f"{shot_id}.source_interval does not match mapping")
+            visual_route = str(section.get("visual_route") or "")
+            if visual_route:
+                for field in (
+                    "visual_route", "claim_visual_requirements", "generation_reference",
+                ):
+                    expected = section.get(field)
+                    if scene.get(field) != expected:
+                        errors.append(f"{shot_id}.{field} scene drift")
+                    if mapping.get(field) != expected:
+                        errors.append(f"{shot_id}.{field} mapping drift")
+                    if shot.get(field) != expected:
+                        errors.append(f"{shot_id}.{field} does not match section")
+            if visual_route == "generated_from_product_image":
+                for field in ("source_hash", "source_interval"):
+                    if field in mapping or field in shot:
+                        errors.append(f"{shot_id}.{field} must be absent for generated route")
+            else:
+                expected_source_hash = str(mapping.get("source_hash") or "")
+                if str(shot.get("source_hash") or "") != expected_source_hash:
+                    errors.append(f"{shot_id}.source_hash does not match mapping")
+                if shot.get("source_interval") != mapping.get("source_interval"):
+                    errors.append(f"{shot_id}.source_interval does not match mapping")
         narration = str(section.get("narration") or section.get("text") or "")
         screen_copy = str(section.get("screen_copy") or "")
         if str(shot.get("narration") or "") != narration:
@@ -157,7 +174,10 @@ def shot_execution_plan_errors(
             try:
                 meta_data = json.loads(meta.read_text(encoding="utf-8"))
                 sentences = (meta_data.get("data") or {}).get("sentences") or meta_data.get("sentences") or []
-                measured = max(float(item.get("endTime", 0)) for item in sentences) / 1000.0
+                end_value = max(float(item.get("endTime", 0)) for item in sentences)
+                # 单位自适应：doubao(seed-tts-2.0) endTime 以秒计（如 2.815），
+                # 部分 provider 以毫秒计（如 2815）；>=100 视为毫秒。
+                measured = end_value / 1000.0 if end_value >= 100 else end_value
             except (OSError, json.JSONDecodeError, TypeError, ValueError):
                 measured = 0.0
             if measured <= 0 or abs(float(tts_duration) - measured) > 0.02:
@@ -468,11 +488,77 @@ def build_semantic_alignment(
     }
 
 
+# 人工确认通道码表：样片门只拦截硬性冲突，其余部分性/静态/机器未复核判定
+# 转人工确认通道（repair_targets 呈现给用户复核）。
+HUMAN_REVIEW_CODES = frozenset({
+    "action_support_weak", "result_support_weak", "caption_match_weak",
+})
+HARD_CONFLICT_CODES = frozenset({
+    "product_identity_mismatch", "product_identity_unverified",
+    "lineage_drift", "missing_lineage_hash",
+    "sample_proof_missing", "actual_shot_missing",
+    "action_missing", "result_unsupported", "crop_incomplete",
+    "caption_conflict", "semantic_review_missing",
+    "semantic_coverage_mismatch", "semantic_dimensions_missing",
+})
+
+
+def route_human_review_channel(alignment: Mapping[str, Any]) -> dict[str, Any]:
+    """仅将低置信度的 weak 结果转为 revise，保留已知语义失败。
+
+    - action_missing/result_unsupported/caption_conflict/crop_incomplete 等已知错配保持 fail；
+    - 仅 action/result/caption weak 可进入 revise 修复路由；
+    - 全部 pass → status=pass。
+    """
+    results: list[dict[str, Any]] = []
+    hard = False
+    any_revise = False
+    for item in (alignment.get("per_shot_results") or []):
+        if not isinstance(item, Mapping):
+            results.append(dict(item) if isinstance(item, dict) else item)
+            continue
+        row = dict(item)
+        reasons = [str(code) for code in (row.get("reason_codes") or [])]
+        codes = set(reasons)
+        if codes & HARD_CONFLICT_CODES:
+            hard = True
+            results.append(row)
+            continue
+        if codes & HUMAN_REVIEW_CODES:
+            any_revise = True
+            if row.get("status") == "fail":
+                row["status"] = "revise"
+            for dim in ("action_match", "result_support", "narration_caption_match",
+                        "crop_completeness", "product_identity_match"):
+                if row.get(dim) == "fail":
+                    row[dim] = "revise"
+        results.append(row)
+    out = dict(alignment)
+    out["per_shot_results"] = results
+    if hard:
+        out["status"] = "fail"
+    elif any_revise:
+        out["status"] = "revise"
+    else:
+        out["status"] = "pass"
+    out["repair_targets"] = ([
+        {"shot_id": str(item.get("shot_id") or ""), "reason_codes": list(item.get("reason_codes") or [])}
+        for item in results
+        if isinstance(item, Mapping) and str(item.get("status") or "") in {"fail", "revise"}
+        and (item.get("reason_codes") or [])
+    ] if out["status"] != "pass" else [])
+    return out
+
+
 def alignment_checkpoint_gate(
     evaluation: Mapping[str, Any] | None, *, input_mode: str, stage: str,
     current_hashes: Mapping[str, Any] | None = None,
 ) -> list[str]:
-    """Return checkpoint blockers for canonical sample/final alignment."""
+    """Return checkpoint blockers for canonical sample/final alignment.
+
+    source-led 的 sample/compose/publish 都必须 status == "pass"。revise 只能
+    退回 edit/reopen，不能被普通 sample approval 覆盖。
+    """
     if stage not in {"sample", "compose", "publish"}:
         return []
     alignment = evaluation.get("alignment") if isinstance(evaluation, Mapping) else None
@@ -494,8 +580,10 @@ def alignment_checkpoint_gate(
     if alignment.get("scope") != expected_scope:
         return [f"{stage} gate: alignment.scope must be {expected_scope}"]
     status = str(alignment.get("status") or "")
-    if status != "pass":
-        return [f"{stage} gate: alignment.status={status or 'missing'} must be pass"]
+    allowed_statuses = {"pass"} if source_led else ({"pass", "revise"} if stage == "sample" else {"pass"})
+    if status not in allowed_statuses:
+        return [f"{stage} gate: alignment.status={status or 'missing'} must be "
+                "pass"]
     per_shot = alignment.get("per_shot_results")
     if not isinstance(per_shot, list) or not per_shot:
         return [f"{stage} gate: alignment.per_shot_results must cover at least one shot"]
@@ -504,6 +592,12 @@ def alignment_checkpoint_gate(
         "narration_caption_match", "crop_completeness",
         "product_identity_match", "status", "reason_codes",
     }
+    # 人工确认通道：仅"部分性/静态/机器未复核"判定码允许进样片门（revise，
+    # 裁决权交人工）；硬性冲突码（产品身份/血统漂移/无证据）无论 stage 一律拦截。
+    # 语义复核未绑定（coverage/dimensions missing）不视为样片硬伤——样片门本就
+    # 存在，是为了让机器复核在渲染后跑一遍（stage51）。
+    _HUMAN_REVIEW_CODES = HUMAN_REVIEW_CODES
+    _HARD_CODES = HARD_CONFLICT_CODES
     seen_shots: set[str] = set()
     seen_scenes: set[str] = set()
     for item in per_shot:
@@ -520,12 +614,40 @@ def alignment_checkpoint_gate(
             item.get("narration_caption_match"), item.get("crop_completeness"),
             item.get("product_identity_match"),
         )
-        if item.get("status") != "pass" or any(value != "pass" for value in dimensions):
-            return [f"{stage} gate: alignment per_shot status must be exactly pass"]
-        if item.get("reason_codes") != []:
-            return [f"{stage} gate: passing alignment cannot contain reason_codes"]
-    if alignment.get("repair_targets") != []:
+        reasons = [str(code) for code in (item.get("reason_codes") or [])]
+        hard = [code for code in reasons if code in _HARD_CODES]
+        if stage != "sample":
+            if item.get("status") != "pass" or any(value != "pass" for value in dimensions) or reasons:
+                return [f"{stage} gate: alignment per_shot status must be exactly pass"]
+            continue
+        # ---- 参考模式的兼容分支；source-led 在上方已要求总体 pass ----
+        if hard:
+            return [f"{stage} gate: alignment per_shot carries hard conflict: {', '.join(sorted(hard))}"]
+        unknown = [code for code in reasons if code not in _HUMAN_REVIEW_CODES]
+        if unknown:
+            return [f"{stage} gate: alignment per_shot carries unknown reason codes: {', '.join(sorted(unknown))}"]
+        if item.get("status") == "pass":
+            if any(value != "pass" for value in dimensions) or reasons:
+                return [f"{stage} gate: passing per_shot cannot carry non-pass dimensions or reason_codes"]
+            continue
+        if item.get("status") not in {"revise", "partial"}:
+            return [f"{stage} gate: alignment per_shot status must be pass or revise"]
+        # 人工确认通道：revise 允许部分维度非 pass，但不得出现 fail（冲突裁决归人工）
+        if reasons == [] and any(value != "pass" for value in dimensions):
+            return [f"{stage} gate: revise per_shot must carry partial reason_codes"]
+        if any(value == "fail" for value in dimensions):
+            return [f"{stage} gate: alignment per_shot cannot carry fail dimensions"]
+    repair_targets = alignment.get("repair_targets") or []
+    if stage != "sample" and repair_targets:
         return [f"{stage} gate: passing alignment cannot contain repair_targets"]
+    for item in repair_targets:
+        if not isinstance(item, Mapping):
+            return [f"{stage} gate: alignment repair_targets entries must be objects"]
+        codes = [str(code) for code in (item.get("reason_codes") or [])]
+        if any(code in _HARD_CODES for code in codes):
+            return [f"{stage} gate: sample alignment repair_targets cannot carry hard codes"]
+        if any(code not in _HUMAN_REVIEW_CODES for code in codes):
+            return [f"{stage} gate: sample alignment repair_targets carry unknown codes"]
     if source_led or migrated_reference:
         required = {"script", "scene_plan", "shot_execution_plan", "final_props", "render"}
         bound = alignment.get("input_hashes") if isinstance(alignment.get("input_hashes"), Mapping) else {}
