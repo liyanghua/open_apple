@@ -1,9 +1,10 @@
 # Cinematic Fast 商品主图卖点覆盖与图生视频补缺设计
 
 > 日期：2026-09-07  
-> 状态：设计方向已由用户确认，等待书面规格复核  
+> 状态：已由用户确认，进入 TDD 实施
 > 适用范围：`cinematic-fast` 的 `source_led` 与 `source_led_template`  
 > 关联设计：[`2026-09-03-cinematic-fast-input-modes.md`](../plans/2026-09-03-cinematic-fast-input-modes.md)
+> 实施计划：[`2026-09-07-product-image-coverage-routing.md`](../plans/2026-09-07-product-image-coverage-routing.md)
 
 ## 1. 背景
 
