@@ -57,7 +57,7 @@
     },
     "owned_candidate": {
       "type": "object",
-      "required": ["media_id", "source_path", "source_hash", "source_time_range", "evidence_frames", "confidence", "status", "rejection_reasons"],
+      "required": ["media_id", "source_path", "source_hash", "source_time_range", "evidence_frames", "confidence", "observed_subjects", "observed_actions", "observed_results", "subject_complete_in_3_4", "status", "rejection_reasons"],
       "properties": {
         "media_id": {"type": "string", "minLength": 1},
         "source_path": {"type": "string", "minLength": 1},
@@ -65,6 +65,10 @@
         "source_time_range": {"$ref": "#/$defs/interval"},
         "evidence_frames": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "observed_subjects": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "observed_actions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "observed_results": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "subject_complete_in_3_4": {"type": "boolean"},
         "status": {"enum": ["accepted", "rejected"]},
         "rejection_reasons": {"type": "array", "items": {"type": "string", "minLength": 1}}
       },

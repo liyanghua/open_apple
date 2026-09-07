@@ -474,7 +474,21 @@ def test_sample_editor_builds_trace_for_legacy_sample_without_saved_trace() -> N
 def test_projection_includes_safe_material_concept_and_shot_details() -> None:
     from backlot.operator_state import project_operator_state, validate_operator_state
 
-    state = project_operator_state(_board_state())
+    board = _board_state()
+    board["artifacts"]["scene_plan"]["metadata"]["source_mapping"][0].update({
+        "claim_ids": ["claim-visible-result"],
+        "action_keys": ["wipe_surface"],
+        "evidence_row_ids": ["evidence-001"],
+        "subject_completeness": "complete",
+        "crop_strategy": "center crop with protected subject bounds",
+        "caption_safe_zone": "top",
+    })
+    board["artifacts"]["script"]["sections"][0].update({
+        "scene_id": "shot-1",
+        "narration": "真实擦拭动作口播",
+        "screen_copy": "一擦即净",
+    })
+    state = project_operator_state(board)
     editors = {stage["id"]: stage["editor"]["data"] for stage in state["stages"]}
 
     research = editors["research"]
@@ -521,6 +535,14 @@ def test_projection_includes_safe_material_concept_and_shot_details() -> None:
     assert shot["poster_url"] == "/thumb/table-mat/inputs/source/source-0.mp4?w=640&t=2"
     assert shot["source_summary"] == "素材 0 内容"
     assert shot["source_usable_for"] == ["产品展示"]
+    assert shot["narration"] == "真实擦拭动作口播"
+    assert shot["screen_copy"] == "一擦即净"
+    assert shot["claim_ids"] == ["claim-visible-result"]
+    assert shot["action_keys"] == ["wipe_surface"]
+    assert shot["evidence_row_ids"] == ["evidence-001"]
+    assert shot["subject_completeness"] == "complete"
+    assert shot["crop_strategy"] == "center crop with protected subject bounds"
+    assert shot["caption_safe_zone"] == "top"
     assert "镜头意图" in shot["mapping_reason"]
     assert shot["reference_evidence"] == {
         "mode": "direct_segment",
@@ -581,6 +603,341 @@ def test_execution_plan_uses_media_index_to_report_source_coverage() -> None:
     assert assets["editor"]["data"]["execution_plan"]["shots"][0]["source_coverage"] == "等待核对"
 
 
+def test_asset_editor_projects_formal_audio_plan_and_cost() -> None:
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    board["artifacts"]["asset_plan"] = {
+        "paid_generation_approved": False,
+        "planned_assets": [],
+        "audio_plan": {
+            "tts": {"provider": "doubao", "resource_id": "seed-tts-2.0", "voice": "voice-1"},
+            "bgm": {"provider": "suno", "profile": "轻快节奏电商 BGM"},
+            "mix": {"ducking_db": -6},
+            "estimated_cost_usd": 0.08,
+        },
+    }
+    board["artifacts"]["shot_execution_plan"] = {
+        "status": "draft",
+        "shots": [{"id": "shot-1", "screen_copy": "商品页参数标注双面毛圈"}],
+    }
+
+    assets = next(
+        stage for stage in project_operator_state(board)["stages"]
+        if stage["id"] == "assets"
+    )["editor"]["data"]
+
+    assert assets["narration_status"] == "方案已锁定，等待本门确认"
+    assert assets["music_status"] == "方案已锁定，等待本门确认"
+    assert assets["subtitle_status"] == "由脚本生成，随样片制作"
+    assert assets["estimated_cost_usd"] == 0.08
+    assert assets["audio_plan"] == {
+        "tts": {"provider": "doubao", "resource_id": "seed-tts-2.0", "voice": "voice-1"},
+        "bgm": {"provider": "suno", "profile": "轻快节奏电商 BGM"},
+        "mix": {"ducking_db": -6},
+    }
+
+
+def test_asset_editor_explains_exact_source_copy_and_local_proxy_processing() -> None:
+    from backlot.operator_state import project_operator_state, validate_operator_state
+
+    board = _board_state()
+    board["artifacts"]["asset_plan"] = {
+        "paid_generation_approved": False,
+        "planned_assets": [{
+            "id": "proxy-shot-01",
+            "type": "video_proxy",
+            "provider": "media_proxy",
+            "model": "ffmpeg-local",
+            "cost_estimate_usd": 0.0,
+            "paid": False,
+            "output_path": "assets/video/shot-01-proxy.mp4",
+            "source_stage": "assets",
+            "exists": False,
+            "shot_id": "shot-01",
+            "source_selection": {
+                "media_id": "source-0",
+                "path": "inputs/source/source-0.mp4",
+                "start_seconds": 1.25,
+                "end_seconds": 4.75,
+                "fit_reason": "连续倒水动作与湿润结果都在同一段素材内",
+            },
+            "creative_binding": {
+                "purpose": "展示连续倒水后的湿润范围",
+                "subject_action": "一股水连续倒在毛巾表面",
+                "narration": "一股水浇下，湿润范围清楚可见。",
+                "screen_copy": "连续水流吸收演示",
+                "claim_ids": ["claim-absorbency"],
+                "action_keys": ["continuous_pour_water"],
+                "evidence_row_ids": ["evidence-pour-01"],
+                "product_fact_refs": ["product_facts.claims[0]"],
+                "product_page_refs": ["product_page_capture.fact_candidates[12]"],
+                "page_asset_ids": ["page-asset-selected-sku"],
+                "page_evidence_ids": ["page-detail-sequence"],
+            },
+            "processing_plan": {
+                "operation": "local_proxy_transcode",
+                "tool": "media_proxy",
+                "aspect_ratio": "3:4",
+                "width": 540,
+                "height": 720,
+                "fit": "cover",
+                "crop_strategy": "center_crop_subject_protected",
+                "audio_policy": "proxy_muted_mix_added_at_sample",
+            },
+        }],
+    }
+    board["artifacts"]["asset_manifest"] = {"assets": []}
+    board["artifacts"]["product_facts"] = {
+        "product_name": "花花公子银离子纯棉毛巾",
+        "sku": "6276962282892",
+        "claims": [{
+            "claim_id": "page-claim-absorb-dry",
+            "statement": "吸水速干",
+            "claim_class": "benefit",
+            "status": "needs_evidence",
+            "evidence_status": "page_claim",
+            "risk_level": "high",
+            "sku_scope": ["6276962282892"],
+            "allowed_wording": ["一股水浇下，湿润范围清楚可见"],
+            "prohibited_wording": ["水滴一沾上就被吸进去"],
+            "provenance_refs": ["visible_absorb_detail"],
+        }],
+    }
+    board["artifacts"]["product_page_capture"] = {
+        "project_id": "maojin-yinlizi",
+        "capture_evidence": {"screenshots": [{
+            "evidence_id": "page-detail-sequence",
+            "local_path": "analysis/product_page/detail-sequence.jpg",
+            "sha256": "a" * 64,
+        }]},
+    }
+    board["artifacts"]["product_asset_ledger"] = {
+        "project_id": "maojin-yinlizi",
+        "assets": [{
+            "asset_id": "page-asset-selected-sku",
+            "asset_role": "selected_sku",
+            "usage_role": "identity_anchor",
+            "local_path": "assets/product_page/raw/selected-sku.webp",
+            "sha256": "b" * 64,
+        }],
+    }
+
+    state = project_operator_state(board)
+    data = next(
+        stage for stage in state["stages"] if stage["id"] == "assets"
+    )["editor"]["data"]
+    item = data["items"][0]
+
+    assert item["label"] == "镜头 01 · source-0"
+    assert item["status"] == "待本地处理"
+    assert item["stage_label"] == "本地素材处理（零付费）"
+    assert item["shot_id"] == "shot-01"
+    assert item["source_path"] == "inputs/source/source-0.mp4"
+    assert item["source_range"] == "1.25–4.75 秒"
+    assert item["preview_url"] == "/media/table-mat/inputs/source/source-0.mp4"
+    assert item["poster_url"] == "/thumb/table-mat/inputs/source/source-0.mp4?w=640&t=3"
+    assert item["shot_purpose"] == "展示连续倒水后的湿润范围"
+    assert item["subject_action"] == "一股水连续倒在毛巾表面"
+    assert item["narration"] == "一股水浇下，湿润范围清楚可见。"
+    assert item["screen_copy"] == "连续水流吸收演示"
+    assert item["action_keys"] == ["continuous_pour_water"]
+    assert item["evidence_row_ids"] == ["evidence-pour-01"]
+    assert item["product_fact_refs"] == ["product_facts.claims[0]"]
+    assert item["product_page_refs"] == ["product_page_capture.fact_candidates[12]"]
+    assert item["fact_bindings"] == [{
+        "ref": "product_facts.claims[0]",
+        "claim_id": "page-claim-absorb-dry",
+        "statement": "吸水速干",
+        "claim_class": "benefit",
+        "status": "needs_evidence",
+        "evidence_status": "page_claim",
+        "risk_level": "high",
+        "sku_scope": ["6276962282892"],
+        "allowed_wording": ["一股水浇下，湿润范围清楚可见"],
+        "prohibited_wording": ["水滴一沾上就被吸进去"],
+        "provenance_refs": ["visible_absorb_detail"],
+    }]
+    assert item["fact_role"] == "selling_point"
+    assert [evidence["id"] for evidence in item["page_evidence"]] == [
+        "page-asset-selected-sku", "page-detail-sequence",
+    ]
+    assert item["page_evidence"][0]["preview_url"] == (
+        "/media/table-mat/projects/maojin-yinlizi/assets/product_page/raw/selected-sku.webp"
+    )
+    assert item["page_evidence"][1]["preview_url"] == (
+        "/media/table-mat/projects/maojin-yinlizi/analysis/product_page/detail-sequence.jpg"
+    )
+    assert item["alignment_status"] == "pass"
+    assert item["processing_summary"] == "本地转为 3:4（540×720）审片代理，中心裁切并保护主体；样片阶段再加入口播和 BGM"
+    assert item["output_path"] == "assets/video/shot-01-proxy.mp4"
+    assert "零付费" in item["reason"]
+    validate_operator_state(state)
+
+    board["artifacts"]["product_facts"]["claims"][0]["claim_class"] = "identity"
+    identity_state = project_operator_state(board)
+    identity_item = next(
+        stage for stage in identity_state["stages"] if stage["id"] == "assets"
+    )["editor"]["data"]["items"][0]
+    assert identity_item["fact_role"] == "identity_anchor"
+    validate_operator_state(identity_state)
+
+
+def test_asset_editor_explains_product_image_fallback_as_selling_point_coverage() -> None:
+    from backlot.operator_state import project_operator_state, validate_operator_state
+
+    board = _board_state()
+    board["artifacts"]["product_facts"] = {
+        "claims": [{
+            "claim_id": "page-claim-ag",
+            "statement": "商品页标注 10A 级抗菌与 AG+ 银离子",
+            "claim_class": "benefit",
+            "status": "needs_evidence",
+            "evidence_status": "page_claim",
+            "risk_level": "high",
+            "sku_scope": ["6276962282892"],
+            "allowed_wording": ["商品页标注 10A 级抗菌"],
+            "prohibited_wording": ["实验证明杀菌"],
+            "provenance_refs": ["page-shot-ag"],
+        }],
+    }
+    board["artifacts"]["product_asset_ledger"] = {
+        "project_id": "maojin-yinlizi",
+        "assets": [
+            {
+                "asset_id": "page-asset-main-03",
+                "asset_role": "main_image",
+                "usage_role": "selling_point_reference",
+                "local_path": "assets/product_page/raw/main-03.webp",
+                "sha256": "a" * 64,
+                "sku_scope": ["6276962282892"],
+            },
+            {
+                "asset_id": "page-asset-main-03-clean-v1",
+                "asset_role": "derived_clean_reference",
+                "usage_role": "generation_reference",
+                "local_path": "assets/product_page/derived/main-03-clean-v1.png",
+                "sha256": "b" * 64,
+                "parent_asset_id": "page-asset-main-03",
+                "sku_scope": ["6276962282892"],
+                "identity_check": {"status": "pass", "notes": []},
+                "ocr_residual_text": [],
+                "generation_eligibility": "eligible",
+            },
+        ],
+    }
+    board["artifacts"]["reference_source_matrix"] = {
+        "rows": [{
+            "matrix_row_id": "evidence-ag-01",
+            "visual_route": "generated_from_product_image",
+            "route_reason": "自有素材没有可核验的银离子表达，使用已审核纯产品图补拍",
+            "owned_candidates": [{
+                "media_id": "source-4",
+                "source_path": "inputs/source/source-4.mp4",
+                "source_hash": "c" * 64,
+                "source_time_range": {"start_seconds": 2, "end_seconds_exclusive": 5},
+                "evidence_frames": ["analysis/source-4.jpg"],
+                "confidence": 0.72,
+                "status": "rejected",
+                "observed_actions": ["measure_towel"],
+                "observed_results": ["gauge_reads_0_00"],
+                "subject_complete_in_3_4": True,
+                "rejection_reasons": ["missing required actions", "missing required visible results"],
+            }],
+        }],
+    }
+    reference = {
+        "asset_id": "page-asset-main-03-clean-v1",
+        "parent_asset_id": "page-asset-main-03",
+        "local_path": "assets/product_page/derived/main-03-clean-v1.png",
+        "sha256": "b" * 64,
+        "sku_scope": ["6276962282892"],
+    }
+    requirement = {
+        "visualizability": "non_observable",
+        "required_subjects": ["target_product"],
+        "required_actions": ["product_hero_display"],
+        "required_results": ["product_identity_remains_visible"],
+        "forbidden_substitutions": ["simulated_antibacterial_proof"],
+        "risk_level": "high",
+    }
+    board["artifacts"]["asset_plan"] = {
+        "paid_generation_approved": False,
+        "planned_assets": [{
+            "id": "generated-shot-05",
+            "type": "generated_video",
+            "provider": "selection_pending",
+            "model": "selection_pending",
+            "cost_estimate_usd": 1.21,
+            "paid": True,
+            "output_path": "assets/video/shot-05-generated.mp4",
+            "source_stage": "assets",
+            "exists": False,
+            "shot_id": "shot-05",
+            "visual_route": "generated_from_product_image",
+            "generation_reference": reference,
+            "provider_candidates": [{
+                "tool": "grok_video", "provider": "grok", "model": "grok-imagine-video",
+                "estimated_cost_usd": 0.202, "supports_local_reference": True,
+                "supports_native_3_4": True,
+            }],
+            "evidence_role": "visual_expression_only",
+            "creative_binding": {
+                "purpose": "银离子卖点的产品英雄镜头",
+                "subject_action": "product_hero_display",
+                "narration": "商品页标注 10A 级抗菌，日常使用更安心。",
+                "screen_copy": "商品页标注 · 10A 级抗菌",
+                "claim_ids": ["page-claim-ag"],
+                "action_keys": ["product_hero_display"],
+                "evidence_row_ids": ["evidence-ag-01"],
+                "product_fact_refs": ["product_facts.claims[0]"],
+                "product_page_refs": ["product_page_capture.fact_candidates[0]"],
+                "page_asset_ids": ["page-asset-main-03"],
+                "page_evidence_ids": [],
+                "visual_route": "generated_from_product_image",
+                "claim_visual_requirements": requirement,
+                "evidence_role": "visual_expression_only",
+            },
+            "generation_plan": {
+                "operation": "image_to_video",
+                "prompt": "保持商品身份，只做产品英雄展示",
+                "duration_seconds": 4,
+                "aspect_ratio": "3:4",
+                "required_actions": ["product_hero_display"],
+                "required_results": ["product_identity_remains_visible"],
+                "prohibitions": ["不得模拟抗菌实验"],
+                "retry_limit": 2,
+                "provider_selection_status": "awaiting_human",
+            },
+            "processing_plan": {"operation": "image_to_video", "aspect_ratio": "3:4"},
+        }],
+    }
+    board["artifacts"]["asset_manifest"] = {"assets": []}
+
+    state = project_operator_state(board)
+    item = next(
+        stage for stage in state["stages"] if stage["id"] == "assets"
+    )["editor"]["data"]["items"][0]
+
+    assert item["label"] == "镜头 05 · 商品图补拍（图生视频）"
+    assert item["route_label"] == "商品图补拍（图生视频）"
+    assert item["route_reason"] == "自有素材没有可核验的银离子表达，使用已审核纯产品图补拍"
+    assert item["evidence_role_label"] == "AI 视觉表达，不是商品事实证明"
+    assert item["visual_requirement"]["required_actions"] == ["product_hero_display"]
+    assert item["owned_candidates"][0]["rejection_reasons"] == [
+        "missing required actions", "missing required visible results",
+    ]
+    assert item["generation_reference"]["preview_url"].endswith("main-03-clean-v1.png")
+    assert item["generation_reference"]["original_preview_url"].endswith("main-03.webp")
+    assert item["generation_reference"]["identity_status"] == "pass"
+    assert item["generation_plan"]["aspect_ratio"] == "3:4"
+    assert item["generation_plan"]["retry_limit"] == 2
+    assert item["generation_options"][0]["service"] == "grok"
+    assert item["generation_options"][0]["version"] == "grok-imagine-video"
+    assert item["alignment_status"] == "pass"
+    validate_operator_state(state)
+
+
 def test_approved_execution_plan_completes_assets_and_exposes_agent_handoff() -> None:
     from backlot.operator_state import project_operator_state
 
@@ -615,6 +972,26 @@ def test_legacy_shot_mapping_uses_structural_reference_without_fake_clip() -> No
     assert shot["reference_evidence"]["mechanism"] == "真实动作与即时结果成对"
     assert shot["reference_evidence"]["preview_url"] is None
     assert shot["reference_evidence"]["start_seconds"] is None
+
+
+def test_template_run_preview_uses_shared_source_project_for_linked_media(tmp_path) -> None:
+    import json
+    from backlot.operator_state import _source_preview_path
+
+    source = tmp_path / "projects" / "source-run" / "inputs" / "source"
+    source.mkdir(parents=True)
+    (source / "clip.mp4").write_bytes(b"video")
+    project = tmp_path / "projects" / "template-run"
+    (project / "inputs").mkdir(parents=True)
+    (project / "inputs" / "source").symlink_to(source, target_is_directory=True)
+    (project / "project.json").write_text(json.dumps({
+        "project_id": "template-run",
+        "template_run": {"source_research_project": "source-run"},
+    }))
+
+    assert _source_preview_path(
+        {"_project_dir": project}, "inputs/source/clip.mp4"
+    ) == "projects/source-run/inputs/source/clip.mp4"
 
 
 def test_script_projection_prefers_edited_narration_over_original_text() -> None:

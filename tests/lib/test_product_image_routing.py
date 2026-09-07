@@ -291,6 +291,10 @@ def test_router_uses_ready_clean_reference_when_owned_coverage_is_invalid() -> N
         "continuous_pour_water", "water_contacts_towel"
     ]
     assert decision["generation_spec"]["evidence_role"] == "visual_expression_only"
+    rejected = decision["owned_candidates"][0]
+    assert rejected["observed_actions"] == ["roller_only"]
+    assert rejected["observed_results"] == []
+    assert rejected["subject_complete_in_3_4"] is True
 
 
 @pytest.mark.parametrize(

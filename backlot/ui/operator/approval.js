@@ -317,7 +317,7 @@ function renderApprovalMaterialsScript(facts, container) {
 }
 
 function renderApprovalMaterialsAssets(facts, container) {
-  container.append(materialCard("生成清单", facts.items?.length ? `${facts.planned_count ?? facts.items.length} 项 · ${facts.prepared_count ?? 0} 项已就绪` : "等待生成", "▦", true));
+  container.append(materialCard("素材处理清单", facts.items?.length ? `${facts.planned_count ?? facts.items.length} 项 · ${facts.prepared_count ?? 0} 项已就绪` : "等待处理", "▦", true));
   for (const item of (facts.items || []).slice(0, 8)) {
     container.append(materialCard(item.label || item.type || "材料", item.state_label || item.status || "待确认", "•"));
   }
@@ -604,6 +604,20 @@ function mediaVideo(src, poster, label) {
   return video;
 }
 
+function mediaImage(src, label) {
+  const image = document.createElement("img");
+  image.className = "approval-detail-image";
+  image.loading = "lazy";
+  image.src = src;
+  image.alt = label;
+  image.addEventListener("error", () => {
+    const message = node("p", "approval-player-error", "商品页证据暂时无法预览");
+    message.setAttribute("role", "status");
+    image.replaceWith(message);
+  }, { once: true });
+  return image;
+}
+
 function mediaDownload(label, url) {
   const link = document.createElement("a");
   link.className = "approval-download";
@@ -796,7 +810,14 @@ function renderShotPlanDetail(container, payload) {
     const card = node("section", "approval-detail-group");
     card.append(node("h4", "approval-detail-item-title", shot.title || shot.purpose || `第 ${index + 1} 个镜头`));
     if (shot.purpose) card.append(detailRow("镜头目的", shot.purpose));
-    if (shot.screen_copy) card.append(detailRow("画面重点", shot.screen_copy));
+    if (shot.narration) card.append(detailRow("口播", shot.narration));
+    if (shot.screen_copy) card.append(detailRow("屏幕文字", shot.screen_copy));
+    if (shot.action_keys?.length) card.append(detailRow("画面动作", shot.action_keys.join("、")));
+    if (shot.claim_ids?.length) card.append(detailRow("商品主张 ID", shot.claim_ids.join("、")));
+    if (shot.evidence_row_ids?.length) card.append(detailRow("证据行", shot.evidence_row_ids.join("、")));
+    if (shot.subject_completeness) card.append(detailRow("3:4 主体完整性", shot.subject_completeness === "complete" ? "已确认完整" : shot.subject_completeness));
+    if (shot.crop_strategy) card.append(detailRow("裁切策略", shot.crop_strategy));
+    if (shot.caption_safe_zone) card.append(detailRow("字幕安全区", shot.caption_safe_zone));
     const timelineRange = secondsRange(shot.timeline_in_seconds, shot.timeline_out_seconds);
     const sourceRange = secondsRange(shot.source_in_seconds, shot.source_out_seconds);
     if (timelineRange) card.append(detailRow("成片时间轴", timelineRange));
@@ -850,6 +871,7 @@ function renderTimingRowsDetail(container, payload) {
 }
 
 function renderGenerationListDetail(container, payload) {
+  container.append(node("p", "approval-detail-copy", "素材处理清单：性能镜头逐项核对卖点事实、自有素材证据和成片表达；场景/转场镜头不强行分配卖点，只保留商品身份锚点。"));
   const stats = node("div", "approval-meta-stats");
   if (payload.planned_count != null) stats.append(node("span", "", `计划 ${payload.planned_count} 项`));
   if (payload.prepared_count != null) stats.append(node("span", "", `${payload.prepared_count} 项已就绪`));
@@ -862,10 +884,130 @@ function renderGenerationListDetail(container, payload) {
     card.append(node("h4", "approval-detail-item-title", item.label || `第 ${index + 1} 项`));
     if (item.status) card.append(detailRow("状态", displayValue(item.status)));
     if (item.reason) card.append(detailRow("说明", item.reason));
-    if (item.stage_label) card.append(detailRow("生成阶段", item.stage_label));
-    if (item.source_summary) card.append(detailRow("素材说明", item.source_summary));
-    if (item.source_range) card.append(detailRow("建议片段", item.source_range));
-    if (item.paid) card.append(detailRow("费用", item.cost_estimate_usd != null ? `付费 · 预计 $${Number(item.cost_estimate_usd).toFixed(3)}` : "付费生成"));
+    if (item.stage_label) card.append(detailRow("执行阶段", item.stage_label));
+    if (item.shot_id) card.append(detailRow("对应镜头", item.shot_id));
+    if (item.type === "video_proxy" || item.visual_route === "generated_from_product_image") {
+      const grid = node("div", "approval-evidence-grid");
+
+      const factColumn = node("section", "approval-evidence-column");
+      const identityOnly = item.fact_role === "identity_anchor";
+      factColumn.append(node("h5", "approval-evidence-title", identityOnly ? "1 · 镜头角色" : "1 · 商品事实"));
+      if (identityOnly) {
+        factColumn.append(detailRow("镜头类型", "场景/转场镜头"));
+        factColumn.append(node("p", "approval-detail-copy", "本镜头不承担性能证明；画面和文案只描述可见动作，商品事实仅作身份锚点。"));
+      }
+      if (item.fact_bindings?.length) {
+        item.fact_bindings.forEach((fact) => {
+          factColumn.append(detailRow(identityOnly ? "商品身份锚点" : "事实原文", fact.statement || fact.claim_id || fact.ref));
+          const evidenceLabel = fact.evidence_status === "page_claim"
+            ? "商品页声明（非独立检测）"
+            : fact.evidence_status === "qualified_report" ? "合格报告" : fact.evidence_status || "待核对";
+          factColumn.append(detailRow("商品页声明", evidenceLabel));
+          if (fact.sku_scope?.length) factColumn.append(detailRow("适用 SKU", fact.sku_scope.join("、")));
+          if (fact.risk_level) factColumn.append(detailRow("表述风险", fact.risk_level));
+          if (fact.allowed_wording?.length) factColumn.append(detailRow("允许表达", fact.allowed_wording.join("；")));
+          if (fact.prohibited_wording?.length) factColumn.append(detailRow("禁止表达", fact.prohibited_wording.join("；")));
+        });
+      } else {
+        factColumn.append(node("p", "approval-detail-warning", "未解析到商品事实，不能确认对齐。"));
+      }
+      if (item.product_page_refs?.length) factColumn.append(detailRow("商品页事实位置", item.product_page_refs.join("、")));
+      if (item.page_evidence?.length) {
+        factColumn.append(node("h6", "approval-evidence-subtitle", "商品页证据"));
+        item.page_evidence.forEach((evidence) => {
+          factColumn.append(detailRow(evidence.label || "页面证据", evidence.id || ""));
+          if (hasText(evidence.preview_url)) factColumn.append(mediaImage(evidence.preview_url, evidence.label || "商品页证据"));
+        });
+      }
+
+      const visualColumn = node("section", "approval-evidence-column");
+      const generatedRoute = item.visual_route === "generated_from_product_image";
+      visualColumn.append(node("h5", "approval-evidence-title", generatedRoute ? "2 · 商品图补拍（图生视频）" : "2 · 自有素材证据"));
+      if (item.route_label) visualColumn.append(detailRow("画面路线", item.route_label));
+      if (item.route_reason) visualColumn.append(detailRow("路线原因", item.route_reason));
+      if (generatedRoute) {
+        visualColumn.append(node("p", "approval-detail-warning", item.evidence_role_label || "AI 视觉表达，不是商品事实证明"));
+        const requirement = item.visual_requirement || {};
+        if (requirement.required_subjects?.length) visualColumn.append(detailRow("必须出现", requirement.required_subjects.join("、")));
+        if (requirement.required_actions?.length) visualColumn.append(detailRow("生成动作", requirement.required_actions.join("、")));
+        if (requirement.required_results?.length) visualColumn.append(detailRow("预期结果", requirement.required_results.join("、")));
+        if (requirement.forbidden_substitutions?.length) visualColumn.append(detailRow("禁止替代", requirement.forbidden_substitutions.join("、")));
+        if (item.owned_candidates?.length) {
+          visualColumn.append(node("h6", "approval-evidence-subtitle", "自有素材候选"));
+          item.owned_candidates.forEach((candidate) => {
+            const candidateCard = node("section", "approval-candidate-card");
+            candidateCard.append(node("b", "", candidate.media_id || candidate.source_path || "候选素材"));
+            if (candidate.source_range) candidateCard.append(detailRow("候选区间", candidate.source_range));
+            if (candidate.observed_actions?.length) candidateCard.append(detailRow("实际动作", candidate.observed_actions.join("、")));
+            if (candidate.observed_results?.length) candidateCard.append(detailRow("实际结果", candidate.observed_results.join("、")));
+            candidateCard.append(detailRow("3:4 主体完整", candidate.subject_complete_in_3_4 ? "是" : "否"));
+            if (candidate.rejection_reasons?.length) candidateCard.append(detailRow("未采用原因", candidate.rejection_reasons.join("；")));
+            if (hasText(candidate.preview_url)) candidateCard.append(mediaImage(candidate.preview_url, "自有素材候选帧"));
+            visualColumn.append(candidateCard);
+          });
+        }
+        const reference = item.generation_reference;
+        if (reference) {
+          if (reference.sku_scope?.length) visualColumn.append(detailRow("参考图 SKU", reference.sku_scope.join("、")));
+          visualColumn.append(detailRow("身份检查", reference.identity_status === "pass" ? "通过" : "需要复核"));
+          visualColumn.append(detailRow("残留文字检查", reference.ocr_clean ? "通过" : "需要清理"));
+          if (hasText(reference.original_preview_url)) visualColumn.append(mediaImage(reference.original_preview_url, "商品原图"));
+          if (hasText(reference.preview_url)) visualColumn.append(mediaImage(reference.preview_url, "纯产品参考图"));
+        }
+      } else {
+        if (item.source_path) visualColumn.append(detailRow("原素材", item.source_path));
+        if (item.source_summary) visualColumn.append(detailRow("素材说明", item.source_summary));
+        if (item.source_range) visualColumn.append(detailRow("截取区间", item.source_range));
+        if (hasText(item.preview_url)) visualColumn.append(mediaVideo(item.preview_url, item.poster_url, "原素材片段预览"));
+        if (item.shot_purpose) visualColumn.append(detailRow("镜头目的", item.shot_purpose));
+        if (item.subject_action) visualColumn.append(detailRow("画面动作", item.subject_action));
+        if (item.action_keys?.length) visualColumn.append(detailRow("动作标签", item.action_keys.join("、")));
+        if (item.claim_ids?.length) visualColumn.append(detailRow("画面可证明", item.claim_ids.join("、")));
+        if (item.evidence_row_ids?.length) visualColumn.append(detailRow("证据行", item.evidence_row_ids.join("、")));
+      }
+
+      const expressionColumn = node("section", "approval-evidence-column");
+      expressionColumn.append(node("h5", "approval-evidence-title", "3 · 成片表达"));
+      if (item.narration) expressionColumn.append(detailRow("对应口播", item.narration));
+      if (item.screen_copy) expressionColumn.append(detailRow("对应字幕", item.screen_copy));
+      if (generatedRoute && item.generation_plan) {
+        const generation = item.generation_plan;
+        if (generation.duration_seconds != null) expressionColumn.append(detailRow("生成时长", `${generation.duration_seconds} 秒`));
+        if (generation.aspect_ratio) expressionColumn.append(detailRow("画幅", generation.aspect_ratio));
+        if (generation.required_actions?.length) expressionColumn.append(detailRow("生成动作", generation.required_actions.join("、")));
+        if (generation.required_results?.length) expressionColumn.append(detailRow("预期结果", generation.required_results.join("、")));
+        if (generation.prohibitions?.length) expressionColumn.append(detailRow("生成禁区", generation.prohibitions.join("；")));
+        if (generation.retry_limit != null) expressionColumn.append(detailRow("最多重试", `${generation.retry_limit} 次`));
+      }
+      if (generatedRoute && item.generation_options?.length) {
+        expressionColumn.append(node("h6", "approval-evidence-subtitle", "生成服务候选"));
+        item.generation_options.forEach((option) => {
+          const cost = option.estimated_cost_usd != null ? ` · 预计 $${Number(option.estimated_cost_usd).toFixed(3)}` : " · 待询价";
+          const support = option.supports_native_3_4 && option.supports_local_reference ? " · 支持 3:4 本地图" : " · 能力需复核";
+          expressionColumn.append(node("p", "approval-detail-copy", `${option.service || "待选服务"} / ${option.version || "默认版本"}${cost}${support}`));
+        });
+      }
+      const alignmentLabel = item.alignment_status === "pass"
+        ? identityOnly
+          ? "通过：场景镜头未承载性能主张；商品身份仅作锚点"
+          : generatedRoute
+          ? "通过：商品事实、参考图身份、生成动作、口播和字幕已绑定"
+          : "通过：商品事实、画面动作、口播和字幕已绑定"
+        : "需要复核：事实或证据绑定不完整";
+      expressionColumn.append(detailRow("对齐结论", alignmentLabel));
+
+      grid.append(factColumn, visualColumn, expressionColumn);
+      card.append(grid);
+    } else {
+      if (item.source_path) card.append(detailRow("原素材", item.source_path));
+      if (item.source_summary) card.append(detailRow("素材说明", item.source_summary));
+      if (item.source_range) card.append(detailRow("截取区间", item.source_range));
+    }
+    if (item.processing_summary) card.append(detailRow("处理方式", item.processing_summary));
+    if (item.output_path) card.append(detailRow("输出文件", item.output_path));
+    card.append(detailRow("费用", item.paid
+      ? (item.cost_estimate_usd != null ? `付费 · 预计 $${Number(item.cost_estimate_usd).toFixed(3)}` : "付费生成")
+      : "零付费"));
     list.append(card);
   });
   container.append(list);

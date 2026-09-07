@@ -52,6 +52,8 @@ ROUTE_LABELS = {
 
 ASSET_TYPE_LABELS = {
     "video_proxy": "源素材代理",
+    "clean_product_reference": "纯产品参考图",
+    "generated_video": "商品图补拍（图生视频）",
     "narration": "口播",
     "subtitles": "字幕",
     "music": "背景音乐",
@@ -76,6 +78,7 @@ RESEARCH_CHECK_LABELS = {
 }
 
 _ABSOLUTE_PATH = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
+_PRODUCT_FACT_REF = re.compile(r"^product_facts\.claims\[([0-9]+)\]$")
 
 
 @lru_cache(maxsize=1)
@@ -124,6 +127,43 @@ def _media_url(project_id: str, relative_path: Any) -> str | None:
         return None
     encoded_path = "/".join(quote(part, safe="") for part in parts)
     return f"/media/{quote(project_id, safe='')}/{encoded_path}"
+
+
+def _source_preview_path(board: Mapping[str, Any], relative_path: Any) -> Any:
+    """Route linked template-run sources through their owning project.
+
+    Template candidates intentionally symlink ``inputs/source`` to the shared
+    Research project.  The media server rejects a project-local URL whose
+    resolved symlink escapes that candidate (correctly), so the operator
+    projection must emit the supported ``projects/<owner>/...`` form instead.
+    The canonical evidence path itself is not changed.
+    """
+    if not isinstance(relative_path, str) or not relative_path.startswith("inputs/source/"):
+        return relative_path
+    project_dir = board.get("_project_dir")
+    if not isinstance(project_dir, Path):
+        return relative_path
+    source_root = project_dir / "inputs" / "source"
+    if not source_root.is_symlink():
+        return relative_path
+    try:
+        marker = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return relative_path
+    template_run = marker.get("template_run") if isinstance(marker, Mapping) else None
+    owner = template_run.get("source_research_project") if isinstance(template_run, Mapping) else None
+    if (
+        not isinstance(owner, str) or not owner
+        or any(char in owner for char in "/\\:") or owner in {".", ".."}
+    ):
+        return relative_path
+    owner_root = project_dir.parent / owner / "inputs" / "source"
+    try:
+        if source_root.resolve() != owner_root.resolve():
+            return relative_path
+    except OSError:
+        return relative_path
+    return f"projects/{owner}/{relative_path}"
 
 
 def _render_file_present(board: Mapping[str, Any], path_value: Any) -> bool | None:
@@ -340,6 +380,7 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         frames = item.get("representative_frames") if isinstance(item.get("representative_frames"), list) else []
         frame = next((value for value in frames if isinstance(value, str)), None)
         path = item.get("path")
+        preview_path = _source_preview_path(board, path)
         media_type = _safe_text(item.get("media_type"), "unknown")
         # 素材名优先用原始文件名（业务可读），media_id 哈希只留在 id/制作记录。
         label = Path(path).stem if isinstance(path, str) and path else ""
@@ -359,12 +400,12 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "fps": _number(probe.get("fps")),
             "best_in_seconds": best_in,
             "best_out_seconds": best_out,
-            "preview_url": _media_url(project_id, path),
+            "preview_url": _media_url(project_id, preview_path),
             "poster_url": (
                 _thumb_url(project_id, frame) if frame else
-                _thumb_url(project_id, path) if media_type == "image" else
+                _thumb_url(project_id, preview_path) if media_type == "image" else
                 _thumb_url(
-                    project_id, path,
+                    project_id, preview_path,
                     time_seconds=(float(best_in) + float(best_out)) / 2
                     if best_in is not None and best_out is not None else 1.5,
                 ) if media_type == "video" else None
@@ -747,6 +788,7 @@ def _source_label(scene: Mapping[str, Any]) -> str:
 
 def _shot_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     scene_plan = _artifact(board, "scene_plan")
+    script = _artifact(board, "script")
     source_review = _artifact(board, "source_media_review")
     fingerprint = _artifact(board, "reference_fingerprint")
     analysis = _artifact(board, "video_analysis_brief")
@@ -757,6 +799,11 @@ def _shot_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     mappings = metadata.get("source_mapping") if isinstance(metadata.get("source_mapping"), list) else []
     mapping_by_scene = {
         value.get("scene_id"): value for value in mappings
+        if isinstance(value, Mapping) and isinstance(value.get("scene_id"), str)
+    }
+    section_by_scene = {
+        str(value.get("scene_id")): value
+        for value in script.get("sections") or []
         if isinstance(value, Mapping) and isinstance(value.get("scene_id"), str)
     }
     source_by_path = {
@@ -813,6 +860,7 @@ def _shot_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(scene, Mapping):
             continue
         mapping = mapping_by_scene.get(scene.get("id"), {})
+        section = section_by_scene.get(str(scene.get("id") or ""), {})
         source_interval = mapping.get("source_interval") if isinstance(mapping.get("source_interval"), Mapping) else {}
         timeline_interval = mapping.get("timeline_interval") if isinstance(mapping.get("timeline_interval"), Mapping) else {}
         source_in = _number(source_interval.get("start_seconds"))
@@ -821,6 +869,7 @@ def _shot_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         timeline_out = _number(timeline_interval.get("end_seconds_exclusive"))
         source_path = mapping.get("source_path")
         source_preview_path = proxy_by_scene.get(str(scene.get("id") or "")) or source_path
+        source_preview_path = _source_preview_path(board, source_preview_path)
         source_item = source_by_path.get(str(source_path).replace("\\", "/"), {})
         source_summary = _safe_text(source_item.get("content_summary"))
         source_usable_for = [
@@ -895,7 +944,12 @@ def _shot_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         shots.append({
             "id": _safe_text(scene.get("id"), f"shot-{index + 1}"),
             "beat": _safe_text(scene.get("description")),
-            "screen_copy": _safe_text(overlay.get("text")) or _safe_text(scene.get("overlay_notes")),
+            "narration": _safe_text(section.get("narration")) or _safe_text(section.get("text")),
+            "screen_copy": (
+                _safe_text(section.get("screen_copy"))
+                or _safe_text(overlay.get("text"))
+                or _safe_text(scene.get("overlay_notes"))
+            ),
             "source_label": Path(source_path).stem if isinstance(source_path, str) else _source_label(scene),
             "in_seconds": timeline_in if timeline_in is not None else (_number(scene.get("start_seconds")) or 0),
             "out_seconds": timeline_out if timeline_out is not None else (_number(scene.get("end_seconds")) or 0),
@@ -916,6 +970,21 @@ def _shot_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "source_summary": source_summary,
             "source_usable_for": source_usable_for,
             "mapping_reason": "；".join(reason_parts) + ("。" if reason_parts else ""),
+            "claim_ids": [
+                _safe_text(value) for value in mapping.get("claim_ids") or []
+                if _safe_text(value)
+            ],
+            "action_keys": [
+                _safe_text(value) for value in mapping.get("action_keys") or []
+                if _safe_text(value)
+            ],
+            "evidence_row_ids": [
+                _safe_text(value) for value in mapping.get("evidence_row_ids") or []
+                if _safe_text(value)
+            ],
+            "subject_completeness": _safe_text(mapping.get("subject_completeness")),
+            "crop_strategy": _safe_text(mapping.get("crop_strategy")),
+            "caption_safe_zone": _safe_text(mapping.get("caption_safe_zone")),
             "reference_evidence": reference_evidence,
         })
     duration = _number((scene_plan.get("metadata") or {}).get("total_duration_seconds"))
@@ -929,6 +998,7 @@ def _shot_editor(board: Mapping[str, Any]) -> dict[str, Any]:
 
 def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     artifacts = board.get("artifacts") or {}
+    project_id = str(board.get("project_id") or "project")
     plan = _artifact(board, "asset_plan")
     manifest = _artifact(board, "asset_manifest")
     source_review = _artifact(board, "source_media_review")
@@ -945,6 +1015,91 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(item, Mapping) and _owned_media_path(item.get("path"))
     }
     planned_assets = plan.get("planned_assets") if isinstance(plan.get("planned_assets"), list) else []
+    audio_plan = plan.get("audio_plan") if isinstance(plan.get("audio_plan"), Mapping) else {}
+    product_facts = _artifact(board, "product_facts")
+    product_claims = product_facts.get("claims") if isinstance(product_facts.get("claims"), list) else []
+    product_capture = _artifact(board, "product_page_capture")
+    product_ledger = _artifact(board, "product_asset_ledger")
+    reference_matrix = _artifact(board, "reference_source_matrix")
+    matrix_rows_by_id = {
+        str(row.get("matrix_row_id")): row
+        for row in reference_matrix.get("rows") or []
+        if isinstance(row, Mapping) and row.get("matrix_row_id")
+    }
+    page_assets_by_id = {
+        str(asset.get("asset_id")): asset
+        for asset in product_ledger.get("assets") or []
+        if isinstance(asset, Mapping) and asset.get("asset_id")
+    }
+    capture_evidence = product_capture.get("capture_evidence") if isinstance(product_capture.get("capture_evidence"), Mapping) else {}
+    page_screenshots_by_id = {
+        str(screenshot.get("evidence_id")): screenshot
+        for screenshot in capture_evidence.get("screenshots") or []
+        if isinstance(screenshot, Mapping) and screenshot.get("evidence_id")
+    }
+
+    def shared_page_path(owner_artifact: Mapping[str, Any], relative_path: Any) -> str:
+        path = str(relative_path or "").strip().replace("\\", "/")
+        owner = str(owner_artifact.get("project_id") or "").strip()
+        if (
+            path and owner and owner != project_id
+            and not any(char in owner for char in "/\\:") and owner not in {".", ".."}
+        ):
+            return f"projects/{owner}/{path}"
+        return path
+
+    def fact_bindings(refs: list[Any]) -> list[dict[str, Any]]:
+        result = []
+        for raw_ref in refs:
+            ref = str(raw_ref)
+            match = _PRODUCT_FACT_REF.fullmatch(ref)
+            if match is None or int(match.group(1)) >= len(product_claims):
+                continue
+            fact = product_claims[int(match.group(1))]
+            if not isinstance(fact, Mapping):
+                continue
+            result.append({
+                "ref": ref,
+                "claim_id": _safe_text(fact.get("claim_id")),
+                "statement": _safe_text(fact.get("statement") or fact.get("claim")),
+                "claim_class": _safe_text(fact.get("claim_class")),
+                "status": _safe_text(fact.get("status")),
+                "evidence_status": _safe_text(fact.get("evidence_status")),
+                "risk_level": _safe_text(fact.get("risk_level")),
+                "sku_scope": [str(value) for value in fact.get("sku_scope") or []],
+                "allowed_wording": [str(value) for value in fact.get("allowed_wording") or []],
+                "prohibited_wording": [str(value) for value in fact.get("prohibited_wording") or []],
+                "provenance_refs": [str(value) for value in fact.get("provenance_refs") or []],
+            })
+        return result
+
+    def page_evidence(asset_ids: list[Any], screenshot_ids: list[Any]) -> list[dict[str, Any]]:
+        result = []
+        for raw_id in asset_ids:
+            evidence_id = str(raw_id)
+            asset = page_assets_by_id.get(evidence_id)
+            path = shared_page_path(product_ledger, asset.get("local_path") if asset else "")
+            result.append({
+                "id": evidence_id,
+                "label": "当前 SKU 商品图" if asset and asset.get("asset_role") == "selected_sku" else "商品页图片",
+                "kind": "page_asset",
+                "usage_role": _safe_text(asset.get("usage_role")) if asset else "",
+                "source_path": path,
+                "preview_url": _media_url(project_id, path),
+            })
+        for raw_id in screenshot_ids:
+            evidence_id = str(raw_id)
+            screenshot = page_screenshots_by_id.get(evidence_id)
+            path = shared_page_path(product_capture, screenshot.get("local_path") if screenshot else "")
+            result.append({
+                "id": evidence_id,
+                "label": "商品详情页取证",
+                "kind": "page_capture",
+                "usage_role": "information_evidence",
+                "source_path": path,
+                "preview_url": _media_url(project_id, path),
+            })
+        return result
     realized_assets = manifest.get("assets") if isinstance(manifest.get("assets"), list) else []
     realized_ids = {
         str(item.get("id")) for item in realized_assets
@@ -964,43 +1119,278 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         prepared = bool(item.get("exists")) or asset_id in realized_ids or output_path in realized_paths
         paid = bool(item.get("paid"))
         source_stage = _safe_text(item.get("source_stage"), "assets")
+        asset_type = _safe_text(item.get("type"), "asset")
+        source_selection = item.get("source_selection") if isinstance(item.get("source_selection"), Mapping) else {}
+        creative_binding = item.get("creative_binding") if isinstance(item.get("creative_binding"), Mapping) else {}
+        processing_plan = item.get("processing_plan") if isinstance(item.get("processing_plan"), Mapping) else {}
+        visual_route = _safe_text(
+            item.get("visual_route") or creative_binding.get("visual_route")
+        )
+        evidence_row_ids = [str(value) for value in creative_binding.get("evidence_row_ids") or []]
+        route_row = next(
+            (matrix_rows_by_id[row_id] for row_id in evidence_row_ids if row_id in matrix_rows_by_id),
+            {},
+        )
+        visual_requirement = (
+            creative_binding.get("claim_visual_requirements")
+            if isinstance(creative_binding.get("claim_visual_requirements"), Mapping)
+            else route_row.get("claim_visual_requirements")
+            if isinstance(route_row.get("claim_visual_requirements"), Mapping)
+            else {}
+        )
+        route_reason = _safe_text(route_row.get("route_reason"))
+        raw_owned_candidates = route_row.get("owned_candidates") if isinstance(route_row.get("owned_candidates"), list) else []
+        owned_candidates = []
+        for candidate in raw_owned_candidates:
+            if not isinstance(candidate, Mapping):
+                continue
+            candidate_range = candidate.get("source_time_range") if isinstance(candidate.get("source_time_range"), Mapping) else {}
+            candidate_start = _number(candidate_range.get("start_seconds"))
+            candidate_end = _number(candidate_range.get("end_seconds_exclusive"))
+            frame_path = next((str(value) for value in candidate.get("evidence_frames") or [] if value), "")
+            owned_candidates.append({
+                "media_id": _safe_text(candidate.get("media_id")),
+                "source_path": _safe_text(candidate.get("source_path")),
+                "source_range": (
+                    f"{candidate_start:g}–{candidate_end:g} 秒"
+                    if candidate_start is not None and candidate_end is not None else ""
+                ),
+                "confidence": _number(candidate.get("confidence")),
+                "status": _safe_text(candidate.get("status")),
+                "observed_actions": [str(value) for value in candidate.get("observed_actions") or []],
+                "observed_results": [str(value) for value in candidate.get("observed_results") or []],
+                "subject_complete_in_3_4": candidate.get("subject_complete_in_3_4") is True,
+                "rejection_reasons": [str(value) for value in candidate.get("rejection_reasons") or []],
+                "preview_url": _media_url(project_id, _source_preview_path(board, frame_path)),
+            })
+        raw_generation_reference = (
+            item.get("generation_reference")
+            if isinstance(item.get("generation_reference"), Mapping)
+            else route_row.get("generation_reference")
+            if isinstance(route_row.get("generation_reference"), Mapping)
+            else {}
+        )
+        generation_reference = None
+        if raw_generation_reference:
+            reference_asset_id = _safe_text(raw_generation_reference.get("asset_id"))
+            reference_asset = page_assets_by_id.get(reference_asset_id, {})
+            parent_asset_id = _safe_text(
+                raw_generation_reference.get("parent_asset_id") or reference_asset.get("parent_asset_id")
+            )
+            parent_asset = page_assets_by_id.get(parent_asset_id, {})
+            reference_path = shared_page_path(
+                product_ledger,
+                raw_generation_reference.get("local_path") or reference_asset.get("local_path"),
+            )
+            original_path = shared_page_path(product_ledger, parent_asset.get("local_path"))
+            identity_check = reference_asset.get("identity_check") if isinstance(reference_asset.get("identity_check"), Mapping) else {}
+            generation_reference = {
+                "asset_id": reference_asset_id,
+                "parent_asset_id": parent_asset_id,
+                "source_path": reference_path,
+                "preview_url": _media_url(project_id, reference_path),
+                "original_source_path": original_path,
+                "original_preview_url": _media_url(project_id, original_path),
+                "sku_scope": [str(value) for value in raw_generation_reference.get("sku_scope") or reference_asset.get("sku_scope") or []],
+                "identity_status": _safe_text(identity_check.get("status")),
+                "ocr_clean": not bool(reference_asset.get("ocr_residual_text")),
+                "generation_eligibility": _safe_text(reference_asset.get("generation_eligibility")),
+            }
+        raw_generation_plan = item.get("generation_plan") if isinstance(item.get("generation_plan"), Mapping) else {}
+        generation_plan = {
+            "operation": _safe_text(raw_generation_plan.get("operation")),
+            "prompt": _safe_text(raw_generation_plan.get("prompt")),
+            "duration_seconds": _number(raw_generation_plan.get("duration_seconds")),
+            "aspect_ratio": _safe_text(raw_generation_plan.get("aspect_ratio")),
+            "required_actions": [str(value) for value in raw_generation_plan.get("required_actions") or []],
+            "required_results": [str(value) for value in raw_generation_plan.get("required_results") or []],
+            "prohibitions": [str(value) for value in raw_generation_plan.get("prohibitions") or []],
+            "retry_limit": raw_generation_plan.get("retry_limit") if isinstance(raw_generation_plan.get("retry_limit"), int) else None,
+            "selection_status": _safe_text(raw_generation_plan.get("provider_selection_status")),
+        } if raw_generation_plan else None
+        generation_options = [
+            {
+                "service": _safe_text(candidate.get("provider")),
+                "version": _safe_text(candidate.get("model")),
+                "tool": _safe_text(candidate.get("tool")),
+                "estimated_cost_usd": _number(candidate.get("estimated_cost_usd")),
+                "supports_native_3_4": candidate.get("supports_native_3_4") is True,
+                "supports_local_reference": candidate.get("supports_local_reference") is True,
+            }
+            for candidate in item.get("provider_candidates") or []
+            if isinstance(candidate, Mapping)
+        ]
+        source_media_id = _safe_text(source_selection.get("media_id"))
+        source_item = source_by_id.get(source_media_id) or source_by_id.get(asset_id.removeprefix("proxy-"), {})
+        source_path = _safe_text(source_selection.get("path"))
+        if not source_path and isinstance(source_item, Mapping):
+            source_path = _safe_text(source_item.get("path"))
+        source_label = source_media_id or (Path(source_path).stem if source_path else "")
+        source_in = _number(source_selection.get("start_seconds"))
+        source_out = _number(source_selection.get("end_seconds"))
+        if source_in is not None and source_out is not None:
+            source_range = f"{source_in:g}–{source_out:g} 秒"
+        else:
+            best_ranges = source_item.get("best_ranges") if isinstance(source_item, Mapping) else []
+            best_range = best_ranges[0] if best_ranges and isinstance(best_ranges[0], Mapping) else {}
+            source_range = (
+                f"建议 {float(best_range['start_seconds']):g}–{float(best_range['end_seconds']):g} 秒"
+                if best_range.get("start_seconds") is not None and best_range.get("end_seconds") is not None
+                else ""
+            )
+        source_summary = _safe_text(source_item.get("content_summary")) if isinstance(source_item, Mapping) else ""
+        source_summary = source_summary or _safe_text(source_selection.get("fit_reason"))
+        source_preview_path = _source_preview_path(board, source_path)
+        source_midpoint = (
+            (float(source_in) + float(source_out)) / 2
+            if source_in is not None and source_out is not None else None
+        )
+        quality_risks = source_item.get("quality_risks") if isinstance(source_item, Mapping) else []
+        aspect_ratio = _safe_text(processing_plan.get("aspect_ratio"))
+        proxy_width = processing_plan.get("width")
+        proxy_height = processing_plan.get("height")
+        dimensions = f"{proxy_width}×{proxy_height}" if proxy_width and proxy_height else ""
+        crop_summary = (
+            "中心裁切并保护主体"
+            if processing_plan.get("crop_strategy") == "center_crop_subject_protected"
+            else _safe_text(processing_plan.get("crop_strategy"))
+        )
+        audio_summary = (
+            "样片阶段再加入口播和 BGM"
+            if processing_plan.get("audio_policy") == "proxy_muted_mix_added_at_sample"
+            else ""
+        )
+        processing_summary = ""
+        if processing_plan:
+            format_summary = aspect_ratio
+            if dimensions:
+                format_summary = f"{format_summary}（{dimensions}）" if format_summary else dimensions
+            processing_summary = f"本地转为 {format_summary}审片代理" if format_summary else "本地生成审片代理"
+            if crop_summary:
+                processing_summary += f"，{crop_summary}"
+            if audio_summary:
+                processing_summary += f"；{audio_summary}"
         if prepared:
             status = "已准备"
             reason = "文件已经生成并登记"
         elif paid and not paid_approved:
             status = "等待确认"
             reason = "付费生成尚未获得批准，不会自动调用模型"
+        elif asset_type == "video_proxy" and processing_plan:
+            status = "待本地处理"
+            interval_summary = f"，剪辑使用 {source_range}" if source_range else ""
+            reason = f"零付费本地处理：{processing_summary}{interval_summary}"
         elif source_stage == "sample":
             status = "后续生成"
             reason = "制作方案已锁定，将在样片阶段生成"
         else:
             status = "待生成"
             reason = "已列入制作清单，尚未执行"
-        asset_type = _safe_text(item.get("type"), "asset")
-        source_item = source_by_id.get(asset_id.removeprefix("proxy-"), {})
-        source_path = source_item.get("path") if isinstance(source_item, Mapping) else None
-        source_label = Path(str(source_path)).stem if source_path else ""
-        best_ranges = source_item.get("best_ranges") if isinstance(source_item, Mapping) else []
-        best_range = best_ranges[0] if best_ranges and isinstance(best_ranges[0], Mapping) else {}
-        source_range = (
-            f"建议 {float(best_range['start_seconds']):g}-{float(best_range['end_seconds']):g} 秒"
-            if best_range.get("start_seconds") is not None and best_range.get("end_seconds") is not None
-            else ""
-        )
-        source_summary = _safe_text(source_item.get("content_summary")) if isinstance(source_item, Mapping) else ""
-        quality_risks = source_item.get("quality_risks") if isinstance(source_item, Mapping) else []
         if asset_type == "video_proxy" and quality_risks:
-            reason = f"{'; '.join(str(risk) for risk in quality_risks)}；将先生成可剪辑代理。"
+            reason += f"；注意：{'; '.join(str(risk) for risk in quality_risks)}"
+        shot_id = _safe_text(item.get("shot_id"))
+        shot_number = shot_id.removeprefix("shot-") if shot_id else ""
+        product_fact_refs = [str(value) for value in creative_binding.get("product_fact_refs") or []]
+        product_page_refs = [str(value) for value in creative_binding.get("product_page_refs") or []]
+        resolved_facts = fact_bindings(product_fact_refs)
+        fact_role = (
+            "selling_point"
+            if any(fact.get("claim_class") != "identity" for fact in resolved_facts)
+            else "identity_anchor"
+            if resolved_facts
+            else "none"
+        )
+        resolved_page_evidence = page_evidence(
+            list(creative_binding.get("page_asset_ids") or []),
+            list(creative_binding.get("page_evidence_ids") or []),
+        )
+        alignment_status = "not_applicable"
+        if asset_type == "video_proxy":
+            required_sets = (
+                creative_binding.get("claim_ids"), creative_binding.get("action_keys"),
+                creative_binding.get("evidence_row_ids"), product_fact_refs,
+            )
+            alignment_status = (
+                "pass"
+                if all(required_sets) and len(resolved_facts) == len(product_fact_refs)
+                else "review_required"
+            )
+        elif visual_route == "generated_from_product_image" and asset_type == "generated_video":
+            alignment_status = (
+                "pass"
+                if (
+                    all((creative_binding.get("claim_ids"), creative_binding.get("action_keys"), evidence_row_ids, product_fact_refs))
+                    and len(resolved_facts) == len(product_fact_refs)
+                    and generation_reference is not None
+                    and generation_reference.get("identity_status") == "pass"
+                    and generation_reference.get("ocr_clean") is True
+                    and generation_plan is not None
+                )
+                else "review_required"
+            )
         projected.append({
             "id": asset_id,
-            "label": f"源素材代理 · {source_label}" if source_label else ASSET_TYPE_LABELS.get(asset_type, "制作素材"),
+            "label": (
+                f"镜头 {shot_number} · {source_label}"
+                if asset_type == "video_proxy" and shot_number and source_label
+                else f"源素材代理 · {source_label}"
+                if asset_type == "video_proxy" and source_label
+                else f"镜头 {shot_number} · 商品图补拍（图生视频）"
+                if asset_type == "generated_video" and shot_number
+                else ASSET_TYPE_LABELS.get(asset_type, "制作素材")
+            ),
             "type": asset_type,
             "provider": _safe_text(item.get("provider"), "待确定"),
-            "stage_label": ASSET_STAGE_LABELS.get(source_stage, "后续阶段"),
+            "stage_label": (
+                "本地素材处理（零付费）"
+                if asset_type == "video_proxy" and processing_plan
+                else ASSET_STAGE_LABELS.get(source_stage, "后续阶段")
+            ),
             "status": status,
             "reason": reason,
+            "shot_id": shot_id,
+            "source_path": source_path,
             "source_summary": source_summary,
             "source_range": source_range,
+            "preview_url": _media_url(project_id, source_preview_path),
+            "poster_url": _thumb_url(project_id, source_preview_path, time_seconds=source_midpoint),
+            "shot_purpose": _safe_text(creative_binding.get("purpose")),
+            "subject_action": _safe_text(creative_binding.get("subject_action")),
+            "narration": _safe_text(creative_binding.get("narration")),
+            "screen_copy": _safe_text(creative_binding.get("screen_copy")),
+            "claim_ids": [str(value) for value in creative_binding.get("claim_ids") or []],
+            "action_keys": [str(value) for value in creative_binding.get("action_keys") or []],
+            "evidence_row_ids": evidence_row_ids,
+            "product_fact_refs": product_fact_refs,
+            "product_page_refs": product_page_refs,
+            "page_asset_ids": [str(value) for value in creative_binding.get("page_asset_ids") or []],
+            "page_evidence_ids": [str(value) for value in creative_binding.get("page_evidence_ids") or []],
+            "fact_bindings": resolved_facts,
+            "fact_role": fact_role,
+            "page_evidence": resolved_page_evidence,
+            "alignment_status": alignment_status,
+            "visual_route": visual_route,
+            "route_label": (
+                "自有素材直用" if visual_route == "owned_source"
+                else "商品图补拍（图生视频）" if visual_route == "generated_from_product_image"
+                else "不进入成片" if visual_route == "omit"
+                else ""
+            ),
+            "route_reason": route_reason,
+            "evidence_role_label": (
+                "AI 视觉表达，不是商品事实证明"
+                if item.get("evidence_role") == "visual_expression_only"
+                else "自有素材中的可见事实"
+                if visual_route == "owned_source"
+                else ""
+            ),
+            "visual_requirement": dict(visual_requirement),
+            "owned_candidates": owned_candidates,
+            "generation_reference": generation_reference,
+            "generation_plan": generation_plan,
+            "generation_options": generation_options,
+            "processing_summary": processing_summary,
+            "output_path": output_path,
             "paid": paid,
             "cost_estimate_usd": _number(item.get("cost_estimate_usd")),
         })
@@ -1018,11 +1408,17 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     prepared_count = sum(item["status"] == "已准备" for item in projected)
     waiting_confirmation_count = sum(item["status"] == "等待确认" for item in projected)
     spent = _number((board.get("cost") or {}).get("total_spent_usd"))
-    estimated_total = sum(
+    planned_total = sum(
         float(item.get("cost_estimate_usd") or 0)
         for item in planned_assets
         if isinstance(item, Mapping) and isinstance(item.get("cost_estimate_usd"), (int, float))
     )
+    has_planned_audio = any(
+        isinstance(item, Mapping) and item.get("type") in {"narration", "music"}
+        for item in planned_assets
+    )
+    audio_estimate = _number(audio_plan.get("estimated_cost_usd")) or 0.0
+    estimated_total = planned_total + (0.0 if has_planned_audio else audio_estimate)
     execution = _artifact(board, "shot_execution_plan")
     execution_shots = []
     for index, shot in enumerate(execution.get("shots") or []):
@@ -1093,12 +1489,46 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "generation_proposals": proposals,
             "selected_generation_task_id": shot.get("selected_generation_task_id"),
         })
+    narration_status = category_status("narration", "未安排口播")
+    music_status = category_status("music", "未安排背景音乐")
+    subtitle_status = category_status("subtitles", "未安排字幕")
+    if narration_status == "未安排口播" and isinstance(audio_plan.get("tts"), Mapping):
+        narration_status = "方案已锁定，等待本门确认"
+    if music_status == "未安排背景音乐" and isinstance(audio_plan.get("bgm"), Mapping):
+        music_status = "方案已锁定，等待本门确认"
+    if subtitle_status == "未安排字幕" and any(
+        _safe_text(shot.get("screen_copy"))
+        for shot in execution.get("shots") or []
+        if isinstance(shot, Mapping)
+    ):
+        subtitle_status = "由脚本生成，随样片制作"
+    tts_plan = audio_plan.get("tts") if isinstance(audio_plan.get("tts"), Mapping) else {}
+    bgm_plan = audio_plan.get("bgm") if isinstance(audio_plan.get("bgm"), Mapping) else {}
+    mix_plan = audio_plan.get("mix") if isinstance(audio_plan.get("mix"), Mapping) else {}
+    projected_audio_plan = {
+        "tts": {
+            "provider": _safe_text(tts_plan.get("provider")),
+            "resource_id": _safe_text(tts_plan.get("resource_id")),
+            "voice": _safe_text(tts_plan.get("voice")),
+        },
+        "bgm": {
+            "provider": _safe_text(bgm_plan.get("provider")),
+            "profile": _safe_text(bgm_plan.get("profile")),
+        },
+        "mix": {
+            "ducking_db": mix_plan.get("ducking_db")
+            if isinstance(mix_plan.get("ducking_db"), (int, float))
+            and not isinstance(mix_plan.get("ducking_db"), bool)
+            else None
+        },
+    }
     return {
         "type": "asset_review",
         "data": {
-            "narration_status": category_status("narration", "未安排口播"),
-            "subtitle_status": category_status("subtitles", "未安排字幕"),
-            "music_status": category_status("music", "未安排背景音乐"),
+            "narration_status": narration_status,
+            "subtitle_status": subtitle_status,
+            "music_status": music_status,
+            "audio_plan": projected_audio_plan,
             "estimated_cost_usd": round(estimated_total, 4) if estimated_total else None,
             "spent_cost_usd": spent,
             "planned_count": len(projected),

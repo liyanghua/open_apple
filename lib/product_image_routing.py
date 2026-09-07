@@ -221,6 +221,12 @@ def _candidate_decision(
         "source_time_range": dict(interval) if isinstance(interval, Mapping) else None,
         "evidence_frames": list(frames or []),
         "confidence": float((candidate.get("quality") or {}).get("confidence") or 0),
+        "observed_subjects": sorted(subjects),
+        "observed_actions": sorted(actions),
+        "observed_results": sorted(results),
+        "subject_complete_in_3_4": (
+            (candidate.get("crop_safety") or {}).get("subject_complete_in_3_4") is True
+        ),
         "status": "accepted" if not rejection_reasons else "rejected",
         "rejection_reasons": rejection_reasons,
     }

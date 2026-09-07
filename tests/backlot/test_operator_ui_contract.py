@@ -264,6 +264,77 @@ def test_production_script_and_execution_plan_use_business_confirmation_language
     assert "剩余预算" in app
 
 
+def test_asset_review_shows_tts_bgm_and_mix_configuration() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+
+    for term in ("口播供应方", "口播模型/资源", "配音音色", "BGM 供应方", "BGM 风格", "BGM 压低"):
+        assert term in app
+
+
+def test_assets_generation_list_explains_source_binding_and_local_processing() -> None:
+    approval = _read(OPERATOR_ROOT / "approval.js")
+    language = _read(OPERATOR_ROOT / "language.js")
+
+    for phrase in (
+        "素材处理清单",
+        "对应镜头",
+        "原素材",
+        "原素材片段预览",
+        "截取区间",
+        "画面动作",
+        "对应口播",
+        "对应字幕",
+        "动作标签",
+        "证据行",
+        "商品事实",
+        "商品页声明",
+        "允许表达",
+        "禁止表达",
+        "商品页证据",
+        "自有素材证据",
+        "成片表达",
+        "对齐结论",
+        "场景/转场镜头",
+        "不承担性能证明",
+        "商品身份锚点",
+        "处理方式",
+        "输出文件",
+        "零付费",
+    ):
+        assert phrase in approval
+    assert 'stateAwaiting: "等待你确认"' in language
+    assert 'stateAwaiting: "等待确认样片"' not in language
+    assert "approval-evidence-grid" in approval
+
+
+def test_assets_generation_list_explains_product_image_generation_route() -> None:
+    approval = _read(OPERATOR_ROOT / "approval.js")
+
+    for phrase in (
+        "商品图补拍（图生视频）",
+        "路线原因",
+        "自有素材候选",
+        "未采用原因",
+        "3:4 主体完整",
+        "商品原图",
+        "纯产品参考图",
+        "生成动作",
+        "预期结果",
+        "生成服务候选",
+        "最多重试",
+        "AI 视觉表达，不是商品事实证明",
+    ):
+        assert phrase in approval
+
+
+def test_source_led_evidence_cards_follow_light_approval_theme() -> None:
+    """证据卡不得保留旧深色底，否则浅色主题正文不可读。"""
+    css = _read(OPERATOR_ROOT / "styles.css")
+    assert '#operator-shell[data-mode="approval"] .approval-evidence-column' in css
+    assert "background: var(--approval-surface2);" in css
+    assert '#operator-shell[data-mode="approval"] .approval-evidence-title' in css
+
+
 def test_sample_review_shows_plan_to_sample_execution_trace() -> None:
     app = _read(OPERATOR_ROOT / "app.js")
     css = _read(OPERATOR_ROOT / "styles.css")
