@@ -214,6 +214,8 @@ def _normalize(observation: Mapping[str, Any], product_facts: Mapping[str, Any])
 def build_source_research_artifacts(*, project_id: str, input_mode: str,
                                     observations: Sequence[Mapping[str, Any]],
                                     product_facts: Mapping[str, Any],
+                                    visual_requirement_specs: Sequence[Mapping[str, Any]] | None = None,
+                                    clean_references: Sequence[Mapping[str, Any]] = (),
                                     created_at: str | None = None,
                                     producer: str = "lib.source_semantics") -> dict[str, dict[str, Any]]:
     """Return a hash-bound semantic index and canonical evidence matrix."""
@@ -294,6 +296,12 @@ def build_source_research_artifacts(*, project_id: str, input_mode: str,
                 "claim_visual_requirements": requirement,
                 "owned_candidates": [{
                     **selected_source,
+                    "observed_subjects": list(entry["observed_subject"]),
+                    "observed_actions": list(entry["observed_actions"]),
+                    "observed_results": list(entry["observed_results"]),
+                    "subject_complete_in_3_4": bool(
+                        entry["crop_safety"]["subject_complete_in_3_4"]
+                    ),
                     "status": "accepted",
                     "rejection_reasons": [],
                 }],
@@ -308,11 +316,114 @@ def build_source_research_artifacts(*, project_id: str, input_mode: str,
                 rows[-1]["measurement_type"] = entry["measurement_type"]
             if binding.get("required_measurement_type"):
                 rows[-1]["required_measurement_type"] = binding["required_measurement_type"]
+    if visual_requirement_specs is not None:
+        from lib.product_image_routing import (
+            compile_claim_visual_requirements,
+            route_claim_coverage,
+        )
+
+        requirements = compile_claim_visual_requirements(
+            product_facts, visual_requirement_specs
+        )
+        routed_rows: list[dict[str, Any]] = []
+        unmatched_gaps: list[dict[str, Any]] = []
+        entries_by_media = {entry["media_id"]: entry for entry in entries}
+        for ordinal, requirement in enumerate(requirements, start=1):
+            if not requirement.get("required_actions"):
+                raise ValueError("routed visual requirements require at least one action")
+            decision = route_claim_coverage(
+                requirement,
+                owned_candidates=entries,
+                clean_references=clean_references,
+            )
+            route = str(decision["visual_route"])
+            selected = decision.get("selected_source") or {}
+            selected_entry = entries_by_media.get(str(selected.get("media_id") or ""), {})
+            fact_ref = str(requirement["product_fact_ref"])
+            fact = _check_fact(product_facts, fact_ref)
+            row_id = f"evidence-coverage-{ordinal:03d}"
+            required_results = list(requirement.get("required_results") or [])
+            row: dict[str, Any] = {
+                "matrix_row_id": row_id,
+                "reference_scene_id": None,
+                "reference_time_range": None,
+                "reference_intent": "source-led claim coverage: " + ", ".join(
+                    requirement["required_actions"]
+                ),
+                "source_media_id": (
+                    str(selected.get("media_id")) if route == "owned_source" else None
+                ),
+                "source_time_range": (
+                    deepcopy(selected.get("source_time_range"))
+                    if route == "owned_source" else None
+                ),
+                "match_reason": str(decision["route_reason"]),
+                "confidence": (
+                    float(selected.get("confidence") or 0)
+                    if route == "owned_source" else 1.0
+                ),
+                "evidence_frames": (
+                    list(selected.get("evidence_frames") or [])
+                    if route == "owned_source" else []
+                ),
+                "unmatched_gap": str(decision["route_reason"]) if route == "omit" else None,
+                "resolution": "omit" if route == "omit" else "accept",
+                "claim_ids": [str(requirement["claim_id"])],
+                "action_keys": list(requirement["required_actions"]),
+                "product_fact_refs": [fact_ref],
+                "product_page_refs": _strings(
+                    fact.get("product_page_refs", []), "product_page_refs"
+                ),
+                "page_asset_ids": list(requirement.get("candidate_page_asset_ids") or []),
+                "page_evidence_ids": _strings(
+                    fact.get("page_evidence_ids", []), "page_evidence_ids"
+                ),
+                "allowed_wording": list(requirement["allowed_wording"]),
+                "prohibited_wording": list(requirement.get("prohibited_wording") or []),
+                "evidence_strength": "strong" if route == "owned_source" else "weak",
+                "evidence_class": str(selected_entry.get("evidence_class") or "static_feature"),
+                "required_evidence_class": (
+                    "dynamic_result"
+                    if requirement.get("visualizability") == "observable" and required_results
+                    else "static_feature"
+                ),
+                "requires_visible_result": (
+                    requirement.get("visualizability") == "observable" and bool(required_results)
+                ),
+                "temporal_evidence": (
+                    deepcopy(selected_entry.get("temporal_evidence"))
+                    if route == "owned_source"
+                    and requirement.get("visualizability") == "observable"
+                    and required_results
+                    else None
+                ),
+                **deepcopy(decision),
+            }
+            if route == "owned_source":
+                row["source_hash"] = str(selected["source_hash"])
+            if route == "omit":
+                unmatched_gaps.append({
+                    "matrix_row_id": row_id,
+                    "reason": str(decision["route_reason"]),
+                })
+            routed_rows.append(row)
+        rows = routed_rows
+    else:
+        unmatched_gaps = []
     input_hashes = {**source_hashes, "product_facts": str(product_facts.get("semantic_sha256") or semantic_sha256(product_facts))}
+    if visual_requirement_specs is not None:
+        input_hashes["visual_requirements"] = semantic_sha256(
+            list(visual_requirement_specs)
+        )
+        for ordinal, reference in enumerate(clean_references, start=1):
+            reference_hash = str(reference.get("sha256") or "")
+            if not re.fullmatch(r"[a-f0-9]{64}", reference_hash):
+                raise ValueError("clean reference requires a lowercase sha256")
+            input_hashes[f"clean_reference_{ordinal}"] = reference_hash
     common = {"version": "1.0", "project_id": str(project_id), "created_at": timestamp, "producer": producer, "input_hashes": input_hashes}
     return {
         "source_semantic_index": attach_hashes({**common, "input_mode": input_mode, "entries": entries}),
-        "reference_source_matrix": attach_hashes({**common, "matrix_mode": input_mode, "rows": rows, "unmatched_gaps": []}),
+        "reference_source_matrix": attach_hashes({**common, "matrix_mode": input_mode, "rows": rows, "unmatched_gaps": unmatched_gaps}),
     }
 
 

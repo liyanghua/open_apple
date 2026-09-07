@@ -162,6 +162,65 @@ def test_builder_creates_schema_valid_index_and_canonical_source_led_matrix() ->
     ]
 
 
+def test_builder_routes_authored_claim_gap_to_clean_product_reference() -> None:
+    from lib.source_semantics import build_source_research_artifacts
+
+    clean_reference = {
+        "asset_id": "page-asset-selected-sku-clean-v1",
+        "parent_asset_id": "page-asset-selected-sku",
+        "local_path": "assets/product_page/derived/sku-clean-v1.png",
+        "sha256": "b" * 64,
+        "sku_scope": ["sku-1"],
+        "claim_refs": ["product_facts.claims[0]"],
+        "clean_reference_status": "ready",
+        "ocr_residual_text": [],
+        "identity_check": {"status": "pass", "notes": []},
+        "generation_eligibility": "eligible",
+    }
+    facts = _product_facts()
+    facts["sku"] = "sku-1"
+    facts["claims"][0]["claim_id"] = "page-claim-antibacterial"
+    facts["claims"][0]["evidence_status"] = "page_claim"
+    facts["claims"][0]["sku_scope"] = ["sku-1"]
+    facts["semantic_sha256"] = semantic_sha256(facts)
+
+    artifacts = build_source_research_artifacts(
+        project_id="demo",
+        input_mode="source_led_template",
+        observations=[_observation()],
+        product_facts=facts,
+        visual_requirement_specs=[{
+            "product_fact_ref": "product_facts.claims[0]",
+            "visualizability": "non_observable",
+            "required_subjects": ["selected_sku_towel"],
+            "required_actions": ["slow_product_reveal"],
+            "required_results": ["selected_sku_remains_identifiable"],
+            "forbidden_substitutions": ["laboratory_proof"],
+        }],
+        clean_references=[clean_reference],
+        created_at="2026-09-03T00:00:00Z",
+    )
+
+    matrix = artifacts["reference_source_matrix"]
+    validate_artifact("reference_source_matrix", matrix)
+    assert len(matrix["rows"]) == 1
+    row = matrix["rows"][0]
+    assert row["visual_route"] == "generated_from_product_image"
+    assert row["source_media_id"] is None
+    assert row["source_time_range"] is None
+    assert "source_hash" not in row
+    assert row["generation_reference"]["asset_id"] == clean_reference["asset_id"]
+    assert row["generation_spec"] == {
+        "operation": "image_to_video",
+        "required_actions": ["slow_product_reveal"],
+        "required_results": ["selected_sku_remains_identifiable"],
+        "evidence_role": "visual_expression_only",
+    }
+    assert row["owned_candidates"][0]["status"] == "rejected"
+    assert "missing required actions" in row["owned_candidates"][0]["rejection_reasons"]
+    assert matrix["input_hashes"]["clean_reference_1"] == "b" * 64
+
+
 def test_existing_source_matrix_can_be_enriched_from_product_fact_provenance() -> None:
     from lib.source_semantics import enrich_matrix_product_provenance
 
