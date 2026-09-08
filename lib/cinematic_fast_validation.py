@@ -387,17 +387,39 @@ def validate_scene_evidence_closure(
         primary_row = rows_by_id.get(primary_row_id)
         if primary_row is None or primary_row.get("resolution") != "accept":
             raise ValueError(f"mapping for {scene_id!r} requires an accepted primary evidence row")
-        if mapping.get("source_hash") != primary_row.get("source_hash"):
-            raise ValueError(
-                f"mapping for {scene_id!r} source_hash must equal primary evidence row"
+        visual_route = primary_row.get("visual_route") or "owned_source"
+        if visual_route == "generated_from_product_image":
+            for owner_label, owner in ((label, scene), (f"mapping for {scene_id!r}", mapping)):
+                fabricated = [
+                    field
+                    for field in ("source_path", "source_interval", "source_hash")
+                    if field in owner
+                ]
+                if fabricated:
+                    raise ValueError(
+                        f"{owner_label} generated route must not contain owned-source fields: "
+                        f"{fabricated!r}"
+                    )
+            if mapping.get("generation_spec") != primary_row.get("generation_spec"):
+                raise ValueError(
+                    f"mapping for {scene_id!r} generation_spec must equal primary evidence row"
+                )
+        elif visual_route == "owned_source":
+            if mapping.get("source_hash") != primary_row.get("source_hash"):
+                raise ValueError(
+                    f"mapping for {scene_id!r} source_hash must equal primary evidence row"
+                )
+            source_start, source_end = _validate_interval(mapping, "source_interval")
+            row_start, row_end = _validate_interval(
+                {"source_interval": primary_row.get("source_time_range")}, "source_interval"
             )
-        source_start, source_end = _validate_interval(mapping, "source_interval")
-        row_start, row_end = _validate_interval(
-            {"source_interval": primary_row.get("source_time_range")}, "source_interval"
-        )
-        if source_start < row_start or source_end > row_end:
+            if source_start < row_start or source_end > row_end:
+                raise ValueError(
+                    f"mapping for {scene_id!r} must stay within approved evidence interval"
+                )
+        else:
             raise ValueError(
-                f"mapping for {scene_id!r} must stay within approved evidence interval"
+                f"mapping for {scene_id!r} has unsupported visual_route {visual_route!r}"
             )
     if seen_sections != set(section_by_id):
         raise ValueError("source-led scene plan must map every script section exactly once")

@@ -77,6 +77,28 @@ RESEARCH_CHECK_LABELS = {
     "execution_discipline": "执行完整性",
 }
 
+PRODUCT_CAPTURE_SURFACE_LABELS = {
+    "identity": "商品身份",
+    "selected_sku": "当前选择的规格",
+    "parameter_table": "商品参数表",
+    "main_gallery": "商品主图",
+    "detail_content": "详情页内容",
+}
+
+SOURCE_LED_ACTION_LABELS = {
+    "continuous_pour_water": "连续倒水",
+    "water_contacts_towel": "水流接触毛巾",
+    "macro_texture_reveal": "毛圈纹理特写",
+    "stroke_towel_surface": "手指轻抚毛巾表面",
+    "press_and_rub_towel": "按压并轻揉毛巾",
+    "press_stacked_towels": "按压叠放毛巾",
+    "wipe_face_with_towel": "用毛巾轻擦面部",
+    "take_towel": "从挂杆取下毛巾",
+    "hang_towel": "展开并挂好毛巾",
+    "slow_product_reveal": "缓慢展示当前商品",
+    "display_color_range": "展示系列颜色",
+}
+
 _ABSOLUTE_PATH = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
 _PRODUCT_FACT_REF = re.compile(r"^product_facts\.claims\[([0-9]+)\]$")
 
@@ -290,6 +312,58 @@ def _owned_media_path(value: Any) -> str:
     return "/".join(parts[start:])
 
 
+def _string_values(value: Any) -> list[str]:
+    return [
+        _safe_text(item) for item in value if _safe_text(item)
+    ] if isinstance(value, list) else []
+
+
+def _product_fact_cards(product_facts: Mapping[str, Any]) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    claims = product_facts.get("claims")
+    for index, claim in enumerate(claims if isinstance(claims, list) else []):
+        if not isinstance(claim, Mapping):
+            continue
+        evidence_status = _safe_text(claim.get("evidence_status"))
+        cards.append({
+            "ref": f"product_facts.claims[{index}]",
+            "claim_id": _safe_text(claim.get("claim_id")),
+            "statement": _safe_text(claim.get("statement") or claim.get("claim")),
+            "claim_class": _safe_text(claim.get("claim_class")),
+            "status": _safe_text(claim.get("status")),
+            "evidence_status": evidence_status,
+            "evidence_label": {
+                "page_claim": "商品页声明",
+                "visually_observed": "自有素材可见",
+                "qualified_report": "报告已核验",
+                "needs_human_confirmation": "待人工核验",
+                "restricted": "当前禁用",
+                "forbidden": "禁止使用",
+            }.get(evidence_status, "证据状态未标注"),
+            "risk_level": _safe_text(claim.get("risk_level")),
+            "sku_scope": _string_values(claim.get("sku_scope")),
+            "allowed_wording": _string_values(claim.get("allowed_wording")),
+            "prohibited_wording": _string_values(claim.get("prohibited_wording")),
+        })
+    return cards
+
+
+def _product_fact_cards_for_refs(
+    cards: list[dict[str, Any]], refs: Any,
+) -> list[dict[str, Any]]:
+    by_ref = {card["ref"]: card for card in cards}
+    return [
+        dict(by_ref[ref]) for ref in _string_values(refs) if ref in by_ref
+    ]
+
+
+def _source_led_action_labels(actions: Any) -> list[str]:
+    return [
+        SOURCE_LED_ACTION_LABELS.get(action, action.replace("_", " "))
+        for action in _string_values(actions)
+    ]
+
+
 _CONTROL_SECTION_LABELS = {
     "content_direction": "内容方向",
     "story_pacing": "故事和节奏",
@@ -358,6 +432,49 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     synthesis = _artifact(board, "research_synthesis")
     scorecard = _artifact(board, "research_scorecard")
     annotations = _artifact(board, "research_annotations")
+    product_capture = _artifact(board, "product_page_capture")
+    product_facts = _artifact(board, "product_facts")
+    fact_cards = _product_fact_cards(product_facts)
+    capture_scope = (
+        product_capture.get("capture_scope")
+        if isinstance(product_capture.get("capture_scope"), Mapping)
+        else {}
+    )
+    required_surfaces = _string_values(capture_scope.get("required_surfaces"))
+    captured_surfaces = set(_string_values(capture_scope.get("captured_surfaces")))
+    identity = (
+        product_capture.get("page_identity")
+        if isinstance(product_capture.get("page_identity"), Mapping)
+        else {}
+    )
+    selected_sku_id = _safe_text(identity.get("selected_sku_id") or product_facts.get("sku"))
+    selected_sku_text = _safe_text(identity.get("selected_sku_text"))
+    product_fact_projection = {
+        "product_name": _safe_text(product_facts.get("product_name") or identity.get("title")),
+        "selected_sku": (
+            f"{selected_sku_text}（{selected_sku_id}）"
+            if selected_sku_text and selected_sku_id
+            else selected_sku_text or selected_sku_id
+        ),
+        "capture": {
+            "status": "已完整采集" if product_capture.get("acquisition_status") == "complete" else "仍需补充",
+            "candidate_count": int(capture_scope.get("fact_candidate_count") or 0),
+            "volatile_excluded_count": int(capture_scope.get("excluded_volatile_count") or 0),
+            "surfaces": [{
+                "id": surface,
+                "label": PRODUCT_CAPTURE_SURFACE_LABELS.get(surface, surface),
+                "captured": surface in captured_surfaces,
+            } for surface in required_surfaces],
+        },
+        "counts": {
+            "total": len(fact_cards),
+            "page_claim": sum(card["evidence_status"] == "page_claim" for card in fact_cards),
+            "visually_observed": sum(card["evidence_status"] == "visually_observed" for card in fact_cards),
+            "needs_human_confirmation": sum(card["evidence_status"] == "needs_human_confirmation" for card in fact_cards),
+            "restricted": sum(card["evidence_status"] in {"restricted", "forbidden"} for card in fact_cards),
+        },
+        "facts": fact_cards,
+    }
     files = source.get("files") if isinstance(source.get("files"), list) else []
     risks: list[str] = []
     sources: list[dict[str, Any]] = []
@@ -491,6 +608,11 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             continue
         confidence = _number(item.get("confidence"))
         resolution = _safe_text(item.get("resolution"), "pending")
+        requirements = (
+            item.get("claim_visual_requirements")
+            if isinstance(item.get("claim_visual_requirements"), Mapping)
+            else {}
+        )
         matrix_rows.append({
             "id": _safe_text(item.get("matrix_row_id"), f"matrix-{len(matrix_rows) + 1}"),
             "label": "参考镜头 × 我的素材",
@@ -503,6 +625,24 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
                 "bridge": "需要补拍或补素材", "rewrite": "改成别的表达", "omit": "删除这一镜",
             }.get(resolution, "需要确认"),
             "gap": _safe_text(item.get("unmatched_gap")),
+            "claim_ids": _string_values(item.get("claim_ids")),
+            "action_keys": _string_values(item.get("action_keys")),
+            "action_labels": _source_led_action_labels(item.get("action_keys")),
+            "product_fact_refs": _string_values(item.get("product_fact_refs")),
+            "fact_bindings": _product_fact_cards_for_refs(
+                fact_cards, item.get("product_fact_refs")
+            ),
+            "visual_route": _safe_text(item.get("visual_route")),
+            "route_label": {
+                "owned_source": "使用自有实拍",
+                "generated_from_product_image": "基于当前 SKU 商品图补充生成",
+                "omit": "不进入成片",
+            }.get(_safe_text(item.get("visual_route")), "待确定画面来源"),
+            "required_subjects": _string_values(requirements.get("required_subjects")),
+            "required_actions": _source_led_action_labels(requirements.get("required_actions")),
+            "required_results": _string_values(requirements.get("required_results")),
+            "allowed_wording": _string_values(item.get("allowed_wording")),
+            "prohibited_wording": _string_values(item.get("prohibited_wording")),
         })
     directions = []
     for item in synthesis.get("differentiation_directions") if isinstance(synthesis.get("differentiation_directions"), list) else []:
@@ -606,6 +746,7 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "substages": substages,
             "decision_inbox": decision_inbox,
             "proposal_handoff": proposal_handoff,
+            "product_facts": product_fact_projection,
             "risks": risks,
             "sources": sources,
             "template": {
@@ -733,11 +874,71 @@ def _proposal_editor(board: Mapping[str, Any]) -> dict[str, Any]:
 def _script_editor(board: Mapping[str, Any]) -> dict[str, Any]:
     script = _artifact(board, "script")
     control_plan = _artifact(board, "creative_control_plan")
+    product_facts = _artifact(board, "product_facts")
+    fact_cards = _product_fact_cards(product_facts)
+    matrix = _artifact(board, "reference_source_matrix")
+    matrix_by_id = {
+        str(row.get("matrix_row_id")): row
+        for row in matrix.get("rows") or []
+        if isinstance(row, Mapping) and row.get("matrix_row_id")
+    }
+    project_id = str(board.get("project_id") or "project")
     raw_sections = script.get("sections") if isinstance(script.get("sections"), list) else []
     sections = []
     for index, section in enumerate(raw_sections):
         if not isinstance(section, Mapping):
             continue
+        evidence_row_ids = _string_values(section.get("evidence_row_ids"))
+        evidence_rows = [matrix_by_id[row_id] for row_id in evidence_row_ids if row_id in matrix_by_id]
+        evidence_row = evidence_rows[0] if evidence_rows else {}
+        requirements = (
+            evidence_row.get("claim_visual_requirements")
+            if isinstance(evidence_row.get("claim_visual_requirements"), Mapping)
+            else section.get("claim_visual_requirements")
+            if isinstance(section.get("claim_visual_requirements"), Mapping)
+            else {}
+        )
+        selected_source = (
+            evidence_row.get("selected_source")
+            if isinstance(evidence_row.get("selected_source"), Mapping)
+            else {}
+        )
+        source_range = (
+            selected_source.get("source_time_range")
+            if isinstance(selected_source.get("source_time_range"), Mapping)
+            else {}
+        )
+        source_path = _source_preview_path(board, selected_source.get("source_path"))
+        source_frames = _string_values(selected_source.get("evidence_frames"))
+        source = None
+        if source_path:
+            source = {
+                "label": _safe_text(selected_source.get("media_id")) or Path(str(source_path)).stem,
+                "media_type": "video",
+                "preview_url": _media_url(project_id, source_path),
+                "poster_url": _thumb_url(project_id, source_frames[0]) if source_frames else None,
+                "best_in_seconds": _number(source_range.get("start_seconds")),
+                "best_out_seconds": _number(source_range.get("end_seconds_exclusive")),
+            }
+        generation_reference = (
+            evidence_row.get("generation_reference")
+            if isinstance(evidence_row.get("generation_reference"), Mapping)
+            else section.get("generation_reference")
+            if isinstance(section.get("generation_reference"), Mapping)
+            else {}
+        )
+        if source is None and generation_reference.get("local_path"):
+            reference_path = _safe_text(generation_reference.get("local_path"))
+            source = {
+                "label": "当前 SKU 纯产品参考图",
+                "media_type": "image",
+                "preview_url": _media_url(project_id, reference_path),
+                "poster_url": _thumb_url(project_id, reference_path),
+                "best_in_seconds": None,
+                "best_out_seconds": None,
+            }
+        product_fact_refs = _string_values(section.get("product_fact_refs"))
+        visual_route = _safe_text(section.get("visual_route") or evidence_row.get("visual_route"))
         sections.append({
             "id": _safe_text(section.get("id"), f"section-{index + 1}"),
             "label": _safe_text(section.get("label"), "内容"),
@@ -761,6 +962,25 @@ def _script_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             ),
             "review": _safe_text(section.get("review"), "pending"),
             "feedback": _safe_text(section.get("feedback")),
+            "claim_ids": _string_values(section.get("claim_ids")),
+            "action_keys": _string_values(section.get("action_keys")),
+            "evidence_row_ids": evidence_row_ids,
+            "product_fact_refs": product_fact_refs,
+            "fact_bindings": _product_fact_cards_for_refs(fact_cards, product_fact_refs),
+            "evidence": {
+                "route": visual_route,
+                "route_label": {
+                    "owned_source": "使用自有实拍",
+                    "generated_from_product_image": "基于当前 SKU 纯产品参考图生成",
+                    "omit": "不进入成片",
+                }.get(visual_route, "画面来源待确认"),
+                "required_subjects": _string_values(requirements.get("required_subjects")),
+                "required_actions": _source_led_action_labels(requirements.get("required_actions") or section.get("action_keys")),
+                "required_results": _string_values(requirements.get("required_results")),
+                "allowed_wording": _string_values(evidence_row.get("allowed_wording")),
+                "prohibited_wording": _string_values(evidence_row.get("prohibited_wording")),
+                "source": source,
+            },
         })
     return {
         "type": "script_editor",

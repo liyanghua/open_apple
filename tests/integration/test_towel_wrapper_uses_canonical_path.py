@@ -266,7 +266,10 @@ def test_source_led_template_readiness_blocks_unapproved_and_accepts_matching_ow
         product_facts_ref={"artifact_sha256": "b" * 64},
         differentiation_plan_ref=ref,
     )
-    run_plan = bind_slot(run_plan, "towel-A-slot-001", source="owned", source_media_id="m1", reason="proof")
+    run_plan = bind_slot(
+        run_plan, "towel-A-slot-001", source="owned", source_media_id="m1",
+        evidence_row_ids=["evidence-001"], reason="proof",
+    )
 
     assert check_template_run_plan_ready(
         run_plan, template=template, input_mode=mode,

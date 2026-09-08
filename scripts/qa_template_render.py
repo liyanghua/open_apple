@@ -31,6 +31,15 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def resolve_qa_profile(project: Path) -> tuple[str, str]:
+    lock = _load(project, "production_lock") or {}
+    output = (lock.get("locked_values") or {}).get("output") or {}
+    profile = str(output.get("profile") or "social_vertical_1080p30")
+    platform = str((lock.get("locked_values") or {}).get("platform") or "douyin")
+    safe_zone = "taobao_detail_3_4" if platform == "taobao" or "3_4" in profile else "douyin_9_16"
+    return profile, safe_zone
+
+
 def qa(run: str) -> dict:
     import sys
 
@@ -41,6 +50,7 @@ def qa(run: str) -> dict:
     from scripts.render_template_sample import build_payload
 
     runtime = build_sample_render_payload(build_payload(project))
+    qa_profile, safe_zone_profile = resolve_qa_profile(project)
     cues = runtime.get("narrationSubtitles") or []
     caption_contract = {
         key: runtime[key]
@@ -52,11 +62,14 @@ def qa(run: str) -> dict:
     prop_hash = hashlib.sha256(
         json.dumps(caption_contract, sort_keys=True, ensure_ascii=False).encode("utf-8")
     ).hexdigest()
-    boxes = layout_captions(cues, width=1080, height=1920, bottom_margin=300)
+    from lib.media_profiles import get_profile
+    profile_dims = get_profile(qa_profile)
+    boxes = layout_captions(cues, width=profile_dims.width, height=profile_dims.height,
+                            bottom_margin=round(profile_dims.height * 0.15625))
     caption_spec = {"captions": cues, "computed_boxes": boxes, "props_hash": prop_hash}
     declaration = {"caption_render_mode": "remotion_overlay",
                    "caption_source": "script.json#sections[].narration",
-                   "safe_zone_profile": "douyin_9_16"}
+                   "safe_zone_profile": safe_zone_profile}
 
     from tools.tool_registry import registry
 
@@ -65,7 +78,7 @@ def qa(run: str) -> dict:
     qa_result = qa_tool.execute({
         "mode": "full",
         "input_path": str(project / "renders/sample-v1.mp4"),
-        "expected_profile": "social_vertical_1080p30",
+        "expected_profile": qa_profile,
         "caption_declaration": declaration,
         "caption_spec": caption_spec,
         "output_path": str(project / "artifacts/final_qa_full.json"),
@@ -97,7 +110,7 @@ def qa(run: str) -> dict:
     validator = registry._tools["technical_validator"]
     common = {
         "project_id": run, "project_dir": str(project),
-        "expected_profile": "social_vertical_1080p30",
+        "expected_profile": qa_profile,
         "expected_duration_s": float(script.get("total_duration_seconds", 0)),
         "duration_tolerance_s": 0.5,
         "text_sources": text_sources, "shot_map": shot_map,

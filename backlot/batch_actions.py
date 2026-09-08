@@ -128,12 +128,15 @@ def selection_quality_failures(
                     return None
         return None
 
-    # 1) 评估报告不得为 fatal fail（SKU/价格/参数/敏感词致命项）。
+    # 1) 评估和逐镜语义对齐必须都为 pass。
     er = _read("evaluation_report")
     if not isinstance(er, dict):
         failures.append("缺少评价报告，不可选入终稿")
-    elif er.get("status") == "fail":
-        failures.append("评估报告为 fail（fatal L1a），不可选入终稿")
+    elif er.get("status") != "pass":
+        failures.append("评价报告未通过（evaluation status 必须为 pass）")
+    alignment = er.get("alignment") if isinstance(er, Mapping) else None
+    if not isinstance(alignment, Mapping) or alignment.get("status") != "pass":
+        failures.append("画面-文案-口播对齐未通过（alignment status 必须为 pass）")
     # 2) 样本五项效果确认须全部 pass（若已批准则取 review 上的确认项）。
     reviews_dir = child_dir / "operator" / "reviews"
     sample_reviews: list[dict[str, Any]] = []

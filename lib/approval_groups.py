@@ -47,6 +47,29 @@ def _write_bundle(
     return path
 
 
+def persist_approval_bundle_snapshot(
+    project_dir: Path, bundle: dict[str, Any], *, sink=None
+) -> Path:
+    """Persist a canonical bundle as the versioned state ReviewService reads."""
+    from backlot.project_write_sink import require_project_sink
+
+    require_project_sink(project_dir, sink)
+    validate_artifact("approval_bundle", bundle)
+    bundle_id = str(bundle.get("bundle_id") or "")
+    version = bundle.get("bundle_version")
+    status = str(bundle.get("status") or "")
+    if not bundle_id or Path(bundle_id).name != bundle_id:
+        raise ValueError("approval bundle_id must be a safe file name")
+    if not isinstance(version, int) or version < 1:
+        raise ValueError("approval bundle_version must be a positive integer")
+    if status != "awaiting_human":
+        raise ValueError("new approval bundle snapshot must be awaiting_human")
+    path = _bundle_dir(project_dir, create=sink is None) / (
+        f"{bundle_id}-v{version}-{status}.json"
+    )
+    return _write_bundle(path, bundle, project_dir=project_dir, sink=sink)
+
+
 def _bundle_state(project_dir: Path, bundle_id: str) -> tuple[Path, dict[str, Any]]:
     candidates = sorted(_bundle_dir(project_dir).glob(f"{bundle_id}-v*-*.json"))
     if not candidates:

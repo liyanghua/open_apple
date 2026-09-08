@@ -1187,6 +1187,76 @@ def test_research_projection_groups_only_blocking_decisions_and_exposes_proposal
     assert decided["proposal_handoff"]["selected_direction_ids"] == ["proof"]
 
 
+def test_research_projection_exposes_complete_product_fact_capture() -> None:
+    """商品页完整采集结果必须在研究工作台可见，而不是只留在后端 gate。"""
+    from backlot.operator_state import project_operator_state
+
+    board = _board_state()
+    board["artifacts"]["product_page_capture"] = {
+        "acquisition_status": "complete",
+        "page_identity": {
+            "platform": "tmall",
+            "selected_sku_id": "6276962282892",
+            "selected_sku_text": "柔胭粉",
+        },
+        "capture_scope": {
+            "required_surfaces": ["identity", "selected_sku", "parameter_table", "main_gallery", "detail_content"],
+            "captured_surfaces": ["identity", "selected_sku", "parameter_table", "main_gallery", "detail_content"],
+            "surface_evidence": {"identity": ["capture_evidence.screenshots[0]"]},
+            "fact_candidate_count": 3,
+            "excluded_volatile_count": 1,
+        },
+    }
+    board["artifacts"]["product_facts"] = {
+        "product_name": "花花公子银离子毛巾",
+        "sku": "6276962282892",
+        "claims": [
+            {
+                "claim_id": "absorb",
+                "statement": "商品页主打吸水速干",
+                "claim_class": "benefit",
+                "status": "needs_evidence",
+                "evidence_status": "page_claim",
+                "risk_level": "medium",
+                "sku_scope": ["6276962282892"],
+                "allowed_wording": ["商品页主打吸水速干"],
+                "prohibited_wording": ["一滴水瞬间吸干"],
+            },
+            {
+                "claim_id": "report-needed",
+                "statement": "检测报告正文尚未核验",
+                "claim_class": "evidence",
+                "status": "forbidden",
+                "evidence_status": "restricted",
+                "risk_level": "high",
+                "sku_scope": ["6276962282892"],
+                "allowed_wording": ["商品图展示报告缩略图"],
+                "prohibited_wording": ["权威报告已证明"],
+            },
+        ],
+    }
+
+    product = project_operator_state(board)["stages"][0]["editor"]["data"]["product_facts"]
+
+    assert product["product_name"] == "花花公子银离子毛巾"
+    assert product["selected_sku"] == "柔胭粉（6276962282892）"
+    assert product["capture"]["candidate_count"] == 3
+    assert product["capture"]["volatile_excluded_count"] == 1
+    assert [item["id"] for item in product["capture"]["surfaces"]] == [
+        "identity", "selected_sku", "parameter_table", "main_gallery", "detail_content",
+    ]
+    assert all(item["captured"] for item in product["capture"]["surfaces"])
+    assert product["counts"] == {
+        "total": 2,
+        "page_claim": 1,
+        "visually_observed": 0,
+        "needs_human_confirmation": 0,
+        "restricted": 1,
+    }
+    assert product["facts"][0]["allowed_wording"] == ["商品页主打吸水速干"]
+    assert product["facts"][1]["prohibited_wording"] == ["权威报告已证明"]
+
+
 def test_research_scorecard_uses_production_language_for_fixed_checks() -> None:
     from backlot.operator_state import project_operator_state
 

@@ -16,7 +16,12 @@ from lib.template_assets import (
     build_shot_execution_plan,
 )
 from lib.template_fork import fork_template_run
-from lib.template_mainline import _template_for_project, advance_run_full, advance_to_assets
+from lib.template_mainline import (
+    _assets_approval_summary,
+    _template_for_project,
+    advance_run_full,
+    advance_to_assets,
+)
 from lib.template_run_plan import create_template_run, check_template_run_plan_ready
 from lib.template_source_match import match_run_plan
 from schemas.artifacts import validate_artifact
@@ -98,6 +103,18 @@ def test_advance_to_assets_writes_awaiting_human_no_paid(tmp_path: Path, monkeyp
     assert review is not None
     assert review["kind"] == "creative_lock"
     assert review["subject_hash"] == cp["artifacts"]["approval_bundle"]["semantic_sha256"]
+    approved = ReviewService(tmp_path / run_id).decide(
+        review_id=review["review_id"],
+        decision="approved",
+        actor_id="test-operator",
+        reason="制作准备确认通过",
+        expected_version=review["subject_version"],
+        expected_hash=review["subject_hash"],
+    )
+    assert approved["status"] == "approved"
+    approved_checkpoint = read_checkpoint(tmp_path, run_id, "assets")
+    assert approved_checkpoint["status"] == "completed"
+    assert approved_checkpoint["human_approved"] is True
 
 
 def test_taobao_production_lock_uses_project_platform_master_profile_and_selected_cta(tmp_path: Path):
@@ -341,14 +358,24 @@ def test_generated_product_route_builds_reviewable_image_to_video_assets(tmp_pat
             "end_seconds": 4.0,
         }],
     }
-    providers = [{
-        "tool": "mock_i2v",
-        "provider": "mock",
-        "model": "mock-product-v1",
-        "estimated_cost_usd": 0.2,
-        "supports_local_reference": True,
-        "supports_native_3_4": True,
-    }]
+    providers = [
+        {
+            "tool": "mock_i2v",
+            "provider": "mock",
+            "model": "mock-product-v1",
+            "estimated_cost_usd": 0.2,
+            "supports_local_reference": True,
+            "supports_native_3_4": True,
+        },
+        {
+            "tool": "premium_i2v",
+            "provider": "premium",
+            "model": "premium-product-v1",
+            "estimated_cost_usd": 1.2,
+            "supports_local_reference": True,
+            "supports_native_3_4": True,
+        },
+    ]
 
     shot_plan = build_shot_execution_plan(
         project,
@@ -389,12 +416,25 @@ def test_generated_product_route_builds_reviewable_image_to_video_assets(tmp_pat
     assert generated["exists"] is False
     assert generated["provider"] == "mock"
     assert generated["model"] == "mock-product-v1"
+    assert generated["cost_estimate_usd"] == 0.2
     assert generated["generation_reference"] == generation_reference
     assert generated["generation_plan"]["selected_provider_candidate"] == providers[0]
     assert generated["generation_plan"]["approval_subject_hash"] == proposal["approval_subject_hash"]
     assert "source_selection" not in generated
     validate_artifact("shot_execution_plan", shot_plan)
     validate_artifact("asset_plan", attach_hashes(plan))
+
+
+def test_assets_approval_summary_discloses_generated_and_paid_work() -> None:
+    summary = _assets_approval_summary({
+        "planned_assets": [
+            {"type": "video_proxy", "paid": False},
+            {"type": "generated_video", "paid": True, "cost_estimate_usd": 0.202},
+        ]
+    })
+
+    assert "1 个商品图生成镜头" in summary
+    assert "预计付费 $0.20" in summary
 
 
 def test_shot_execution_plan_keeps_core_evidence_without_product_page(tmp_path: Path):

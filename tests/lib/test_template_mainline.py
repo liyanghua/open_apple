@@ -10,6 +10,7 @@ from lib.checkpoint import get_completed_stages, get_next_stage
 from lib.template_fork import fork_template_run
 from lib.template_mainline import (
     advance_run_full,
+    load_or_build_edit_decisions,
     build_decision_log,
     build_hook_plan,
     build_proposal,
@@ -24,6 +25,24 @@ from schemas.artifacts import validate_artifact
 ROOT = Path(__file__).resolve().parents[2]
 REAL_SOURCE = ROOT / "projects/table-mat-mix-v8"
 PACK = ROOT / "projects/template-pack-library/artifacts/template_pack.json"
+
+
+def test_load_or_build_edit_decisions_reconstructs_missing_canonical_artifact(tmp_path: Path):
+    project = tmp_path / "run"
+    (project / "artifacts").mkdir(parents=True)
+    (project / "artifacts" / "shot_execution_plan.json").write_text(
+        '{"shots":[{"id":"shot-01","duration_seconds":2,"scene_id":"scene-001",'
+        '"screen_copy":"吸水","render_asset_path":"assets/video/shot-01.mp4"}]}',
+        encoding="utf-8",
+    )
+    (project / "artifacts" / "scene_plan.json").write_text(
+        '{"scenes":[{"id":"scene-001","transition_recipe_intent":"proof"}]}',
+        encoding="utf-8",
+    )
+    edit = load_or_build_edit_decisions(project)
+    assert edit["cuts"][0]["id"] == "shot-01"
+    assert edit["cuts"][0]["source"] == "assets/video/shot-01.mp4"
+    assert edit["caption_render_mode"] == "remotion_overlay"
 
 
 def _fresh_run(tmp_path: Path, template_id: str, template: dict, facts: dict) -> Path:

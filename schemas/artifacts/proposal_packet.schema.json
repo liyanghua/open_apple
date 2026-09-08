@@ -43,7 +43,7 @@
           "target_audience": { "type": "string", "description": "Specific audience segment this angle serves best" },
           "target_platform": {
             "type": "string",
-            "enum": ["youtube", "instagram", "tiktok", "linkedin", "generic"]
+            "enum": ["youtube", "instagram", "tiktok", "linkedin", "taobao", "generic"]
           },
           "target_duration_seconds": { "type": "number", "minimum": 1 },
           "key_points": {

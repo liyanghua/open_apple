@@ -21,16 +21,28 @@
     "quality": {"type": "object", "required": ["usable", "confidence", "risks"], "properties": {"usable": {"type": "boolean"}, "confidence": {"type": "number", "minimum": 0, "maximum": 1}, "risks": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false},
     "entry": {
       "type": "object",
-      "required": ["media_id", "source_path", "source_hash", "interval", "observed_subject", "observed_actions", "observed_results", "allowed_claim_ids", "crop_safety", "quality", "representative_frames"],
+      "required": ["media_id", "source_path", "source_hash", "interval", "observed_subject", "observed_actions", "observed_results", "evidence_class", "allowed_claim_ids", "crop_safety", "quality", "representative_frames"],
       "properties": {
         "media_id": {"type": "string", "minLength": 1}, "source_path": {"type": "string", "minLength": 1}, "source_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "interval": {"$ref": "#/$defs/interval"},
         "observed_subject": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "observed_actions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "observed_results": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "evidence_class": {"enum": ["identity", "static_feature", "dynamic_action", "dynamic_result", "measurement", "metaphor_prop"]},
+        "measurement_type": {"type": "string", "minLength": 1},
+        "temporal_evidence": {
+          "type": "object",
+          "required": ["before", "action", "result"],
+          "properties": {"before": {"$ref": "#/$defs/interval"}, "action": {"$ref": "#/$defs/interval"}, "result": {"$ref": "#/$defs/interval"}},
+          "additionalProperties": false
+        },
         "allowed_claim_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "crop_safety": {"$ref": "#/$defs/crop_safety"}, "quality": {"$ref": "#/$defs/quality"},
         "representative_frames": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
       },
+      "allOf": [
+        {"if": {"properties": {"evidence_class": {"const": "measurement"}}, "required": ["evidence_class"]}, "then": {"required": ["measurement_type"]}},
+        {"if": {"properties": {"evidence_class": {"not": {"const": "measurement"}}}, "required": ["evidence_class"]}, "then": {"not": {"required": ["measurement_type"]}}}
+      ],
       "additionalProperties": false
     }
   },

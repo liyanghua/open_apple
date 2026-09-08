@@ -617,22 +617,54 @@ def _resolve_served_media(project_dir: Path, file_path: str) -> tuple[Path, str 
     ``PROJECTS_DIR``) and carry the source project id so the caller can re-check
     its ACL — projects-root containment is NOT a project-level authorization.
     """
+    def reviewed_owned_target(owner_dir: Path, relative: Path, target: Path) -> bool:
+        relative_text = relative.as_posix()
+        if not relative_text.startswith("inputs/source/"):
+            return False
+        review_path = owner_dir / "artifacts" / "source_media_review.json"
+        try:
+            review = json.loads(review_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        if isinstance(review, dict) and isinstance(review.get("data"), dict):
+            review = review["data"]
+        approved_paths = {
+            str(item.get("path") or "").replace("\\", "/")
+            for item in (review.get("files") or [])
+            if isinstance(item, dict) and item.get("reviewed") is True
+        }
+        return relative_text in approved_paths and target.is_file()
+
     parts = [part for part in file_path.split("/") if part not in {"", "."}]
     if parts and parts[0] == "projects":
-        target = (PROJECTS_DIR.parent / file_path).resolve()
+        lexical = Path(_os.path.abspath(PROJECTS_DIR.parent / file_path))
         try:
-            relative = target.relative_to(PROJECTS_DIR.resolve())
+            relative = lexical.relative_to(PROJECTS_DIR.resolve())
         except ValueError:
             raise HTTPException(status_code=403, detail="path escapes projects")
         if not relative.parts:
             raise HTTPException(status_code=403, detail="shared media project is missing")
         source_project = relative.parts[0]
+        owner_dir = PROJECTS_DIR / source_project
+        owner_relative = Path(*relative.parts[1:])
+        target = lexical.resolve()
+        try:
+            target.relative_to(owner_dir.resolve())
+        except ValueError:
+            if not reviewed_owned_target(owner_dir, owner_relative, target):
+                raise HTTPException(status_code=403, detail="path escapes projects")
         return target, source_project
-    target = (project_dir / file_path).resolve()
+    lexical = Path(_os.path.abspath(project_dir / file_path))
+    try:
+        relative = lexical.relative_to(project_dir.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="path escapes project")
+    target = lexical.resolve()
     try:
         target.relative_to(project_dir.resolve())
     except ValueError:
-        raise HTTPException(status_code=403, detail="path escapes project")
+        if not reviewed_owned_target(project_dir, relative, target):
+            raise HTTPException(status_code=403, detail="path escapes project")
     return target, None
 
 

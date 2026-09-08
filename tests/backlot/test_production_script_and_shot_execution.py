@@ -84,3 +84,70 @@ def test_operator_projection_uses_production_language_and_shot_execution_cards()
     assert script["status"] == "draft"
     assert script["sections"][0]["section_goal"] == "让用户相信"
     assert assets["execution_plan"]["shots"][0]["generation_proposals"][0]["evidence_risk"] == "生成演示"
+
+
+def test_script_projection_exposes_claim_action_and_source_evidence_for_review() -> None:
+    """脚本人工门必须能直接核对口播、画面动作、商品事实与素材证据。"""
+    from backlot.operator_state import _script_editor
+
+    board = {
+        "project_id": "demo",
+        "artifacts": {
+            "script": {
+                "status": "draft",
+                "total_duration_seconds": 7.2,
+                "sections": [{
+                    "id": "sec-1",
+                    "label": "倒水证明",
+                    "narration": "一股水浇下，湿润范围清楚可见",
+                    "screen_copy": "商品页主打吸水速干",
+                    "start_seconds": 0,
+                    "end_seconds": 7.2,
+                    "claim_ids": ["absorb"],
+                    "action_keys": ["continuous_pour_water", "water_contacts_towel"],
+                    "evidence_row_ids": ["evidence-1"],
+                    "product_fact_refs": ["product_facts.claims[0]"],
+                    "visual_route": "owned_source",
+                }],
+            },
+            "product_facts": {"claims": [{
+                "claim_id": "absorb",
+                "statement": "商品页主打吸水速干",
+                "claim_class": "benefit",
+                "status": "needs_evidence",
+                "evidence_status": "page_claim",
+                "risk_level": "medium",
+                "sku_scope": ["sku-1"],
+                "allowed_wording": ["一股水浇下，湿润范围清楚可见"],
+                "prohibited_wording": ["一滴水瞬间吸干"],
+            }]},
+            "reference_source_matrix": {"rows": [{
+                "matrix_row_id": "evidence-1",
+                "visual_route": "owned_source",
+                "required_evidence_class": "dynamic_result",
+                "claim_visual_requirements": {
+                    "required_subjects": ["毛巾", "连续水流", "湿润区域"],
+                    "required_actions": ["continuous_pour_water", "water_contacts_towel"],
+                    "required_results": ["水流停止后留下清晰湿润区域"],
+                },
+                "selected_source": {
+                    "media_id": "pour-demo",
+                    "source_path": "inputs/source/pour-demo.mp4",
+                    "source_time_range": {"start_seconds": 0, "end_seconds_exclusive": 7.2},
+                    "evidence_frames": ["analysis/media/pour/frame_0002.jpg"],
+                },
+            }]},
+        },
+    }
+
+    section = _script_editor(board)["data"]["sections"][0]
+
+    assert section["claim_ids"] == ["absorb"]
+    assert section["action_keys"] == ["continuous_pour_water", "water_contacts_towel"]
+    assert section["evidence_row_ids"] == ["evidence-1"]
+    assert section["fact_bindings"][0]["statement"] == "商品页主打吸水速干"
+    assert section["fact_bindings"][0]["evidence_status"] == "page_claim"
+    assert section["evidence"]["required_results"] == ["水流停止后留下清晰湿润区域"]
+    assert section["evidence"]["source"]["label"] == "pour-demo"
+    assert section["evidence"]["source"]["preview_url"].endswith("/inputs/source/pour-demo.mp4")
+    assert section["evidence"]["source"]["best_out_seconds"] == 7.2

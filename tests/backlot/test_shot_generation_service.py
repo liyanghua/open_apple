@@ -307,6 +307,68 @@ def test_source_led_template_shot_generation_rejects_mismatched_batch_ref(tmp_pa
         ShotGenerationService(project, selector=FakeSelector(), run_async=False).quote(shot_id="shot-1", proposal_id="proposal-1", quality="fast")
 
 
+def test_source_led_template_uses_run_local_authoritative_template_pack(tmp_path, monkeypatch) -> None:
+    import lib.template_batch as template_batch
+
+    project = _project(tmp_path)
+    marker = json.loads((project / "project.json").read_text(encoding="utf-8"))
+    marker.update({
+        "input_mode": "source_led_template",
+        "template_prior": {
+            "present": True,
+            "template_pack_ref": "artifacts/template_pack.json",
+            "usage": "structural_only",
+        },
+    })
+    (project / "project.json").write_text(json.dumps(marker), encoding="utf-8")
+    template = {
+        "template_id": "local-template",
+        "slots": [
+            {"slot_id": "slot-1", "duration_s": 5.0},
+            {"slot_id": "slot-2", "duration_s": 5.0},
+            {"slot_id": "slot-3", "duration_s": 5.0},
+        ],
+    }
+    (project / "artifacts" / "template_pack.json").write_text(
+        json.dumps({"templates": [template]}), encoding="utf-8"
+    )
+    diff_ref = {
+        "name": "differentiation_plan",
+        "path": "artifacts/differentiation_plan.json",
+        "artifact_sha256": "e" * 64,
+    }
+    run_plan = {
+        "status": "approved",
+        "template_id": "local-template",
+        "differentiation_plan_ref": diff_ref,
+        "slot_bindings": [
+            {
+                "slot_id": f"slot-{index}",
+                "source": "owned",
+                "source_media_id": f"m-{index}",
+                "evidence_row_ids": [f"evidence-{index}"],
+                "reason": "r",
+            }
+            for index in range(1, 4)
+        ],
+        "caption_policy": {"copy_reference_caption": False},
+    }
+    (project / "artifacts" / "template_run_plan.json").write_text(
+        json.dumps(run_plan), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        template_batch,
+        "resolve_run_batch_differentiation_ref",
+        lambda *_: ("source_led_template", diff_ref),
+    )
+
+    quote = ShotGenerationService(
+        project, selector=FakeSelector(), run_async=False
+    ).quote(shot_id="shot-1", proposal_id="proposal-1", quality="fast")
+
+    assert quote["shot_id"] == "shot-1"
+
+
 def test_adopting_a_standard_clip_updates_execution_plan_and_asset_manifest_together(tmp_path) -> None:
     selector = FakeSelector()
     service = ShotGenerationService(_project(tmp_path), selector=selector, run_async=False)

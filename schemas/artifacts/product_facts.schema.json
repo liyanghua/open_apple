@@ -8,6 +8,7 @@
   "properties": {
     "version": { "type": "string", "const": "1.0" },
     "product_name": { "type": "string", "minLength": 1 },
+    "product_id": { "type": "string", "minLength": 1 },
     "sku": { "type": "string", "description": "商品编号/型号（如 TM-2mm）" },
     "price": { "type": "string", "description": "价格（如 49.9元 / ¥49.9）" },
     "params": {
@@ -49,12 +50,25 @@
         "required": ["claim", "status"],
         "properties": {
           "claim": { "type": "string", "minLength": 1, "description": "产品主张（如 0甲醛）" },
+          "claim_id": { "type": "string", "minLength": 1 },
+          "statement": { "type": "string", "minLength": 1 },
+          "claim_class": { "enum": ["identity", "feature", "advantage", "benefit", "evidence"] },
           "status": {
             "type": "string",
             "enum": ["authorized", "needs_evidence", "forbidden"],
             "description": "authorized=可直接声称 / needs_evidence=仅在有证据时声称 / forbidden=禁止声称"
           },
           "evidence": { "type": "string", "description": "证据出处（如 检测报告/画面实测）" }
+          ,"evidence_status": { "enum": ["page_claim", "visually_observed", "qualified_report", "needs_human_confirmation", "restricted", "forbidden"] }
+          ,"sku_scope": { "type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1} }
+          ,"provenance_refs": { "type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1} }
+          ,"product_page_refs": { "type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^product_page_capture\\.fact_candidates\\[[0-9]+\\]$"} }
+          ,"page_asset_ids": { "type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1} }
+          ,"page_evidence_ids": { "type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1} }
+          ,"required_visual_evidence": { "type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1} }
+          ,"allowed_wording": { "type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1} }
+          ,"prohibited_wording": { "type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1} }
+          ,"risk_level": { "enum": ["low", "medium", "high"] }
         },
         "additionalProperties": false
       },

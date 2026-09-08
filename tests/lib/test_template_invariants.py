@@ -310,6 +310,24 @@ def test_tts_lock_binds_voice_and_rate(tmp_path: Path):
     assert _tts_lock_valid(lock, "测试文案", speech_rate=0) is False      # voice 变化
 
 
+def test_tts_generation_reuses_cached_fitted_rate(tmp_path: Path):
+    """已适配到非零语速的 TTS 不应因默认 0 档检查而重复付费请求。"""
+    import json as _json
+    from scripts.gen_template_audio import cached_tts_fit
+
+    audio = tmp_path / "narration-s004.mp3"
+    lock = tmp_path / "narration-s004.mp3.lock.json"
+    meta = tmp_path / "narration-s004.mp3.json"
+    audio.write_bytes(b"audio")
+    lock.write_text(_json.dumps({
+        "text_sha": "a" * 64, "speech_rate": 30,
+        "voice_id": "zh_female_vv_uranus_bigtts", "resource_id": "seed-tts-2.0",
+        "format": "mp3"}), encoding="utf-8")
+    meta.write_text(_json.dumps({"sentences": [{"endTime": 2.79}]}), encoding="utf-8")
+
+    assert cached_tts_fit(lock, meta, "a" * 64, slot_s=3.0) == 30
+
+
 def test_bgm_source_lock_binds_prompt(tmp_path: Path):
     """不变量 9（评审 P1-2）：BGM 源复用必须绑定 prompt/model/instrumental 锁。"""
     import json as _json

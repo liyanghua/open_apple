@@ -513,18 +513,16 @@ def build_asset_plan(
                     },
                 })
                 included_references.add(reference_id)
-            known_costs = [
-                float(item["estimated_cost_usd"])
-                for item in proposal.get("provider_candidates") or []
-                if isinstance(item, Mapping)
-                and isinstance(item.get("estimated_cost_usd"), (int, float))
-            ]
+            selected_candidate = proposal.get("selected_provider_candidate") or {}
+            selected_cost = selected_candidate.get("estimated_cost_usd")
+            if not isinstance(selected_cost, (int, float)) or isinstance(selected_cost, bool):
+                selected_cost = 0.0
             planned.append({
                 "id": f"generated-shot-{i:02d}",
                 "type": "generated_video",
-                "provider": str((proposal.get("selected_provider_candidate") or {}).get("provider") or "selection_pending"),
-                "model": str((proposal.get("selected_provider_candidate") or {}).get("model") or "selection_pending"),
-                "cost_estimate_usd": max(known_costs) if known_costs else 0.0,
+                "provider": str(selected_candidate.get("provider") or "selection_pending"),
+                "model": str(selected_candidate.get("model") or "selection_pending"),
+                "cost_estimate_usd": float(selected_cost),
                 "paid": True,
                 "output_path": f"assets/video/shot-{i:02d}-generated.mp4",
                 "source_stage": "assets",
@@ -664,14 +662,21 @@ def build_approval_bundle(project: Path, sp: dict, shot_plan: dict, asset_plan: 
     })
     approval_scope = "clean_reference" if paid_cleanup_hashes else "image_to_video" if paid_video_hashes else None
     approval_subject_hashes = paid_cleanup_hashes or paid_video_hashes
+    bundle_id = f"{project.name}-creative_lock"
+    previous_versions = []
+    for path in (project / "artifacts" / "approvals").glob(f"{bundle_id}-v*-*.json"):
+        try:
+            previous_versions.append(int(path.name.split("-v", 1)[1].split("-", 1)[0]))
+        except (IndexError, ValueError):
+            continue
     return {
         "version": "1.0",
         "project_id": project.name,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "producer": "template-asset-director@1.0",
         "input_hashes": {"scene_plan": str(sp.get("artifact_sha256") or "a" * 64)},
-        "bundle_id": f"{project.name}-creative_lock",
-        "bundle_version": 1,
+        "bundle_id": bundle_id,
+        "bundle_version": max(previous_versions or [0]) + 1,
         "group": "creative_lock",
         "terminal_stage": "assets",
         "members": members,
@@ -762,6 +767,8 @@ def sync_assets_artifacts(project: Path, template: dict, *, pipeline_dir: Path, 
     env_map = {"shot_execution_plan": shot_env, "asset_plan": asset_env, "production_lock": lock_env}
     bundle = build_approval_bundle(project, sp, shot_plan, asset_env["data"], lock_env["data"], envelope_map=env_map)
     bundle_env = write_artifact_atomic("artifacts/approval_bundle.json", "approval_bundle", bundle, project_dir=project, sink=sink)
+    from lib.approval_groups import persist_approval_bundle_snapshot
+    persist_approval_bundle_snapshot(project, bundle_env["data"], sink=sink)
     refresh_checkpoint_envelopes(pipeline_dir, project.name, pipeline_type=PIPELINE)
     return {"shot_execution_plan": shot_env, "asset_plan": asset_env,
             "production_lock": lock_env, "approval_bundle": bundle_env}
@@ -804,5 +811,7 @@ def build_assets(project: Path, template: dict, *, pipeline_dir: Path, sink=None
                                            ("production_lock", lock_env))}
     bundle = build_approval_bundle(project, sp, shot_plan, asset_env["data"], lock_env["data"], envelope_map=env_map)
     bundle_env = write_artifact_atomic("artifacts/approval_bundle.json", "approval_bundle", bundle, project_dir=project, sink=sink)
+    from lib.approval_groups import persist_approval_bundle_snapshot
+    persist_approval_bundle_snapshot(project, bundle_env["data"], sink=sink)
     return {"shot_execution_plan": shot_env, "asset_plan": asset_env,
             "production_lock": lock_env, "approval_bundle": bundle_env}

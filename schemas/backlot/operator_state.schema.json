@@ -1293,6 +1293,18 @@
               },
               "additionalProperties": false
             },
+            "product_facts": {
+              "type": "object",
+              "required": ["product_name", "selected_sku", "capture", "counts", "facts"],
+              "properties": {
+                "product_name": {"type": "string"},
+                "selected_sku": {"type": "string"},
+                "capture": {"type": "object", "additionalProperties": true},
+                "counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+                "facts": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+              },
+              "additionalProperties": false
+            },
             "risks": {
               "type": "array",
               "items": {
@@ -1895,6 +1907,30 @@
         },
         "feedback": {
           "type": "string"
+        },
+        "claim_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "action_keys": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "evidence_row_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "product_fact_refs": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "fact_bindings": {
+          "type": "array",
+          "items": {"type": "object", "additionalProperties": true}
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": true
         }
       },
       "additionalProperties": false

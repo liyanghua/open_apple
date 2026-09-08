@@ -219,8 +219,6 @@ def test_fastline_production_stages_require_an_approved_director_control_plan(
     _enforce_approved_creative_control_plan(
         project_dir, "cinematic-fast", stage, "completed"
     )
-
-
 def test_fastline_director_control_plan_does_not_block_a_heartbeat(tmp_path) -> None:
     _enforce_approved_creative_control_plan(
         tmp_path / "run", "cinematic-fast", "script", "in_progress"

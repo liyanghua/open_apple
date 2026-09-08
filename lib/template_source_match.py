@@ -662,7 +662,17 @@ def material_reuse_report(scene_plan: Mapping[str, Any]) -> dict[str, Any]:
         dur = float(m["timeline_interval"]["end_seconds_exclusive"]) - float(m["timeline_interval"]["start_seconds"])
         durations[stem] = durations.get(stem, 0.0) + dur
         index_by_stem.setdefault(stem, []).append(idx)
-        w = (float(m["source_interval"]["start_seconds"]), float(m["source_interval"]["end_seconds_exclusive"]))
+        source_interval = m.get("source_interval") or {}
+        if source_interval:
+            w = (float(source_interval.get("start_seconds", 0.0)),
+                 float(source_interval.get("end_seconds_exclusive", 0.0)))
+        else:
+            # Generated-from-product-image shots have no owned-footage window;
+            # use their timeline window for reuse accounting without treating
+            # the missing source interval as a publish error.
+            timeline = m.get("timeline_interval") or {}
+            w = (float(timeline.get("start_seconds", 0.0)),
+                 float(timeline.get("end_seconds_exclusive", 0.0)))
         windows.setdefault(stem, []).append(w)
     n_materials = len({s.replace("product_透明桌垫-", "") for s in stems}) if stems else 1
     adjacent_same = sum(1 for i in range(1, len(stems)) if stems[i] == stems[i - 1])

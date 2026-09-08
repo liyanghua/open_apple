@@ -234,8 +234,6 @@ def _validate_source_led_scene_mapping(
         mapped_ids.append(scene_id)
         source_path = mapping.get("source_path")
         source = owned_sources.get(source_path)
-        if source is None:
-            raise ValueError(f"mapping for {scene_id!r} must use a reviewed owned source path")
         evidence = mapping.get("reference_evidence")
         if not isinstance(evidence, dict):
             raise ValueError(f"mapping for {scene_id!r} requires reference_evidence")
@@ -258,13 +256,70 @@ def _validate_source_led_scene_mapping(
             value = mapping.get(field)
             if value not in (None, [], ""):
                 raise ValueError(f"source-led scene mapping must not include {field}")
-        source_start, source_end = interval(mapping.get("source_interval"), "source_interval")
         timeline_start, timeline_end = interval(mapping.get("timeline_interval"), "timeline_interval")
         scene = scene_by_id[scene_id]
         if not math.isclose(timeline_start, float(scene.get("start_seconds")), abs_tol=1e-6) or not math.isclose(
             timeline_end, float(scene.get("end_seconds")), abs_tol=1e-6
         ):
             raise ValueError(f"timeline_interval for {scene_id!r} must match canonical scene timing")
+        row = None
+        if reference_source_matrix is not None:
+            primary_row_id = mapping.get("matrix_row_id")
+            if mapping.get("evidence_row_ids") != [primary_row_id]:
+                raise ValueError(
+                    f"mapping for {scene_id!r} matrix_row_id requires evidence_row_ids == [matrix_row_id]"
+                )
+            row = matrix_rows.get(primary_row_id)
+            if row is None or row.get("resolution") == "pending":
+                raise ValueError(f"mapping for {scene_id!r} requires a resolved research matrix row")
+            visual_route = row.get("visual_route") or "owned_source"
+            if mapping.get("visual_route", visual_route) != visual_route:
+                raise ValueError(f"mapping for {scene_id!r} visual_route must equal matrix row")
+            if scene.get("visual_route", visual_route) != visual_route:
+                raise ValueError(f"scene {scene_id!r} visual_route must equal matrix row")
+            if mapping.get("matrix_resolution_id") != row.get("resolution"):
+                raise ValueError(f"mapping for {scene_id!r} must use the research matrix resolution")
+            direction_ref = mapping.get("research_direction_ref")
+            if not nonempty(direction_ref):
+                raise ValueError(f"mapping for {scene_id!r} requires research_direction_ref")
+            if research_synthesis is not None:
+                directions = {
+                    item.get("direction_id") for item in research_synthesis.get("differentiation_directions", [])
+                    if isinstance(item, dict)
+                }
+                if direction_ref not in directions:
+                    raise ValueError(f"mapping for {scene_id!r} references an unknown research direction")
+            if visual_route == "generated_from_product_image":
+                fabricated = [
+                    field for field in ("source_path", "source_interval", "source_hash")
+                    if field in mapping
+                ]
+                if fabricated:
+                    raise ValueError(
+                        f"mapping for {scene_id!r} generated route must not contain "
+                        f"owned-source fields: {fabricated!r}"
+                    )
+                expected_reference = row.get("generation_reference")
+                if mapping.get("generation_reference") != expected_reference:
+                    raise ValueError(
+                        f"mapping for {scene_id!r} generation_reference must equal matrix row"
+                    )
+                if scene.get("generation_reference") != expected_reference:
+                    raise ValueError(
+                        f"scene {scene_id!r} generation_reference must equal matrix row"
+                    )
+                if mapping.get("generation_spec") != row.get("generation_spec"):
+                    raise ValueError(
+                        f"mapping for {scene_id!r} generation_spec must equal matrix row"
+                    )
+                continue
+            if visual_route != "owned_source":
+                raise ValueError(
+                    f"mapping for {scene_id!r} has unsupported visual_route {visual_route!r}"
+                )
+        if source is None:
+            raise ValueError(f"mapping for {scene_id!r} must use a reviewed owned source path")
+        source_start, source_end = interval(mapping.get("source_interval"), "source_interval")
         probe = source.get("technical_probe")
         duration = probe.get("duration_seconds") if isinstance(probe, dict) else None
         if source.get("media_type") in {"video", "audio"} and (
@@ -391,6 +446,24 @@ def _validate_source_led_scene_mapping(
                 raise ValueError(
                     f"mapping for {scene_id!r} must stay within the approved research matrix source interval"
                 )
+            if row.get("requires_visible_result") is True:
+                temporal = row.get("temporal_evidence")
+                if not isinstance(temporal, dict):
+                    raise ValueError(
+                        f"mapping for {scene_id!r} requires temporal before/action/result evidence"
+                    )
+                missing_phases: list[str] = []
+                for phase in ("before", "action", "result"):
+                    phase_start, phase_end = interval(
+                        temporal.get(phase), f"temporal_evidence.{phase}"
+                    )
+                    if source_start >= phase_end or source_end <= phase_start:
+                        missing_phases.append(phase)
+                if missing_phases:
+                    raise ValueError(
+                        f"mapping for {scene_id!r} temporal coverage must include "
+                        "before, action, and result; missing " + ", ".join(missing_phases)
+                    )
     if len(mapped_ids) != len(set(mapped_ids)) or set(mapped_ids) != set(scene_by_id):
         raise ValueError("scene_plan requires exactly one mapping per scene")
 
@@ -485,7 +558,7 @@ def _validate_artifacts_for_stage(
             contract_v2 = manifest.get("artifact_contract_version") == 2
             if contract_v2:
                 required_artifacts = get_stage_produces(
-                    manifest, stage, input_mode=input_mode
+                    manifest, stage, input_mode=input_mode, context=input_context
                 )
         except Exception:
             contract_v2 = False
@@ -902,6 +975,7 @@ def init_project(
     input_mode: Optional[str] = None,
     external_reference: Any = None,
     template_prior: Any = None,
+    product_input: Any = None,
     owned_source_root: Optional[str] = None,
 ) -> Path:
     """Initialize a project workspace with the canonical layout + marker file.
@@ -914,7 +988,12 @@ def init_project(
     Returns the project directory.
     """
     _validate_style_playbook(style_playbook)
-    from lib.pipeline_loader import INPUT_MODES, _normalise_external_reference, _normalise_template_prior
+    from lib.pipeline_loader import (
+        INPUT_MODES,
+        _normalise_external_reference,
+        _normalise_product_input,
+        _normalise_template_prior,
+    )
     if input_mode is not None and input_mode not in INPUT_MODES:
         raise ValueError(f"Invalid input_mode {input_mode!r}; expected one of {sorted(INPUT_MODES)}")
     base = pipeline_dir or PROJECTS_DIR
@@ -957,6 +1036,9 @@ def init_project(
     template = _normalise_template_prior(
         template_prior if template_prior is not None else marker.get("template_prior")
     )
+    product = _normalise_product_input(
+        product_input if product_input is not None else marker.get("product_input")
+    )
     if mode in {"source_led", "source_led_template"} and (
         external.get("present") or external.get("paths")
     ):
@@ -990,6 +1072,7 @@ def init_project(
     marker["input_mode"] = mode
     marker["external_reference"] = external
     marker["template_prior"] = template
+    marker["product_input"] = product
     marker["owned_source_root"] = owned_source_root or marker.get("owned_source_root") or "inputs/source"
     if input_mode is not None:
         marker.pop("input_mode_legacy_compat", None)

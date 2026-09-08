@@ -333,6 +333,70 @@ def test_dynamic_result_scene_interval_must_cover_before_action_and_result() -> 
         )
 
 
+def test_checkpoint_scene_validation_accepts_generated_product_image_route() -> None:
+    artifacts = _build_artifacts("source_led_template")
+    matrix = artifacts["reference_source_matrix"]
+    row = matrix["rows"][0]
+    reference = {
+        "asset_id": "page-asset-selected-sku-clean-v1",
+        "parent_asset_id": "page-asset-selected-sku",
+        "local_path": "assets/product_page/derived/sku-clean-v1.png",
+        "sha256": "b" * 64,
+        "sku_scope": ["sku-1"],
+    }
+    generation_spec = {
+        "operation": "image_to_video",
+        "required_actions": ["continuous_pour_water"],
+        "required_results": ["visible_water_contact_result"],
+        "evidence_role": "visual_expression_only",
+    }
+    row.update({
+        "visual_route": "generated_from_product_image",
+        "generation_reference": deepcopy(reference),
+        "generation_spec": deepcopy(generation_spec),
+    })
+    for field in ("source_media_id", "source_hash", "source_time_range"):
+        row.pop(field, None)
+    scene_plan = {
+        "scenes": [{
+            "id": "s1", "shot_intent": "商品图生成的吸水动作表达",
+            "start_seconds": 0, "end_seconds": 2,
+            "visual_route": "generated_from_product_image",
+            "generation_reference": deepcopy(reference),
+        }],
+        "metadata": {"reference_media_usage": "not_applicable", "source_mapping": [{
+            "scene_id": "s1",
+            "timeline_interval": {"start_seconds": 0, "end_seconds_exclusive": 2},
+            "reference_evidence": {
+                "mode": "structural_only", "mechanism": "模板仅提供结构",
+                "rationale": "商品语义来自商品事实与商品图",
+            },
+            "reference_basis": "商品页事实声明 + 已审核纯产品参考图",
+            "source_fit": "无合格自有素材，使用图生视频表达",
+            "mapping_reason": "图生视频补足视觉缺口",
+            "originality_note": "商品身份来自本商品参考图",
+            "matrix_row_id": row["matrix_row_id"],
+            "evidence_row_ids": [row["matrix_row_id"]],
+            "matrix_resolution_id": row["resolution"],
+            "research_direction_ref": "direction-1",
+            "visual_route": "generated_from_product_image",
+            "generation_reference": deepcopy(reference),
+            "generation_spec": deepcopy(generation_spec),
+        }]},
+    }
+
+    _validate_source_led_scene_mapping(
+        scene_plan,
+        input_mode="source_led_template",
+        source_media_review={"files": []},
+        source_semantic_index=artifacts["source_semantic_index"],
+        reference_source_matrix=matrix,
+        research_synthesis={
+            "differentiation_directions": [{"direction_id": "direction-1"}]
+        },
+    )
+
+
 def test_roller_action_without_visible_result_cannot_support_absorption() -> None:
     observation = _observation()
     observation["observed_actions"] = ["roller_move"]

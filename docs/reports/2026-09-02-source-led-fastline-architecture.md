@@ -141,3 +141,18 @@ stage51 verify_alignment → 五维语义对齐审计（写 alignment_check.json
   契约一致，属实现差异而非缺口
 - master 2160×2880 字幕字号/安全区需按 profile 等比换算（当前按 1080 宽标定）
 - 单次全量回归基线：tests/ 全绿（见评价文档）
+
+## 11. 规范索引（2026-09-08）
+
+主链升级的规范正文见 [`2026-09-08-source-led-taobao-upgrade-standard.md`](2026-09-08-source-led-taobao-upgrade-standard.md)。该规范将以下内容提升为 MUST 约束：
+
+- source-led 与 reference-driven 的输入模式边界；
+- 商品事实、主图/SKU 图和视觉要求的可追溯契约；
+- `owned_source` / `generated_from_product_image` / `omit` 三态覆盖路由；
+- 逐镜事实—画面—口播—花字键控对齐；
+- 淘宝 3:4 字幕 treatment、profile 和真实尺寸校验；
+- 审核工作台逐镜可解释性与审批事务一致性；
+- Research、Script、Assets、Sample、L1a、Final QA 的质量门；
+- 代码、Skills 与 Agent 判断的职责边界。
+
+本架构文档描述数据流和阶段关系；升级规范描述验收合同；实施计划描述 TDD 任务顺序，三者共同构成主链升级基线。

@@ -135,6 +135,30 @@ def _normalise_template_prior(value: Any) -> dict[str, Any]:
     return {"present": False, "usage": "not_applicable"}
 
 
+def _normalise_product_input(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {
+            "product_url": None,
+            "browser_acquisition": "not_applicable",
+            "selected_sku_confirmation": "manual_or_uploaded_materials",
+        }
+    if not isinstance(value, dict):
+        raise PipelineManifestError("product_input must be an object")
+    result = dict(value)
+    url = result.get("product_url")
+    if url is not None and (not isinstance(url, str) or not url.startswith(("https://", "http://"))):
+        raise PipelineManifestError("product_input.product_url must be an HTTP(S) URL")
+    result.setdefault(
+        "browser_acquisition",
+        "required_when_url_present" if url else "not_applicable",
+    )
+    result.setdefault(
+        "selected_sku_confirmation",
+        "required" if url else "manual_or_uploaded_materials",
+    )
+    return result
+
+
 def load_input_context(project_dir: str | Path) -> dict[str, Any]:
     """Load and normalize the project's input-mode contract.
 
@@ -158,6 +182,7 @@ def load_input_context(project_dir: str | Path) -> dict[str, Any]:
         )
     external = _normalise_external_reference(marker.get("external_reference"))
     template = _normalise_template_prior(marker.get("template_prior"))
+    product_input = _normalise_product_input(marker.get("product_input"))
     owned_root = marker.get("owned_source_root") or "inputs/source"
     if not isinstance(owned_root, str) or not owned_root.strip():
         raise PipelineManifestError("owned_source_root must be a non-empty path")
@@ -203,6 +228,7 @@ def load_input_context(project_dir: str | Path) -> dict[str, Any]:
         "input_mode": mode,
         "external_reference": external,
         "template_prior": template,
+        "product_input": product_input,
         "owned_source_root": owned_root,
         "legacy_compat": legacy_compat,
     }
@@ -438,7 +464,12 @@ def get_stage_required_artifacts(
     ``input_mode`` wins when both are supplied.
     """
     mode = input_mode or (context or {}).get("input_mode")
-    return _resolve_mode_artifacts(manifest, stage_name, "required", mode)
+    result = _resolve_mode_artifacts(manifest, stage_name, "required", mode)
+    if stage_name == "research" and (context or {}).get("product_input", {}).get("product_url"):
+        for name in ("product_page_capture", "product_asset_ledger", "product_facts"):
+            if name not in result:
+                result.append(name)
+    return result
 
 
 def get_stage_produces(
@@ -447,7 +478,12 @@ def get_stage_produces(
 ) -> list[str]:
     """Return mode-resolved artifacts declared as produced by a stage."""
     mode = input_mode or (context or {}).get("input_mode")
-    return _resolve_mode_artifacts(manifest, stage_name, "produces", mode)
+    result = _resolve_mode_artifacts(manifest, stage_name, "produces", mode)
+    if stage_name == "research" and (context or {}).get("product_input", {}).get("product_url"):
+        for name in ("product_page_capture", "product_asset_ledger", "product_facts"):
+            if name not in result:
+                result.append(name)
+    return result
 
 
 # Descriptive alias used by stage directors and external integrations.

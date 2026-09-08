@@ -431,13 +431,24 @@ def build_semantic_alignment(
             repair_reasons.append("action_support_weak")
         product_match = dimensions["product_identity_match"] or ("fail" if source_led else "pass")
         actual_product_id = str(actual.get("product_id") or actual.get("product_name") or actual.get("sku") or "").strip()
-        if source_led and planned_actions:
+        # Owned footage must carry canonical product metadata in the realized
+        # scene.  A generated-from-product-image shot has a different identity
+        # proof: the approved clean-reference hash plus the generated identity
+        # check below.  Requiring an absent ``scene.product_id`` here would
+        # incorrectly fail every valid I2V shot before those checks run.
+        if source_led and planned_actions and not generated_route:
             if not canonical_product_id:
                 product_match = "fail"
                 reasons.append("product_identity_unverified")
             elif product_match != "pass" or (actual_product_id and actual_product_id != canonical_product_id):
                 product_match = "fail"
                 reasons.append("product_identity_mismatch")
+        elif source_led and generated_route and product_match == "fail":
+            # Generated I2V shots still need the VLM identity check to agree
+            # with the approved clean product reference.  Keep this explicit
+            # hard-failure code so the reviewer can distinguish identity drift
+            # from text/logo or timing problems.
+            reasons.append("product_identity_mismatch")
         caption_match = dimensions["narration_caption_match"] or ("fail" if source_led else "pass")
         if check.get("caption_conflict") is True or caption_match == "fail":
             caption_match = "fail"

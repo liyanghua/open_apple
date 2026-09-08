@@ -81,8 +81,9 @@ def _child_with_review(tmp_path: Path, candidate_id: str, kind: str = "sample") 
     })
     # P1 质量门要求：评估报告（非 fatal）+ 已批准的样本 review（五项确认全 pass）。
     _write(child / "artifacts" / "evaluation_report.json", {
-        "version": "1.0", "project_id": candidate_id, "status": "revise",
-        "hard_gate": {"pass": False, "checks": []}, "recommended_action": "repair",
+        "version": "1.0", "project_id": candidate_id, "status": "pass",
+        "alignment": {"status": "pass"},
+        "hard_gate": {"pass": True, "checks": []}, "recommended_action": "approve",
     })
     approved = dict(_review(candidate_id, "sample", review_id=f"{candidate_id}-sample-v2-approved"))
     approved["status"] = "approved"
@@ -257,7 +258,17 @@ def test_script_gate_derives_review_from_checkpoint(tmp_path: Path):
         "timestamp": "2026-08-23T00:00:00+00:00",
         "artifacts": {"script": {"name": "script", "path": "artifacts/script.json",
                                  "semantic_sha256": "a" * 64, "artifact_sha256": "b" * 64,
-                                 "data": {"version": "1.0"}}},
+                                     "data": {
+                                         "version": "1.0",
+                                         "title": "候选脚本",
+                                         "total_duration_seconds": 2.0,
+                                         "sections": [{
+                                             "id": "section-01",
+                                             "text": "真实动作，真实结果",
+                                             "start_seconds": 0.0,
+                                             "end_seconds": 2.0,
+                                         }],
+                                     }}},
     })
     service = _service(tmp_path, batch_dir)
     revision, _ = service._current_revision()

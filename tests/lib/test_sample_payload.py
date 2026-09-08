@@ -202,6 +202,40 @@ def test_caption_style_passthrough_and_recipe_from_scene_plan() -> None:
     assert payload["captionRecipes"]["shot-01"]["recipe_id"] == "keyword-highlight"
 
 
+def test_taobao_default_caption_treatment_is_large_vertical_flower_text() -> None:
+    """No-reference Taobao runs still get the approved two-layer text treatment."""
+    result = build_sample_render_payload({
+        "final_props": {
+            "fps": 30, "durationInFrames": 90,
+            "scenes": [{
+                "id": "shot-01", "assetId": "proxy-01", "fromFrame": 0,
+                "toFrameExclusive": 90, "sourceInSeconds": 0.0, "sourceOutSeconds": 3.0,
+            }],
+            "captions": [{"text": "吸水速干", "startMs": 0, "endMs": 3000}],
+        },
+        "asset_manifest": {"assets": [
+            {"id": "proxy-01", "path": "a.mp4", "duration_seconds": 3.0},
+        ]},
+        "caption_style_fingerprint": {"applicability": "not_applicable"},
+    })
+
+    assert result["captionStyle"] == {
+        "fontFamily": "Long Cang",
+        "fontSize": 112,
+        "emphasizeFontSize": 132,
+        "fontWeight": 800,
+        "fillColor": "#FFF7E8",
+        "strokeColor": "#3A1710",
+        "strokeWidthPx": 5,
+        "backgroundColor": "transparent",
+        "opacity": 1,
+        "position": "topleft",
+        "entranceAnimation": "pop",
+        "bottomOffsetPx": 180,
+        "vertical": True,
+    }
+
+
 def test_sample_payload_derives_narration_subtitle_track_from_script() -> None:
     """两层字幕：script.sections[].narration -> bottom SafeCaptionTrack cues."""
     result = build_sample_render_payload({
@@ -263,3 +297,50 @@ def test_sample_payload_omits_narration_track_without_script() -> None:
         "renderer_family": "explainer-data",
     })
     assert "narrationSubtitles" not in result
+
+
+def test_sample_payload_maps_narration_to_realized_sample_timeline() -> None:
+    """选入样片的镜头可能重排，口播字幕必须跟随 realized scenes 而非原脚本绝对时间。"""
+    result = build_sample_render_payload({
+        "final_props": {
+            "fps": 30,
+            "durationInFrames": 396,
+            "scenes": [
+                {"id": "shot-01", "section_id": "sec-001", "assetId": "proxy-01",
+                 "fromFrame": 0, "toFrameExclusive": 216,
+                 "sourceInSeconds": 0, "sourceOutSeconds": 7.2},
+                {"id": "shot-02", "section_id": "sec-002", "assetId": "proxy-02",
+                 "fromFrame": 216, "toFrameExclusive": 306,
+                 "sourceInSeconds": 0, "sourceOutSeconds": 3.0},
+                {"id": "shot-09", "section_id": "sec-009", "assetId": "proxy-09",
+                 "fromFrame": 306, "toFrameExclusive": 396,
+                 "sourceInSeconds": 0, "sourceOutSeconds": 3.0},
+            ],
+            "captions": [
+                {"text": "吸水速干", "startMs": 0, "endMs": 7200},
+                {"text": "双面毛圈", "startMs": 7200, "endMs": 10200},
+                {"text": "银离子净护", "startMs": 10200, "endMs": 13200},
+            ],
+        },
+        "asset_manifest": {"assets": [
+            {"id": "proxy-01", "path": "a.mp4", "duration_seconds": 7.2},
+            {"id": "proxy-02", "path": "b.mp4", "duration_seconds": 3.0},
+            {"id": "proxy-09", "path": "c.mp4", "duration_seconds": 3.0},
+        ]},
+        "script": {"sections": [
+            {"id": "sec-001", "narration": "一股水浇下，湿润范围清楚可见",
+             "start_seconds": 0.0, "end_seconds": 7.2},
+            {"id": "sec-002", "narration": "毛圈纹理特写，细节清楚可见",
+             "start_seconds": 7.2, "end_seconds": 10.2},
+            {"id": "sec-009", "narration": "商品页主打AG+银离子净护",
+             "start_seconds": 27.1, "end_seconds": 30.1},
+        ]},
+    })
+
+    assert result["narrationSubtitles"] == [
+        {"text": "一股水浇下，湿润范围清楚可见", "startMs": 0, "endMs": 7200},
+        {"text": "毛圈纹理特写，细节清楚可见", "startMs": 7200, "endMs": 10200},
+        {"text": "商品页主打AG+银离子净护", "startMs": 10200, "endMs": 13200},
+    ]
+    assert result["captionSafeZoneProfile"] == "taobao_detail_3_4"
+    assert result["narrationSafeZoneProfile"] == "taobao_detail_3_4"

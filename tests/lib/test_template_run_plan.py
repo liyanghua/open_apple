@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from lib.artifact_hashing import attach_hashes
 from lib.template_batch import create_template_batch, mark_pilot
-from lib.template_run_plan import bind_slot, create_template_run, select_pilot
+from lib.template_run_plan import (
+    approve_template_run_plan,
+    bind_slot,
+    create_template_run,
+    select_pilot,
+)
 from schemas.artifacts import validate_artifact
 
 PACK_REF = {"artifact_sha256": "a" * 64, "version": "1.0"}
@@ -70,6 +75,59 @@ def test_mark_pilot_sets_pilot_ids():
     assert batch["pilot_run_ids"] == ["sheet-01-video1-aks-zhuodian"]
 
 
+def test_approve_template_run_plan_records_narrow_human_decision(tmp_path, monkeypatch):
+    import json
+
+    from lib.artifact_io import write_artifact_atomic
+    import lib.template_source_match as source_match
+
+    project = tmp_path / "template-run-pilot"
+    (project / "artifacts").mkdir(parents=True)
+    (project / "project.json").write_text(json.dumps({
+        "project_id": project.name,
+        "pipeline_type": "cinematic-fast",
+        "input_mode": "reference_driven",
+    }), encoding="utf-8")
+    template = {"template_id": "pilot-template", "slots": [{"slot_id": "slot-01"}]}
+    run_plan = create_template_run(
+        template, template_pack_ref=PACK_REF, product_facts_ref=FACTS_REF,
+    )
+    run_plan = bind_slot(
+        run_plan, "slot-01", source="owned", source_media_id="media-01",
+        reason="人工审核通过的自有素材",
+    )
+    write_artifact_atomic(
+        "artifacts/template_run_plan.json", "template_run_plan", run_plan,
+        project_dir=project,
+    )
+    write_artifact_atomic(
+        "artifacts/decision_log.json", "decision_log",
+        {"version": "1.0", "project_id": project.name, "decisions": []},
+        project_dir=project,
+    )
+    monkeypatch.setattr(source_match, "is_template_calibrated", lambda _template_id: True)
+    monkeypatch.setattr(source_match, "capacity_verdict", lambda _template: None)
+
+    result = approve_template_run_plan(
+        project,
+        pipeline_dir=tmp_path,
+        template=template,
+        actor_id="operator-user",
+        reason="分镜与模板执行计划通过，进入制作准备",
+    )
+
+    persisted = json.loads((project / "artifacts" / "template_run_plan.json").read_text())
+    log = json.loads((project / "artifacts" / "decision_log.json").read_text())
+    assert persisted["status"] == "approved"
+    assert result["template_run_plan"]["data"]["status"] == "approved"
+    decision = log["decisions"][-1]
+    assert decision["category"] == "batch_approval"
+    assert decision["selected"] == "run-plan-approved"
+    assert decision["user_approved"] is True
+    assert "付费生成" not in decision["reason"]
+    assert "发布" not in decision["reason"]
+
+
 def test_template_run_plan_hard_gate_rejects_violations():
     import jsonschema
     from schemas.artifacts import validate_artifact
@@ -133,6 +191,122 @@ def test_check_template_run_plan_ready_fail_closed():
         "status": "approved", "slot_bindings": [{"slot_id": "x", "source": "nope", "reason": "r"}]})["ready"] is False
     assert check_template_run_plan_ready({
         "status": "approved", "slot_bindings": [{"slot_id": "o", "source": "owned", "reason": "r"}]})["ready"] is False
+
+
+def test_source_led_template_owned_binding_requires_one_explicit_evidence_row() -> None:
+    from lib.template_run_plan import check_template_run_plan_ready
+    from schemas.artifacts import validate_artifact
+
+    base = {
+        "version": "1.0", "run_id": "r", "template_id": "t",
+        "template_pack_ref": {"artifact_sha256": "a" * 64, "version": "1.0"},
+        "product_facts_ref": {"artifact_sha256": "b" * 64},
+        "adaptation_policy": "proof-first", "status": "approved",
+        "differentiation_plan_ref": {"name": "differentiation_plan", "path": "artifacts/differentiation_plan.json", "artifact_sha256": "d" * 64},
+        "slot_bindings": [{"slot_id": "s1", "source": "owned", "source_media_id": "m", "reason": "r"}],
+        "caption_policy": {"reference_text": "analysis_only", "copy_reference_caption": False},
+    }
+    missing = check_template_run_plan_ready(base, input_mode="source_led_template")
+    assert any("evidence_row_ids" in blocker for blocker in missing["blockers"])
+
+    explicit = {**base, "slot_bindings": [{
+        **base["slot_bindings"][0], "evidence_row_ids": ["evidence-001-claim-001"],
+    }]}
+    validate_artifact("template_run_plan", explicit)
+    result = check_template_run_plan_ready(explicit, input_mode="source_led_template")
+    assert not any("evidence_row_ids" in blocker for blocker in result["blockers"])
+
+
+def test_source_led_template_uses_bound_evidence_capacity_not_legacy_product_pool(monkeypatch) -> None:
+    from lib.template_run_plan import check_template_run_plan_ready
+    import lib.template_source_match as source_match
+
+    template = {
+        "template_id": "yinlizi-aligned-A",
+        "slots": [
+            {"slot_id": f"s{index}", "duration_s": 7.2 if index == 1 else 3.0}
+            for index in range(1, 10)
+        ],
+    }
+    ref = {
+        "name": "differentiation_plan",
+        "path": "artifacts/differentiation_plan.json",
+        "artifact_sha256": "d" * 64,
+    }
+    plan = {
+        "status": "approved",
+        "template_id": template["template_id"],
+        "differentiation_plan_ref": ref,
+        "caption_policy": {"reference_text": "analysis_only", "copy_reference_caption": False},
+        "slot_bindings": [
+            {
+                "slot_id": f"s{index}",
+                "source": "owned",
+                "source_media_id": f"towel-media-{index}",
+                "evidence_row_ids": [f"evidence-{index:03d}"],
+                "reason": "人工审核证据绑定",
+            }
+            for index in range(1, 10)
+        ],
+    }
+    monkeypatch.setattr(
+        source_match,
+        "is_template_calibrated",
+        lambda _template_id: (_ for _ in ()).throw(AssertionError("legacy calibration used")),
+    )
+    monkeypatch.setattr(
+        source_match,
+        "capacity_verdict",
+        lambda _template: (_ for _ in ()).throw(AssertionError("legacy capacity used")),
+    )
+
+    result = check_template_run_plan_ready(
+        plan,
+        template=template,
+        input_mode="source_led_template",
+        authoritative_differentiation_plan_ref=ref,
+    )
+
+    assert result == {"ready": True, "unbound_slots": [], "blockers": []}
+
+
+def test_source_led_template_rejects_one_media_over_one_third_of_timeline() -> None:
+    from lib.template_run_plan import check_template_run_plan_ready
+
+    template = {
+        "template_id": "towel",
+        "slots": [
+            {"slot_id": "s1", "duration_s": 5.0},
+            {"slot_id": "s2", "duration_s": 3.0},
+            {"slot_id": "s3", "duration_s": 2.0},
+        ],
+    }
+    ref = {
+        "name": "differentiation_plan",
+        "path": "artifacts/differentiation_plan.json",
+        "artifact_sha256": "d" * 64,
+    }
+    plan = {
+        "status": "approved",
+        "template_id": "towel",
+        "differentiation_plan_ref": ref,
+        "caption_policy": {"reference_text": "analysis_only", "copy_reference_caption": False},
+        "slot_bindings": [
+            {"slot_id": "s1", "source": "owned", "source_media_id": "same-media", "evidence_row_ids": ["e1"], "reason": "r"},
+            {"slot_id": "s2", "source": "owned", "source_media_id": "media-2", "evidence_row_ids": ["e2"], "reason": "r"},
+            {"slot_id": "s3", "source": "owned", "source_media_id": "media-3", "evidence_row_ids": ["e3"], "reason": "r"},
+        ],
+    }
+
+    result = check_template_run_plan_ready(
+        plan,
+        template=template,
+        input_mode="source_led_template",
+        authoritative_differentiation_plan_ref=ref,
+    )
+
+    assert result["ready"] is False
+    assert any("H2" in blocker and "same-media" in blocker for blocker in result["blockers"])
 
 
 def test_readiness_requires_complete_unique_template_slot_coverage():

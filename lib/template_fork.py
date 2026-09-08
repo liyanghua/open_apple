@@ -10,6 +10,7 @@ run 的 `checkpoint.get_next_stage` 从 proposal 开始。这与 `lib.batch_fork
 """
 from __future__ import annotations
 
+import copy
 import json
 import shutil
 from pathlib import Path
@@ -34,6 +35,61 @@ SHARED_RESEARCH_ARTIFACTS = (
 )
 
 RESEARCH_CHECKPOINT_ARTIFACTS = SHARED_RESEARCH_ARTIFACTS
+
+
+def adapt_shared_research_artifact(
+    name: str,
+    data: Mapping[str, Any],
+    *,
+    target_input_mode: str | None,
+) -> dict[str, Any]:
+    """Adapt source-owned evidence provenance to a template run's mode.
+
+    A source-led-template run is still grounded in the same owned observations,
+    but validators require its semantic index and matrix to state the consumer
+    mode explicitly.  Only those mode discriminators change; reference fields
+    remain null and template text never becomes evidence.
+    """
+    result = copy.deepcopy(dict(data))
+    if target_input_mode != "source_led_template":
+        return result
+    if name == "source_semantic_index" and result.get("input_mode") == "source_led":
+        result["input_mode"] = "source_led_template"
+    elif name == "reference_source_matrix" and result.get("matrix_mode") == "source_led":
+        result["matrix_mode"] = "source_led_template"
+    elif name == "research_brief":
+        metadata = result.get("metadata")
+        if isinstance(metadata, Mapping) and metadata.get("input_mode") == "source_led":
+            result["metadata"] = {**dict(metadata), "input_mode": "source_led_template"}
+    return result
+
+
+def shared_research_artifact_names(source_project_dir: Path) -> tuple[str, ...]:
+    """Return the canonical Research artifact set owned by the source checkpoint.
+
+    Reference-driven projects keep the legacy ten-artifact bundle.  Source-led
+    projects deliberately omit synthetic reference artifacts and may add the
+    semantic index plus browser product-page evidence.  Treating the source
+    checkpoint as the ownership manifest prevents a fork from silently
+    re-introducing ``video_analysis_brief``/``reference_fingerprint`` or
+    dropping ``source_semantic_index``.
+    """
+    checkpoint_path = Path(source_project_dir) / "checkpoint_research.json"
+    try:
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return SHARED_RESEARCH_ARTIFACTS
+    artifacts = checkpoint.get("artifacts")
+    if not isinstance(artifacts, Mapping):
+        return SHARED_RESEARCH_ARTIFACTS
+    names = tuple(
+        str(name)
+        for name in artifacts
+        if isinstance(name, str)
+        and name
+        and (Path(source_project_dir) / "artifacts" / f"{name}.json").is_file()
+    )
+    return names or SHARED_RESEARCH_ARTIFACTS
 
 
 def materialize_template_run_provenance(
@@ -69,7 +125,7 @@ def materialize_template_run_provenance(
 def shared_research_refs(source_project_dir: Path) -> list[dict[str, Any]]:
     """从共享研究源项目读取 9+ 制品的 artifact_sha256 引用，供 template_batch 记录。"""
     refs: list[dict[str, Any]] = []
-    for name in SHARED_RESEARCH_ARTIFACTS:
+    for name in shared_research_artifact_names(source_project_dir):
         path = source_project_dir / "artifacts" / f"{name}.json"
         if not path.is_file():
             continue
@@ -93,12 +149,24 @@ def fork_template_run(
     template_prior: Mapping[str, Any] | None = None,
     template_pack_path: Path | None = None,
     batch_project_id: str | None = None,
+    product_input: Mapping[str, Any] | None = None,
 ) -> Path:
     """把一个 template run 项目播种为可从 proposal 开始的 main-chain 项目。
 
     幂等：重复运行刷新共享研究副本（同内容=同 hash），写回 completed research checkpoint。
     不覆盖 run 已有的 template_run_plan / product_facts。
     """
+    if product_input is None:
+        try:
+            source_marker = json.loads(
+                (Path(source_project_dir) / "project.json").read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            source_marker = {}
+        inherited_product_input = source_marker.get("product_input")
+        if isinstance(inherited_product_input, Mapping):
+            product_input = dict(inherited_product_input)
+
     project_dir = init_project(
         run_project,
         title=f"Template run {run_project}",
@@ -106,6 +174,7 @@ def fork_template_run(
         pipeline_dir=pipeline_dir,
         input_mode=input_mode,
         template_prior=template_prior,
+        product_input=product_input,
         owned_source_root="inputs/source",
     )
     if template_pack_path is not None:
@@ -118,7 +187,8 @@ def fork_template_run(
         )
 
     # 1) 复制共享研究制品
-    for name in SHARED_RESEARCH_ARTIFACTS:
+    research_names = shared_research_artifact_names(source_project_dir)
+    for name in research_names:
         source = source_project_dir / "artifacts" / f"{name}.json"
         if not source.is_file():
             continue
@@ -131,6 +201,15 @@ def fork_template_run(
     if analysis_source.is_dir():
         shutil.copytree(analysis_source, project_dir / "analysis", dirs_exist_ok=True)
 
+    # Raw owned footage remains single-copy.  A project-local link preserves
+    # the canonical ``inputs/source/...`` paths consumed by Scene/Assets while
+    # avoiding multi-gigabyte duplication for every candidate run.
+    source_inputs = source_project_dir / "inputs" / "source"
+    run_inputs = project_dir / "inputs" / "source"
+    if source_inputs.is_dir() and not run_inputs.exists():
+        run_inputs.parent.mkdir(parents=True, exist_ok=True)
+        run_inputs.symlink_to(source_inputs.resolve(), target_is_directory=True)
+
     # 3) 复制共享商品事实（若已有 run 自有卡则保留，不覆盖）
     if product_facts_path is not None and product_facts_path.is_file():
         target = project_dir / "artifacts" / "product_facts.json"
@@ -140,11 +219,15 @@ def fork_template_run(
 
     # 4) 重建信封 + 写 completed research checkpoint（research 无人门，可完成）。
     envelopes: dict[str, dict[str, Any]] = {}
-    for name in RESEARCH_CHECKPOINT_ARTIFACTS:
+    for name in research_names:
         path = project_dir / "artifacts" / f"{name}.json"
         if not path.is_file():
             continue
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = adapt_shared_research_artifact(
+            name,
+            json.loads(path.read_text(encoding="utf-8")),
+            target_input_mode=input_mode,
+        )
         envelopes[name] = write_artifact_atomic(
             f"artifacts/{name}.json", name, data, project_dir=project_dir
         )

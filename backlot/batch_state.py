@@ -738,7 +738,8 @@ def derive_candidate_business(
 
     workflow_revision：取「当前门」(script→assets→sample 顺序首个有 review 的门)
     的 subject_version（审批/内容版本，不是随产物变化的 child_revision）。
-    selection_eligible：仅服务端派生——sample 门 approved 且评价报告存在（evaluate 非空）。
+    selection_eligible：仅服务端派生——sample 门 approved，且
+    evaluation_report.status 与 alignment.status 均为 pass。
     """
     import re as _re
 
@@ -783,6 +784,10 @@ def derive_candidate_business(
         block = "尚未通过样片确认"
     elif not evaluate:
         block = "评分报告缺失或未生成"
+    elif evaluate.get("status") != "pass":
+        block = "评价报告未通过"
+    elif not isinstance(evaluate.get("alignment"), Mapping) or evaluate["alignment"].get("status") != "pass":
+        block = "画面-文案-口播对齐未通过"
     else:
         eligible = True
     return {

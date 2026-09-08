@@ -64,6 +64,31 @@ def test_match_run_plan_exact_action_first_then_explicit_reuse():
     assert all(r for r in reasons)  # 每个绑定都有理由
 
 
+def test_source_led_match_preserves_explicit_evidence_locked_bindings(monkeypatch):
+    from lib import template_source_match as source_match
+
+    slots = [
+        {"slot_id": "s1", "ordinal": 1, "duration_s": 2.0},
+        {"slot_id": "s2", "ordinal": 2, "duration_s": 2.0},
+    ]
+    run = {
+        "template_id": "internal-structure-only",
+        "slot_bindings": [
+            {"slot_id": "s1", "source": "owned", "source_media_id": "towel-water", "reason": "accepted evidence row"},
+            {"slot_id": "s2", "source": "owned", "source_media_id": "towel-texture", "reason": "accepted evidence row"},
+        ],
+    }
+    monkeypatch.setattr(source_match, "_clip_stems", lambda: ["some-other-clip"])
+
+    assigned = source_match.match_run_plan(slots, run, preserve_existing=True)
+
+    assert assigned == {"s1": "towel-water", "s2": "towel-texture"}
+    assert [item["reason"] for item in run["slot_bindings"]] == [
+        "accepted evidence row",
+        "accepted evidence row",
+    ]
+
+
 
 _BALANCED_STEMS = [
     "product_透明桌垫-防油易擦拭",

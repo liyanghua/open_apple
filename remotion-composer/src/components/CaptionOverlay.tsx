@@ -161,10 +161,11 @@ const PageRenderer: React.FC<{
     : interpolate(entrance, [0, 1], [20, 0]);
 
   const profile = SAFE_ZONE_PROFILES[safeZoneProfile];
+  const canvasScale = safeZoneProfile === "taobao_detail_3_4" ? width / 1080 : 1;
   const pageText = page.words.map((word) => word.word).join(" ");
   // 竖排书法花字：一列一列堆叠，宽不受限，字号给大（80+）保证可读。
   const fittedFontSize = vertical
-    ? Math.max(fontSize, 80)
+    ? Math.max(fontSize * canvasScale, 80 * canvasScale)
     : fitCjkFontSize(pageText, {
         fontMin: Math.min(fontMin, fontSize, fontMax),
         fontMax: Math.min(fontSize, fontMax),
@@ -179,8 +180,8 @@ const PageRenderer: React.FC<{
           ? {
               justifyContent: "flex-start",
               alignItems: "flex-start",
-              paddingTop: Math.round(height * 0.1),
-              paddingLeft: Math.round(width * 0.1),
+              paddingTop: Math.round(profile.top * canvasScale),
+              paddingLeft: Math.round(profile.left * canvasScale),
               paddingBottom: 0,
             }
           : { justifyContent: "flex-end", alignItems: "center", paddingBottom: bottomOffsetPx };
@@ -225,11 +226,9 @@ const PageRenderer: React.FC<{
                     fontSize: fittedFontSize,
                     fontWeight,
                     fontFamily: effectiveFontFamily,
-                    // 尊重已批准样式：color(=fillColor)/strokeColor/strokeWidthPx。
-                    // 细笔画字体若样式带粗描边可致填充被盖，故这里也叠加柔阴影保可读性。
                     color,
-                    WebkitTextStroke: strokeWidthPx > 0 ? `${strokeWidthPx}px ${strokeColor}` : undefined,
-                    textShadow: "0 3px 8px rgba(0,0,0,0.8)",
+                    WebkitTextStroke: strokeWidthPx > 0 ? `${strokeWidthPx * canvasScale}px ${strokeColor}` : undefined,
+                    textShadow: "0 3px 8px rgba(58,23,16,0.88), 0 0 14px rgba(255,247,232,0.38)",
                     display: "block",
                     lineHeight: 1.15,
                   }}

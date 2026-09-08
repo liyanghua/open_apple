@@ -317,6 +317,92 @@ def test_source_led_scene_and_mapping_equal_the_script_evidence_contract() -> No
     )
 
 
+def _generated_scene_contract() -> tuple[dict, dict, dict]:
+    generation_reference = {
+        "asset_id": "page-asset-main-03-clean-v1",
+        "parent_asset_id": "page-asset-main-03",
+        "local_path": "assets/product_page/derived/main-03-clean-v1.png",
+        "sha256": "d" * 64,
+        "sku_scope": ["6276962282892"],
+    }
+    generation_spec = {
+        "operation": "image_to_video",
+        "required_actions": ["continuous_pour_water", "water_contacts_towel"],
+        "required_results": ["visible_water_contact_result"],
+        "evidence_role": "visual_expression_only",
+    }
+    matrix = _matrix()
+    matrix["rows"][0].update({
+        "visual_route": "generated_from_product_image",
+        "generation_reference": deepcopy(generation_reference),
+        "generation_spec": deepcopy(generation_spec),
+    })
+    for field in ("source_media_id", "source_hash", "source_time_range"):
+        matrix["rows"][0].pop(field, None)
+
+    script = _script()
+    script["sections"][0].update({
+        "visual_route": "generated_from_product_image",
+        "generation_reference": deepcopy(generation_reference),
+    })
+
+    plan = _scene_plan()
+    plan["scenes"][0].update({
+        "visual_route": "generated_from_product_image",
+        "generation_reference": deepcopy(generation_reference),
+    })
+    mapping = plan["metadata"]["source_mapping"][0]
+    mapping.update({
+        "visual_route": "generated_from_product_image",
+        "generation_reference": deepcopy(generation_reference),
+        "generation_spec": deepcopy(generation_spec),
+    })
+    for field in ("source_path", "source_hash", "source_interval"):
+        mapping.pop(field, None)
+    return plan, script, matrix
+
+
+def test_source_led_scene_accepts_generated_route_without_owned_source_interval() -> None:
+    plan, script, matrix = _generated_scene_contract()
+
+    validate_artifact("scene_plan", plan)
+    validate_scene_evidence_closure(
+        plan, script, matrix, input_mode="source_led_template"
+    )
+
+
+@pytest.mark.parametrize("owner", ["scene", "mapping"])
+def test_source_led_generated_scene_rejects_route_or_reference_drift(owner: str) -> None:
+    plan, script, matrix = _generated_scene_contract()
+    target = (
+        plan["scenes"][0]
+        if owner == "scene"
+        else plan["metadata"]["source_mapping"][0]
+    )
+    target["generation_reference"] = {
+        "asset_id": "page-asset-wrong",
+        "sha256": "e" * 64,
+    }
+
+    with pytest.raises(ValueError, match="generation_reference.*evidence row"):
+        validate_scene_evidence_closure(
+            plan, script, matrix, input_mode="source_led_template"
+        )
+
+
+def test_source_led_generated_mapping_rejects_fabricated_owned_source_fields() -> None:
+    plan, script, matrix = _generated_scene_contract()
+    plan["metadata"]["source_mapping"][0]["source_interval"] = {
+        "start_seconds": 0,
+        "end_seconds_exclusive": 2,
+    }
+
+    with pytest.raises(ValueError, match="must not contain owned-source fields"):
+        validate_scene_evidence_closure(
+            plan, script, matrix, input_mode="source_led_template"
+        )
+
+
 @pytest.mark.parametrize("owner", ["scene", "mapping"])
 def test_source_led_scene_rejects_evidence_drift(owner: str) -> None:
     plan = _scene_plan()

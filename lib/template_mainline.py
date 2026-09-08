@@ -1801,6 +1801,26 @@ def advance_run_full(
     return get_completed_stages(PDIR, run, PIPELINE)
 
 
+def _assets_approval_summary(asset_plan: Mapping[str, Any]) -> str:
+    planned = [
+        item for item in asset_plan.get("planned_assets", [])
+        if isinstance(item, Mapping)
+    ]
+    owned_count = sum(item.get("type") == "video_proxy" for item in planned)
+    generated = [item for item in planned if item.get("type") == "generated_video"]
+    if not generated:
+        return f"assets 待审批（{owned_count} 个自有素材镜头，无付费视频生成）"
+    paid_cost = sum(
+        float(item.get("cost_estimate_usd") or 0)
+        for item in generated
+        if item.get("paid") is True
+    )
+    return (
+        f"assets 待审批（{owned_count} 个自有素材镜头 + "
+        f"{len(generated)} 个商品图生成镜头；预计付费 ${paid_cost:.2f}）"
+    )
+
+
 def advance_to_assets(run: str, *, pipeline_dir: Path | None = None,
                       output_profile: str | None = None,
                       approve_script: bool = False) -> str:
@@ -1842,8 +1862,9 @@ def advance_to_assets(run: str, *, pipeline_dir: Path | None = None,
         envs = build_assets(project, template, pipeline_dir=PDIR, sink=sink,
                             output_profile=output_profile)
         bundle = envs["approval_bundle"]["data"]
+        asset_summary = _assets_approval_summary(envs["asset_plan"]["data"])
         write_checkpoint(PDIR, run, "assets", "awaiting_human", envs, pipeline_type=PIPELINE,
-                         next_action={"summary": "assets 待审批（全 owned，无 paid 生成）", "verb": "await_user",
+                         next_action={"summary": asset_summary, "verb": "await_user",
                                       "context_refs": ["artifacts/shot_execution_plan.json", "artifacts/asset_plan.json"]},
                          sink=sink)
         reviews.stage_create(
@@ -1961,7 +1982,7 @@ def advance_edit(run: str, *, pipeline_dir: Path | None = None) -> str:
     if "edit" in get_completed_stages(PDIR, run, PIPELINE):
         return str(get_next_stage(PDIR, run, PIPELINE) or "none")
     from lib.template_render import build_change_impact
-    edit_decisions = _load(project / "artifacts" / "edit_decisions.json")
+    edit_decisions = load_or_build_edit_decisions(project)
     lock = _load(project / "artifacts" / "production_lock.json")
     lock_hash = str((lock or {}).get("artifact_sha256") or "a" * 64)
     ci = build_change_impact(project, previous_lock_hash=lock_hash, current_lock_hash=lock_hash,
@@ -1976,6 +1997,40 @@ def advance_edit(run: str, *, pipeline_dir: Path | None = None) -> str:
                                                        ci, project_dir=project, sink=sink)}
         write_checkpoint(PDIR, run, "edit", "completed", envs, pipeline_type=PIPELINE, next_action=None, sink=sink)
     return str(get_next_stage(PDIR, run, PIPELINE) or "none")
+
+
+def load_or_build_edit_decisions(project: Path) -> dict[str, Any]:
+    """Return the canonical edit timeline, rebuilding it after sample approval if absent.
+
+    The sample director historically persisted ``final_props`` and ``render_plan``
+    without the edit artifact.  The edit gate must be resumable from those approved
+    inputs rather than passing ``None`` into the artifact writer or inventing a new
+    timeline.  Rebuilding is deterministic and reuses the approved shot/scene map.
+    """
+    existing = _load(project / "artifacts" / "edit_decisions.json")
+    if isinstance(existing, dict):
+        return existing
+
+    shots_doc = _load(project / "artifacts" / "shot_execution_plan.json") or {}
+    shots = shots_doc.get("shots") or []
+    if not isinstance(shots, list) or not shots:
+        raise ValueError(f"{project.name}: 缺少 shot_execution_plan.shots，无法重建 edit_decisions")
+    scene_plan = _load(project / "artifacts" / "scene_plan.json") or {}
+    props = _load(project / "artifacts" / "final_props.json") or {}
+    mix = ((props.get("audio") or {}).get("mix") or {})
+    narration = ((mix.get("narration") or {}).get("path") or "assets/audio/narration-mix.mp3")
+    music = ((mix.get("music") or {}).get("path") or "assets/music/bgm.mp3")
+    from lib.template_render import build_edit_decisions
+
+    return build_edit_decisions(
+        project,
+        shots,
+        render_runtime="remotion",
+        narration_mix=str(narration),
+        bgm_path=str(music),
+        scene_plan=scene_plan,
+        safe_zone_profile="taobao_detail_3_4",
+    )
 
 
 def main() -> None:

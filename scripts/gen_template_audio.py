@@ -28,7 +28,12 @@ def _load(p: Path) -> dict | None:
 
 
 def _speech_seconds(meta_path: Path) -> float | None:
-    """从 TTS 词级时间戳取每句实际言语结束（不含 mp3 尾部静音 padding）。"""
+    """从 TTS 词级时间戳取每句实际言语结束（不含 mp3 尾部静音 padding）。
+
+    单位自适应：doubao(seed-tts-2.0) 的 endTime 以秒计（如 2.815），
+    部分 provider 以毫秒计（如 2815）。以量级判断——言语 >10s 才可能超过 1000ms
+    阈值，语音句子极少超过 100 秒。
+    """
     try:
         data = json.loads(meta_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -36,7 +41,8 @@ def _speech_seconds(meta_path: Path) -> float | None:
     sentences = (data.get("data") or {}).get("sentences") or data.get("sentences") or []
     if not sentences:
         return None
-    return max(float(s.get("endTime", 0)) for s in sentences) / 1000.0
+    end_seconds = max(float(s.get("endTime", 0)) for s in sentences)
+    return end_seconds / 1000.0 if end_seconds >= 100 else end_seconds
 
 
 def _audio_duration(path: Path) -> float | None:
@@ -92,6 +98,22 @@ def _tts_lock_valid(lock: Path, text: str, *, speech_rate: int) -> bool:
     )
 
 
+def cached_tts_fit(lock: Path, meta: Path, text_sha: str, *, slot_s: float) -> int | None:
+    """Return the cached fitted speech-rate when its binding and timing are valid."""
+    try:
+        data = json.loads(lock.read_text(encoding="utf-8"))
+        if data.get("text_sha") != text_sha or data.get("speech_rate") not in RATE_STEPS:
+            return None
+        if not all(data.get(k) == v for k, v in TTS_LOCK.items()):
+            return None
+        speech_s = _speech_seconds(meta)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if speech_s is None or speech_s > slot_s + 1e-6:
+        return None
+    return int(data["speech_rate"])
+
+
 def generate(run: str, *, max_workers: int = 4,
              section_ids: set[str] | list[str] | None = None) -> list[dict]:
     registry.discover()
@@ -122,11 +144,11 @@ def generate(run: str, *, max_workers: int = 4,
         speech_s = _speech_seconds(meta) if meta.is_file() else None
         existing_dur = _audio_duration(out) if out.is_file() else None
         fit_s = speech_s if speech_s is not None else existing_dur
-        lock_ok = _tts_lock_valid(sha_file, text, speech_rate=0)
-        if lock_ok and fit_s is not None and fit_s <= slot_s:
+        cached_rate = cached_tts_fit(sha_file, meta, _text_sha(text), slot_s=slot_s)
+        if cached_rate is not None and fit_s is not None and fit_s <= slot_s:
             # 幂等（评审 P1-5/P1-2）：文案+voice+resource+format+rate 全绑定且放得下 → 复用。
             best = {"section": sid, "status": "ok", "slot_s": slot_s,
-                    "audio_s": round(fit_s, 2), "speech_rate": 0,
+                    "audio_s": round(fit_s, 2), "speech_rate": cached_rate,
                     "output": str(out), "cost_usd": 0.0, "reused": True, "text": text}
             return best
         for rate in RATE_STEPS:

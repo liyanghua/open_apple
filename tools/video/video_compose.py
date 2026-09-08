@@ -2136,15 +2136,37 @@ class VideoCompose(BaseTool):
                 )
             except (OSError, json.JSONDecodeError):
                 provenance_ok = False
+        # A legacy renderer could have ignored render_plan.profile while still
+        # writing a checksum-valid provenance file.  Do not reuse that cached
+        # sample across aspect-ratio profiles (for example 9:16 vs Taobao 3:4).
+        if provenance_ok:
+            profile_name = render_plan.get("profile") or inputs.get("profile")
+            if profile_name:
+                try:
+                    from lib.media_profiles import get_profile
+                    from lib.render_plan import probe_media
+
+                    expected = get_profile(str(profile_name))
+                    streams = probe_media(output_path).get("streams", [])
+                    video = next(
+                        (stream for stream in streams if stream.get("codec_type") == "video"),
+                        {},
+                    )
+                    provenance_ok = (
+                        int(video.get("width", 0)) == expected.width
+                        and int(video.get("height", 0)) == expected.height
+                    )
+                except (OSError, RuntimeError, ValueError, json.JSONDecodeError):
+                    provenance_ok = False
         if provenance_ok:
             return ToolResult(success=True, data={"render_mode": mode, "cache_status": "hit", "cache_hit": True, "cache_key": key, "output": str(output_path), "window": {"startFrame": start, "endFrameExclusive": end}, "remotion_invoked": False}, artifacts=[str(output_path)], cost_usd=0.0)
         window_inputs = dict(inputs)
-        # 样片/窗口层用半分辨率 profile（540x960）。禁止再叠加 remotion_width/
+        # 样片/窗口层使用 render_plan 指定的半分辨率 profile。禁止再叠加 remotion_width/
         # height：重复的 --width/--height 标志会被 yargs 折叠成数组，Remotion
         # 校验报 "must be a number, but you passed a value of type object"。
         window_inputs.update({
             "output_path": str(output_path),
-            "profile": inputs.get("profile", "social_vertical_sample_540p30"),
+            "profile": render_plan.get("profile") or inputs.get("profile", "social_vertical_sample_540p30"),
             "sample_frames": f"{start}-{end - 1}",
         })
         edit_decisions = window_inputs.get("edit_decisions") or {}

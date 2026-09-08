@@ -5,6 +5,7 @@ import {
   DEFAULT_FONT_FAMILY,
   captionBoxForCue,
   fitCjkFontSize,
+  fitSingleLineCjkFontSize,
   isInsideSafeZone,
   resolveCaptionOverlayStyle,
   stripTrailingPunctuation,
@@ -42,6 +43,45 @@ describe("SafeCaptionTrack deterministic layout", () => {
   it("uses a Songti-family fallback without browser font measurement", () => {
     expect(DEFAULT_FONT_FAMILY).toContain("Songti SC");
     expect(DEFAULT_FONT_FAMILY).toContain("STSong");
+  });
+
+  it("keeps Taobao 3:4 narration subtitles inside a 1080x1440 canvas", () => {
+    const box = captionBoxForCue(
+      {text: "一股水浇下，湿润范围清楚可见", startMs: 0, endMs: 3000, timestampMs: 0, confidence: 1},
+      {safeZoneProfile: "taobao_detail_3_4", canvasWidth: 1080, canvasHeight: 1440},
+    );
+
+    expect(box.bottom).toBeLessThanOrEqual(1440 - 180);
+    expect(isInsideSafeZone(box, "taobao_detail_3_4", 1080, 1440)).toBe(true);
+  });
+
+  it("scales Taobao safe-zone bottom margin for the 540x720 sample canvas", () => {
+    const box = captionBoxForCue(
+      {text: "一股水浇下，湿润范围清楚可见", startMs: 0, endMs: 3000, timestampMs: 0, confidence: 1},
+      {safeZoneProfile: "taobao_detail_3_4", canvasWidth: 540, canvasHeight: 720},
+    );
+
+    expect(box.bottom).toBe(720 - 90);
+    expect(isInsideSafeZone(box, "taobao_detail_3_4", 540, 720)).toBe(true);
+  });
+
+  it("fits a long Taobao narration cue on exactly one line", () => {
+    const text = "一股水浇下，湿润范围清楚可见";
+    const box = captionBoxForCue(
+      {text, startMs: 0, endMs: 3000, timestampMs: 0, confidence: 1},
+      {
+        safeZoneProfile: "taobao_detail_3_4",
+        canvasWidth: 1080,
+        canvasHeight: 1440,
+        fontMin: 36,
+        fontMax: 52,
+        singleLine: true,
+      },
+    );
+
+    expect(box.lineCount).toBe(1);
+    expect(box.fontSize).toBe(fitSingleLineCjkFontSize(text, {fontMin: 36, fontMax: 52, maxWidth: 984}));
+    expect(box.width).toBeLessThanOrEqual(984);
   });
 
   it("rejects an emphasis box that crosses the safe rectangle", () => {

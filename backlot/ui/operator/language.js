@@ -122,7 +122,7 @@ export const CONFIRMATION_VALUE_LABELS = {
 
 export const APPROVAL_COPY = {
   brand: "商品视频制作工作台",
-  stateAwaiting: "等待确认样片",
+  stateAwaiting: "等待你确认",
   stateDone: "准备交付",
   heroKicker: "当前需要你确认",
   heroKickerIdle: "当前制作进度",

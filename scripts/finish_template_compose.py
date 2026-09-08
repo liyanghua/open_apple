@@ -40,6 +40,12 @@ def _probe(proj: Path) -> dict:
             "sha256": hashlib.sha256(r.read_bytes()).hexdigest()}
 
 
+def resolve_alignment_report(proj: Path) -> dict:
+    """Use a current canonical report when no final-specific report exists."""
+    return (_load(proj / "analysis" / "alignment_check.final.json")
+            or _load(proj / "analysis" / "alignment_check.json") or {})
+
+
 def build(proj: Path, *, run: str, l1a: dict, qa: dict, render_report_meta: dict | None = None, sink=None) -> dict:
     probe = _probe(proj)
     render_plan = _load(proj / "artifacts" / "render_plan.json")
@@ -81,6 +87,7 @@ def build(proj: Path, *, run: str, l1a: dict, qa: dict, render_report_meta: dict
     if input_mode in {"source_led", "source_led_template"}:
         from lib.template_alignment import (
             adapt_legacy_alignment_report,
+            alignment_report_semantic_checks,
             apply_alignment_to_evaluation,
             build_semantic_alignment,
         )
@@ -89,10 +96,11 @@ def build(proj: Path, *, run: str, l1a: dict, qa: dict, render_report_meta: dict
         shot_plan = _load(proj / "artifacts" / "shot_execution_plan.json") or {}
         final_props = _load(proj / "artifacts" / "final_props.json") or {}
         product_facts = _load(proj / "artifacts" / "product_facts.json") or {}
-        legacy = _load(proj / "analysis" / "alignment_check.final.json") or {}
-        semantic_checks = adapt_legacy_alignment_report(
+        legacy = resolve_alignment_report(proj)
+        semantic_checks = alignment_report_semantic_checks(
             legacy, sample_sha256=probe["sha256"],
             script_sha256=str(script.get("semantic_sha256") or ""),
+            input_mode=input_mode,
         )
         alignment = build_semantic_alignment(
             {"input_mode": input_mode, "script": script, "scene_plan": scene_plan,

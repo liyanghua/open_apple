@@ -36,6 +36,7 @@ from lib.pipeline_loader import load_pipeline
 from schemas.artifacts import validate_artifact
 from lib.template_render import build_final_props as build_canonical_final_props
 from scripts.gen_template_audio import generate as generate_canonical_audio
+from lib.caption_copy import core_selling_point
 
 PIPELINE_DIR = ROOT / "projects"
 RUNS = ("template-run-yinlizi-A", "template-run-tiansi-A", "template-run-chenxu-A", "template-run-yujin-A")
@@ -45,11 +46,48 @@ RESEARCH_ROOTS = {
     "template-run-chenxu-A": PIPELINE_DIR / "maojin-chenxu",
     "template-run-yujin-A": PIPELINE_DIR / "yujin-chenxu",
 }
-SAMPLE_SHOTS = 5
+SAMPLE_SHOTS = None
 MANIFEST = load_pipeline("cinematic-fast")
 VOICE = "zh_female_vv_uranus_bigtts"
 SAMPLE_FRAMES = (0, 360)  # 占位；实际窗口按前 5 镜帧数计算
 FIT_RATES = (0, 10, 20, 50)
+
+
+def select_sample_shots(shots: list[dict]) -> list[dict]:
+    """Source-led proof review uses a low-resolution *full timeline* sample."""
+    return list(shots)
+
+
+def select_sample_render_shots(shots: list[dict]) -> list[dict]:
+    """Choose a 10–15s representative sample while retaining generated-route coverage.
+
+    The full shot execution plan remains the source of truth.  The render sample
+    is intentionally a small window: include the opening proof beats, then the
+    approved product-image shot when it fits, so operators can review both
+    source-led alignment and the generated visual route in one pass.
+    """
+    if not shots:
+        return []
+    selected: list[dict] = []
+    total = 0.0
+    for shot in shots:
+        duration = float(shot.get("duration_seconds") or 0.0)
+        if selected and total >= 10.0:
+            break
+        if total + duration <= 15.0:
+            selected.append(shot)
+            total += duration
+    generated = next(
+        (shot for shot in shots if shot.get("visual_route") == "generated_from_product_image"),
+        None,
+    )
+    if generated is not None and generated not in selected:
+        duration = float(generated.get("duration_seconds") or 0.0)
+        if total + duration <= 15.0:
+            selected.append(generated)
+        elif not selected:
+            selected.append(generated)
+    return selected
 
 
 def now() -> str:
@@ -62,6 +100,123 @@ def load(project_dir: Path, name: str) -> dict:
 
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def alignment_report_freshness(
+    project_dir: Path, *, sample_sha256: str, script_sha256: str
+) -> str:
+    """Classify the visual alignment report against the current render inputs.
+
+    A report is reusable only when both the rendered sample and script hashes
+    match.  Missing, malformed, or hash-mismatched reports are explicitly
+    classified so callers can refresh them instead of accidentally consuming a
+    previous sample's VLM result.
+    """
+    path = project_dir / "analysis" / "alignment_check.json"
+    if not path.is_file():
+        return "missing"
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "stale"
+    if (
+        not isinstance(report, dict)
+        or report.get("sample_sha256") != sample_sha256
+        or report.get("script_sha256") != script_sha256
+    ):
+        return "stale"
+    return "current"
+
+
+def refresh_alignment_report(project_dir: Path, *, sample_sha256: str,
+                             script_sha256: str) -> None:
+    """Re-run stage51 for the current sample when its report is absent/stale."""
+    freshness = alignment_report_freshness(
+        project_dir, sample_sha256=sample_sha256, script_sha256=script_sha256
+    )
+    if freshness == "current":
+        return
+    report_path = project_dir / "analysis" / "alignment_check.json"
+    if report_path.is_file():
+        expired = report_path.with_name("alignment_check.expired.json")
+        report_path.replace(expired)
+    cmd = [sys.executable, str(Path(__file__).with_name("stage51_verify_alignment.py")),
+           "--run", project_dir.name]
+    result = subprocess.run(cmd, cwd=str(ROOT), text=True,
+                            capture_output=True, timeout=900)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "stage51 failed").strip()
+        raise RuntimeError(f"{project_dir.name}: alignment report refresh failed: {detail[-800:]}")
+    final_state = alignment_report_freshness(
+        project_dir, sample_sha256=sample_sha256, script_sha256=script_sha256
+    )
+    if final_state != "current":
+        raise RuntimeError(
+            f"{project_dir.name}: stage51 completed but alignment report is {final_state}"
+        )
+
+
+def research_root_for(project_dir: Path) -> Path:
+    """Resolve product research without hard-coding every reusable run id."""
+    legacy = RESEARCH_ROOTS.get(project_dir.name)
+    if legacy is not None:
+        return legacy
+    if (project_dir / "artifacts" / "product_facts.json").is_file():
+        return project_dir
+    raise RuntimeError(f"{project_dir.name}: product_facts 研究产物缺失")
+
+
+def resolve_shot_video(project_dir: Path, shot: dict) -> dict:
+    """Resolve the realized video for either owned-source or product-image route."""
+    shot_id = str(shot.get("id") or "")
+    idx = int(shot_id.rsplit("-", 1)[1])
+    if shot.get("visual_route") != "generated_from_product_image":
+        return {
+            "path": f"assets/video/shot-{idx:02d}-proxy.mp4",
+            "provider": "ffmpeg",
+            "model": "ffmpeg-local",
+            "quality": "proxy",
+            "cost_usd": 0.0,
+            "source_tool": "media_proxy",
+        }
+
+    proposal_ids = {
+        str(item.get("id") or "")
+        for item in shot.get("generation_proposals") or []
+        if isinstance(item, dict)
+    }
+    candidates = []
+    task_dir = project_dir / "operator" / "shot-generation" / "tasks"
+    for task_path in task_dir.glob("*.json") if task_dir.is_dir() else []:
+        try:
+            task = json.loads(task_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(task, dict)
+            and task.get("status") == "completed"
+            and str(task.get("shot_id") or "") == shot_id
+            and str(task.get("proposal_id") or "") in proposal_ids
+        ):
+            output = project_dir / str(task.get("output_path") or "")
+            if output.is_file():
+                candidates.append(task)
+    if not candidates:
+        raise RuntimeError(f"{shot_id}: 已批准的商品图生成镜头尚未完成")
+    candidates.sort(
+        key=lambda item: (item.get("quality") == "standard", str(item.get("task_id") or "")),
+        reverse=True,
+    )
+    task = candidates[0]
+    return {
+        "path": str(task["output_path"]),
+        "provider": str(task.get("provider") or ""),
+        "model": str(task.get("model") or ""),
+        "quality": str(task.get("quality") or ""),
+        "cost_usd": float(task.get("actual_cost_usd") or 0.0),
+        "source_tool": "product_image_asset_execution",
+        "task_id": str(task.get("task_id") or ""),
+    }
 
 
 def audio_duration_s(path: Path) -> float:
@@ -168,7 +323,7 @@ def build_final_props(project_dir: Path, *, captions: list[dict], audio: dict,
     footage = {}
     scenes = []
     frame = 0
-    for shot in sep["shots"][:SAMPLE_SHOTS]:
+    for shot in select_sample_shots(sep["shots"]):
         idx = int(shot["id"].rsplit("-", 1)[1])
         key = f"shot_{idx:02d}"
         footage[key] = f"assets/video/shot-{idx:02d}-proxy.mp4"
@@ -209,16 +364,24 @@ def build_final_props(project_dir: Path, *, captions: list[dict], audio: dict,
     }
 
 
-def build_screen_copy_captions(project_dir: Path) -> list[dict]:
+def build_screen_copy_captions(project_dir: Path, *, sample_shots: list[dict] | None = None) -> list[dict]:
     script = load(project_dir, "script")
+    selected_ids = {str(s.get("id") or "") for s in (sample_shots or [])}
+    cursor = 0.0
     captions = []
     for section in script["sections"][:SAMPLE_SHOTS]:
+        if selected_ids and str(section.get("shot_id") or "") not in selected_ids:
+            # Sections are joined through section_id on the execution plan.
+            if not any(str(s.get("section_id") or "") == str(section.get("id") or "") for s in (sample_shots or [])):
+                continue
         if section.get("screen_copy"):
+            duration = float(section["end_seconds"]) - float(section["start_seconds"])
             captions.append({
-                "text": str(section["screen_copy"]),
-                "startMs": round(float(section["start_seconds"]) * 1000),
-                "endMs": round(float(section["end_seconds"]) * 1000),
+                "text": core_selling_point(str(section["screen_copy"])),
+                "startMs": round(cursor * 1000),
+                "endMs": round((cursor + duration) * 1000),
             })
+            cursor += duration
     return captions
 
 
@@ -230,7 +393,8 @@ def build_asset_manifest(project_dir: Path, *, tts_files: list[tuple[str, Path, 
     assets = []
     for shot in sep["shots"]:
         idx = int(shot["id"].rsplit("-", 1)[1])
-        proxy_file = project_dir / f"assets/video/shot-{idx:02d}-proxy.mp4"
+        resolved = resolve_shot_video(project_dir, shot)
+        proxy_file = project_dir / resolved["path"]
         proxy_dur = 0.0
         if proxy_file.is_file():
             try:
@@ -243,20 +407,24 @@ def build_asset_manifest(project_dir: Path, *, tts_files: list[tuple[str, Path, 
         assets.append({
             "id": f"proxy-shot-{idx:02d}",
             "type": "video",
-            "path": f"assets/video/shot-{idx:02d}-proxy.mp4",
-            "provider": "ffmpeg",
-            "model": "ffmpeg-local",
-            "cost_usd": 0.0,
+            "path": resolved["path"],
+            "provider": resolved["provider"],
+            "model": resolved["model"],
+            "cost_usd": resolved["cost_usd"],
             # 关键：必须记录代理文件真实时长（否则 sample_payload 把 source_in 钳到 0，
             # 渲染从素材 0 秒起播 → 口播与画面错位）
             "duration_seconds": proxy_dur or float(shot["duration_seconds"]),
             "format": "mp4",
             "resolution": "540x720",
             "scene_id": shot["id"],
-            "source_tool": "media_proxy",
+            "source_tool": resolved["source_tool"],
             "source_path": str((shot.get("source_selection") or {}).get("path") or ""),
             "proxy_profile": {"width": 540, "height": 720, "fit": "cover", "fps": 30},
-            "generation_summary": "自有素材代理（本地转码，非付费生成；成片按 source_in 跳转）",
+            "generation_summary": (
+                "商品纯产品参考图生成镜头（仅作视觉表达）"
+                if shot.get("visual_route") == "generated_from_product_image"
+                else "自有素材代理（本地转码，非付费生成；成片按 source_in 跳转）"
+            ),
         })
     for section_id, path, duration in tts_files:
         section = sections_by_id.get(str(section_id), {})
@@ -344,7 +512,14 @@ def build_caption_policy_revision(project_dir: Path, *, lock_hash: str,
     }
 
 
-def build_render_plan(project_dir: Path, *, caption_revision_env: dict, window_frames: int = 360) -> dict:
+def build_render_plan(
+    project_dir: Path,
+    *,
+    caption_revision_env: dict,
+    window_frames: int = 360,
+    audio_path: str = "assets/audio/bgm-ducked.mp3",
+    audio_sha256: str = "0" * 64,
+) -> dict:
     return {
         "version": "1.0",
         "project_id": project_dir.name,
@@ -357,7 +532,7 @@ def build_render_plan(project_dir: Path, *, caption_revision_env: dict, window_f
                    "scale": 0.5, "qaMode": "quick"},
         "previous_timeline_hash": "0" * 64,
         "current_timeline_hash": "0" * 64,
-        "audio": {"path": "renders/sample-v1.mp4", "sha256": "0" * 64},
+        "audio": {"path": audio_path, "sha256": audio_sha256},
         "output_path": "renders/sample-v1.mp4",
         "caption_policy_revision_ref": {
             "name": caption_revision_env["name"],
@@ -366,6 +541,31 @@ def build_render_plan(project_dir: Path, *, caption_revision_env: dict, window_f
             "semantic_sha256": caption_revision_env["semantic_sha256"],
         },
         "caption_policy_version": "1.0",
+    }
+
+
+def sample_probe_summary(probe: dict, *, fallback_frame_count: int = 0) -> dict:
+    """Normalize ffprobe output into the sample-report contract."""
+    fmt = probe.get("format") or {}
+    video = next(
+        (stream for stream in (probe.get("streams") or [])
+         if stream.get("codec_type") == "video"),
+        {},
+    )
+    duration = float(fmt.get("duration", 0) or 0)
+    rate = video.get("avg_frame_rate") or video.get("r_frame_rate") or "0/1"
+    try:
+        numerator, denominator = str(rate).split("/", 1)
+        fps = round(float(numerator) / max(float(denominator), 1.0), 2)
+    except (TypeError, ValueError):
+        fps = 0.0
+    frame_count = round(duration * fps) if fps > 0 else int(fallback_frame_count)
+    return {
+        "duration_seconds": round(duration, 3),
+        "fps": int(fps) if fps.is_integer() else fps,
+        "frame_count": int(frame_count),
+        "height": int(video.get("height", 0) or 0),
+        "width": int(video.get("width", 0) or 0),
     }
 
 
@@ -611,8 +811,10 @@ def run_media_proxy(project_dir: Path) -> None:
     from tools.video.media_proxy import MediaProxy
     sep = load(project_dir, "shot_execution_plan")
     tool = MediaProxy()
-    research = RESEARCH_ROOTS[project_dir.name]
+    research = research_root_for(project_dir)
     for shot in sep["shots"]:
+        if shot.get("visual_route") == "generated_from_product_image":
+            continue
         idx = int(shot["id"].rsplit("-", 1)[1])
         sel = shot.get("source_selection") or {}
         source = research / str(sel.get("path", ""))
@@ -674,11 +876,33 @@ def run_tts_with_fit(project_dir: Path) -> tuple[list[tuple[str, Path, float]], 
                     "startMs": base_ms + round(float(word.get("startTime", 0)) * 1000),
                     "endMs": base_ms + round(float(word.get("endTime", 0)) * 1000),
                 })
+    # bind_tts_assets 重写 shot_execution_plan，必须与 checkpoint envelope
+    # 刷新放在同一版本事务里；直接写 artifact 会被 ProjectWriteSink 拒绝，
+    # 也会在恢复时留下半更新状态。
     from lib.template_assets import bind_tts_assets
-    bind_tts_assets(
-        project_dir,
-        {section_id: (path, duration) for section_id, path, duration in files},
-    )
+    with ProjectCommitStore(project_dir).transaction(
+        action={"action_id": f"bind-tts-{project_dir.name}-{uuid.uuid4().hex[:8]}",
+                "type": "bind_tts_assets", "actor_id": "batch-production"},
+        result={"status": "committed", "sections": [item[0] for item in files]},
+        audit={"event_type": "tts_assets_bound", "actor_id": "batch-production"},
+        business_diff=["按实测口播时长绑定 shot_execution_plan"],
+    ) as sink:
+        bind_tts_assets(
+            project_dir,
+            {section_id: (path, duration) for section_id, path, duration in files},
+            sink=sink,
+        )
+    # staged artifact 只有事务提交后才能被 checkpoint 校验读取，因此
+    # envelope 刷新必须在下一个事务中执行，不能在同一个 staged view 中校验。
+    with ProjectCommitStore(project_dir).transaction(
+        action={"action_id": f"refresh-tts-envelope-{project_dir.name}-{uuid.uuid4().hex[:8]}",
+                "type": "refresh_tts_checkpoint_envelopes", "actor_id": "batch-production"},
+        result={"status": "committed"},
+        audit={"event_type": "tts_checkpoint_envelopes_refreshed", "actor_id": "batch-production"},
+        business_diff=["刷新口播绑定后的 checkpoint 制品信封"],
+    ) as sink:
+        refresh_checkpoint_envelopes(
+            PIPELINE_DIR, project_dir.name, pipeline_type="cinematic-fast", sink=sink)
     return files, words
 
 
@@ -736,11 +960,18 @@ def run_bgm(project_dir: Path) -> tuple[Path, str]:
     return output, "pixabay"
 
 
-def run_mixer(project_dir: Path, tts_files: list[tuple[str, Path, float]], bgm: Path) -> tuple[Path, Path]:
+def run_mixer(project_dir: Path, tts_files: list[tuple[str, Path, float]], bgm: Path,
+              *, sample_shots: list[dict] | None = None) -> tuple[Path, Path]:
     from tools.audio.audio_mixer import AudioMixer
     script = load(project_dir, "script")
+    selected_sections = {
+        str(shot.get("section_id") or "") for shot in (sample_shots or [])
+    }
     tracks = []
+    cursor = 0.0
     for section in script["sections"]:
+        if selected_sections and str(section.get("id") or "") not in selected_sections:
+            continue
         entry = next((item for item in tts_files if item[0] == section["id"]), None)
         if entry is None:
             continue
@@ -748,9 +979,10 @@ def run_mixer(project_dir: Path, tts_files: list[tuple[str, Path, float]], bgm: 
             "path": str(entry[1]),
             # 混音器契约字段是 start_seconds（不是 start_ms）；每段已按
             # voice-timeline-fit 实测收进槽位，槽位起点即无重叠时间轴。
-            "start_seconds": float(section["start_seconds"]),
+            "start_seconds": cursor,
             "volume": 1.0,
         })
+        cursor += float(section["end_seconds"]) - float(section["start_seconds"])
     mix_path = project_dir / "assets/audio/narration-mix.mp3"
     tool = AudioMixer()
     result = tool.execute({"operation": "mix", "tracks": tracks,
@@ -872,7 +1104,14 @@ def process_candidate(suffix: str, *, dry_run: bool) -> str:
         raise RuntimeError(
             f"{candidate_id}: shot/script 绑定校验失败，拒绝渲染：" + "; ".join(shot_errors[:8])
         )
-    window_frames = sum(round(float(s["duration_seconds"]) * 30) for s in sep["shots"][:SAMPLE_SHOTS])
+    sample_shots = select_sample_render_shots(sep["shots"][:SAMPLE_SHOTS])
+    product_facts = load(research_root_for(project_dir), "product_facts")
+    product_identity = {
+        "product_id": str(product_facts.get("product_id") or ""),
+        "product_name": str(product_facts.get("product_name") or ""),
+        "sku": str(product_facts.get("sku") or ""),
+    }
+    window_frames = sum(round(float(s["duration_seconds"]) * 30) for s in sample_shots)
     sample_seconds = window_frames / 30.0
 
     if dry_run:
@@ -892,7 +1131,7 @@ def process_candidate(suffix: str, *, dry_run: bool) -> str:
         )
         validate_artifact("asset_manifest", attach_hashes(asset_manifest))
         final_props = build_dry_run_final_props(
-            project_dir, script, sep["shots"][:SAMPLE_SHOTS], asset_manifest,
+            project_dir, script, sample_shots, asset_manifest,
             attach_hashes(asset_manifest)["semantic_sha256"], sep["semantic_sha256"],
         )
         validate_artifact("final_props", attach_hashes(final_props))
@@ -940,7 +1179,7 @@ def process_candidate(suffix: str, *, dry_run: bool) -> str:
             "shot_execution_plan": sep,
             "final_props": attach_hashes(final_props),
             "asset_manifest": asset_manifest,
-            "product_facts": load(RESEARCH_ROOTS[candidate_id], "product_facts"),
+            "product_facts": load(research_root_for(project_dir), "product_facts"),
             "render": {"sha256": sample_report["probe"]["sha256"]},
         })
         evaluation = build_evaluation_report(
@@ -967,12 +1206,14 @@ def process_candidate(suffix: str, *, dry_run: bool) -> str:
             f"{candidate_id}: TTS 与当前脚本绑定失败，拒绝混音：" + "; ".join(tts_errors[:8])
         )
     bgm, bgm_provider = run_bgm(project_dir)
-    mix_path, ducked_path = run_mixer(project_dir, tts_files, bgm)
+    mix_path, ducked_path = run_mixer(project_dir, tts_files, bgm, sample_shots=sample_shots)
 
     # 屏显短词字幕；口播时间轴由 canonical sample payload 从 script 派生。
-    captions = build_screen_copy_captions(project_dir)
+    captions = build_screen_copy_captions(project_dir, sample_shots=sample_shots)
     captions_texts = [str(item.get("text", "")) for item in captions]
-    narration_texts = [str(section["narration"]) for section in load(project_dir, "script")["sections"][:SAMPLE_SHOTS]]
+    selected_section_ids = {str(s.get("section_id") or "") for s in sample_shots}
+    narration_texts = [str(section["narration"]) for section in load(project_dir, "script")["sections"][:SAMPLE_SHOTS]
+                       if str(section.get("id") or "") in selected_section_ids]
     audio = {"mix": {
         "narration": {"provider": "doubao", "resource_id": "seed-tts-2.0", "voice": VOICE,
                       "path": str(mix_path.relative_to(project_dir)),
@@ -991,14 +1232,16 @@ def process_candidate(suffix: str, *, dry_run: bool) -> str:
         "name": "caption_policy_revision", "path": "artifacts/caption_policy_revision.json",
         "artifact_sha256": semantic_sha256(caption_revision),
         "semantic_sha256": semantic_sha256(caption_revision),
-    }, window_frames=window_frames)
+    }, window_frames=window_frames,
+       audio_path=str(ducked_path.relative_to(project_dir)),
+       audio_sha256=sha256_file(ducked_path))
     from lib.template_render import build_edit_decisions as build_canonical_edit_decisions
     edit_decisions = build_canonical_edit_decisions(
         project_dir,
         [{"id": str(s["id"]), "duration_seconds": float(s["duration_seconds"]),
           "scene_id": str(s.get("scene_id") or ""),
           "screen_copy": str(s.get("screen_copy") or "")}
-         for s in sep["shots"]],
+         for s in sample_shots],
         render_runtime="remotion",
         narration_mix="assets/audio/narration-mix.mp3",
         bgm_path=str(bgm.relative_to(project_dir)),
@@ -1016,9 +1259,10 @@ def process_candidate(suffix: str, *, dry_run: bool) -> str:
     final_props = build_canonical_final_props(
         project_dir,
         script,
-        [{**s, "id": str(s["id"]), "duration_seconds": float(s["duration_seconds"]),
+        [{**s, **product_identity, "id": str(s["id"]), "duration_seconds": float(s["duration_seconds"]),
+          "render_asset_path": resolve_shot_video(project_dir, s)["path"],
           "screen_copy": str(s.get("screen_copy") or ""), "scene_id": str(s.get("scene_id") or "")}
-         for s in sep["shots"][:SAMPLE_SHOTS]],
+         for s in sample_shots],
         narration_mix="assets/audio/narration-mix.mp3",
         bgm_path=str(bgm.relative_to(project_dir)),
         profile="social_vertical_3_4_1080p30",
@@ -1026,8 +1270,13 @@ def process_candidate(suffix: str, *, dry_run: bool) -> str:
                       "shot_execution_plan": sep["semantic_sha256"],
                       "asset_manifest": semantic_sha256(asset_manifest)},
     )
-    render_plan = build_render_plan(project_dir, caption_revision_env=caption_env_pre,
-                                   window_frames=window_frames)
+    render_plan = build_render_plan(
+        project_dir,
+        caption_revision_env=caption_env_pre,
+        window_frames=window_frames,
+        audio_path=str(ducked_path.relative_to(project_dir)),
+        audio_sha256=sha256_file(ducked_path),
+    )
 
     # P0#1/P1: 样片渲染用正确累计时间轴/源裁剪/字幕/混音 payload，避免旧
     # build_sample_edit_decisions 的 in_seconds=0 黑屏与 undefined 字幕。
@@ -1035,6 +1284,9 @@ def process_candidate(suffix: str, *, dry_run: bool) -> str:
     sample_edit_decisions = build_sample_render_payload({
         "final_props": final_props,
         "asset_manifest": asset_manifest,
+        "script": script,
+        "captionSafeZoneProfile": "taobao_detail_3_4",
+        "narrationSafeZoneProfile": "taobao_detail_3_4",
         "render_runtime": "remotion",
         "renderer_family": "explainer-data",
     })
@@ -1044,6 +1296,14 @@ def process_candidate(suffix: str, *, dry_run: bool) -> str:
         render_plan=render_plan,
         asset_manifest=asset_manifest,
     )
+    # The VLM alignment report is bound to the exact rendered bytes.  Any
+    # caption/layout/audio change creates a new sample hash, so an older
+    # report must be expired and regenerated before the semantic gate reads it.
+    refresh_alignment_report(
+        project_dir,
+        sample_sha256=sha256_file(sample_path),
+        script_sha256=str(script.get("semantic_sha256") or ""),
+    )
     qa = run_final_qa(project_dir, sample_path)
     if qa["status"] != "pass":
         raise RuntimeError(f"{candidate_id}: final_qa failed {qa}")
@@ -1052,8 +1312,7 @@ def process_candidate(suffix: str, *, dry_run: bool) -> str:
         ["ffprobe", "-v", "error", "-show_entries",
          "format=duration:stream=codec_type,width,height,r_frame_rate",
          "-of", "json", str(sample_path)], text=True))
-    render_plan["audio"] = {"path": "renders/sample-v1.mp4", "sha256": sample_sha}
-    render_plan["current_timeline_hash"] = sample_sha
+    render_plan["current_timeline_hash"] = semantic_sha256(sample_edit_decisions)
 
     report = {
         "version": "1.0", "project_id": candidate_id, "created_at": now(),
@@ -1065,11 +1324,8 @@ def process_candidate(suffix: str, *, dry_run: bool) -> str:
         "render_plan_hash": semantic_sha256(render_plan),
         "window": {"startFrame": 0, "endFrameExclusive": window_frames, "scale": 0.5},
         "output_path": "renders/sample-v1.mp4",
-        "probe": {
-            "duration_seconds": round(float(probe["format"].get("duration", 0)), 3),
-            "fps": 30, "frame_count": window_frames, "height": 720, "width": 540,
-            "sha256": sample_sha,
-        },
+        "probe": {**sample_probe_summary(probe, fallback_frame_count=window_frames),
+                  "sha256": sample_sha},
         "qa": qa,
         "status": "pass",
     }
@@ -1113,20 +1369,28 @@ def process_candidate(suffix: str, *, dry_run: bool) -> str:
         {"script": script, "scene_plan": scene_plan, "shot_execution_plan": sep,
          "final_props": attach_hashes(final_props), "render": {"sha256": sample_sha},
          "sample_execution_trace": trace,
-         "product_facts": load(RESEARCH_ROOTS[candidate_id], "product_facts"),
+         "product_facts": load(research_root_for(project_dir), "product_facts"),
          "input_mode": "source_led_template"},
         scope="sample", semantic_checks=semantic_checks,
         audio_dir=project_dir / "assets" / "audio",
     )
-    from lib.template_alignment import apply_alignment_to_evaluation
+    # 人工确认通道（用户规则）：static/partial 判定不阻塞样片门，转 repair_targets
+    # 交人工复核；仅硬性冲突（产品身份/血统/证据缺失）仍为机器否决。
+    from lib.template_alignment import apply_alignment_to_evaluation, route_human_review_channel
+    alignment = route_human_review_channel(alignment)
     evaluation = apply_alignment_to_evaluation(evaluation, alignment)
-    if alignment["status"] != "pass":
-        raise RuntimeError(f"{candidate_id}: canonical alignment={alignment['status']}，禁止立 sample 门")
-    if evaluation.get("status") != "pass":
+    if alignment["status"] == "fail":
+        raise RuntimeError(f"{candidate_id}: 硬性对齐冲突（产品或血统/证据问题），禁止立 sample 门")
+    if evaluation.get("status") == "fail":
         raise RuntimeError(
             f"{candidate_id}: 致命 L1a 失败 "
             f"{[c['id'] for c in evaluation.get('hard_gate', {}).get('checks', []) if c.get('severity') == 'fatal' and c.get('status') == 'fail']}"
         )
+    human_review_items = [
+        {"shot_id": str(item.get("shot_id") or ""), "reason_codes": list(item.get("reason_codes") or [])}
+        for item in (alignment.get("repair_targets") or [])
+        if isinstance(item, dict)
+    ]
 
     with store.transaction(
         action={"action_id": f"sample-{suffix}-{uuid.uuid4().hex[:8]}", "type": "batch_sample_stage"},
@@ -1163,10 +1427,17 @@ def process_candidate(suffix: str, *, dry_run: bool) -> str:
             pipeline_type="cinematic-fast",
             human_approval_required=True,
             next_action={
-                "summary": f"候选 {candidate_id} 样片渲染完成，等待样片效果确认",
+                "summary": (f"候选 {candidate_id} 样片渲染完成，等待样片效果确认"
+                            + (f"；人工确认通道 {len(human_review_items)} 镜："
+                               + "; ".join(f"{i['shot_id']}({','.join(i['reason_codes'])})"
+                                           for i in human_review_items[:6])
+                               if human_review_items else "")),
                 "verb": "await_user",
-                "context_refs": ["checkpoint_sample.json"],
+                "context_refs": ["checkpoint_sample.json",
+                                 "artifacts/evaluation_report.json"],
             },
+            metadata={"human_review_items": human_review_items,
+                      "alignment_status": str(alignment.get("status") or "")},
             sink=sink,
         )
     return f"[{candidate_id}] 样片完成 → 样片效果确认门 ✓"

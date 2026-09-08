@@ -401,6 +401,8 @@ const scene = buildApprovalStages({stages:[{
     reference_basis:{summary:'参考摘要', proof_method:'动作证明', beat_order:['冲突','结果'], avg_evidence_seconds:2},
     shots:[
       {id:'shot-1', beat:'刮擦冲突', intent:'展示刮擦', screen_copy:'看得见的刮擦', framing:'近景', movement:'固定',
+       narration:'真实刮擦口播', claim_ids:['claim-1'], action_keys:['scratch'], evidence_row_ids:['evidence-1'],
+       subject_completeness:'complete', crop_strategy:'center crop with protected subject bounds', caption_safe_zone:'top',
        source_label:'素材A', source_in_seconds:3.0, source_out_seconds:5.5,
        timeline_in_seconds:0.0, timeline_out_seconds:2.5,
        source_summary:'产品近景', source_usable_for:['刮擦'],
@@ -424,6 +426,13 @@ console.log(JSON.stringify({
     assert plan["reference_basis"]["proof_method"] == "动作证明"
     shot = plan["shots"][0]
     assert shot["purpose"] == "展示刮擦"
+    assert shot["narration"] == "真实刮擦口播"
+    assert shot["claim_ids"] == ["claim-1"]
+    assert shot["action_keys"] == ["scratch"]
+    assert shot["evidence_row_ids"] == ["evidence-1"]
+    assert shot["subject_completeness"] == "complete"
+    assert shot["crop_strategy"] == "center crop with protected subject bounds"
+    assert shot["caption_safe_zone"] == "top"
     assert shot["source_in_seconds"] == 3.0
     assert shot["source_out_seconds"] == 5.5
     assert shot["timeline_in_seconds"] == 0.0
@@ -451,7 +460,8 @@ const assets = buildApprovalStages({stages:[{
     narration_status:'已准备', subtitle_status:'方案已锁定，将在样片阶段生成', music_status:'未安排背景音乐',
     estimated_cost_usd:0.06, spent_cost_usd:0.05, planned_count:3, prepared_count:1, waiting_confirmation_count:1, paid_generation_approved:false,
     items:[
-      {id:'a1', label:'源素材代理 · 素材A', type:'video_proxy', provider:'seedance', stage_label:'制作阶段', status:'已准备', reason:'文件已经生成并登记', paid:false, cost_estimate_usd:0, source_summary:'产品近景', source_range:'建议 3-5.5 秒'},
+      {id:'a1', label:'镜头 01 · 素材A', type:'video_proxy', provider:'media_proxy', stage_label:'本地素材处理（零付费）', status:'待本地处理', reason:'零付费本地处理', paid:false, cost_estimate_usd:0,
+       shot_id:'shot-01', source_path:'inputs/source/素材A.mp4', source_summary:'产品近景', source_range:'3–5.5 秒', preview_url:'/media/p/source.mp4', poster_url:'/thumb/p/source.mp4?w=640&t=4.25', shot_purpose:'展示吸水', subject_action:'连续倒水', narration:'倒水后看湿润范围', screen_copy:'连续水流吸收演示', action_keys:['continuous_pour_water'], evidence_row_ids:['evidence-01'], product_fact_refs:['product_facts.claims[0]'], product_page_refs:['product_page_capture.fact_candidates[0]'], fact_bindings:[{ref:'product_facts.claims[0]',statement:'吸水速干',evidence_status:'page_claim',risk_level:'high',allowed_wording:['可见吸水过程'],prohibited_wording:['瞬间吸干']}], page_evidence:[{id:'page-shot-001',label:'详情页取证',preview_url:'/media/p/page.jpg'}], alignment_status:'pass', processing_summary:'本地转为 3:4 审片代理', output_path:'assets/video/shot-01-proxy.mp4'},
       {id:'a2', label:'画面生成 · 镜头1', type:'image_generation', provider:'flux', stage_label:'后续阶段', status:'等待确认', reason:'付费生成尚未获得批准', paid:true, cost_estimate_usd:0.01},
       {id:'a3', label:'口播音频', type:'narration', provider:'tts', stage_label:'制作阶段', status:'已准备', reason:'文件已经生成并登记', paid:true, cost_estimate_usd:0.02},
     ],
@@ -492,7 +502,22 @@ console.log(JSON.stringify({
     assert items[1]["reason"] == "付费生成尚未获得批准"
     assert items[1]["paid"] is True
     assert items[1]["cost_estimate_usd"] == 0.01
+    assert items[0]["fact_bindings"][0]["statement"] == "吸水速干"
+    assert items[0]["page_evidence"][0]["preview_url"] == "/media/p/page.jpg"
+    assert items[0]["alignment_status"] == "pass"
     assert "provider" not in items[1]
+    assert items[0]["shot_id"] == "shot-01"
+    assert items[0]["source_path"] == "inputs/source/素材A.mp4"
+    assert items[0]["preview_url"] == "/media/p/source.mp4"
+    assert items[0]["poster_url"] == "/thumb/p/source.mp4?w=640&t=4.25"
+    assert items[0]["shot_purpose"] == "展示吸水"
+    assert items[0]["subject_action"] == "连续倒水"
+    assert items[0]["narration"] == "倒水后看湿润范围"
+    assert items[0]["screen_copy"] == "连续水流吸收演示"
+    assert items[0]["action_keys"] == ["continuous_pour_water"]
+    assert items[0]["evidence_row_ids"] == ["evidence-01"]
+    assert items[0]["processing_summary"] == "本地转为 3:4 审片代理"
+    assert items[0]["output_path"] == "assets/video/shot-01-proxy.mp4"
     assert result["listSummary"] == "3 条素材，可查看详情"
     assert [item["type"] for item in result["visual"]["items"]] == ["video_proxy", "image_generation"]
     tasks = result["tasks"]

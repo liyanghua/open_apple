@@ -152,10 +152,15 @@ def _generate_proxies(project: Path, sp: dict, *, width: int = PROXY_W, height: 
     video_dir = project / "assets" / "video"
     video_dir.mkdir(parents=True, exist_ok=True)
     for i, m in enumerate(sp["metadata"]["source_mapping"], start=1):
+        if str(m.get("visual_route") or "") == "generated_from_product_image":
+            realized = resolve_generated_video(project, scene_id=f"scene-{i:03d}", shot_id=f"shot-{i:02d}")
+            if realized is not None:
+                continue
+            raise RuntimeError(f"生成镜头缺少已实现视频: shot-{i:02d}")
         interval = m["source_interval"]
         timeline = m["timeline_interval"]
         duration = timeline["end_seconds_exclusive"] - timeline["start_seconds"]
-        source = Path(m["source_path"])
+        source = resolve_source_path(project, str(m["source_path"]))
         if not source.is_file():
             raise RuntimeError(f"素材缺失: {source}")
         out = video_dir / f"shot-{i:02d}-proxy.mp4"
@@ -179,6 +184,40 @@ def _generate_proxies(project: Path, sp: dict, *, width: int = PROXY_W, height: 
             sidecar.write_text(json.dumps(binding, ensure_ascii=False, sort_keys=True), encoding="utf-8")
         if rebuilt:
             print(f"  proxy {out.name}: {duration:.2f}s in {time.time()-t0:.1f}s")
+
+
+def resolve_source_path(project: Path, source_path: str) -> Path:
+    """Resolve canonical source paths relative to their owning run workspace."""
+    source = Path(source_path)
+    return source if source.is_absolute() else project / source
+
+
+def resolve_generated_video(project: Path, *, scene_id: str, shot_id: str) -> Path | None:
+    """Find an already-realized generated clip by canonical scene/shot identity."""
+    manifest = _load(project / "artifacts" / "asset_manifest.json") or {}
+    for asset in manifest.get("assets", []):
+        if str(asset.get("type") or "") != "video":
+            continue
+        if str(asset.get("scene_id") or "") not in {scene_id, shot_id} and str(asset.get("id") or "") not in {scene_id, shot_id, f"proxy-{scene_id}"}:
+            continue
+        path = project / str(asset.get("path") or "")
+        if path.is_file() and "generated" in path.parts:
+            return path
+    generated = sorted((project / "assets" / "video" / "generated").glob("**/*.mp4"))
+    if len(generated) == 1:
+        return generated[0]
+    return None
+
+
+def render_asset_path_for_mapping(project: Path, index: int, mapping: dict) -> str | None:
+    if str(mapping.get("visual_route") or "") != "generated_from_product_image":
+        return None
+    path = resolve_generated_video(
+        project, scene_id=str(mapping.get("scene_id") or f"scene-{index:03d}"), shot_id=f"shot-{index:02d}"
+    )
+    if path is None:
+        raise RuntimeError(f"生成镜头缺少已实现视频: shot-{index:02d}")
+    return path.relative_to(project).as_posix()
 
 
 def _build_manifest(project: Path, run: str, script: dict, sp: dict,
@@ -329,12 +368,27 @@ def assert_paid_media_ready(project: Path, run_plan: dict, template: dict | None
         raise SystemExit(f"template_run_plan 未就绪，禁止付费媒体管线: {readiness.get('blockers')}")
 
 
+def resolve_template(project: Path, template_id: str, *, global_pack: dict | None = None) -> dict | None:
+    """Resolve source-led aligned templates from the run-local canonical pack first."""
+    local_pack = _load(project / "artifacts" / "template_pack.json") or {}
+    if global_pack is None:
+        global_pack = _load(ROOT / "projects/template-pack-library/artifacts/template_pack.json") or {}
+    for pack in (local_pack, global_pack):
+        template = next(
+            (item for item in pack.get("templates", [])
+             if str(item.get("template_id") or "") == template_id),
+            None,
+        )
+        if template is not None:
+            return template
+    return None
+
+
 def prep(run: str, *, profile: str = "social_vertical_1080p30") -> dict:
     project = ROOT / "projects" / run
     rp = _load(project / "artifacts" / "template_run_plan.json") or {}
     template_id = str(rp.get("template_id") or "")
-    pack = _load(ROOT / "projects/template-pack-library/artifacts/template_pack.json")
-    template = next((t for t in pack.get("templates", []) if t.get("template_id") == template_id), None)
+    template = resolve_template(project, template_id)
     if template is None:
         raise SystemExit(f"template {template_id} not in pack")
     assert_paid_media_ready(project, rp, template, pipeline_dir=ROOT / "projects")
@@ -374,9 +428,24 @@ def prep(run: str, *, profile: str = "social_vertical_1080p30") -> dict:
          "duration_seconds": float(s["duration_seconds"]),
          "screen_copy": str(s.get("screen_copy") or ""),
          "scene_id": str(s.get("scene_id") or ""),
+         "section_id": str(s.get("section_id") or ""),
+         "action_keys": list(s.get("action_keys") or []),
+         "visual_route": str(s.get("visual_route") or ""),
+         "generation_reference": s.get("generation_reference"),
          "template_slot_ref": str(s.get("template_slot_ref") or "")}
-        for s in shot_plan.get("shots", [])
+        for i, s in enumerate(shot_plan.get("shots", []), start=1)
     ]
+    for i, shot in enumerate(shots, start=1):
+        mapping = sp["metadata"]["source_mapping"][i - 1]
+        if not shot["action_keys"]:
+            shot["action_keys"] = list(mapping.get("action_keys") or [])
+        if not shot["visual_route"]:
+            shot["visual_route"] = str(mapping.get("visual_route") or "")
+        if not shot.get("generation_reference"):
+            shot["generation_reference"] = mapping.get("generation_reference")
+        generated_path = render_asset_path_for_mapping(project, i, mapping)
+        if generated_path:
+            shot["render_asset_path"] = generated_path
     # 逐镜 proxy（本地，内容 hash 幂等）
     _generate_proxies(project, sp, width=proxy_width, height=proxy_height)
     # BGM（付费，幂等）

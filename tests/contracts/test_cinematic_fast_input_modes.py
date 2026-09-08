@@ -84,6 +84,52 @@ def test_init_project_writes_input_context_and_legacy_defaults_to_reference(tmp_
     assert load_input_context(legacy)["input_mode"] == "reference_driven"
 
 
+def test_product_url_adds_browser_capture_artifacts_to_research_contract(tmp_path: Path) -> None:
+    project = init_project(
+        "source-led-product-url",
+        title="Source led product URL",
+        pipeline_type="cinematic-fast",
+        pipeline_dir=tmp_path,
+        input_mode="source_led_template",
+        external_reference=False,
+        template_prior={
+            "present": True,
+            "usage": "structural_only",
+            "template_pack_ref": "artifacts/template_pack.json",
+        },
+        product_input={
+            "product_url": "https://detail.tmall.com/item.htm?id=1060430166297&skuId=6276962282892",
+            "browser_acquisition": "required_when_url_present",
+            "selected_sku_confirmation": "required",
+        },
+    )
+    context = load_input_context(project)
+    produces = get_stage_produces(
+        load_pipeline("cinematic-fast"), "research", context=context
+    )
+
+    assert context["product_input"]["product_url"].startswith("https://detail.tmall.com/")
+    assert {"product_page_capture", "product_asset_ledger", "product_facts"} <= set(produces)
+
+
+def test_no_product_url_does_not_fabricate_browser_capture_requirements(tmp_path: Path) -> None:
+    project = init_project(
+        "source-led-no-url",
+        title="Source led no URL",
+        pipeline_type="cinematic-fast",
+        pipeline_dir=tmp_path,
+        input_mode="source_led",
+        external_reference=False,
+    )
+    context = load_input_context(project)
+    produces = get_stage_produces(
+        load_pipeline("cinematic-fast"), "research", context=context
+    )
+
+    assert context["product_input"]["product_url"] is None
+    assert "product_page_capture" not in produces
+
+
 def test_reference_driven_requires_resolvable_external_reference(tmp_path: Path) -> None:
     reference = tmp_path / "reference-demo" / "reference.mp4"
     reference.parent.mkdir()

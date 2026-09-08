@@ -814,6 +814,38 @@ h3 { font-size: 15px; }
   border: 1px solid var(--approval-line);
   border-radius: 4px;
 }
+.approval-detail-image {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  background: #080a0c;
+  border: 1px solid var(--approval-line);
+  border-radius: 4px;
+}
+.approval-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.approval-evidence-column {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--approval-line);
+  border-radius: 4px;
+  background: #101316;
+}
+.approval-evidence-title,
+.approval-evidence-subtitle {
+  margin: 0 0 7px;
+  color: #e1e5e9;
+  font-size: 12px;
+}
+.approval-evidence-subtitle { margin-top: 10px; color: var(--approval-muted); }
+@media (max-width: 980px) {
+  .approval-evidence-grid { grid-template-columns: 1fr; }
+}
 .approval-detail-lead { margin: 0 0 12px; color: var(--approval-text); font-size: 15px; line-height: 1.7; }
 .approval-detail-copy { margin: 4px 0; color: #b8bec6; font-size: 12px; line-height: 1.7; }
 .approval-detail-warning { margin: 0 0 12px; color: var(--approval-amber); font-size: 12px; line-height: 1.6; }
@@ -1608,7 +1640,10 @@ body[data-mode="batch"] .operator-shell {
   .batch-quick-view-layer .candidate-quick-view { width: 100%; padding: 18px 16px; }
 }
 
-/* ==========================================================================\n+   单条审批台视觉收敛：暖浅阅读底 + 高对比文字\n+   批量工作台保留自己的 --batch-* 颜色，不受此处覆盖。\n+   ========================================================================== */
+/* ==========================================================================
+   单条审批台视觉收敛：暖浅阅读底 + 高对比文字
+   批量工作台保留自己的 --batch-* 颜色，不受此处覆盖。
+   ========================================================================== */
 
 #operator-shell[data-mode="approval"] {
   --approval-bg: #f5f2ec;
@@ -1870,6 +1905,19 @@ body[data-mode="approval"] {
 #operator-shell[data-mode="approval"] .approval-detail {
   background: var(--approval-surface);
   border-color: var(--approval-line);
+}
+
+#operator-shell[data-mode="approval"] .approval-evidence-column {
+  background: var(--approval-surface2);
+  border-color: var(--approval-line);
+}
+
+#operator-shell[data-mode="approval"] .approval-evidence-title {
+  color: var(--approval-text);
+}
+
+#operator-shell[data-mode="approval"] .approval-evidence-subtitle {
+  color: var(--approval-muted);
 }
 
 #operator-shell[data-mode="approval"] .approval-detail-lead {

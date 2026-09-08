@@ -194,8 +194,18 @@ def build_sample_render_payload(sample_payload: Mapping[str, Any]) -> dict[str, 
         "subtitles": dict(sample_payload.get("subtitles") or {}),
         "metadata": metadata,
     }
-    # 口播字幕轨：narration 逐句（script sections → 底部 SafeCaptionTrack），与花字双层共存。
-    narration_subs = _narration_subtitles(sample_payload.get("script"))
+    # 淘宝详情页 3:4 双层字幕：花字左上，口播字幕底部。
+    payload["captionSafeZoneProfile"] = str(
+        sample_payload.get("captionSafeZoneProfile") or "taobao_detail_3_4"
+    )
+    payload["narrationSafeZoneProfile"] = str(
+        sample_payload.get("narrationSafeZoneProfile") or "taobao_detail_3_4"
+    )
+    # 口播字幕轨：按 realized scenes 重排，并优先使用资产清单里的 TTS 实测时长。
+    narration_subs = _narration_subtitles(
+        sample_payload.get("script"), scenes=ordered,
+        asset_manifest=asset_manifest, fps=fps,
+    )
     if narration_subs:
         payload["narrationSubtitles"] = narration_subs
 
@@ -212,6 +222,29 @@ def build_sample_render_payload(sample_payload: Mapping[str, Any]) -> dict[str, 
         # 走渲染器通用默认，绝不强制特定产品花字。
         if applicability in {"extracted", "needs_review"} and isinstance(style, Mapping):
             payload["captionStyle"] = to_overlay_spec(style)
+    if "captionStyle" not in payload:
+        # Source-led Taobao runs have no reference-caption fingerprint to
+        # extract, so use the approved product treatment rather than generic text.
+        if payload["captionSafeZoneProfile"] == "taobao_detail_3_4":
+            payload["captionStyle"] = {
+                "fontFamily": "Long Cang", "fontSize": 112,
+                "emphasizeFontSize": 132, "fontWeight": 800,
+                "fillColor": "#FFF7E8", "strokeColor": "#3A1710",
+                "strokeWidthPx": 5, "backgroundColor": "transparent",
+                "opacity": 1, "position": "topleft",
+                "entranceAnimation": "pop", "bottomOffsetPx": 180,
+                "vertical": True,
+            }
+        else:
+            payload["captionStyle"] = {
+                "fontFamily": "Noto Sans CJK SC", "fontSize": 48,
+                "emphasizeFontSize": 52, "fontWeight": 700,
+                "fillColor": "#FFFFFF", "strokeColor": "#000000",
+                "strokeWidthPx": 0, "backgroundColor": "transparent",
+                "opacity": 1, "position": "topleft",
+                "entranceAnimation": "fade", "bottomOffsetPx": 180,
+                "vertical": False,
+            }
 
     # P2：scene_plan 的 caption/transition recipe intent → 渲染级规格。
     # 渲染器按 **cut.id（shot-NN）** 查 captionRecipes/transitionRecipes；而 scene_plan 的
@@ -241,7 +274,10 @@ def build_sample_render_payload(sample_payload: Mapping[str, Any]) -> dict[str, 
     return payload
 
 
-def _narration_subtitles(script: Any) -> list[dict[str, Any]]:
+def _narration_subtitles(
+    script: Any, *, scenes: list[Mapping[str, Any]] | None = None,
+    asset_manifest: Mapping[str, Any] | None = None, fps: float = 30.0,
+) -> list[dict[str, Any]]:
     """Derive the bottom narration-subtitle track from the approved script.
 
     One cue per section with non-empty narration, timed by the section's own
@@ -256,6 +292,36 @@ def _narration_subtitles(script: Any) -> list[dict[str, Any]]:
     if not isinstance(sections, list):
         return []
     cues: list[dict[str, Any]] = []
+    sections_by_id = {
+        str(section.get("id") or ""): section for section in sections
+        if isinstance(section, Mapping) and section.get("id")
+    }
+    realized = [scene for scene in (scenes or [])
+                if isinstance(scene, Mapping) and scene.get("section_id")]
+    narration_assets: dict[str, Mapping[str, Any]] = {}
+    if isinstance(asset_manifest, Mapping):
+        for asset in asset_manifest.get("assets") or []:
+            if isinstance(asset, Mapping) and asset.get("type") == "narration":
+                sid = str(asset.get("scene_id") or "")
+                if sid:
+                    narration_assets[sid] = asset
+    if realized:
+        for scene in realized:
+            section = sections_by_id.get(str(scene.get("section_id") or ""))
+            text = section.get("narration") if section else None
+            if not isinstance(text, str) or not text.strip():
+                continue
+            start_frame, end_frame = scene.get("fromFrame"), scene.get("toFrameExclusive")
+            if not isinstance(start_frame, (int, float)) or not isinstance(end_frame, (int, float)):
+                continue
+            start_ms = int(round(float(start_frame) / fps * 1000))
+            end_ms = int(round(float(end_frame) / fps * 1000))
+            measured = narration_assets.get(str(section.get("id") or ""), {}).get("duration_seconds")
+            if isinstance(measured, (int, float)) and measured > 0:
+                end_ms = min(end_ms, start_ms + int(round(float(measured) * 1000)))
+            if end_ms > start_ms:
+                cues.append({"text": text.strip(), "startMs": start_ms, "endMs": end_ms})
+        return cues
     for section in sections:
         if not isinstance(section, Mapping):
             continue

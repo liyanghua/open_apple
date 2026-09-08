@@ -9,9 +9,10 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from lib.artifact_io import write_artifact_atomic
+from lib.caption_copy import core_selling_point
 
 PIPELINE = "cinematic-fast"
 
@@ -53,7 +54,10 @@ def build_final_props(project: Path, script: dict, shots: list[dict], *,
         key = shot_id.replace("-", "_")  # shot_01
         dur = float(s["duration_seconds"])
         dur_frames = int(round(dur * fps))
-        proxy = f"assets/video/shot-{shot_id.split('-')[-1]}-proxy.mp4"
+        proxy = str(
+            s.get("render_asset_path")
+            or f"assets/video/shot-{shot_id.split('-')[-1]}-proxy.mp4"
+        )
         footage[key] = proxy
         scene = {
             "id": shot_id, "assetId": f"proxy-{shot_id}", "footageKey": key,
@@ -61,6 +65,19 @@ def build_final_props(project: Path, script: dict, shots: list[dict], *,
             "durationInFrames": dur_frames, "playbackMode": "normal", "playbackRate": 1.0,
             "sourceInSeconds": 0.0, "sourceOutSeconds": dur,
         }
+        # P0：source_selection 证据窗才是动作锚点——渲染必须在代理内 seek 到
+        # start_seconds（代理为全片长，seek 后 source_out = start + dur）。
+        # （曾回归为 0.0：样片从代理头部开始，水流/滴水动作被跳过 → 口播与画面错位。）
+        sel = s.get("source_selection")
+        if isinstance(sel, Mapping):
+            try:
+                src_in = float(sel.get("start_seconds") or 0.0)
+                src_end = float(sel.get("end_seconds") or 0.0)
+            except (TypeError, ValueError):
+                src_in, src_end = 0.0, 0.0
+            if src_in >= 0.0:
+                scene["sourceInSeconds"] = src_in
+                scene["sourceOutSeconds"] = (src_end if src_end > src_in else src_in + dur)
         for field in (
             "scene_id", "section_id", "claim_ids", "action_keys", "evidence_row_ids",
             "product_id", "product_name", "sku", "source_hash", "source_interval",
@@ -68,9 +85,15 @@ def build_final_props(project: Path, script: dict, shots: list[dict], *,
         ):
             if field in s:
                 scene[field] = s[field]
+        if s.get("visual_route") == "generated_from_product_image":
+            reference = s.get("generation_reference")
+            if isinstance(reference, Mapping):
+                scene["reference_hash"] = str(reference.get("sha256") or "")
+                scene["reference_asset_id"] = str(reference.get("asset_id") or "")
+            scene["generated_media_role"] = "visual_expression_only"
         scenes.append(scene)
         # caption：该 shot 的 screen_copy（取自 script section）
-        text = str(s.get("screen_copy") or "").strip()
+        text = core_selling_point(str(s.get("screen_copy") or ""))
         if text:
             captions.append({"startMs": int(round(cursor_frames / fps * 1000)),
                              "endMs": int(round((cursor_frames + dur_frames) / fps * 1000)), "text": text})
@@ -120,11 +143,17 @@ def build_edit_decisions(project: Path, shots: list[dict], render_runtime: str =
                 token = {"flash": "flash", "impact": "impact", "dissolve": "dissolve"}.get(spec_type, "cut")
             except Exception:
                 token = "cut"
+        render_asset_path = str(
+            s.get("render_asset_path")
+            or f"assets/video/shot-{shot_id.split('-')[-1]}-proxy.mp4"
+        )
+        is_generated = s.get("visual_route") == "generated_from_product_image"
         cuts.append({
-            "id": shot_id, "source": f"assets/video/shot-{shot_id.split('-')[-1]}-proxy.mp4",
+            "id": shot_id, "source": render_asset_path,
             "in_seconds": round(timeline, 3), "out_seconds": round(timeline + dur, 3),
             "speed": 1.0, "layer": "primary", "transition_in": token,
-            "transition_out": "cut", "transition_duration": 0.0, "reason": "自有素材镜头",
+            "transition_out": "cut", "transition_duration": 0.0,
+            "reason": "商品图生成镜头" if is_generated else "自有素材镜头",
         })
         timeline += dur
     return {

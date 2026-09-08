@@ -77,6 +77,7 @@ def bind_slot(
     source: str,
     source_media_id: str | None = None,
     asset_type: str | None = None,
+    evidence_row_ids: list[str] | None = None,
     reason: str,
 ) -> dict[str, Any]:
     """把某个 slot 绑定到自有或生成素材；返回更新后的 run（不可变复制）。"""
@@ -89,12 +90,137 @@ def bind_slot(
             b["source"] = source
             b["source_media_id"] = source_media_id
             b["asset_type"] = asset_type
+            if evidence_row_ids is not None:
+                b["evidence_row_ids"] = list(evidence_row_ids)
             b["reason"] = reason
             break
     else:
         raise ValueError(f"slot_id {slot_id!r} not found in run")
     updated["slot_bindings"] = bindings
     return updated
+
+
+def approve_template_run_plan(
+    project: Path,
+    *,
+    pipeline_dir: Path,
+    template: Mapping[str, Any],
+    actor_id: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Persist the narrow human approval for one run plan atomically.
+
+    This approval only authorizes building the no-paid Assets preparation
+    bundle.  It deliberately does not authorize TTS/BGM spend, rendering, or
+    publishing; those remain behind the creative-lock and sample gates.
+    """
+    project = Path(project).resolve()
+    pipeline_dir = Path(pipeline_dir).resolve()
+    try:
+        run_plan = json.loads(
+            (project / "artifacts" / "template_run_plan.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("template_run_plan artifact is required for approval") from exc
+    candidate = {
+        key: value for key, value in run_plan.items()
+        if key not in {"semantic_sha256", "artifact_sha256"}
+    }
+    candidate["status"] = "approved"
+
+    marker: dict[str, Any] = {}
+    try:
+        marker = json.loads((project / "project.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        pass
+    input_mode = str(marker.get("input_mode") or "reference_driven")
+    authoritative_ref = None
+    if input_mode == "source_led_template":
+        from lib.template_batch import resolve_run_batch_differentiation_ref
+
+        _resolved_mode, authoritative_ref = resolve_run_batch_differentiation_ref(
+            project, pipeline_dir
+        )
+    readiness = check_template_run_plan_ready(
+        candidate,
+        template=template,
+        input_mode=input_mode,
+        authoritative_differentiation_plan_ref=authoritative_ref,
+    )
+    if not readiness.get("ready"):
+        raise ValueError(
+            "template_run_plan cannot be approved: "
+            + "; ".join(str(item) for item in readiness.get("blockers") or [])
+        )
+
+    log_path = project / "artifacts" / "decision_log.json"
+    try:
+        decision_log = json.loads(log_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        decision_log = {"version": "1.0", "project_id": project.name, "decisions": []}
+    decision_log = {
+        key: value for key, value in decision_log.items()
+        if key not in {"semantic_sha256", "artifact_sha256"}
+    }
+    decisions = list(decision_log.get("decisions") or [])
+    decision_id = f"{project.name}-run-plan-approval-001"
+    if not any(str(item.get("decision_id") or "") == decision_id for item in decisions):
+        decisions.append({
+            "decision_id": decision_id,
+            "stage": "scene_plan",
+            "category": "batch_approval",
+            "subject": "逐镜与模板执行计划（仅进入无付费 Assets 制作准备）",
+            "options_considered": [{
+                "option_id": "run-plan-approved",
+                "label": "批准逐镜与执行计划",
+                "score": 1.0,
+                "reason": "用户在逐镜审核工作台确认通过",
+            }],
+            "selected": "run-plan-approved",
+            "reason": str(reason).strip(),
+            "user_visible": True,
+            "user_approved": True,
+            "confidence": 1.0,
+        })
+    decision_log["decisions"] = decisions
+
+    from backlot.project_commit import ProjectCommitStore
+    from lib.artifact_io import write_artifact_atomic
+
+    with ProjectCommitStore(project).transaction(
+        action={"action_id": f"approve-run-plan-{project.name}", "type": "run_plan_approval"},
+        result={"status": "approved"},
+        audit={"event_type": "run_plan_approved", "actor_id": actor_id},
+    ) as sink:
+        run_plan_env = write_artifact_atomic(
+            "artifacts/template_run_plan.json",
+            "template_run_plan",
+            candidate,
+            project_dir=project,
+            sink=sink,
+        )
+        decision_env = write_artifact_atomic(
+            "artifacts/decision_log.json",
+            "decision_log",
+            decision_log,
+            project_dir=project,
+            sink=sink,
+        )
+        proposal_checkpoint_path = project / "checkpoint_proposal.json"
+        if proposal_checkpoint_path.is_file():
+            proposal_checkpoint = json.loads(
+                proposal_checkpoint_path.read_text(encoding="utf-8")
+            )
+            artifacts = dict(proposal_checkpoint.get("artifacts") or {})
+            if "template_run_plan" in artifacts:
+                artifacts["template_run_plan"] = run_plan_env
+            if "decision_log" in artifacts:
+                artifacts["decision_log"] = decision_env
+            proposal_checkpoint["artifacts"] = artifacts
+            sink.stage_json(
+                "checkpoint_proposal.json", proposal_checkpoint, schema="checkpoint"
+            )
+    return {"template_run_plan": run_plan_env, "decision_log": decision_env}
 
 
 def check_template_run_plan_ready(
@@ -141,36 +267,37 @@ def check_template_run_plan_ready(
             blockers.append(f"template_run_plan 缺少 {len(missing)} 个模板 slot 的绑定（{', '.join(missing[:3])}...），禁止付费生成")
         if str(run_plan.get("template_id") or "") != str(template.get("template_id") or ""):
             blockers.append("template_run_plan.template_id 与加载模板不一致，禁止付费生成")
-    # 标定策略 C：未标定模板直接阻断（关键词回退判定不可信，禁止付费生成）。
-    try:
-        from lib.template_source_match import is_template_calibrated
+    if input_mode == "source_led_template":
+        blockers.extend(_source_led_bound_capacity_blockers(run_plan, template))
+    else:
+        # 标定策略 C：参考模板依赖动作域标定；source-led 已由 evidence_row_ids
+        # 显式完成语义标定，不能再回退到旧品类关键词表。
+        try:
+            from lib.template_source_match import is_template_calibrated
 
-        if template is not None and not is_template_calibrated(str(template.get("template_id") or "")):
-            blockers.append("模板动作域未标定，禁止付费生成——请先运行 scripts/calibrate_template.py 完成标定（VLM/人工）后再起片")
-    except Exception as exc:
-        blockers.append(f"标定状态判定异常（fail-closed）：{exc}")
-    # P0-2b：素材容量判定 fail-closed（评审 P0-1）——
-    #   · 判定器异常 → blocker（不得静默放行进入付费资产阶段）；
-    #   · MARK_GAP → blocker（缺口禁止付费）；
-    #   · COMPRESS → 必须携带经校验的压缩计划，否则禁止继续生成。
-    try:
-        from lib.template_source_match import capacity_verdict
+            if template is not None and not is_template_calibrated(str(template.get("template_id") or "")):
+                blockers.append("模板动作域未标定，禁止付费生成——请先运行 scripts/calibrate_template.py 完成标定（VLM/人工）后再起片")
+        except Exception as exc:
+            blockers.append(f"标定状态判定异常（fail-closed）：{exc}")
+        # P0-2b：参考模板继续使用历史素材池容量判定。
+        try:
+            from lib.template_source_match import capacity_verdict
 
-        comp = run_plan.get("compression")
-        template_id = str((template or {}).get("template_id") or run_plan.get("template_id") or "")
-        if template_id.endswith("-c1") and not isinstance(comp, Mapping):
-            blockers.append("压缩变体必须携带完整 compression 契约，禁止仅凭 -c1 命名放行")
-        if isinstance(comp, Mapping):
-            _check_compression_plan(comp, run_plan, template, blockers)
-        verdict = capacity_verdict(template) if template is not None else None
-        if verdict:
-            if verdict.get("verdict") == "MARK_GAP":
-                blockers.append("素材容量缺口（MARK_GAP）：" + "; ".join(verdict.get("reasons") or []) + "——需补素材或压缩后重评")
-            elif verdict.get("verdict") == "COMPRESS" and not isinstance(comp, Mapping):
-                blockers.append("素材容量不足（COMPRESS）：" + "; ".join(verdict.get("reasons") or []) +
-                                "——必须提供已批准且 all_hard_ok=true 的压缩计划")
-    except Exception as exc:
-        blockers.append(f"素材容量判定器异常（fail-closed，禁止付费生成）：{exc}")
+            comp = run_plan.get("compression")
+            template_id = str((template or {}).get("template_id") or run_plan.get("template_id") or "")
+            if template_id.endswith("-c1") and not isinstance(comp, Mapping):
+                blockers.append("压缩变体必须携带完整 compression 契约，禁止仅凭 -c1 命名放行")
+            if isinstance(comp, Mapping):
+                _check_compression_plan(comp, run_plan, template, blockers)
+            verdict = capacity_verdict(template) if template is not None else None
+            if verdict:
+                if verdict.get("verdict") == "MARK_GAP":
+                    blockers.append("素材容量缺口（MARK_GAP）：" + "; ".join(verdict.get("reasons") or []) + "——需补素材或压缩后重评")
+                elif verdict.get("verdict") == "COMPRESS" and not isinstance(comp, Mapping):
+                    blockers.append("素材容量不足（COMPRESS）：" + "; ".join(verdict.get("reasons") or []) +
+                                    "——必须提供已批准且 all_hard_ok=true 的压缩计划")
+        except Exception as exc:
+            blockers.append(f"素材容量判定器异常（fail-closed，禁止付费生成）：{exc}")
     unbound_slots: list[str] = []
     for b in bindings:
         if not isinstance(b, Mapping):
@@ -188,6 +315,16 @@ def check_template_run_plan_ready(
             unbound_slots.append(slot_id)
         if source == "owned" and not str(b.get("source_media_id") or "").strip():
             blockers.append(f"slot {slot_id}: owned 必须带 source_media_id")
+        if input_mode == "source_led_template" and source == "owned":
+            evidence_row_ids = b.get("evidence_row_ids")
+            if (
+                not isinstance(evidence_row_ids, list)
+                or len(evidence_row_ids) != 1
+                or not str(evidence_row_ids[0] or "").strip()
+            ):
+                blockers.append(
+                    f"slot {slot_id}: source_led_template owned 绑定必须带且仅带一个 evidence_row_ids"
+                )
         if source == "generate" and not str(b.get("asset_type") or "").strip():
             blockers.append(f"slot {slot_id}: generate 必须带 asset_type")
     if unbound_slots:
@@ -196,6 +333,43 @@ def check_template_run_plan_ready(
     if (run_plan.get("caption_policy") or {}).get("copy_reference_caption"):
         blockers.append("禁止复制参考花字/字幕（copy_reference_caption 必须为 false）")
     return {"ready": not blockers, "unbound_slots": unbound_slots, "blockers": blockers}
+
+
+def _source_led_bound_capacity_blockers(
+    run_plan: Mapping[str, Any], template: Mapping[str, Any] | None
+) -> list[str]:
+    """Validate actual source-led bindings without consulting legacy pools."""
+    if template is None:
+        return ["source_led_template 缺少权威模板，无法校验实际素材容量"]
+    duration_by_slot = {
+        str(slot.get("slot_id") or ""): float(slot.get("duration_s") or 0.0)
+        for slot in (template.get("slots") or [])
+        if isinstance(slot, Mapping) and str(slot.get("slot_id") or "")
+    }
+    total_seconds = sum(duration_by_slot.values())
+    if total_seconds <= 0:
+        return ["source_led_template 模板总时长无效，无法校验素材容量"]
+    # H2 is a deduplication guard for multi-slot templates.  A one-slot
+    # fixture/run has no alternative source allocation to compare against and
+    # must remain executable when its explicit evidence binding is present.
+    if len(duration_by_slot) < 3:
+        return []
+    seconds_by_media: dict[str, float] = {}
+    for binding in run_plan.get("slot_bindings") or []:
+        if not isinstance(binding, Mapping) or binding.get("source") != "owned":
+            continue
+        media_id = str(binding.get("source_media_id") or "").strip()
+        slot_id = str(binding.get("slot_id") or "").strip()
+        if media_id and slot_id in duration_by_slot:
+            seconds_by_media[media_id] = (
+                seconds_by_media.get(media_id, 0.0) + duration_by_slot[slot_id]
+            )
+    limit = total_seconds / 3.0
+    return [
+        f"source-led H2: 单素材 {media_id} {seconds:.1f}s > 总时长 1/3 {limit:.1f}s"
+        for media_id, seconds in sorted(seconds_by_media.items())
+        if seconds > limit + 1e-9
+    ]
 
 
 def validate_differentiation_plan_ref(

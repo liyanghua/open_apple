@@ -220,6 +220,22 @@ def test_research_ui_renders_fixed_substages_and_horizontal_shot_rail() -> None:
         assert term in css
 
 
+def test_operator_ui_explains_product_facts_and_script_evidence_in_business_language() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+
+    for phrase in (
+        "商品事实与证据边界",
+        "页面候选事实",
+        "易变信息已隔离",
+        "对应商品事实",
+        "画面必须出现的动作",
+        "画面必须出现的结果",
+        "本镜采用的素材",
+        "禁止说法",
+    ):
+        assert phrase in app
+
+
 def test_research_ui_has_decision_inbox_and_proposal_handoff() -> None:
     app = _read(OPERATOR_ROOT / "app.js")
     css = _read(OPERATOR_ROOT / "styles.css")

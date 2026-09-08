@@ -236,7 +236,8 @@
           "maxItems": 9,
           "items": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "pattern": "^(inputs/source/|assets/product_page/)"
           }
         },
         "reference_asset_id": {"type": "string", "minLength": 1},

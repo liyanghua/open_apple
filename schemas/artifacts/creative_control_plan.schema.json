@@ -17,6 +17,7 @@
     "plan_version": {"type": "integer", "minimum": 1},
     "status": {"enum": ["draft", "needs_revision", "approved"]},
     "selected_direction_id": {"type": "string", "minLength": 1},
+    "target_platform": {"type": "string", "enum": ["youtube", "instagram", "tiktok", "linkedin", "taobao", "generic"]},
     "sections": {
       "type": "object",
       "required": ["content_direction", "story_pacing", "visual_rules", "fact_continuity", "originality_boundary"],

@@ -399,3 +399,14 @@ Pilot 在新的 Assets gate 中展示最终路由；表中是设计预期，不�
 - 不在 Research 或 Creative Lock 前调用付费 provider；
 - 不为了填满时长而给每个场景镜头强行分配卖点；
 - 不在本设计阶段锁定具体厂商或绕过现有 provider selection/decision log。
+
+## 18. 主链升级规范
+
+本设计的执行级规范已单独固化为 [`2026-09-08-source-led-taobao-upgrade-standard.md`](../reports/2026-09-08-source-led-taobao-upgrade-standard.md)。后续实现和评审以该规范为准，重点补充了本设计原先未展开的四项主链合同：
+
+1. `caption_treatment_profile`：淘宝 3:4 左上大号竖排花字、底部单行口播、修改影响矩阵；
+2. render profile 与实际输出尺寸、文件名和缓存 fingerprint 的绑定；
+3. 审批 decision、artifact revision、checkpoint、decision log 和 next action 的原子提交；
+4. 代码、Skills 与 Agent 判断的职责边界，以及 P0/P1/P2 实施顺序。
+
+本设计继续负责“商品图如何进入 coverage router、如何清洗、如何生成补镜”的领域细节；规范正文负责整个淘宝 source-led 主链的统一质量门。

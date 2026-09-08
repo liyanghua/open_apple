@@ -110,8 +110,13 @@ class ShotGenerationService:
             raise OperatorError.validation_failed(
                 f"differentiation owner 无法验证，禁止付费生成：{exc}"
             ) from exc
+        local_pack_path = self.project_dir / "artifacts" / "template_pack.json"
+        template = load_template_for_run_plan(
+            run_plan,
+            pack_path=local_pack_path if local_pack_path.is_file() else None,
+        )
         result = check_template_run_plan_ready(
-            run_plan, template=load_template_for_run_plan(run_plan),
+            run_plan, template=template,
             input_mode=input_mode,
             authoritative_differentiation_plan_ref=authoritative_ref,
         )

@@ -1,3 +1,5 @@
+import hashlib
+import json
 from pathlib import Path
 
 from lib.render_plan import validate_sample_window
@@ -31,6 +33,75 @@ def test_sample_adapter_preserves_source_timeline_frames(tmp_path: Path, monkeyp
     # height（重复 --width/--height 会被 yargs 折叠成数组导致渲染失败）。
     assert seen["profile"] == "social_vertical_sample_540p30"
     assert "remotion_width" not in seen and "remotion_height" not in seen
+
+
+def test_sample_adapter_uses_profile_declared_by_the_render_plan(tmp_path: Path, monkeypatch):
+    seen = {}
+
+    def fake_render(self, inputs):
+        seen.update(inputs)
+        output = Path(inputs["output_path"])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"sample")
+        return ToolResult(success=True, data={"output": str(output)}, artifacts=[str(output)])
+
+    monkeypatch.setattr(VideoCompose, "_remotion_render", fake_render)
+    result = VideoCompose()._render_framed_window(
+        {"project_dir": str(tmp_path), "edit_decisions": {"render_runtime": "remotion"}},
+        {
+            "mode": "sample",
+            "profile": "social_vertical_3_4_sample_540p30",
+            "final_props_hash": "a" * 64,
+            "sample": {"startFrame": 0, "endFrameExclusive": 300},
+        },
+        mode="sample",
+    )
+
+    assert result.success
+    assert seen["profile"] == "social_vertical_3_4_sample_540p30"
+
+
+def test_sample_cache_is_invalidated_when_its_dimensions_do_not_match_profile(tmp_path: Path, monkeypatch):
+    output = tmp_path / "sample.mp4"
+    output.write_bytes(b"old-sample")
+    plan = {
+        "mode": "sample",
+        "profile": "social_vertical_3_4_sample_540p30",
+        "output_path": str(output),
+        "final_props_hash": "a" * 64,
+        "sample": {"startFrame": 0, "endFrameExclusive": 300},
+    }
+    from lib.cache_keys import canonical_digest
+
+    key = canonical_digest({
+        "tool": "video_compose", "tool_version": "0.1.0", "render_plan": plan,
+        "final_props_hash": "a" * 64, "audio_hash": None,
+        "edit_decisions_hash": canonical_digest({"render_runtime": "remotion"}),
+        "window": [0, 300], "scale": 0.5, "mode": "sample",
+    })
+    output.with_name("sample.sample_provenance.json").write_text(json.dumps({
+        "cache_key": key, "output_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+    }), encoding="utf-8")
+    seen = {"renders": 0}
+
+    def fake_render(self, inputs):
+        seen["renders"] += 1
+        return ToolResult(success=True, data={"output": inputs["output_path"]})
+
+    monkeypatch.setattr(VideoCompose, "_remotion_render", fake_render)
+    monkeypatch.setattr(
+        "lib.render_plan.probe_media",
+        lambda _: {"streams": [{"codec_type": "video", "width": 540, "height": 960}]},
+    )
+
+    result = VideoCompose()._render_framed_window(
+        {"project_dir": str(tmp_path), "edit_decisions": {"render_runtime": "remotion"}},
+        plan,
+        mode="sample",
+    )
+
+    assert result.success
+    assert seen["renders"] == 1
 
 
 def test_sample_adapter_preserves_atelier_runtime_and_forces_half_scale(

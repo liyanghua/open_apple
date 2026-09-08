@@ -261,3 +261,39 @@ class TestSharedMediaAcl:
 
         assert source == "victim"
         assert target == (projects_root / "victim" / "inputs" / "secret.mp4").resolve()
+
+    def test_reviewed_owned_symlink_is_the_only_allowed_external_media(
+        self, projects_root, tmp_path
+    ):
+        import json
+        import fastapi
+
+        source = projects_root / "source-run"
+        (source / "inputs" / "source").mkdir(parents=True)
+        (source / "artifacts").mkdir()
+        external = tmp_path / "owned-clips"
+        external.mkdir()
+        (external / "reviewed.mp4").write_bytes(b"reviewed")
+        (external / "unreviewed.mp4").write_bytes(b"unreviewed")
+        (source / "inputs" / "source" / "reviewed.mp4").symlink_to(external / "reviewed.mp4")
+        (source / "inputs" / "source" / "unreviewed.mp4").symlink_to(external / "unreviewed.mp4")
+        (source / "artifacts" / "source_media_review.json").write_text(json.dumps({
+            "files": [{
+                "path": "inputs/source/reviewed.mp4",
+                "reviewed": True,
+            }],
+        }))
+
+        target, owner = server_mod._resolve_served_media(
+            projects_root / "template-run",
+            "projects/source-run/inputs/source/reviewed.mp4",
+        )
+        assert owner == "source-run"
+        assert target == (external / "reviewed.mp4").resolve()
+
+        with pytest.raises(fastapi.HTTPException) as exc:
+            server_mod._resolve_served_media(
+                projects_root / "template-run",
+                "projects/source-run/inputs/source/unreviewed.mp4",
+            )
+        assert exc.value.status_code == 403

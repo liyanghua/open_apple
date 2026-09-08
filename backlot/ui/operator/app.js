@@ -358,6 +358,41 @@ function renderProposalHandoff(container, data) {
   container.append(section);
 }
 
+function renderProductFacts(container, product) {
+  if (!product || (!product.facts?.length && !product.capture?.candidate_count)) return;
+  const section = node("section", "content-row product-fact-review");
+  section.append(node("h3", "section-title", "商品事实与证据边界"));
+  if (product.product_name) section.append(detailRow("商品", product.product_name));
+  if (product.selected_sku) section.append(detailRow("当前 SKU", product.selected_sku));
+  const stats = node("div", "inline-stats");
+  stats.append(detailRow("页面候选事实", `${product.capture?.candidate_count || 0} 条`));
+  stats.append(detailRow("稳定事实", `${product.counts?.total || 0} 条`));
+  stats.append(detailRow("易变信息已隔离", `${product.capture?.volatile_excluded_count || 0} 条`));
+  stats.append(detailRow("待人工核验", `${product.counts?.needs_human_confirmation || 0} 条`));
+  stats.append(detailRow("当前禁用", `${product.counts?.restricted || 0} 条`));
+  section.append(stats);
+  if (product.capture?.surfaces?.length) {
+    const surfaces = product.capture.surfaces.map((item) => `${item.captured ? "✓" : "待补"} ${item.label}`);
+    section.append(node("h4", "detail-heading", "页面采集范围"), tagList(surfaces));
+  }
+  const facts = document.createElement("details"); facts.className = "product-fact-details";
+  const summary = document.createElement("summary"); summary.textContent = `查看全部 ${product.facts?.length || 0} 条稳定事实`;
+  facts.append(summary);
+  const list = node("div", "product-fact-list");
+  (product.facts || []).forEach((fact) => {
+    const card = node("article", "product-fact-card");
+    const heading = node("div", "source-heading");
+    heading.append(node("h4", "row-title", fact.statement || "未命名商品事实"));
+    heading.append(node("span", fact.evidence_status === "restricted" || fact.evidence_status === "forbidden" ? "status-chip" : "status-chip is-ready", fact.evidence_label || "证据状态未标注"));
+    card.append(heading);
+    if (fact.sku_scope?.length) card.append(detailRow("适用范围", fact.sku_scope.join("、")));
+    if (fact.allowed_wording?.length) card.append(detailRow("允许说法", fact.allowed_wording.join("；")));
+    if (fact.prohibited_wording?.length) card.append(detailRow("禁止说法", fact.prohibited_wording.join("；")));
+    list.append(card);
+  });
+  facts.append(list); section.append(facts); container.append(section);
+}
+
 function renderResearch(container, data, { editable = false, onOperation = () => {}, onPreview = () => {}, pendingOperations = [] } = {}) {
   const substageNav = node("nav", "research-substage-nav");
   substageNav.setAttribute("aria-label", "Research 子阶段");
@@ -403,6 +438,7 @@ function renderResearch(container, data, { editable = false, onOperation = () =>
   const directionPanel = panels.get("direction") || container;
   const qualityPanel = panels.get("quality") || container;
   renderDecisionInbox(qualityPanel, data, { editable, onOperation, onPreview, pendingOperations });
+  renderProductFacts(sourcesPanel, data.product_facts);
   if (data.template) {
     const template = node("section", "content-row research-template");
     template.append(node("h3", "section-title", "本次拆解模板"));
@@ -663,6 +699,17 @@ function renderScript(container, data, { editable, onOperation }) {
     if (section.screen_copy) item.append(detailRow("屏幕上强调什么", section.screen_copy));
     if (section.pacing) item.append(detailRow("时间和节奏", section.pacing));
     if (section.visual_intent) item.append(detailRow("画面要完成什么", section.visual_intent));
+    if (section.fact_bindings?.length) item.append(detailRow("对应商品事实", section.fact_bindings.map((fact) => `${fact.statement}（${fact.evidence_label}）`).join("；")));
+    if (section.evidence?.required_subjects?.length) item.append(detailRow("画面必须出现的主体", section.evidence.required_subjects.join("、")));
+    if (section.evidence?.required_actions?.length) item.append(detailRow("画面必须出现的动作", section.evidence.required_actions.join("、")));
+    if (section.evidence?.required_results?.length) item.append(detailRow("画面必须出现的结果", section.evidence.required_results.join("；")));
+    if (section.evidence?.route_label) item.append(detailRow("画面来源", section.evidence.route_label));
+    if (section.evidence?.prohibited_wording?.length) item.append(detailRow("禁止说法", section.evidence.prohibited_wording.join("；")));
+    if (section.evidence?.source) {
+      item.append(detailRow("本镜采用的素材", section.evidence.source.label));
+      const preview = sourcePreview(section.evidence.source);
+      if (preview) item.append(preview);
+    }
     if (section.evidence_requirements?.length) item.append(detailRow("哪些内容必须真实证明", section.evidence_requirements.join("；")));
     if (section.director_rules?.length) item.append(detailRow("本段遵守的导演规则", section.director_rules.join("；")));
     if (section.feedback) item.append(node("p", "control-feedback", `调整意见：${section.feedback}`));
@@ -738,8 +785,15 @@ function renderShots(container, data) {
     heading.append(node("h3", "row-title", shot.beat || "镜头内容"));
     header.append(heading, node("span", "row-meta", formatTimeRange(shot.timeline_in_seconds, shot.timeline_out_seconds)));
     item.append(header);
-    if (shot.screen_copy) item.append(node("p", "row-copy shot-copy", shot.screen_copy));
+    if (shot.narration) item.append(detailRow("口播", shot.narration));
+    if (shot.screen_copy) item.append(detailRow("屏幕文字", shot.screen_copy));
     if (shot.intent) item.append(detailRow("这一镜要表达什么", shot.intent));
+    if (shot.action_keys?.length) item.append(detailRow("画面动作", shot.action_keys.join("、")));
+    if (shot.claim_ids?.length) item.append(detailRow("商品主张 ID", shot.claim_ids.join("、")));
+    if (shot.evidence_row_ids?.length) item.append(detailRow("证据行", shot.evidence_row_ids.join("、")));
+    if (shot.subject_completeness) item.append(detailRow("3:4 主体完整性", shot.subject_completeness === "complete" ? "已确认完整" : shot.subject_completeness));
+    if (shot.crop_strategy) item.append(detailRow("裁切策略", shot.crop_strategy));
+    if (shot.caption_safe_zone) item.append(detailRow("字幕安全区", shot.caption_safe_zone));
 
     const evidenceGrid = node("div", "shot-evidence-grid");
     renderReferenceEvidence(evidenceGrid, shot.reference_evidence, index);
@@ -914,6 +968,19 @@ function renderAssets(container, data, { editable = false, onOperation = () => {
   container.append(detailRow("口播", data.narration_status));
   container.append(detailRow("字幕", data.subtitle_status));
   container.append(detailRow("背景音乐", data.music_status));
+  const audioPlan = data.audio_plan || {};
+  if (audioPlan.tts) {
+    container.append(detailRow("口播供应方", audioPlan.tts.provider || "待确定"));
+    container.append(detailRow("口播模型/资源", audioPlan.tts.resource_id || "待确定"));
+    container.append(detailRow("配音音色", audioPlan.tts.voice || "待确定"));
+  }
+  if (audioPlan.bgm) {
+    container.append(detailRow("BGM 供应方", audioPlan.bgm.provider || "待确定"));
+    container.append(detailRow("BGM 风格", audioPlan.bgm.profile || "待确定"));
+  }
+  if (audioPlan.mix?.ducking_db != null) {
+    container.append(detailRow("BGM 压低", `${Number(audioPlan.mix.ducking_db).toFixed(1)} dB`));
+  }
   const cost = data.estimated_cost_usd == null ? "暂未提供" : `$${Number(data.estimated_cost_usd).toFixed(2)}`;
   container.append(detailRow("已记录费用", cost));
 

@@ -1,5 +1,7 @@
 # Source-Led Fastline 迁移评价文档（Task 1-7 验收，2026-09-02）
 
+> **2026-09-06 复审更新：** 四条真实样片暴露出商品事实来源缺失、单帧语义审核不足以及 known alignment fail 仍可被候选审批放行的问题。因此本文的“完成/通过”只保留为 2026-09-02 的测试快照，不再代表当前分支可合并或可交给一线运营。新的合并条件、商品链接浏览器取证和时序对齐升级见 [Cinematic Fast Input Modes and Source-Led Semantic Alignment Implementation Plan](../superpowers/plans/2026-09-03-cinematic-fast-input-modes.md#11-2026-09-06-复审修订商品页取证与时序对齐)。
+
 > 对照物：桌垫表批次（reference-led，已投产）→ 毛巾批次（source-led，无参考视频）。
 > 结论先行：**迁移方向正确、主干落地、全量回归转绿**；遗留 3 项（人工确认通道、master 字幕换算、proxy 实现差异）已入后续清单。
 

@@ -317,7 +317,7 @@ function renderApprovalMaterialsScript(facts, container) {
 }
 
 function renderApprovalMaterialsAssets(facts, container) {
-  container.append(materialCard("素材处理清单", facts.items?.length ? `${facts.planned_count ?? facts.items.length} 项 · ${facts.prepared_count ?? 0} 项已就绪` : "等待处理", "▦", true));
+  container.append(materialCard("生成清单", facts.items?.length ? `${facts.planned_count ?? facts.items.length} 项 · ${facts.prepared_count ?? 0} 项已就绪` : "等待处理", "▦", true));
   for (const item of (facts.items || []).slice(0, 8)) {
     container.append(materialCard(item.label || item.type || "材料", item.state_label || item.status || "待确认", "•"));
   }

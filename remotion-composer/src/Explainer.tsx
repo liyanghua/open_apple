@@ -304,6 +304,8 @@ export interface ExplainerProps {
   transitionRecipes?: Record<string, import("./cinematic/types").TransitionRecipeSpec>;
   /** 口播字幕轨（narration 逐词/逐句，底部安全区）；与花字(captions/captionStyle)双层共存 */
   narrationSubtitles?: import("@remotion/captions").Caption[];
+  captionSafeZoneProfile?: import("./components/SafeCaptionTrack").SafeZoneProfile;
+  narrationSafeZoneProfile?: import("./components/SafeCaptionTrack").SafeZoneProfile;
 }
 
 // ---------------------------------------------------------------------------
@@ -911,6 +913,7 @@ export const Explainer: React.FC<ExplainerProps> = (props) => {
           highlightColor={theme.captionHighlightColor}
           backgroundColor={theme.captionBackgroundColor}
           captionStyle={props.captionStyle}
+          safeZoneProfile={props.captionSafeZoneProfile ?? "taobao_detail_3_4"}
           captionRecipes={props.captionRecipes}
           scenes={cuts.map((cut) => ({
             id: cut.id,
@@ -922,7 +925,13 @@ export const Explainer: React.FC<ExplainerProps> = (props) => {
 
       {/* Layer 4: 口播字幕轨（narration 逐词，底部安全区）——与花字(captionStyle)双层共存 */}
       {props.narrationSubtitles && props.narrationSubtitles.length > 0 && (
-        <SafeCaptionTrack captions={props.narrationSubtitles} safeZoneProfile="douyin_9_16" />
+        <SafeCaptionTrack
+          captions={props.narrationSubtitles}
+          safeZoneProfile={props.narrationSafeZoneProfile ?? "taobao_detail_3_4"}
+          fontMin={36}
+          fontMax={52}
+          singleLine
+        />
       )}
 
       {/* Layer 5: Audio — narration */}

@@ -134,6 +134,7 @@ def test_candidate_view_exposes_hashes_for_safe_selection(tmp_path: Path, monkey
     _write(root / "cand-01" / "artifacts" / "evaluation_report.json", {
         "scope": "sample", "status": "pass", "artifact_sha256": "e" * 64,
         "hard_gate": {"checks": []}, "project_id": "cand-01",
+        "alignment": {"status": "pass"},
     })
     _write(root / "cand-01" / "operator" / "reviews" / "sample.json", {
         "review_id": "sample-review-1", "kind": "sample", "status": "approved",
@@ -305,12 +306,19 @@ def test_derive_candidate_business_fields(tmp_path):
     assert out["current_step"] == "script" and out["current_artifact"] == "script"
     assert out["review_status"] == "awaiting_review" and out["selection_eligible"] is False
 
-    # ② 样片门 approved + 报告存在 → eligible
+    # ② 样片门 approved + evaluation/alignment 都 pass → eligible
     snap2 = {"stage_states": [{"stage_id": "sample", "status": "awaiting_human"}], "phase": "scoring"}
     out2 = derive_candidate_business(snap2, reviews_by_kind={
-        "sample": [rev("r3", "sample", "approved", "3" * 64)]}, evaluate={"status": "pass"})
+        "sample": [rev("r3", "sample", "approved", "3" * 64)]},
+        evaluate={"status": "pass", "alignment": {"status": "pass"}})
     assert out2["selection_eligible"] is True and out2["selection_block_reason"] is None
-    # ③ 无评审 → not_ready + block_reason
+    # ③ 报告存在但语义对齐未通过 → 不可选
+    out_revise = derive_candidate_business(snap2, reviews_by_kind={
+        "sample": [rev("r4", "sample", "approved", "4" * 64)]},
+        evaluate={"status": "pass", "alignment": {"status": "revise"}})
+    assert out_revise["selection_eligible"] is False
+    assert "对齐" in (out_revise["selection_block_reason"] or "")
+    # ④ 无评审 → not_ready + block_reason
     out3 = derive_candidate_business(snap2, reviews_by_kind={}, evaluate=None, media_ready=False)
     assert out3["review_status"] == "not_ready" and out3["artifact_health"] == "missing"
     assert "尚未通过样片确认" in (out3["selection_block_reason"] or "")

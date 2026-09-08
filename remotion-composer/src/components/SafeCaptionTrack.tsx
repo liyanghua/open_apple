@@ -5,7 +5,8 @@ import {AbsoluteFill, Sequence, useVideoConfig} from "remotion";
 export type SafeZoneProfile =
   | "douyin_9_16"
   | "wechat_9_16"
-  | "xiaohongshu_9_16";
+  | "xiaohongshu_9_16"
+  | "taobao_detail_3_4";
 
 export type EmphasisRule = {
   term: string;
@@ -23,9 +24,13 @@ export type SafeCaptionProps = {
   emphasisRules?: EmphasisRule[];
   /** 评审 #9b：字幕底部渲染偏移（与指纹 bottom_offset_px 同一数值）。 */
   bottomMarginPx?: number;
+  canvasWidth?: number;
+  canvasHeight?: number;
+  /** Keep narration as one adaptive line inside its safe-zone width. */
+  singleLine?: boolean;
 };
 
-type LayoutOptions = Omit<SafeCaptionProps, "captions">;
+type LayoutOptions = Omit<SafeCaptionProps, "captions"> & {widthMultiplier?: number};
 
 export type CaptionBox = {
   text: string;
@@ -59,6 +64,27 @@ export const SAFE_ZONE_PROFILES: Record<
   douyin_9_16: {left: 72, right: 72, top: 120, bottom: 300, maxWidth: 864, maxLines: 2, lineHeight: 1.24},
   wechat_9_16: {left: 72, right: 72, top: 120, bottom: 300, maxWidth: 864, maxLines: 2, lineHeight: 1.24},
   xiaohongshu_9_16: {left: 72, right: 72, top: 120, bottom: 300, maxWidth: 864, maxLines: 2, lineHeight: 1.24},
+  taobao_detail_3_4: {left: 48, right: 48, top: 64, bottom: 180, maxWidth: 984, maxLines: 2, lineHeight: 1.24},
+};
+
+const profileForCanvas = (
+  safeZoneProfile: SafeZoneProfile,
+  canvasWidth: number,
+): (typeof SAFE_ZONE_PROFILES)[SafeZoneProfile] => {
+  const profile = SAFE_ZONE_PROFILES[safeZoneProfile];
+  // Safe-zone specs are authored in the canonical 1080px-wide coordinate
+  // system.  Sample renders are 540px wide, so all pixel margins/widths must
+  // scale with the canvas or the narration track drifts into the middle.
+  if (safeZoneProfile !== "taobao_detail_3_4") return profile;
+  const scale = Math.max(canvasWidth, 1) / 1080;
+  return {
+    ...profile,
+    left: Math.round(profile.left * scale),
+    right: Math.round(profile.right * scale),
+    top: Math.round(profile.top * scale),
+    bottom: Math.round(profile.bottom * scale),
+    maxWidth: Math.round(profile.maxWidth * scale),
+  };
 };
 
 export const stripTrailingPunctuation = (text: string): string =>
@@ -103,12 +129,26 @@ export const fitCjkFontSize = (
   return Math.max(fontMin, Math.min(fontMax, fitted));
 };
 
+/** One-line narration always fits; containment wins over a nominal font floor. */
+export const fitSingleLineCjkFontSize = (
+  text: string,
+  options: {fontMin?: number; fontMax?: number; maxWidth?: number; widthMultiplier?: number} = {},
+): number => {
+  const fontMax = options.fontMax ?? 52;
+  const maxWidth = options.maxWidth ?? 864;
+  const widthMultiplier = Math.max(options.widthMultiplier ?? 1, 0.01);
+  const fitted = Math.floor(maxWidth / (characterUnits(text) * widthMultiplier));
+  return Math.max(1, Math.min(fontMax, fitted));
+};
+
 export const captionBoxForCue = (
   cue: Caption,
   options: LayoutOptions = {},
 ): CaptionBox => {
-  const profile = SAFE_ZONE_PROFILES[options.safeZoneProfile ?? "douyin_9_16"];
-  const maxWidth = Math.min(options.maxWidth ?? profile.maxWidth, profile.maxWidth);
+  const canvasWidth = options.canvasWidth ?? 1080;
+  const canvasHeight = options.canvasHeight ?? 1920;
+  const profile = profileForCanvas(options.safeZoneProfile ?? "douyin_9_16", canvasWidth);
+  const maxWidth = Math.min(options.maxWidth ?? profile.maxWidth, profile.maxWidth, canvasWidth - profile.left - profile.right);
   const text = options.stripTrailingPunctuation === false
     ? cue.text.trim()
     : stripTrailingPunctuation(cue.text.trim());
@@ -116,7 +156,12 @@ export const captionBoxForCue = (
   const scaleMultiplier = emphasisRules.some(
     (rule) => rule.effect === "scale" && text.includes(rule.term),
   ) ? 1.08 : 1;
-  const fontSize = fitCjkFontSize(text, {
+  const fontSize = options.singleLine ? fitSingleLineCjkFontSize(text, {
+    fontMin: options.fontMin,
+    fontMax: options.fontMax,
+    maxWidth,
+    widthMultiplier: scaleMultiplier,
+  }) : fitCjkFontSize(text, {
     fontMin: options.fontMin,
     fontMax: options.fontMax,
     maxWidth,
@@ -124,10 +169,14 @@ export const captionBoxForCue = (
     widthMultiplier: scaleMultiplier,
   });
   const textWidth = Math.round(characterUnits(text) * fontSize);
-  const lineCount = Math.max(1, Math.ceil(textWidth / maxWidth));
+  const lineCount = options.singleLine ? 1 : Math.max(1, Math.ceil(textWidth / maxWidth));
   const width = lineCount === 1 ? Math.min(maxWidth, textWidth) : maxWidth;
-  const left = Math.round((1080 - width) / 2);
-  const bottom = 1920 - (options.bottomMarginPx ?? profile.bottom);
+  const left = Math.round((canvasWidth - width) / 2);
+  const declaredBottomMargin = options.bottomMarginPx ?? SAFE_ZONE_PROFILES[options.safeZoneProfile ?? "douyin_9_16"].bottom;
+  const bottomMargin = options.safeZoneProfile === "taobao_detail_3_4"
+    ? Math.round(declaredBottomMargin * (canvasWidth / 1080))
+    : declaredBottomMargin;
+  const bottom = canvasHeight - bottomMargin;
   const height = Math.round(fontSize * profile.lineHeight * lineCount);
   const top = bottom - height;
   const emphasisBoxes = emphasisRules
@@ -136,7 +185,7 @@ export const captionBoxForCue = (
       const multiplier = rule.effect === "scale" ? 1.08 : 1;
       const emphasisWidth = Math.round(characterUnits(rule.term) * fontSize * multiplier);
       const emphasisHeight = Math.round(fontSize * profile.lineHeight * multiplier);
-      const emphasisLeft = Math.round((1080 - emphasisWidth) / 2);
+        const emphasisLeft = Math.round((canvasWidth - emphasisWidth) / 2);
       return {
         term: rule.term,
         text: rule.term,
@@ -170,12 +219,14 @@ export const captionBoxForCue = (
 export const isInsideSafeZone = (
   box: Pick<CaptionBox, "left" | "right" | "top" | "bottom" | "width" | "lineCount">,
   safeZoneProfile: SafeZoneProfile = "douyin_9_16",
+  canvasWidth = 1080,
+  canvasHeight = 1920,
 ): boolean => {
-  const profile = SAFE_ZONE_PROFILES[safeZoneProfile];
+  const profile = profileForCanvas(safeZoneProfile, canvasWidth);
   return box.left >= profile.left &&
-    box.right <= 1080 - profile.right &&
+    box.right <= canvasWidth - profile.right &&
     box.top >= profile.top &&
-    box.bottom <= 1920 - profile.bottom &&
+    box.bottom <= canvasHeight - profile.bottom &&
     box.width <= profile.maxWidth &&
     box.lineCount <= profile.maxLines;
 };
@@ -223,7 +274,15 @@ export const SafeCaptionTrack: React.FC<SafeCaptionProps> = ({
   maxWidth = 864,
   stripTrailingPunctuation: shouldStrip = true,
   emphasisRules = [],
+  bottomMarginPx,
+  canvasWidth,
+  canvasHeight,
+  singleLine = false,
 }) => {  const {fps} = useVideoConfig();
+  const {width, height} = useVideoConfig();
+  const canvasScale = safeZoneProfile === "taobao_detail_3_4"
+    ? (canvasWidth ?? width) / 1080
+    : 1;
   return (
     <AbsoluteFill style={{pointerEvents: "none"}}>
       {captions.map((caption, index) => {
@@ -234,11 +293,15 @@ export const SafeCaptionTrack: React.FC<SafeCaptionProps> = ({
         );
         const box = captionBoxForCue(caption, {
           safeZoneProfile,
-          fontMin,
-          fontMax,
-          maxWidth,
+          fontMin: Math.round(fontMin * canvasScale),
+          fontMax: Math.round(fontMax * canvasScale),
+          maxWidth: Math.round(maxWidth * canvasScale),
           stripTrailingPunctuation: shouldStrip,
           emphasisRules,
+          canvasWidth: canvasWidth ?? width,
+          canvasHeight: canvasHeight ?? height,
+          bottomMarginPx,
+          singleLine,
         });
         return (
           <Sequence key={`${caption.startMs}-${index}`} from={from} durationInFrames={durationInFrames}>
@@ -255,11 +318,12 @@ export const SafeCaptionTrack: React.FC<SafeCaptionProps> = ({
               lineHeight: box.lineHeight,
               textAlign: "center",
               textShadow: "0 2px 5px rgba(0,0,0,0.82)",
-              wordBreak: "break-all",
+              whiteSpace: singleLine ? "nowrap" : "normal",
+              wordBreak: singleLine ? "keep-all" : "break-all",
               overflow: "hidden",
-              display: "-webkit-box",
-              WebkitBoxOrient: "vertical",
-              WebkitLineClamp: 2,
+              display: singleLine ? "block" : "-webkit-box",
+              WebkitBoxOrient: singleLine ? undefined : "vertical",
+              WebkitLineClamp: singleLine ? undefined : 2,
             }}>
               {renderEmphasis(box.text, emphasisRules)}
             </div>
