@@ -192,6 +192,22 @@ def create_operator_router(
             raise OperatorError("not_found", "候选项目不存在", 404)
         return child_dir, candidate
 
+    def _editorial_session_candidate(project_id: str, session_id: str) -> tuple[Path, str]:
+        """Locate a session by scanning only candidates declared by the batch."""
+        batch_dir = project(project_id)
+        try:
+            batch = json.loads((batch_dir / "artifacts" / "candidate_batch.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OperatorError("not_found", "批量项目不存在", 404) from exc
+        for item in (batch.get("candidates") or []):
+            if not isinstance(item, dict):
+                continue
+            candidate_id = str(item.get("candidate_id") or "")
+            child_dir, _ = _editorial_candidate(project_id, candidate_id)
+            if (child_dir / "operator" / "editorial" / "sessions" / f"{session_id}.json").is_file():
+                return child_dir, candidate_id
+        raise OperatorError("not_found", "编辑会话不存在", 404)
+
     @router.get("/projects/{project_id}/editorial-gallery")
     async def editorial_gallery(project_id: str, request: Request) -> dict:
         authenticate(request, project_id, "read")
@@ -202,9 +218,12 @@ def create_operator_router(
 
     @router.get("/projects/{project_id}/editorial-gallery/candidates/{candidate_id}/session")
     async def editorial_session_load(project_id: str, candidate_id: str, request: Request) -> dict:
-        session = authenticate(request, project_id, "read")
-        service = EditorialSessionService(project(project_id), actor_id=session.actor.user_id)
-        return service.load_session(candidate_id)
+        child_dir, _ = _editorial_candidate(project_id, candidate_id)
+        session = authenticate(request, child_dir.name, "read")
+        session_id = request.query_params.get("session_id", "")
+        if not session_id:
+            raise OperatorError.validation_failed("缺少编辑会话标识")
+        return EditorialSessionService(child_dir, actor_id=session.actor.user_id).load_session(session_id)
 
     @router.post("/projects/{project_id}/editorial-gallery/candidates/{candidate_id}/edit-session")
     async def editorial_session_create(project_id: str, candidate_id: str, request: Request) -> dict:
@@ -267,8 +286,7 @@ def create_operator_router(
     @router.get("/projects/{project_id}/editorial-gallery/edit-session/{session_id}/snapshot")
     async def editorial_session_snapshot_alias(project_id: str, session_id: str, request: Request) -> dict:
         session = authenticate(request, project_id, "read")
-        candidate_id = request.query_params.get("candidate_id", "")
-        child_dir, _ = _editorial_candidate(project_id, candidate_id)
+        child_dir, _ = _editorial_session_candidate(project_id, session_id)
         return EditorialSessionService(child_dir, actor_id=session.actor.user_id).load_session(session_id)
 
     async def _session_service(project_id: str, session_id: str, request: Request, *, action: str, csrf: bool = False):
@@ -277,9 +295,10 @@ def create_operator_router(
         if not candidate_id:
             payload = await body(request) if request.method != "GET" else {}
             candidate_id = str(payload.get("candidate_id") or "")
-        if not candidate_id:
-            raise OperatorError.validation_failed("缺少候选标识")
-        child_dir, _ = _editorial_candidate(project_id, candidate_id)
+        if candidate_id:
+            child_dir, _ = _editorial_candidate(project_id, candidate_id)
+        else:
+            child_dir, candidate_id = _editorial_session_candidate(project_id, session_id)
         return EditorialSessionService(child_dir, actor_id=session.actor.user_id), session, candidate_id, payload
 
     @router.post("/projects/{project_id}/editorial-gallery/edit-session/{session_id}/preview")
