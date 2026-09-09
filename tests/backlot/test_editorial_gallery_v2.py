@@ -95,3 +95,12 @@ def test_editorial_session_api_rejects_non_remotion_candidate(backlot_client, pr
     )
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "unsupported_runtime"
+
+
+def test_editorial_routes_are_hidden_when_v2_feature_flag_is_off(backlot_client, projects_root, monkeypatch) -> None:
+    batch = _fixture(projects_root.parent)
+    monkeypatch.setenv("OPENMONTAGE_EDITORIAL_TIMELINE_V2", "0")
+    assert backlot_client.get(f"/studio/{batch.name}").status_code == 404
+    response = backlot_client.get(f"/api/v2/projects/{batch.name}/editorial-gallery")
+    assert response.status_code == 404
+    assert backlot_client.get(f"/p/{batch.name}").status_code == 200

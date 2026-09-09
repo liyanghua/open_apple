@@ -6,7 +6,7 @@ PIP = $(RUN_PYTHON) -m pip
 
 .DEFAULT_GOAL := setup
 
-.PHONY: setup install install-dev install-gpu test test-contracts lint clean preflight demo demo-list hyperframes-doctor hyperframes-warm benchmark-fastline venv ensure-venv
+.PHONY: setup install install-dev install-gpu test test-contracts lint clean preflight demo demo-list hyperframes-doctor hyperframes-warm benchmark-fastline editorial-editor-build venv ensure-venv
 
 # ---- Virtual environment ----
 
@@ -94,6 +94,10 @@ test: ensure-venv
 
 test-contracts: ensure-venv
 	$(RUN_PYTHON) -m pytest tests/contracts/ -v
+
+editorial-editor-build: ensure-venv
+	@test -n "$(OPENREEL_SOURCE)" -a -n "$(OPENREEL_OUTPUT)" -a -n "$(OPENREEL_REVISION)" -a -n "$(OPENREEL_LICENSE)" || { echo "ERROR: OPENREEL_SOURCE, OPENREEL_OUTPUT, OPENREEL_REVISION and OPENREEL_LICENSE are required"; exit 2; }
+	$(RUN_PYTHON) scripts/build_openreel_editor.py --source "$(OPENREEL_SOURCE)" --output "$(OPENREEL_OUTPUT)" --revision "$(OPENREEL_REVISION)" --license "$(OPENREEL_LICENSE)"
 
 # ---- Utilities ----
 

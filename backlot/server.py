@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -558,6 +559,8 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
 
     @app.get("/studio/{batch_id}")
     async def editorial_studio_page(batch_id: str, request: Request) -> Response:
+        if os.getenv("OPENMONTAGE_EDITORIAL_TIMELINE_V2", "1").strip().lower() in {"0", "false", "off", "no"}:
+            raise HTTPException(status_code=404, detail="精剪工作室当前未开放")
         redirect = page_login_redirect(request)
         if redirect is not None:
             return redirect
@@ -571,6 +574,8 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
 
     @app.get("/studio/{batch_id}/edit/{candidate_id}")
     async def editorial_studio_edit_page(batch_id: str, candidate_id: str, request: Request) -> Response:
+        if os.getenv("OPENMONTAGE_EDITORIAL_TIMELINE_V2", "1").strip().lower() in {"0", "false", "off", "no"}:
+            raise HTTPException(status_code=404, detail="精剪工作室当前未开放")
         redirect = page_login_redirect(request)
         if redirect is not None:
             return redirect

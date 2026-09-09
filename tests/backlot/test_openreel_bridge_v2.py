@@ -112,3 +112,19 @@ def test_editorial_shell_is_same_origin_and_exposes_required_states() -> None:
     assert "fetch(path" in js
     assert "/api/v2/" in js
     assert "http://" not in js and "https://" not in js
+
+
+def test_editorial_build_manifest_records_pinned_source_license_and_bundle_hash(tmp_path) -> None:
+    from scripts.build_openreel_editor import build_manifest
+
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "shell.js").write_text("console.log('editor');", encoding="utf-8")
+    license_path = source / "LICENSE"
+    license_path.write_text("OpenReel license", encoding="utf-8")
+    output = tmp_path / "dist"
+    manifest = build_manifest(source, output, revision="openreel-test-rev", license_path=license_path)
+    assert manifest["source_revision"] == "openreel-test-rev"
+    assert manifest["license_file"] == "LICENSE"
+    assert len(manifest["bundle_sha256"]) == 64
+    assert (output / "manifest.json").is_file()

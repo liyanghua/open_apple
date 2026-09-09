@@ -36,6 +36,15 @@ from backlot.editorial_sessions import EditorialSessionService
 from lib.artifact_hashing import semantic_sha256
 
 
+def _editorial_v2_enabled() -> bool:
+    return os.getenv("OPENMONTAGE_EDITORIAL_TIMELINE_V2", "1").strip().lower() not in {"0", "false", "off", "no"}
+
+
+def _require_editorial_v2() -> None:
+    if not _editorial_v2_enabled():
+        raise OperatorError("not_found", "精剪工作室当前未开放", 404)
+
+
 def _existing_review_note_for_idempotency_key(
     project_dir: Path, event: dict[str, Any]
 ) -> dict[str, Any] | None:
@@ -174,6 +183,7 @@ def create_operator_router(
         return SkillCatalog(Path(__file__).parents[1] / "skills" / "catalog")
 
     def _editorial_candidate(project_id: str, candidate_id: str) -> tuple[Path, dict[str, Any]]:
+        _require_editorial_v2()
         batch_dir = project(project_id)
         try:
             batch = json.loads((batch_dir / "artifacts" / "candidate_batch.json").read_text(encoding="utf-8"))
@@ -210,6 +220,7 @@ def create_operator_router(
 
     @router.get("/projects/{project_id}/editorial-gallery")
     async def editorial_gallery(project_id: str, request: Request) -> dict:
+        _require_editorial_v2()
         authenticate(request, project_id, "read")
         try:
             return await __import__("asyncio").to_thread(build_editorial_gallery, project(project_id))
