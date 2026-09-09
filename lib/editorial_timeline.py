@@ -717,7 +717,7 @@ def materialize_editorial_timeline(
         scene_claims = scene.get("claim_ids")
         if not isinstance(scene_claims, list) or scene_claims != approved["claim_ids"]:
             raise EditorialMaterializationError(f"scene {shot_id} claim ids do not match accepted coverage")
-        start, end = _scene_time(scene, fps=fps, field=f"scene {shot_id}")
+        start, declared_end = _scene_time(scene, fps=fps, field=f"scene {shot_id}")
         source_in = _number(
             scene.get("sourceInSeconds"),
             field=f"scene {shot_id}.sourceInSeconds",
@@ -733,11 +733,23 @@ def materialize_editorial_timeline(
             or source_out <= source_in
         ):
             raise EditorialMaterializationError(f"scene {shot_id} exceeds approved source range")
+        speed = _number(
+            cut.get("speed", scene.get("speed", 1.0)),
+            field=f"scene {shot_id}.speed",
+        )
+        if speed <= 0:
+            raise EditorialMaterializationError(f"scene {shot_id}.speed must be positive")
+        end = start + (source_out - source_in) / speed
+        if abs(end - declared_end) > (1.0 / fps):
+            raise EditorialMaterializationError(
+                f"scene {shot_id} duration does not match source range and speed"
+            )
         fact_scope = dict(approved["fact_scope"])
         video_clips.append({
             "id": f"video-{shot_id}", "asset_id": approved["asset_id"],
             "source_sha256": approved["source_sha256"], "source_in_seconds": source_in,
             "source_out_seconds": source_out, "start_seconds": start,
+            "speed": speed,
             "fact_scope": fact_scope,
         })
         screen_copy = scene.get("screen_copy")
@@ -933,6 +945,12 @@ def project_timeline_for_compose(
             "editorial composition is locked to the remotion runtime",
             render_runtime=profile.get("render_runtime") if isinstance(profile, Mapping) else None,
         )
+    source_hashes = source.get("source_artifact_hashes")
+    if not isinstance(source_hashes, Mapping) or source_hashes.get("asset_manifest") != semantic_sha256(asset_manifest):
+        _reject(
+            "unsupported_delivery_operation",
+            "asset manifest does not match the timeline artifact binding",
+        )
     # The catalogue is bound to the base snapshot.  A validated EditDelta
     # legitimately changes the current timeline hash, so only immutable
     # generation/revision/source ownership is checked here.
@@ -962,6 +980,17 @@ def project_timeline_for_compose(
         item = manifest_by_id.get(manifest_id)
         if item is None or not isinstance(item.get("path"), str) or not item.get("path"):
             _reject("unsupported_delivery_operation", f"asset {asset_id} has no renderable path", asset_id=asset_id)
+        metadata = asset_manifest.get("metadata") if isinstance(asset_manifest, Mapping) else None
+        expected_candidate = asset_catalogue.get("candidate_id")
+        expected_project = asset_catalogue.get("project_id")
+        if (
+            not isinstance(metadata, Mapping)
+            or metadata.get("candidate_id") != expected_candidate
+            or metadata.get("project_id") != expected_project
+        ):
+            _reject("unsupported_delivery_operation", f"asset {asset_id} ownership does not match the catalogue", asset_id=asset_id)
+        if item.get("sha256") != catalogue_asset.get("source_sha256"):
+            _reject("unsupported_delivery_operation", f"asset {asset_id} hash does not match the catalogue", asset_id=asset_id)
         if audio and item.get("type") != "audio":
             _reject("unsupported_delivery_operation", f"asset {asset_id} is not audio", asset_id=asset_id)
         if not audio and item.get("type") != "video":

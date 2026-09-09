@@ -1273,3 +1273,35 @@ def test_project_timeline_for_compose_rejects_crossfade_until_overlap_is_support
     timeline["tracks"][0]["clips"][0]["transition"] = "crossfade"
     with pytest.raises(EditorialDeltaError, match="unsupported_delivery_operation"):
         project_timeline_for_compose(timeline, asset_catalogue=snapshot["asset_catalogue"], asset_manifest=inputs["asset_manifest"])
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda manifest: manifest["assets"][0].update(sha256="f" * 64),
+    lambda manifest: manifest["metadata"].update(candidate_id="other-candidate"),
+])
+def test_project_timeline_for_compose_rejects_manifest_substitution(mutation) -> None:
+    from lib.editorial_timeline import EditorialDeltaError, materialize_editorial_timeline, project_timeline_for_compose
+
+    inputs = _source_led_materialization_inputs()
+    snapshot = materialize_editorial_timeline(**inputs)
+    manifest = deepcopy(inputs["asset_manifest"])
+    mutation(manifest)
+    with pytest.raises(EditorialDeltaError, match="unsupported_delivery_operation"):
+        project_timeline_for_compose(
+            snapshot["timeline"], asset_catalogue=snapshot["asset_catalogue"], asset_manifest=manifest
+        )
+
+
+def test_materialize_speed_binds_actual_timeline_duration_for_text_and_video() -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    inputs = _source_led_materialization_inputs()
+    inputs["edit_decisions"]["cuts"][0]["speed"] = 2.0
+    inputs["final_props"]["scenes"][0]["toFrameExclusive"] = 30
+    inputs["final_props"]["captions"][0]["endMs"] = 1000
+    snapshot = materialize_editorial_timeline(**inputs)
+    video = snapshot["timeline"]["tracks"][0]["clips"][0]
+    text = snapshot["timeline"]["tracks"][3]["clips"][0]
+    assert video["speed"] == 2.0
+    assert video["start_seconds"] == 0
+    assert text["end_seconds"] == 1.0
