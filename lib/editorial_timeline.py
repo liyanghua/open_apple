@@ -1018,7 +1018,12 @@ def project_timeline_for_compose(
                     "transition": transition,
                     "fadeInSeconds": float(clip.get("fade_in_seconds", 0) or 0),
                     "fadeOutSeconds": float(clip.get("fade_out_seconds", 0) or 0),
-                    "transform": dict(clip.get("transform") or {}),
+                    "transform": {
+                        "scale": (clip.get("transform") or {}).get("scale", 1),
+                        "x": (clip.get("transform") or {}).get("x", 0),
+                        "y": (clip.get("transform") or {}).get("y", 0),
+                        "rotationDegrees": (clip.get("transform") or {}).get("rotation_degrees", 0),
+                    },
                 })
             elif kind in {"narration", "music"}:
                 approved_audio = catalogue_by_id.get(clip.get("asset_id"))
@@ -1040,7 +1045,11 @@ def project_timeline_for_compose(
                     "fadeOutSeconds": float(clip.get("fade_out_seconds", 0) or 0),
                 })
                 if kind == "music":
-                    item["ducking"] = dict(clip.get("ducking") or {"enabled": False, "reductionDb": 0})
+                    ducking = clip.get("ducking") or {}
+                    item["ducking"] = {
+                        "enabled": bool(ducking.get("enabled", False)),
+                        "reductionDb": float(ducking.get("reduction_db", 0) or 0),
+                    }
             else:
                 item.update({
                     "text": str(clip.get("text", "")),

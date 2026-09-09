@@ -147,6 +147,13 @@ const calculateMetadata: CalculateMetadataFunction<ExplainerProps> = async ({
   return { durationInFrames: Math.ceil((lastEnd + 1) * 30) };
 };
 
+const calculateEditorialMetadata: CalculateMetadataFunction<Record<string, unknown>> = async ({props}) => ({
+  durationInFrames: Number(props.durationInFrames) || 30 * 60,
+  width: Number(props.width) || 1080,
+  height: Number(props.height) || 1440,
+  fps: Number(props.fps) || 30,
+});
+
 export const Root: React.FC = () => {
   return (
     <>
@@ -173,6 +180,7 @@ export const Root: React.FC = () => {
         width={1080}
         height={1440}
         defaultProps={{fps: 30, width: 1080, height: 1440, tracks: []} as EditorialTimelineProps}
+        calculateMetadata={calculateEditorialMetadata}
       />
       <Composition
         id="CinematicRenderer"

@@ -37,5 +37,6 @@ export interface EditorialTimelineProps {
   width: number;
   height: number;
   safeZone?: string;
+  durationInFrames?: number;
   tracks: EditorialTrack[];
 }

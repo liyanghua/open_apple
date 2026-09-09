@@ -26,7 +26,7 @@ export function textPlacementStyle(position: EditorialClip["position"], styleTok
   if (position === "top_center") Object.assign(style, {top: 96});
   else if (position === "bottom_center") Object.assign(style, {bottom: 120, whiteSpace: "nowrap"});
   else Object.assign(style, {top: "50%", transform: "translate(-50%, -50%)"});
-  if (styleToken === "taobao_selling_point_v1") Object.assign(style, {writingMode: "vertical-rl", letterSpacing: 8, fontSize: 72, fontWeight: 800});
+  if (styleToken === "taobao_selling_point_v1") Object.assign(style, {left: 72, transform: "none", writingMode: "vertical-rl", letterSpacing: 8, fontSize: 72, fontWeight: 800});
   if (styleToken === "taobao_subtitle_v1") Object.assign(style, {whiteSpace: "nowrap", fontSize: 44});
   return style;
 }
