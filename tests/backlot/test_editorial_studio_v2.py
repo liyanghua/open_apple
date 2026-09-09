@@ -27,7 +27,10 @@ def _service(project: Path, actor: str = "operator-a"):
 def _report(project: Path, revision: int, kind: str, **values):
     path = project / "operator/editorial/versions" / str(revision)
     path.mkdir(parents=True, exist_ok=True)
-    report = {"revision": revision, **values}
+    output = path / f"{kind}.mp4"
+    output.write_bytes(values.pop("_output_bytes", f"{kind}-output".encode()))
+    output_hash = hashlib.sha256(output.read_bytes()).hexdigest()
+    report = {"revision": revision, "output_path": output.relative_to(project).as_posix(), "output_sha256": output_hash, **values}
     report_path = path / f"{kind}-execution_report.json"
     report_path.write_text(json.dumps(report), encoding="utf-8")
     return {"report_path": report_path.relative_to(project).as_posix()}
@@ -81,8 +84,8 @@ def test_failed_preview_is_retained_and_new_delta_invalidates_approval(tmp_path:
     failed = service.record_preview(session["session_id"], _report(project, session["revision"], "preview", status="failed", error="render failed"))
     assert failed["status"] == "preview_failed"
     assert failed["preview"]["error"] == "render failed"
-    session = service.record_preview(session["session_id"], _report(project, session["revision"], "preview", status="pass", output_sha256="a" * 64))
-    approved = service.approve_preview(session["session_id"], output_sha256="a" * 64)
+    session = service.record_preview(session["session_id"], _report(project, session["revision"], "preview", status="pass"))
+    approved = service.approve_preview(session["session_id"], output_sha256=session["preview"]["output_sha256"])
     assert approved["status"] == "preview_approved"
     changed = service.save_draft(session["session_id"], {"op": "set_caption", "text": "B"}, idempotency_key="delta-2")
     assert changed["preview"] is None
@@ -99,11 +102,11 @@ def test_final_requires_current_preview_approval_and_server_pass_report(tmp_path
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     with pytest.raises(OperatorError):
         service.request_final(session["session_id"])
-    service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass", output_sha256="a" * 64))
-    service.approve_preview(session["session_id"], output_sha256="a" * 64)
+    session = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass"))
+    service.approve_preview(session["session_id"], output_sha256=session["preview"]["output_sha256"])
     queued = service.request_final(session["session_id"])
     assert queued["status"] == "final_queued"
-    failed = service.record_final(session["session_id"], _report(project, 1, "final", status="fail", output_sha256="b" * 64, gates={"alignment": "fail"}))
+    failed = service.record_final(session["session_id"], _report(project, 1, "final", status="fail", gates={"alignment": "fail"}))
     assert failed["status"] == "final_failed"
     assert service.current_delivery() is None
 
@@ -119,7 +122,7 @@ def test_generation_advance_during_render_rejects_stale_preview_result(tmp_path:
     with store.transaction(action={"action_id": "external-render-race", "type": "external_edit"}, result={"status": "committed"}) as sink:
         sink.stage_json("artifacts/external.json", {"changed": True}, schema="operator_state")
     with pytest.raises(OperatorError) as stale:
-        service.record_preview(session["session_id"], _report(project, session["revision"], "preview", status="pass", output_sha256="a" * 64))
+        service.record_preview(session["session_id"], _report(project, session["revision"], "preview", status="pass"))
     assert stale.value.code == "revision_conflict"
     assert service.load_session(session["session_id"])["preview"] is None
 
@@ -131,14 +134,10 @@ def test_generation_advance_before_promote_rejects_stale_delivery_pointer_update
     service = _service(project)
     session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
-    session = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass", output_sha256="a" * 64))
-    session = service.approve_preview(session["session_id"], output_sha256="a" * 64)
+    session = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass"))
+    session = service.approve_preview(session["session_id"], output_sha256=session["preview"]["output_sha256"])
     session = service.request_final(session["session_id"])
-    final = project / "renders/new.mp4"
-    final.parent.mkdir(parents=True, exist_ok=True)
-    final.write_bytes(b"new-delivery")
-    final_hash = hashlib.sha256(final.read_bytes()).hexdigest()
-    session = service.record_final(session["session_id"], _report(project, 1, "final", status="pass", output_sha256=final_hash, output_path="renders/new.mp4", gates={"alignment": "pass", "l1a": "pass", "final_qa": "pass"}))
+    session = service.record_final(session["session_id"], _report(project, 1, "final", status="pass", gates={"alignment": "pass", "l1a": "pass", "final_qa": "pass"}, _output_bytes=b"new-delivery"))
     with service.store.transaction(action={"action_id": "external-promote-race", "type": "external_edit"}, result={"status": "committed"}) as sink:
         sink.stage_json("artifacts/external-promote.json", {"changed": True}, schema="operator_state")
     with pytest.raises(OperatorError) as stale:
@@ -157,13 +156,10 @@ def test_promote_discard_and_restore_prior_delivery_revision(tmp_path: Path) -> 
     service.install_delivery_revision("old", output_path=old, qa_report={"status": "pass", "gates": {"alignment": "pass", "l1a": "pass", "final_qa": "pass"}, "server_owned": True})
     session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
-    service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass", output_sha256="a" * 64))
-    service.approve_preview(session["session_id"], output_sha256="a" * 64)
+    session = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass"))
+    service.approve_preview(session["session_id"], output_sha256=session["preview"]["output_sha256"])
     service.request_final(session["session_id"])
-    final = project / "renders/new.mp4"
-    final.write_bytes(b"new-delivery")
-    final_hash = hashlib.sha256(final.read_bytes()).hexdigest()
-    service.record_final(session["session_id"], _report(project, 1, "final", status="pass", output_sha256=final_hash, output_path="renders/new.mp4", gates={"alignment": "pass", "l1a": "pass", "final_qa": "pass"}))
+    service.record_final(session["session_id"], _report(project, 1, "final", status="pass", gates={"alignment": "pass", "l1a": "pass", "final_qa": "pass"}, _output_bytes=b"new-delivery"))
     promoted = service.promote(session["session_id"])
     assert promoted["status"] == "promoted"
     assert service.current_delivery()["version_id"] != "old"
@@ -171,3 +167,67 @@ def test_promote_discard_and_restore_prior_delivery_revision(tmp_path: Path) -> 
     assert service.discard(discarded["session_id"])["status"] == "discarded"
     restored = service.restore_delivery_revision("old", actor_id="operator-a", expected_generation=service.store.initialize()["generation_id"], manifest_sha256=service.delivery_manifest_hash("old"), output_sha256=old_hash, idempotency_key="restore-1")
     assert restored["version_id"] == "old"
+
+
+def test_report_path_must_be_canonical_for_current_revision(tmp_path: Path) -> None:
+    from backlot.operator_errors import OperatorError
+
+    project = _project(tmp_path)
+    service = _service(project)
+    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
+    wrong = project / "operator/editorial/versions/1/not-execution.json"
+    wrong.parent.mkdir(parents=True, exist_ok=True)
+    wrong.write_text(json.dumps({"revision": 1, "status": "pass"}), encoding="utf-8")
+    with pytest.raises(OperatorError) as failure:
+        service.record_preview(session["session_id"], {"report_path": wrong.relative_to(project).as_posix()})
+    assert failure.value.code == "forbidden"
+
+
+def test_preview_approval_rehashes_output_and_rejects_replacement(tmp_path: Path) -> None:
+    from backlot.operator_errors import OperatorError
+
+    project = _project(tmp_path)
+    service = _service(project)
+    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
+    session = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass"))
+    output = project / "operator/editorial/versions/1/preview.mp4"
+    output.write_bytes(b"tampered")
+    with pytest.raises(OperatorError) as failure:
+        service.approve_preview(session["session_id"], output_sha256=session["preview"]["output_sha256"])
+    assert failure.value.code == "revision_conflict"
+
+
+def test_malformed_json_report_is_operator_error(tmp_path: Path) -> None:
+    from backlot.operator_errors import OperatorError
+
+    project = _project(tmp_path)
+    service = _service(project)
+    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
+    report = project / "operator/editorial/versions/1/preview-execution_report.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text("[]", encoding="utf-8")
+    with pytest.raises(OperatorError):
+        service.record_preview(session["session_id"], {"report_path": report.relative_to(project).as_posix()})
+
+
+def test_promote_requires_strict_server_owned_final_report(tmp_path: Path) -> None:
+    from backlot.operator_errors import OperatorError
+
+    project = _project(tmp_path)
+    service = _service(project)
+    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
+    session = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass"))
+    session = service.approve_preview(session["session_id"], output_sha256=session["preview"]["output_sha256"])
+    session = service.request_final(session["session_id"])
+    session = service.record_final(session["session_id"], _report(project, 1, "final", status="pass", gates={"alignment": "pass", "l1a": "pass", "final_qa": "pass"}))
+    path = project / "operator/editorial/sessions" / f"{session['session_id']}.json"
+    mutated = json.loads(path.read_text(encoding="utf-8"))
+    mutated["final"]["server_owned"] = False
+    path.write_text(json.dumps(mutated), encoding="utf-8")
+    with pytest.raises(OperatorError) as failure:
+        service.promote(session["session_id"])
+    assert failure.value.code == "forbidden"

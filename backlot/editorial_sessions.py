@@ -222,6 +222,8 @@ class EditorialSessionService:
     add_delta = save_draft
 
     def _report(self, report: Mapping[str, Any], *, kind: str, session: Mapping[str, Any]) -> dict[str, Any]:
+        if not isinstance(report, Mapping):
+            raise OperatorError.validation_failed("执行报告格式无效")
         value = dict(report)
         # Never trust status/gates supplied by the caller.  The only accepted
         # input is a path to an executor report written under this project;
@@ -231,8 +233,17 @@ class EditorialSessionService:
             raise OperatorError("forbidden", "渲染状态只能来自服务端执行报告", 403)
         try:
             path = self.store._canonical_path(str(report_path))
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError, OperatorError) as exc:
+            expected_dir = self.project_dir / "operator" / "editorial" / "versions" / str(session.get("revision"))
+            expected_name = f"{kind}-execution_report.json"
+            if path.parent != expected_dir or path.name != expected_name:
+                raise OperatorError("forbidden", "执行报告路径不属于当前编辑版本", 403)
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(loaded, dict):
+                raise OperatorError.validation_failed("执行报告格式无效")
+            value = loaded
+        except OperatorError:
+            raise
+        except (OSError, json.JSONDecodeError, TypeError) as exc:
             raise OperatorError("forbidden", "渲染状态只能来自服务端执行报告", 403) from exc
         value["report_path"] = str(report_path)
         value["server_owned"] = True
@@ -246,8 +257,18 @@ class EditorialSessionService:
             if value.get("status") != "pass" or not all(gates.get(name) == "pass" for name in ("alignment", "l1a", "final_qa")):
                 value["status"] = "fail"
         output_hash = value.get("output_sha256")
-        if output_hash is not None and (not isinstance(output_hash, str) or not _HEX64.fullmatch(output_hash)):
+        if not isinstance(output_hash, str) or not _HEX64.fullmatch(output_hash):
             raise OperatorError.validation_failed("渲染输出哈希无效")
+        output_path = value.get("output_path")
+        if not isinstance(output_path, str):
+            raise OperatorError.validation_failed("执行报告缺少输出文件")
+        try:
+            output_file = self.store._canonical_path(output_path)
+        except OperatorError as exc:
+            raise OperatorError.validation_failed("执行报告输出路径无效") from exc
+        expected_dir = self.project_dir / "operator" / "editorial" / "versions" / str(session.get("revision"))
+        if output_file.parent != expected_dir or not output_file.is_file() or _sha256_file(output_file) != output_hash:
+            raise OperatorError("revision_conflict", "执行报告输出文件校验失败", 409)
         return value
 
     def record_preview(self, session_id: str, report: Mapping[str, Any], *, expected_generation: str | None = None) -> dict[str, Any]:
@@ -269,6 +290,13 @@ class EditorialSessionService:
         preview = session.get("preview") or {}
         if session.get("status") != "preview_ready" or preview.get("status") != "pass" or preview.get("output_sha256") != output_sha256:
             raise OperatorError.validation_failed("只能批准当前版本的成功预览")
+        output_path = preview.get("output_path")
+        try:
+            output_file = self.store._canonical_path(str(output_path))
+        except OperatorError as exc:
+            raise OperatorError.validation_failed("预览输出文件无效") from exc
+        if not output_file.is_file() or _sha256_file(output_file) != output_sha256:
+            raise OperatorError("revision_conflict", "预览输出文件已变化，请重新生成", 409)
         session["preview_approval"] = {"revision": session["revision"], "revision_id": session["revision_id"], "output_sha256": output_sha256, "actor_id": self.actor_id, "approved_at": self.clock().isoformat()}
         session["status"] = "preview_approved"
         return self._commit_session(session, action_type="editorial_preview_approved")
@@ -326,7 +354,7 @@ class EditorialSessionService:
         if session.get("status") != "final_review":
             raise OperatorError.validation_failed("只有服务端审核通过的完整成片才能发布")
         final = session.get("final") or {}
-        if final.get("server_owned") is not True and not final.get("report_path"):
+        if final.get("server_owned") is not True:
             raise OperatorError("forbidden", "发布状态只能来自服务端执行报告", 403)
         manifest = self._manifest_for_final(session)
         errors = list(self.delivery.manifest_validator.iter_errors(manifest))
