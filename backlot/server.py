@@ -556,6 +556,30 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
             ),
         )
 
+    @app.get("/studio/{batch_id}")
+    async def editorial_studio_page(batch_id: str, request: Request) -> Response:
+        redirect = page_login_redirect(request)
+        if redirect is not None:
+            return redirect
+        # The current UI shell can consume the gallery DTO via its API; keep
+        # this stable deep-link available even before a dedicated shell lands.
+        return _ui_html("operator.html", (
+            "operator/styles.css", "operator/app.js", "operator/api.js",
+            "operator/store.js", "operator/language.js", "operator/editors.js",
+            "operator/impact.js", "operator/revisions.js",
+        ))
+
+    @app.get("/studio/{batch_id}/edit/{candidate_id}")
+    async def editorial_studio_edit_page(batch_id: str, candidate_id: str, request: Request) -> Response:
+        redirect = page_login_redirect(request)
+        if redirect is not None:
+            return redirect
+        return _ui_html("operator.html", (
+            "operator/styles.css", "operator/app.js", "operator/api.js",
+            "operator/store.js", "operator/language.js", "operator/editors.js",
+            "operator/impact.js", "operator/revisions.js",
+        ))
+
     @app.get("/")
     async def library_page(request: Request) -> Response:
         redirect = page_login_redirect(request)

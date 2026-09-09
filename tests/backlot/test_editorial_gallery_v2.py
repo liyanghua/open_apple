@@ -76,3 +76,22 @@ def test_gallery_missing_media_is_honest_and_runtime_blocks_v2_session(tmp_path:
     assert ffmpeg["studio_eligibility"]["eligible"] is False
     assert ffmpeg["studio_eligibility"]["reason"] == "unsupported_runtime"
     assert ffmpeg["studio_eligibility"]["can_create_v2_session"] is False
+
+
+def test_editorial_gallery_api_and_studio_entrypoint_are_available(backlot_client, projects_root, monkeypatch) -> None:
+    batch = _fixture(projects_root.parent)
+    response = backlot_client.get(f"/api/v2/projects/{batch.name}/editorial-gallery")
+    assert response.status_code == 200
+    assert response.json()["batch_id"] == batch.name
+    page = backlot_client.get(f"/studio/{batch.name}")
+    assert page.status_code == 200
+
+
+def test_editorial_session_api_rejects_non_remotion_candidate(backlot_client, projects_root) -> None:
+    batch = _fixture(projects_root.parent)
+    response = backlot_client.post(
+        f"/api/v2/projects/{batch.name}/editorial-gallery/candidates/hyper/edit-session",
+        json={"idempotency_key": "open-hyper"},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "unsupported_runtime"

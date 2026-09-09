@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import asyncio
 import hashlib
 import json
 import os
@@ -30,6 +31,8 @@ from backlot.project_commit import ProjectCommitStore
 from backlot.project_creation import ProjectCreationService
 from backlot.skill_catalog import SkillCatalog
 from backlot.shot_generation import ShotGenerationService
+from backlot.editorial_gallery import EditorialGalleryError, build_editorial_gallery
+from backlot.editorial_sessions import EditorialSessionService
 from lib.artifact_hashing import semantic_sha256
 
 
@@ -169,6 +172,158 @@ def create_operator_router(
 
     def catalog() -> SkillCatalog:
         return SkillCatalog(Path(__file__).parents[1] / "skills" / "catalog")
+
+    def _editorial_candidate(project_id: str, candidate_id: str) -> tuple[Path, dict[str, Any]]:
+        batch_dir = project(project_id)
+        try:
+            batch = json.loads((batch_dir / "artifacts" / "candidate_batch.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OperatorError("not_found", "批量项目不存在", 404) from exc
+        candidate = next((item for item in (batch.get("candidates") or []) if isinstance(item, dict) and str(item.get("candidate_id")) == candidate_id), None)
+        if not isinstance(candidate, dict):
+            raise OperatorError("not_found", "候选不属于当前批次", 404)
+        real_id = str(candidate.get("project_id") or candidate_id)
+        child_dir = (projects_dir() / real_id).resolve()
+        try:
+            child_dir.relative_to(projects_dir().resolve())
+        except ValueError as exc:
+            raise OperatorError("forbidden", "候选项目路径无效", 403) from exc
+        if not child_dir.is_dir():
+            raise OperatorError("not_found", "候选项目不存在", 404)
+        return child_dir, candidate
+
+    @router.get("/projects/{project_id}/editorial-gallery")
+    async def editorial_gallery(project_id: str, request: Request) -> dict:
+        authenticate(request, project_id, "read")
+        try:
+            return await __import__("asyncio").to_thread(build_editorial_gallery, project(project_id))
+        except EditorialGalleryError as exc:
+            raise OperatorError("not_found", str(exc), 404) from exc
+
+    @router.get("/projects/{project_id}/editorial-gallery/candidates/{candidate_id}/session")
+    async def editorial_session_load(project_id: str, candidate_id: str, request: Request) -> dict:
+        session = authenticate(request, project_id, "read")
+        service = EditorialSessionService(project(project_id), actor_id=session.actor.user_id)
+        return service.load_session(candidate_id)
+
+    @router.post("/projects/{project_id}/editorial-gallery/candidates/{candidate_id}/edit-session")
+    async def editorial_session_create(project_id: str, candidate_id: str, request: Request) -> dict:
+        session = authenticate(request, project_id, "edit", csrf=True)
+        payload = await body(request)
+        gallery = build_editorial_gallery(project(project_id))
+        item = next((c for c in gallery.get("candidates", []) if str(c.get("candidate_id")) == candidate_id), None)
+        if not isinstance(item, dict):
+            raise OperatorError("not_found", "候选不属于当前批次", 404)
+        eligibility = item.get("studio_eligibility") or {}
+        if not eligibility.get("eligible"):
+            raise OperatorError("unsupported_runtime", "当前候选的合成方式不支持 OpenReel V2 精剪", 422)
+        key = str(payload.get("idempotency_key") or request.headers.get("idempotency-key") or "").strip()
+        if not key:
+            raise OperatorError.validation_failed("缺少重复提交保护标识")
+        return EditorialSessionService(project(project_id), actor_id=session.actor.user_id).create_session(
+            idempotency_key=key, candidate_id=candidate_id,
+        )
+
+    @router.get("/projects/{project_id}/editorial-gallery/candidates/{candidate_id}/edit-session/{session_id}")
+    async def editorial_session_snapshot(project_id: str, candidate_id: str, session_id: str, request: Request) -> dict:
+        child_dir, _ = _editorial_candidate(project_id, candidate_id)
+        session = authenticate(request, child_dir.name, "read")
+        return EditorialSessionService(child_dir, actor_id=session.actor.user_id).load_session(session_id)
+
+    @router.post("/projects/{project_id}/editorial-gallery/edit-session")
+    async def editorial_session_create_legacy(project_id: str, request: Request) -> dict:
+        session = authenticate(request, project_id, "edit", csrf=True)
+        payload = await body(request)
+        candidate_id = str(payload.get("candidate_id") or "")
+        child_dir, candidate = _editorial_candidate(project_id, candidate_id)
+        authenticate(request, child_dir.name, "edit", csrf=False)
+        gallery = build_editorial_gallery(project(project_id))
+        item = next((c for c in gallery.get("candidates", []) if str(c.get("candidate_id")) == candidate_id), None)
+        if not isinstance(item, dict) or not (item.get("studio_eligibility") or {}).get("eligible"):
+            raise OperatorError("unsupported_runtime", "当前候选的合成方式不支持 OpenReel V2 精剪", 422)
+        key = str(payload.get("idempotency_key") or request.headers.get("idempotency-key") or "").strip()
+        if not key:
+            raise OperatorError.validation_failed("缺少重复提交保护标识")
+        return EditorialSessionService(child_dir, actor_id=session.actor.user_id).create_session(
+            idempotency_key=key, candidate_id=candidate_id,
+        )
+
+    @router.post("/projects/{project_id}/editorial-gallery/edit-session/{session_id}/delta")
+    async def editorial_session_delta(project_id: str, session_id: str, request: Request) -> dict:
+        session = authenticate(request, project_id, "edit", csrf=True)
+        payload = await body(request)
+        candidate_id = str(payload.pop("candidate_id", "") or "")
+        if not candidate_id:
+            raise OperatorError.validation_failed("缺少候选标识")
+        child_dir, _ = _editorial_candidate(project_id, candidate_id)
+        service = EditorialSessionService(child_dir, actor_id=session.actor.user_id)
+        key = request.headers.get("idempotency-key", "").strip() or str(payload.pop("idempotency_key", "")).strip()
+        if not key:
+            raise OperatorError.validation_failed("缺少重复提交保护标识")
+        return service.save_draft(session_id, payload, idempotency_key=key,
+                                  base_timeline_hash=payload.pop("base_timeline_hash", None),
+                                  expected_generation=payload.pop("expected_generation", None))
+
+    @router.get("/projects/{project_id}/editorial-gallery/edit-session/{session_id}/snapshot")
+    async def editorial_session_snapshot_alias(project_id: str, session_id: str, request: Request) -> dict:
+        session = authenticate(request, project_id, "read")
+        candidate_id = request.query_params.get("candidate_id", "")
+        child_dir, _ = _editorial_candidate(project_id, candidate_id)
+        return EditorialSessionService(child_dir, actor_id=session.actor.user_id).load_session(session_id)
+
+    async def _session_service(project_id: str, session_id: str, request: Request, *, action: str, csrf: bool = False):
+        session = authenticate(request, project_id, action, csrf=csrf)
+        candidate_id = request.query_params.get("candidate_id", "")
+        if not candidate_id:
+            payload = await body(request) if request.method != "GET" else {}
+            candidate_id = str(payload.get("candidate_id") or "")
+        if not candidate_id:
+            raise OperatorError.validation_failed("缺少候选标识")
+        child_dir, _ = _editorial_candidate(project_id, candidate_id)
+        return EditorialSessionService(child_dir, actor_id=session.actor.user_id), session, candidate_id, payload
+
+    @router.post("/projects/{project_id}/editorial-gallery/edit-session/{session_id}/preview")
+    async def editorial_session_preview(project_id: str, session_id: str, request: Request) -> dict:
+        service, _session, _candidate, payload = await _session_service(project_id, session_id, request, action="edit", csrf=True)
+        report_path = payload.get("report_path")
+        if not isinstance(report_path, str) or not report_path:
+            raise OperatorError("forbidden", "预览状态只能来自服务端执行报告", 403)
+        return service.record_preview(session_id, {"report_path": report_path}, expected_generation=payload.get("expected_generation"))
+
+    @router.post("/projects/{project_id}/editorial-gallery/edit-session/{session_id}/run")
+    async def editorial_session_run(project_id: str, session_id: str, request: Request) -> dict:
+        service, _session, _candidate, payload = await _session_service(project_id, session_id, request, action="edit", csrf=True)
+        operation = str(payload.get("operation") or payload.get("action") or "")
+        if operation == "request_final":
+            return service.request_final(session_id)
+        if operation == "approve_preview":
+            output_sha256 = str(payload.get("output_sha256") or "")
+            return service.approve_preview(session_id, output_sha256=output_sha256)
+        if operation == "record_final":
+            report_path = payload.get("report_path")
+            if not isinstance(report_path, str) or not report_path:
+                raise OperatorError("forbidden", "成片状态只能来自服务端执行报告", 403)
+            return service.record_final(session_id, {"report_path": report_path}, expected_generation=payload.get("expected_generation"))
+        if operation == "promote":
+            return service.promote(session_id, expected_generation=payload.get("expected_generation"))
+        if operation == "discard":
+            return service.discard(session_id, reason=str(payload.get("reason") or ""))
+        raise OperatorError.validation_failed("不支持的编辑会话操作")
+
+    @router.post("/projects/{project_id}/editorial-gallery/edit-session/{session_id}/restore")
+    async def editorial_session_restore(project_id: str, session_id: str, request: Request) -> dict:
+        service, _session, _candidate, payload = await _session_service(project_id, session_id, request, action="edit", csrf=True)
+        version_id = str(payload.get("version_id") or "")
+        if not version_id:
+            raise OperatorError.validation_failed("缺少要恢复的交付版本")
+        return service.restore_delivery_revision(
+            version_id,
+            actor_id=service.actor_id,
+            expected_generation=payload.get("expected_generation"),
+            manifest_sha256=str(payload.get("manifest_sha256") or ""),
+            output_sha256=str(payload.get("output_sha256") or ""),
+            idempotency_key=request.headers.get("idempotency-key", "").strip() or str(payload.get("idempotency_key") or ""),
+        )
 
     @router.post("/projects/{project_id}/inputs/{kind}")
     async def upload_input(project_id: str, kind: str, request: Request) -> dict:
