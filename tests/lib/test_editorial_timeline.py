@@ -373,6 +373,11 @@ def _source_led_materialization_inputs() -> dict:
         "source_videos": {"source-video-001": {
             "sha256": source_hash, "duration_seconds": 8.0,
         }},
+        "shot_execution_plan": {"shots": [{
+            "id": "shot-001", "evidence_row_ids": ["matrix-001"],
+            "visual_route": "owned_source", "source_media_id": "source-video-001",
+        }]},
+        "generation_tasks": [],
         "narration": {
             "asset_id": "narration-mix-001", "text": "水分被毛巾带走",
             "claim_ids": ["claim-absorb-visible"], "start_seconds": 0.0,
@@ -409,6 +414,7 @@ def test_materialize_source_led_timeline() -> None:
     }
     approved_asset = catalogue["assets"][0]
     assert approved_asset["asset_id"].startswith("editorial-")
+    assert approved_asset["candidate_id"] == "candidate-001"
     assert approved_asset["source_sha256"] == "b" * 64
     assert approved_asset["valid_range"] == {"start_seconds": 1.0, "end_seconds": 3.0}
     assert approved_asset["claim_ids"] == ["claim-absorb-visible"]
@@ -423,3 +429,120 @@ def test_materialize_source_led_timeline_rejects_missing_accepted_coverage() -> 
 
     with pytest.raises(ValueError, match="accepted coverage"):
         materialize_editorial_timeline(**inputs)
+
+
+def _generated_materialization_inputs() -> dict:
+    inputs = deepcopy(_source_led_materialization_inputs())
+    generated_hash = "6" * 64
+    inputs["final_props"]["scenes"][0].update({
+        "assetId": "generated-video-001",
+        "sourceInSeconds": 0.0,
+        "sourceOutSeconds": 2.0,
+    })
+    inputs["asset_manifest"]["assets"][0] = {
+        "id": "generated-video-001", "type": "video", "approved": True,
+        "path": "assets/video/generated-shot-001.mp4", "sha256": generated_hash,
+        "duration_seconds": 2.0,
+        "provenance": {
+            "generation_task_id": "generation-task-001", "shot_id": "shot-001",
+        },
+    }
+    row = inputs["coverage_matrix"]["rows"][0]
+    row.pop("source_media_id")
+    row.update({
+        "visual_route": "approved_generated_asset",
+        "approved_asset_id": "generated-video-001",
+        "shot_id": "shot-001",
+        "source_hash": generated_hash,
+        "source_time_range": {"start_seconds": 0.0, "end_seconds_exclusive": 2.0},
+    })
+    inputs["shot_execution_plan"] = {"shots": [{
+        "id": "shot-001", "evidence_row_ids": ["matrix-001"],
+        "visual_route": "approved_generated_asset",
+        "selected_generation_task_id": "generation-task-001",
+        "generated_asset_id": "generated-video-001",
+    }]}
+    inputs["generation_tasks"] = [{
+        "task_id": "generation-task-001", "shot_id": "shot-001",
+        "status": "approved", "approved": True,
+        "output": {
+            "asset_id": "generated-video-001", "sha256": generated_hash,
+            "valid_range": {"start_seconds": 0.0, "end_seconds": 2.0},
+        },
+    }]
+    return inputs
+
+
+def test_generated_catalogue_asset_requires_shot_task_provenance_and_range() -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    snapshot = materialize_editorial_timeline(**_generated_materialization_inputs())
+
+    generated = snapshot["asset_catalogue"]["assets"][0]
+    assert generated["source_class"] == "approved_generated_asset"
+    assert generated["valid_range"] == {"start_seconds": 0.0, "end_seconds": 2.0}
+
+
+def test_generated_catalogue_rejects_unrelated_merely_approved_asset() -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    inputs = _generated_materialization_inputs()
+    unrelated = deepcopy(inputs["asset_manifest"]["assets"][0])
+    unrelated.update({"id": "unrelated-generated", "sha256": "7" * 64})
+    unrelated["provenance"] = {
+        "generation_task_id": "other-task", "shot_id": "other-shot",
+    }
+    inputs["asset_manifest"]["assets"].append(unrelated)
+    inputs["coverage_matrix"]["rows"][0].update({
+        "approved_asset_id": "unrelated-generated", "source_hash": "7" * 64,
+    })
+
+    with pytest.raises(ValueError, match="generation provenance"):
+        materialize_editorial_timeline(**inputs)
+
+
+def test_materialization_rejects_narration_claim_outside_product_facts() -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    inputs = _source_led_materialization_inputs()
+    inputs["narration"]["claim_ids"] = ["invented-claim"]
+
+    with pytest.raises(ValueError, match="narration claim"):
+        materialize_editorial_timeline(**inputs)
+
+
+def test_template_render_builds_editorial_snapshot_from_source_led_artifacts() -> None:
+    from lib.template_render import build_editorial_snapshot
+
+    inputs = _source_led_materialization_inputs()
+    narration = inputs.pop("narration")
+    bgm = inputs.pop("bgm")
+    candidate_id = inputs.pop("candidate_id")
+    base_generation_id = inputs.pop("base_generation_id")
+    base_edit_revision = inputs.pop("base_edit_revision")
+    coverage_matrix = inputs.pop("coverage_matrix")
+    source_media_evidence = inputs.pop("source_media_evidence")
+    source_videos = inputs.pop("source_videos")
+    artifacts = {
+        **inputs,
+        "reference_source_matrix": coverage_matrix,
+        "source_media_review": source_media_evidence,
+        "source_semantic_index": {
+            "entries": [
+                {"media_id": media_id, **metadata}
+                for media_id, metadata in source_videos.items()
+            ],
+        },
+    }
+
+    snapshot = build_editorial_snapshot(
+        candidate_id=candidate_id,
+        base_generation_id=base_generation_id,
+        base_edit_revision=base_edit_revision,
+        artifacts=artifacts,
+        narration=narration,
+        bgm=bgm,
+    )
+
+    assert len(snapshot["timeline"]["tracks"]) == 5
+    assert snapshot["asset_catalogue"]["candidate_id"] == candidate_id

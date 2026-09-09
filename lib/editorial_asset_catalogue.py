@@ -98,6 +98,8 @@ def build_editorial_asset_catalogue(
     product_facts: Mapping[str, Any],
     source_media_evidence: Mapping[str, Any],
     source_videos: Mapping[str, Any] | list[Mapping[str, Any]],
+    shot_execution_plan: Mapping[str, Any] | None = None,
+    generation_tasks: Mapping[str, Any] | list[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Return only visual assets whose evidence, scope, and media bounds are proven.
 
@@ -126,6 +128,11 @@ def build_editorial_asset_catalogue(
         key="media_id",
     )
     source_metadata = _index_items(source_videos, field="source_videos", key="media_id")
+    shot_plan_items = _index_items(
+        _mapping(shot_execution_plan or {}, field="shot_execution_plan").get("shots") or [],
+        field="shot_execution_plan.shots", key="id",
+    )
+    task_items = _index_items(generation_tasks or [], field="generation_tasks", key="task_id")
     fact_requirements = _claim_requirements(_mapping(product_facts, field="product_facts"))
     catalogue_assets: list[dict[str, Any]] = []
 
@@ -186,6 +193,69 @@ def build_editorial_asset_catalogue(
             )
             if valid_range["end_seconds"] > duration:
                 raise EditorialMaterializationError(f"coverage row {row_id} exceeds source video duration")
+        else:
+            shot_id = _identifier(
+                row.get("shot_id") or row.get("scene_id"),
+                field=f"coverage row {row_id}.shot_id",
+            )
+            shot = shot_plan_items.get(shot_id)
+            if shot is None or shot.get("visual_route") not in {
+                "generated_from_product_image", "approved_generated_asset",
+            }:
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} lacks shot execution generation provenance"
+                )
+            if row_id not in (shot.get("evidence_row_ids") or []):
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} is not bound to shot execution plan"
+                )
+            if str(shot.get("generated_asset_id") or "") != source_asset_id:
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} generation provenance asset mismatch"
+                )
+            task_id = shot.get("selected_generation_task_id") or row.get("generation_task_id")
+            task = task_items.get(str(task_id)) if task_id else None
+            if (
+                task is None
+                or task.get("approved") is not True
+                or task.get("status") not in {"approved", "completed"}
+            ):
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} lacks approved generation provenance"
+                )
+            if str(task.get("shot_id") or "") != shot_id:
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} generation provenance shot mismatch"
+                )
+            output = task.get("output") if isinstance(task.get("output"), Mapping) else task
+            if str(output.get("asset_id") or "") != source_asset_id:
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} generation provenance asset mismatch"
+                )
+            if _sha256(
+                output.get("sha256"), field=f"generation task {task_id}.sha256"
+            ) != source_hash:
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} generation provenance hash mismatch"
+                )
+            task_range = output.get("valid_range") or output.get("source_time_range")
+            if (
+                task_range is None
+                or _range(task_range, field=f"generation task {task_id}.valid_range")
+                != valid_range
+            ):
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} generation provenance range mismatch"
+                )
+            provenance = asset.get("provenance")
+            if (
+                not isinstance(provenance, Mapping)
+                or str(provenance.get("generation_task_id") or "") != str(task_id)
+                or str(provenance.get("shot_id") or "") != shot_id
+            ):
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} lacks generation provenance"
+                )
 
         fact_scope = {
             "claim_ids": list(claim_ids),
@@ -202,6 +272,7 @@ def build_editorial_asset_catalogue(
         })[:24]
         catalogue_assets.append({
             "asset_id": issued_id,
+            "candidate_id": candidate_id,
             "source_asset_id": source_asset_id,
             "source_sha256": source_hash,
             "source_class": source_class,

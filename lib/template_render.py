@@ -211,3 +211,43 @@ def build_render_plan(project: Path, *, mode: str, total_frames: int, audio_path
         "output_path": f"renders/sample-v1.mp4",
     })
     return plan
+
+
+def build_editorial_snapshot(
+    *,
+    candidate_id: str,
+    base_generation_id: str,
+    base_edit_revision: str,
+    artifacts: Mapping[str, Any],
+    narration: Mapping[str, Any],
+    bgm: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build V2 editorial artifacts from the currently approved Source-led set."""
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    def artifact(*names: str) -> Mapping[str, Any]:
+        for name in names:
+            value = artifacts.get(name)
+            if isinstance(value, Mapping):
+                return value
+        raise ValueError(f"missing approved artifact: {names[0]}")
+
+    source_video_artifact = artifact("source_videos", "source_semantic_index")
+    source_videos = source_video_artifact.get("entries", source_video_artifact)
+
+    return materialize_editorial_timeline(
+        candidate_id=candidate_id,
+        base_generation_id=base_generation_id,
+        base_edit_revision=base_edit_revision,
+        edit_decisions=artifact("edit_decisions"),
+        final_props=artifact("final_props"),
+        asset_manifest=artifact("asset_manifest"),
+        coverage_matrix=artifact("coverage_matrix", "reference_source_matrix"),
+        product_facts=artifact("product_facts"),
+        source_media_evidence=artifact("source_media_evidence", "source_media_review"),
+        source_videos=source_videos,
+        shot_execution_plan=artifact("shot_execution_plan"),
+        generation_tasks=artifacts.get("generation_tasks", []),
+        narration=narration,
+        bgm=bgm,
+    )

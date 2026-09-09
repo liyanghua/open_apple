@@ -79,6 +79,8 @@ def materialize_editorial_timeline(
     product_facts: Mapping[str, Any],
     source_media_evidence: Mapping[str, Any],
     source_videos: Mapping[str, Any] | list[Mapping[str, Any]],
+    shot_execution_plan: Mapping[str, Any] | None = None,
+    generation_tasks: Mapping[str, Any] | list[Mapping[str, Any]] | None = None,
     narration: Mapping[str, Any],
     bgm: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -107,6 +109,8 @@ def materialize_editorial_timeline(
         product_facts=product_facts,
         source_media_evidence=source_media_evidence,
         source_videos=source_videos,
+        shot_execution_plan=shot_execution_plan,
+        generation_tasks=generation_tasks,
     )
     fps = _number(final_props.get("fps"), field="final_props.fps")
     if fps <= 0:
@@ -192,6 +196,13 @@ def materialize_editorial_timeline(
         or not narration_claims
     ):
         raise EditorialMaterializationError("narration must have text, claims, and a positive range")
+    fact_ids = {
+        str(claim.get("id", claim.get("claim_id")))
+        for claim in (product_facts.get("claims") or [])
+        if isinstance(claim, Mapping) and claim.get("id", claim.get("claim_id"))
+    }
+    if any(claim not in fact_ids for claim in narration_claims):
+        raise EditorialMaterializationError("narration claim is outside product facts")
     music_id, music_hash = _approved_audio(assets, bgm, role="music")
     music_start = _number(bgm.get("start_seconds"), field="bgm.start_seconds")
     music_end = _number(bgm.get("end_seconds"), field="bgm.end_seconds")
