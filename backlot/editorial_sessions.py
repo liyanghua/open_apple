@@ -142,18 +142,6 @@ class EditorialSessionService:
                 except (OSError, json.JSONDecodeError):
                     pass
         self.store.initialize()
-        for path in self.sessions_dir.glob("*.json") if self.sessions_dir.exists() else []:
-            try:
-                existing = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if existing.get("create_idempotency_key") != idempotency_key:
-                continue
-            if existing.get("create_request_digest") != request_digest:
-                raise OperatorError("idempotency_conflict", "同一创建编号对应不同内容", 409)
-            if existing.get("actor_id") != self.actor_id:
-                raise OperatorError("forbidden", "该编辑会话属于其他运营人员", 403)
-            return existing
         sid = session_id or f"editorial-{uuid.uuid4().hex[:20]}"
         if self._path(sid).exists():
             raise OperatorError("revision_conflict", "编辑会话标识已存在", 409)
@@ -176,6 +164,18 @@ class EditorialSessionService:
             if catalogue.get("project_id") != self.store.project_id or catalogue.get("base_generation_id") != timeline.get("base_generation_id") or catalogue.get("timeline_hash") != self._timeline_hash(timeline):
                 raise OperatorError("revision_conflict", "商品素材目录与时间轴基座不匹配", 409)
         request_digest = canonical_digest({"candidate_id": candidate_id, "timeline": timeline, "catalogue": catalogue, "idempotency_key": idempotency_key, "actor_id": self.actor_id})
+        for path in self.sessions_dir.glob("*.json") if self.sessions_dir.exists() else []:
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if existing.get("create_idempotency_key") != idempotency_key:
+                continue
+            if existing.get("create_request_digest") != request_digest:
+                raise OperatorError("idempotency_conflict", "同一创建编号对应不同内容", 409)
+            if existing.get("actor_id") != self.actor_id:
+                raise OperatorError("forbidden", "该编辑会话属于其他运营人员", 403)
+            return existing
         session: dict[str, Any] = {
             "schema_version": "2.0",
             "session_id": sid,

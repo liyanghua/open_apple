@@ -280,3 +280,21 @@ def test_execution_report_kind_must_match_record_operation(tmp_path: Path) -> No
     with pytest.raises(OperatorError) as failure:
         service.record_preview(session["session_id"], final_report)
     assert failure.value.code == "forbidden"
+
+
+def test_create_rejects_timeline_generation_mismatch_and_client_catalogue_is_not_accepted(tmp_path: Path) -> None:
+    from backlot.operator_errors import OperatorError
+
+    project = _project(tmp_path)
+    service = _service(project)
+    timeline = json.loads((project / "artifacts/editorial_timeline.json").read_text())
+    timeline["base_generation_id"] = "generation-client-forged"
+    with pytest.raises(OperatorError) as mismatch:
+        service.create_session(base_timeline=timeline, idempotency_key="bad-generation")
+    assert mismatch.value.code == "revision_conflict"
+
+    # The service only reads the server-owned catalogue path.  A client
+    # supplied field must not be accepted as an implicit catalogue.
+    timeline = json.loads((project / "artifacts/editorial_timeline.json").read_text())
+    session = service.create_session(base_timeline=timeline, idempotency_key="server-only-catalogue")
+    assert session["asset_catalogue"] is None
