@@ -13,6 +13,45 @@ from schemas.artifacts import ARTIFACT_NAMES, load_schema, validate_artifact
 HASH = "a" * 64
 
 
+def _delta_for(timeline: dict, operation: dict) -> dict:
+    from lib.cache_keys import canonical_digest
+
+    return {
+        "version": "1.0",
+        "delta_id": "delta-runtime-001",
+        "session_id": "editorial-session-001",
+        "base_generation_id": timeline["base_generation_id"],
+        "base_timeline_hash": canonical_digest(timeline),
+        "operation_sequence": 1,
+        "idempotency_key": "request-runtime-001",
+        "operations": [deepcopy(operation)],
+    }
+
+
+def _catalogue_for(timeline: dict) -> dict:
+    video = timeline["tracks"][0]["clips"][0]
+    scope = deepcopy(video["fact_scope"])
+    return {
+        "version": "1.0",
+        "candidate_id": "candidate-001",
+        "project_id": "project-001",
+        "assets": [{
+            "asset_id": video["asset_id"],
+            "candidate_id": "candidate-001",
+            "project_id": "project-001",
+            "source_asset_id": "source-001",
+            "source_sha256": video["source_sha256"],
+            "source_class": "owned_source",
+            "valid_range": {"start_seconds": 0.0, "end_seconds": 8.0},
+            "claim_ids": scope["claim_ids"],
+            "fact_scope": scope,
+            "visual_requirement_id": scope["visual_requirement_id"],
+            "matrix_row_id": "matrix-001",
+            "shot_id": scope["shot_id"],
+        }],
+    }
+
+
 def _timeline() -> dict:
     return {
         "version": "1.0",
@@ -696,3 +735,200 @@ def test_generated_source_range_must_fit_generated_media_duration() -> None:
 
     with pytest.raises(ValueError, match="generated media duration"):
         materialize_editorial_timeline(**inputs)
+
+
+def test_apply_delta_trim_preserves_clip_id_and_returns_new_timeline() -> None:
+    from lib.editorial_timeline import apply_delta
+
+    timeline = _timeline()
+    original = deepcopy(timeline)
+    result = apply_delta(
+        timeline,
+        _delta_for(timeline, {
+            "op": "trim_clip", "track_id": "video-main", "clip_id": "video-001",
+            "source_in_seconds": 0.4, "source_out_seconds": 2.6,
+        }),
+        asset_catalogue=_catalogue_for(timeline),
+    )
+
+    assert result["timeline"] is not timeline
+    assert timeline == original
+    clip = result["timeline"]["tracks"][0]["clips"][0]
+    assert clip["id"] == "video-001"
+    assert (clip["source_in_seconds"], clip["source_out_seconds"]) == (0.4, 2.6)
+    assert result["timeline_hash"] != _delta_for(timeline, {"op": "noop"})["base_timeline_hash"]
+
+
+def test_apply_delta_split_creates_child_ids_and_preserves_track_order() -> None:
+    from lib.editorial_timeline import apply_delta
+
+    timeline = _timeline()
+    result = apply_delta(
+        timeline,
+        _delta_for(timeline, {
+            "op": "split_clip", "track_id": "video-main", "clip_id": "video-001",
+            "at_seconds": 1.0,
+        }),
+        asset_catalogue=_catalogue_for(timeline),
+    )
+    clips = result["timeline"]["tracks"][0]["clips"]
+
+    assert [clip["id"] for clip in clips] == ["video-001", "video-001-split-1"]
+    assert clips[0]["source_out_seconds"] == 1.0
+    assert clips[1]["source_in_seconds"] == 1.0
+    assert clips[1]["start_seconds"] == 1.0
+    assert clips[1]["fact_scope"] == clips[0]["fact_scope"]
+
+
+def test_apply_delta_non_ripple_move_only_changes_named_video_track() -> None:
+    from lib.editorial_timeline import apply_delta
+
+    timeline = _timeline()
+    untouched = {
+        track["id"]: deepcopy(track["clips"])
+        for track in timeline["tracks"] if track["id"] != "video-main"
+    }
+    result = apply_delta(timeline, _delta_for(timeline, {
+        "op": "move_clip", "track_id": "video-main", "clip_id": "video-001",
+        "start_seconds": 1.25,
+    }))
+
+    assert result["timeline"]["tracks"][0]["clips"][0]["start_seconds"] == 1.25
+    for track in result["timeline"]["tracks"][1:]:
+        assert track["clips"] == untouched[track["id"]]
+
+
+def test_apply_delta_replace_clip_requires_catalogued_same_scope_asset() -> None:
+    from lib.editorial_timeline import apply_delta
+
+    timeline = _timeline()
+    catalogue = _catalogue_for(timeline)
+    replacement = deepcopy(catalogue["assets"][0])
+    replacement.update({"asset_id": "asset-server-video-002", "source_sha256": "b" * 64})
+    catalogue["assets"].append(replacement)
+    result = apply_delta(
+        timeline,
+        _delta_for(timeline, {
+            "op": "replace_clip", "track_id": "video-main", "clip_id": "video-001",
+            "asset_id": "asset-server-video-002", "source_sha256": "b" * 64,
+            "source_in_seconds": 1.0, "source_out_seconds": 3.0,
+        }),
+        asset_catalogue=catalogue,
+    )
+    clip = result["timeline"]["tracks"][0]["clips"][0]
+    assert clip["id"] == "video-001"
+    assert clip["asset_id"] == "asset-server-video-002"
+    assert clip["source_sha256"] == "b" * 64
+    assert clip["fact_scope"] == timeline["tracks"][0]["clips"][0]["fact_scope"]
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        {"op": "set_caption_timing", "track_id": "subtitle-main", "clip_id": "subtitle-001", "start_seconds": 1.1, "end_seconds": 2.2},
+        {"op": "set_gain", "track_id": "music-main", "clip_id": "music-001", "gain_db": -8.0},
+        {"op": "set_fade", "track_id": "music-main", "clip_id": "music-001", "fade_in_seconds": 0.25, "fade_out_seconds": 0.4},
+    ],
+)
+def test_apply_delta_updates_caption_and_bgm_controls(operation: dict) -> None:
+    from lib.editorial_timeline import apply_delta
+
+    timeline = _timeline()
+    result = apply_delta(timeline, _delta_for(timeline, operation))
+    track = next(item for item in result["timeline"]["tracks"] if item["id"] == operation["track_id"])
+    clip = next(item for item in track["clips"] if item["id"] == operation["clip_id"])
+    for key, value in operation.items():
+        if key not in {"op", "track_id", "clip_id"}:
+            assert clip[key] == value
+
+
+def test_apply_delta_replaces_narration_asset_and_hash() -> None:
+    from lib.editorial_timeline import apply_delta
+
+    timeline = _timeline()
+    catalogue = _catalogue_for(timeline)
+    catalogue["assets"].extend([
+        {"asset_id": "asset-server-narration-002", "candidate_id": "candidate-001", "project_id": "project-001", "source_sha256": "b" * 64, "source_class": "owned_source"},
+    ])
+    result = apply_delta(
+        timeline,
+        _delta_for(timeline, {
+            "op": "replace_narration", "track_id": "narration-main", "clip_id": "narration-001",
+            "asset_id": "asset-server-narration-002", "source_sha256": "b" * 64,
+        }),
+        asset_catalogue=catalogue,
+    )
+    clip = result["timeline"]["tracks"][1]["clips"][0]
+    assert clip["asset_id"] == "asset-server-narration-002"
+    assert clip["source_sha256"] == "b" * 64
+
+
+@pytest.mark.parametrize(
+    ("operation", "message"),
+    [
+        ({"op": "replace_clip", "track_id": "video-main", "clip_id": "video-001", "asset_id": "forged", "source_sha256": HASH, "source_in_seconds": 0, "source_out_seconds": 1}, "asset_not_approved"),
+        ({"op": "replace_clip", "track_id": "video-main", "clip_id": "video-001", "asset_id": "cross-candidate", "source_sha256": HASH, "source_in_seconds": 0, "source_out_seconds": 1}, "asset_scope_violation"),
+        ({"op": "trim_clip", "track_id": "video-main", "clip_id": "video-001", "source_in_seconds": 0, "source_out_seconds": 99}, "source_range_overflow"),
+        ({"op": "set_speed", "track_id": "video-main", "clip_id": "video-001", "speed": 0}, "invalid_speed"),
+    ],
+)
+def test_apply_delta_rejects_unsafe_operations(operation: dict, message: str) -> None:
+    from lib.editorial_timeline import EditorialDeltaError, apply_delta
+
+    timeline = _timeline()
+    catalogue = _catalogue_for(timeline)
+    catalogue["assets"].append({
+        "asset_id": "cross-candidate", "candidate_id": "other-candidate", "project_id": "project-001",
+        "source_sha256": HASH, "source_class": "owned_source", "valid_range": {"start_seconds": 0, "end_seconds": 3},
+        "fact_scope": deepcopy(timeline["tracks"][0]["clips"][0]["fact_scope"]),
+    })
+    with pytest.raises(EditorialDeltaError, match=message):
+        apply_delta(timeline, _delta_for(timeline, operation), asset_catalogue=catalogue)
+
+
+def test_apply_delta_rejects_same_claim_different_visual_requirement() -> None:
+    from lib.editorial_timeline import EditorialDeltaError, apply_delta
+
+    timeline = _timeline()
+    catalogue = _catalogue_for(timeline)
+    alternate = deepcopy(catalogue["assets"][0])
+    alternate.update({"asset_id": "asset-different-requirement", "visual_requirement_id": "visual-dry-result"})
+    alternate["fact_scope"]["visual_requirement_id"] = "visual-dry-result"
+    catalogue["assets"].append(alternate)
+    operation = {"op": "replace_clip", "track_id": "video-main", "clip_id": "video-001", "asset_id": "asset-different-requirement", "source_sha256": HASH, "source_in_seconds": 0, "source_out_seconds": 1}
+
+    with pytest.raises(EditorialDeltaError, match="fact_scope_violation"):
+        apply_delta(timeline, _delta_for(timeline, operation), asset_catalogue=catalogue)
+
+
+def test_apply_delta_rejects_replacement_with_different_fact_scope() -> None:
+    from lib.editorial_timeline import EditorialDeltaError, apply_delta
+
+    timeline = _timeline()
+    catalogue = _catalogue_for(timeline)
+    alternate = deepcopy(catalogue["assets"][0])
+    alternate.update({"asset_id": "asset-different-fact", "claim_ids": ["claim-softness"]})
+    alternate["fact_scope"].update({
+        "claim_ids": ["claim-softness"], "shot_id": "shot-softness",
+    })
+    catalogue["assets"].append(alternate)
+    operation = {"op": "replace_clip", "track_id": "video-main", "clip_id": "video-001", "asset_id": "asset-different-fact", "source_sha256": HASH, "source_in_seconds": 0, "source_out_seconds": 1}
+
+    with pytest.raises(EditorialDeltaError) as rejected:
+        apply_delta(timeline, _delta_for(timeline, operation), asset_catalogue=catalogue)
+
+    assert rejected.value.code == "fact_scope_violation"
+    assert rejected.value.details["asset_id"] == "asset-different-fact"
+
+
+def test_apply_delta_rejects_overlapping_primary_video_clips() -> None:
+    from lib.editorial_timeline import EditorialDeltaError, apply_delta
+
+    timeline = _timeline()
+    second = deepcopy(timeline["tracks"][0]["clips"][0])
+    second.update({"id": "video-002", "start_seconds": 4.0})
+    timeline["tracks"][0]["clips"].append(second)
+    operation = {"op": "move_clip", "track_id": "video-main", "clip_id": "video-002", "start_seconds": 1.0}
+
+    with pytest.raises(EditorialDeltaError, match="overlapping_primary_clips"):
+        apply_delta(timeline, _delta_for(timeline, operation))
