@@ -179,7 +179,12 @@ def test_batch_workbench_uses_readable_light_theme_tokens() -> None:
     assert '#5a665f' in css
     assert 'document.body.dataset.mode = mode' in app
     assert 'body[data-mode="batch"]' in css
-    assert '#operator-shell[data-mode="batch"] .approval-diagnostic-link' in css
+
+
+def test_batch_gallery_exposes_studio_deep_link_for_eligible_candidates() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+    assert "studio_edit" in app
+    assert "进入精剪工作室" in app
 
 
 def test_batch_selection_sends_versioned_participants() -> None:

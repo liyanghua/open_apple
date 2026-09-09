@@ -1532,6 +1532,11 @@ function renderBatch(container, data, { project } = {}) {
       quick.type = "button";
       quick.addEventListener("click", () => quickView(candidate, quick));
       actions.append(quick, pageLink);
+      if (candidate.studio_eligibility?.eligible || candidate.links?.studio_edit) {
+        const studioLink = setTestId(node("a", "batch-candidate-link batch-studio-link", "进入精剪工作室"), `open-studio-${candidate.candidate_id}`);
+        studioLink.href = candidate.links?.studio_edit || `/studio/${encodeURIComponent(data.batch_id || project?.project_id || projectId)}/edit/${encodeURIComponent(candidate.candidate_id)}`;
+        actions.append(studioLink);
+      }
       cell.append(actions);
     }
     const more = node("details", "batch-card-details");
