@@ -251,6 +251,19 @@ def _validate_fact_bound_timing(
     claims = set(clip.get("claim_ids") or [])
     if not claims:
         return
+    if _fact_bound_interval_covers(timeline, claims=claims, start=start, end=end):
+        return
+    _reject(
+        "fact_bound_timing_violation",
+        "text timing must remain within contiguous fact-bound video coverage",
+        clip_id=clip.get("id"),
+    )
+
+
+def _fact_bound_interval_covers(
+    timeline: Mapping[str, Any], *, claims: set[str], start: float, end: float
+) -> bool:
+    intervals_by_scope: dict[str, list[tuple[float, float]]] = {}
     for track in timeline.get("tracks", []):
         if not isinstance(track, Mapping) or track.get("kind") != "video":
             continue
@@ -266,21 +279,25 @@ def _validate_fact_bound_timing(
                 _finite_number(video.get("source_out_seconds"), field="video.source_out_seconds")
                 - _finite_number(video.get("source_in_seconds"), field="video.source_in_seconds")
             ) / speed
-            if video_start <= start and end <= video_end:
-                return
-    _reject(
-        "fact_bound_timing_violation",
-        "text timing must remain within a fact-bound video clip",
-        clip_id=clip.get("id"),
-    )
+            intervals_by_scope.setdefault(canonical_digest(dict(scope)), []).append(
+                (video_start, video_end)
+            )
+    for intervals in intervals_by_scope.values():
+        merged_start: float | None = None
+        merged_end: float | None = None
+        for interval_start, interval_end in sorted(intervals):
+            if merged_start is None or interval_start > merged_end + 1e-9:
+                if merged_start is not None and merged_start <= start and end <= merged_end:
+                    return True
+                merged_start, merged_end = interval_start, interval_end
+            else:
+                merged_end = max(merged_end, interval_end)
+        if merged_start is not None and merged_start <= start and end <= merged_end:
+            return True
+    return False
 
 
 def _validate_all_fact_bound_timing(timeline: Mapping[str, Any]) -> None:
-    videos = [
-        clip for track in timeline.get("tracks", [])
-        if isinstance(track, Mapping) and track.get("kind") == "video"
-        for clip in track.get("clips", []) if isinstance(clip, Mapping)
-    ]
     for track in timeline.get("tracks", []):
         if not isinstance(track, Mapping) or track.get("kind") not in {"text", "subtitle"}:
             continue
@@ -290,17 +307,14 @@ def _validate_all_fact_bound_timing(timeline: Mapping[str, Any]) -> None:
             start = _finite_number(clip.get("start_seconds"), field=f"{track.get('kind')}.start_seconds")
             end = _finite_number(clip.get("end_seconds"), field=f"{track.get('kind')}.end_seconds")
             claims = set(clip.get("claim_ids") or [])
-            if not any(
-                isinstance(video.get("fact_scope"), Mapping)
-                and claims.issubset(set(video["fact_scope"].get("claim_ids") or []))
-                and _finite_number(video.get("start_seconds"), field="video.start_seconds") <= start
-                and end <= _finite_number(video.get("start_seconds"), field="video.start_seconds") + (
-                    _finite_number(video.get("source_out_seconds"), field="video.source_out_seconds")
-                    - _finite_number(video.get("source_in_seconds"), field="video.source_in_seconds")
-                ) / _finite_number(video.get("speed", 1.0), field="video.speed")
-                for video in videos
+            if not _fact_bound_interval_covers(
+                timeline, claims=claims, start=start, end=end
             ):
-                _reject("fact_bound_timing_violation", "claim-bearing text is not covered by a fact-bound video clip", clip_id=clip.get("id"))
+                _reject(
+                    "fact_bound_timing_violation",
+                    "claim-bearing text is not covered by contiguous compatible video clips",
+                    clip_id=clip.get("id"),
+                )
 
 
 def _validate_primary_video_overlaps(timeline: Mapping[str, Any]) -> None:

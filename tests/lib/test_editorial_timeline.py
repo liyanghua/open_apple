@@ -1168,3 +1168,45 @@ def test_apply_delta_rejects_nonfinite_catalogue_valid_range(bad_value: float) -
     operation = {"op": "trim_clip", "track_id": "video-main", "clip_id": "video-001", "source_in_seconds": 0.4, "source_out_seconds": 2.6}
     with pytest.raises(EditorialDeltaError, match="invalid_numeric"):
         apply_delta(timeline, _delta_for(timeline, operation), asset_catalogue=catalogue)
+
+
+def test_apply_delta_allows_claim_text_spanning_contiguous_same_scope_split() -> None:
+    from lib.editorial_timeline import apply_delta
+
+    timeline = _timeline()
+    operation = {
+        "op": "split_clip", "track_id": "video-main", "clip_id": "video-001",
+        "at_seconds": 1.6,
+    }
+    result = apply_delta(
+        timeline,
+        _delta_for(timeline, operation),
+        asset_catalogue=_catalogue_for(timeline),
+    )
+
+    clips = result["timeline"]["tracks"][0]["clips"]
+    assert len(clips) == 2
+    assert result["timeline"]["tracks"][4]["clips"][0]["start_seconds"] == 0.8
+    assert result["timeline"]["tracks"][4]["clips"][0]["end_seconds"] == 2.8
+
+
+def test_apply_delta_rejects_claim_text_spanning_gap_between_different_scope_clips() -> None:
+    from lib.editorial_timeline import EditorialDeltaError, apply_delta
+
+    timeline = _timeline()
+    timeline["tracks"][0]["clips"][0]["source_out_seconds"] = 1.6
+    second = deepcopy(timeline["tracks"][0]["clips"][0])
+    second.update({
+        "id": "video-002", "start_seconds": 1.6, "source_in_seconds": 0.0,
+        "source_out_seconds": 1.6,
+        "fact_scope": {
+            "claim_ids": ["claim-other"], "shot_id": "shot-other",
+            "visual_requirement_id": "visual-other", "allowed_source_classes": ["owned_source"],
+        },
+    })
+    timeline["tracks"][0]["clips"].append(second)
+    with pytest.raises(EditorialDeltaError, match="fact_bound_timing_violation"):
+        apply_delta(
+            timeline,
+            _delta_for(timeline, {"op": "set_gain", "track_id": "music-main", "clip_id": "music-001", "gain_db": -10}),
+        )
