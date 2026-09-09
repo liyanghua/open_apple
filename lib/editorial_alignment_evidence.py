@@ -75,9 +75,42 @@ def build_editorial_alignment_evidence(
     output = Path(output_path)
     if not output.is_file():
         raise ValueError(f"alignment output not found: {output}")
+    expected_bindings: list[dict[str, Any]] = []
+    for track in timeline.get("tracks") or []:
+        if not isinstance(track, Mapping) or track.get("kind") != "video":
+            continue
+        for clip in track.get("clips") or []:
+            fact_scope = clip.get("fact_scope") if isinstance(clip, Mapping) else None
+            if not isinstance(fact_scope, Mapping):
+                raise ValueError("every rendered video clip requires a fact binding")
+            binding = {
+                "shot_id": str(fact_scope.get("shot_id") or ""),
+                "claim_ids": sorted(str(value) for value in (fact_scope.get("claim_ids") or [])),
+                "visual_requirement_id": str(fact_scope.get("visual_requirement_id") or ""),
+            }
+            if not all((binding["shot_id"], binding["claim_ids"], binding["visual_requirement_id"])):
+                raise ValueError("video fact binding is incomplete")
+            expected_bindings.append(binding)
+    supplied_bindings = [{
+        "shot_id": str(item.get("shot_id") or ""),
+        "claim_ids": sorted(str(value) for value in (item.get("claim_ids") or [])),
+        "visual_requirement_id": str(item.get("visual_requirement_id") or ""),
+    } for item in fact_bindings if isinstance(item, Mapping)]
+    if not expected_bindings or sorted(supplied_bindings, key=lambda item: item["shot_id"]) != sorted(expected_bindings, key=lambda item: item["shot_id"]):
+        raise ValueError("fact bindings do not match the rendered timeline")
+    requirement_ids = {
+        str(item.get("id") or item.get("visual_requirement_id") or "")
+        for item in visual_requirements if isinstance(item, Mapping)
+    }
+    if any(item["visual_requirement_id"] not in requirement_ids for item in expected_bindings):
+        raise ValueError("current visual requirements do not cover every rendered clip")
     output_hash = _sha256(output)
     rows = [dict(item) for item in (checks or []) if isinstance(item, Mapping)]
-    status = "pass" if rows and all(str(row.get("status")) == "pass" for row in rows) else "fail"
+    covered_shots = {str(row.get("shot_id") or "") for row in rows}
+    expected_shots = {item["shot_id"] for item in expected_bindings}
+    status = "pass" if covered_shots == expected_shots and all(
+        str(row.get("status")) == "pass" for row in rows
+    ) else "fail"
     report = {
         "contract_version": "editorial-alignment-1.0",
         "scope": str(timeline.get("scope") or "editorial"),

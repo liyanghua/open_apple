@@ -10,12 +10,17 @@ def test_alignment_evidence_binds_output_timeline_and_current_sources(tmp_path: 
 
     output = tmp_path / "preview.mp4"
     output.write_bytes(b"new-render")
+    timeline = {"tracks": [{"kind": "video", "clips": [{"fact_scope": {
+        "shot_id": "shot-1", "claim_ids": ["claim-1"],
+        "visual_requirement_id": "visual-1",
+    }}]}]}
     evidence = build_editorial_alignment_evidence(
-        timeline={"timeline_hash": canonical_digest({"tracks": []}), "tracks": []},
+        timeline={**timeline, "timeline_hash": canonical_digest(timeline)},
         output_path=output,
         output_probe={"duration_seconds": 3.0},
         frame_samples=[{"timestamp_seconds": 0.0, "path": "frame-000.png"}],
-        fact_bindings=[{"shot_id": "shot-1", "claim_ids": ["claim-1"]}],
+        fact_bindings=[{"shot_id": "shot-1", "claim_ids": ["claim-1"],
+                        "visual_requirement_id": "visual-1"}],
         script_hash="b" * 64,
         product_facts_hash="c" * 64,
         visual_requirements=[{"id": "visual-1", "claim_ids": ["claim-1"]}],
@@ -26,7 +31,7 @@ def test_alignment_evidence_binds_output_timeline_and_current_sources(tmp_path: 
     )
     assert evidence["status"] == "pass"
     assert evidence["output_sha256"]
-    assert evidence["timeline_hash"] == canonical_digest({"tracks": []})
+    assert evidence["timeline_hash"] == canonical_digest(timeline)
     assert evidence["source_hashes"] == {
         "script": "b" * 64,
         "product_facts": "c" * 64,

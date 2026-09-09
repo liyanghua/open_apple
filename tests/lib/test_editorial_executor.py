@@ -26,7 +26,10 @@ def _timeline():
     timeline = {
         "base_generation_id": "generation-1",
         "profile": {"render_runtime": "remotion", "width": 1080, "height": 1440, "fps": 30},
-        "tracks": [],
+        "tracks": [{"id": "video-main", "kind": "video", "clips": [{
+            "id": "video-1", "fact_scope": {"shot_id": "shot-1",
+            "claim_ids": ["claim-1"], "visual_requirement_id": "visual-1"}
+        }]}],
     }
     return {**timeline, "timeline_hash": canonical_digest(timeline)}
 
@@ -48,7 +51,9 @@ def test_executor_writes_versioned_preview_and_preserves_delivery(tmp_path: Path
         asset_manifest={"assets": []}, product_facts_hash="c" * 64,
         script_hash="b" * 64,
         output_probe={"duration_seconds": 1.0}, frame_samples=[{"timestamp_seconds": 0}],
-        fact_bindings=[], visual_requirements=[],
+        fact_bindings=[{"shot_id": "shot-1", "claim_ids": ["claim-1"],
+                        "visual_requirement_id": "visual-1"}],
+        visual_requirements=[{"id": "visual-1"}],
     )
     output = tmp_path / "operator/editorial/versions/rev-001/preview.mp4"
     assert result["status"] == "pass"
