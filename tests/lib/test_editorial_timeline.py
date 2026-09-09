@@ -445,6 +445,16 @@ def test_owned_asset_requires_shot_execution_plan_binding() -> None:
         materialize_editorial_timeline(**inputs)
 
 
+def test_shot_execution_plan_completed_status_cannot_authorize_materialization() -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    inputs = _source_led_materialization_inputs()
+    inputs["shot_execution_plan"]["status"] = "completed"
+
+    with pytest.raises(ValueError, match="approved"):
+        materialize_editorial_timeline(**inputs)
+
+
 @pytest.mark.parametrize(
     "mutation",
     [

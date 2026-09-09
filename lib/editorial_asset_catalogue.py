@@ -131,9 +131,9 @@ def build_editorial_asset_catalogue(
     if shot_execution_plan is None:
         raise EditorialMaterializationError("shot execution plan is required")
     shot_plan = _mapping(shot_execution_plan, field="shot execution plan")
-    if shot_plan.get("status") not in {"approved", "completed"}:
+    if shot_plan.get("status") != "approved":
         raise EditorialMaterializationError(
-            "shot execution plan must be approved or completed"
+            "shot execution plan must be approved"
         )
     shot_plan_items = _index_items(
         shot_plan.get("shots") or [],
