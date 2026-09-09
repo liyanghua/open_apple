@@ -20,6 +20,7 @@ from backlot.delivery_versions import DeliveryVersionService
 from backlot.operator_errors import OperatorError
 from backlot.project_commit import ProjectCommitStore
 from lib.cache_keys import canonical_digest
+from lib.editorial_timeline import EditorialDeltaError, apply_delta
 
 
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -140,7 +141,6 @@ class EditorialSessionService:
                         timeline = artifact
                 except (OSError, json.JSONDecodeError):
                     pass
-        request_digest = canonical_digest({"candidate_id": candidate_id, "timeline": timeline, "idempotency_key": idempotency_key, "actor_id": self.actor_id})
         self.store.initialize()
         for path in self.sessions_dir.glob("*.json") if self.sessions_dir.exists() else []:
             try:
@@ -158,7 +158,24 @@ class EditorialSessionService:
         if self._path(sid).exists():
             raise OperatorError("revision_conflict", "编辑会话标识已存在", 409)
         pointer = self.store.initialize()
-        timeline["base_generation_id"] = pointer["generation_id"]
+        if str(timeline.get("base_generation_id") or "") != str(pointer["generation_id"]):
+            raise OperatorError("revision_conflict", "时间轴基座已更新，请重新加载候选", 409)
+        catalogue = None
+        catalogue_path = self.project_dir / "operator" / "editorial" / "asset-catalogue.json"
+        if catalogue_path.is_file():
+            try:
+                catalogue = json.loads(catalogue_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise OperatorError("recovery_required", "商品素材目录需要管理员恢复", 503) from exc
+            if not isinstance(catalogue, dict):
+                raise OperatorError.validation_failed("商品素材目录格式无效")
+            unsigned = dict(catalogue)
+            supplied = unsigned.pop("catalogue_hash", None)
+            if supplied != canonical_digest(unsigned):
+                raise OperatorError("revision_conflict", "商品素材目录校验失败，请重新加载候选", 409)
+            if catalogue.get("project_id") != self.store.project_id or catalogue.get("base_generation_id") != timeline.get("base_generation_id") or catalogue.get("timeline_hash") != self._timeline_hash(timeline):
+                raise OperatorError("revision_conflict", "商品素材目录与时间轴基座不匹配", 409)
+        request_digest = canonical_digest({"candidate_id": candidate_id, "timeline": timeline, "catalogue": catalogue, "idempotency_key": idempotency_key, "actor_id": self.actor_id})
         session: dict[str, Any] = {
             "schema_version": "2.0",
             "session_id": sid,
@@ -170,6 +187,7 @@ class EditorialSessionService:
             "base_generation_id": pointer["generation_id"],
             "timeline": timeline,
             "timeline_hash": self._timeline_hash(timeline),
+            "asset_catalogue": catalogue,
             "revision": 0,
             "revision_id": "edit-000000",
             "deltas": [],
@@ -224,7 +242,6 @@ class EditorialSessionService:
             raise OperatorError("revision_conflict", "候选项目已更新，请重新打开编辑会话", 409)
         timeline = deepcopy(dict(session.get("timeline") or {}))
         try:
-            from lib.editorial_timeline import apply_delta, EditorialDeltaError
             applied = apply_delta(
                 timeline,
                 payload,

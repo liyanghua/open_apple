@@ -68,8 +68,9 @@ def test_session_is_owned_by_creator_and_draft_save_is_idempotent(tmp_path: Path
 def test_same_idempotency_key_with_different_payload_is_conflict(tmp_path: Path) -> None:
     from backlot.operator_errors import OperatorError
 
-    service = _service(_project(tmp_path))
-    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    project = _project(tmp_path)
+    service = _service(project)
+    session = service.create_session(base_timeline=json.loads((project / "artifacts/editorial_timeline.json").read_text()), idempotency_key="open-1")
     service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     with pytest.raises(OperatorError) as conflict:
         service.save_draft(session["session_id"], {"op": "set_caption", "text": "B"}, idempotency_key="delta-1")
@@ -81,7 +82,7 @@ def test_two_deltas_on_same_base_hash_use_generation_cas(tmp_path: Path) -> None
 
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    session = service.create_session(base_timeline=json.loads((project / "artifacts/editorial_timeline.json").read_text()), idempotency_key="open-1")
     base_hash, generation = session["timeline_hash"], session["base_generation_id"]
     service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-a", base_timeline_hash=base_hash, expected_generation=generation)
     with pytest.raises(OperatorError) as stale:
@@ -94,7 +95,7 @@ def test_failed_preview_is_retained_and_new_delta_invalidates_approval(tmp_path:
 
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    session = service.create_session(base_timeline=json.loads((project / "artifacts/editorial_timeline.json").read_text()), idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     failed = service.record_preview(session["session_id"], _report(project, session["revision"], "preview", status="failed", error="render failed", _without_output=True))
     assert failed["status"] == "preview_failed"
@@ -169,7 +170,9 @@ def test_promote_discard_and_restore_prior_delivery_revision(tmp_path: Path) -> 
     old.write_bytes(b"old-delivery")
     old_hash = hashlib.sha256(old.read_bytes()).hexdigest()
     service.install_delivery_revision("old", output_path=old, qa_report={"status": "pass", "gates": {"alignment": "pass", "l1a": "pass", "final_qa": "pass"}, "server_owned": True})
-    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    timeline = json.loads((project / "artifacts/editorial_timeline.json").read_text())
+    timeline["base_generation_id"] = service.store.initialize()["generation_id"]
+    session = service.create_session(base_timeline=timeline, idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     session = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass"))
     service.approve_preview(session["session_id"], output_sha256=session["preview"]["output_sha256"])
@@ -178,7 +181,8 @@ def test_promote_discard_and_restore_prior_delivery_revision(tmp_path: Path) -> 
     promoted = service.promote(session["session_id"])
     assert promoted["status"] == "promoted"
     assert service.current_delivery()["version_id"] != "old"
-    discarded = service.create_session(base_timeline={"clips": []}, idempotency_key="open-2")
+    timeline["base_generation_id"] = service.store.initialize()["generation_id"]
+    discarded = service.create_session(base_timeline=timeline, idempotency_key="open-2")
     assert service.discard(discarded["session_id"])["status"] == "discarded"
     restored = service.restore_delivery_revision("old", actor_id="operator-a", expected_generation=service.store.initialize()["generation_id"], manifest_sha256=service.delivery_manifest_hash("old"), output_sha256=old_hash, idempotency_key="restore-1")
     assert restored["version_id"] == "old"
