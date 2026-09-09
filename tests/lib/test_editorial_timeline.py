@@ -29,9 +29,10 @@ def _timeline() -> dict:
         "base_generation_id": "generation-001",
         "base_edit_revision": "revision-001",
         "source_artifact_hashes": {
+            "edit_decisions": HASH,
             "final_props": HASH,
-            "source_semantic_index": HASH,
-            "reference_source_matrix": HASH,
+            "asset_manifest": HASH,
+            "coverage_matrix": HASH,
             "product_facts": HASH,
         },
         "tracks": [
@@ -158,6 +159,22 @@ def test_editorial_timeline_requires_fact_binding_for_video_clip() -> None:
         jsonschema.validate(timeline, schema)
 
 
+def test_editorial_timeline_requires_exact_source_led_input_hashes() -> None:
+    schema = load_schema("editorial_timeline")
+
+    jsonschema.validate(_timeline(), schema)
+
+    missing_required_hash = _timeline()
+    del missing_required_hash["source_artifact_hashes"]["coverage_matrix"]
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(missing_required_hash, schema)
+
+    arbitrary_hash = _timeline()
+    arbitrary_hash["source_artifact_hashes"]["invented_input"] = HASH
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(arbitrary_hash, schema)
+
+
 def test_editorial_timeline_rejects_unapproved_text_style_and_extra_fields() -> None:
     schema = load_schema("editorial_timeline")
     timeline = _timeline()
@@ -181,13 +198,19 @@ def test_editorial_timeline_rejects_unapproved_text_style_and_extra_fields() -> 
         {"op": "split_clip", "track_id": "video-main", "clip_id": "video-001", "at_seconds": 1.0},
         {"op": "trim_clip", "track_id": "video-main", "clip_id": "video-001", "source_in_seconds": 0.2, "source_out_seconds": 2.8},
         _delta()["operations"][0],
+        {"op": "set_speed", "track_id": "video-main", "clip_id": "video-001", "speed": 1.15},
+        {"op": "set_transition", "track_id": "video-main", "clip_id": "video-001", "transition": "crossfade"},
+        {"op": "move_audio", "track_id": "narration-main", "clip_id": "narration-001", "start_seconds": 0.4},
         {"op": "set_gain", "track_id": "music-main", "clip_id": "music-001", "gain_db": -12},
         {"op": "set_fade", "track_id": "music-main", "clip_id": "music-001", "fade_in_seconds": 0.2, "fade_out_seconds": 0.5},
         {"op": "set_ducking", "track_id": "music-main", "clip_id": "music-001", "enabled": True, "reduction_db": -8},
+        {"op": "replace_narration", "track_id": "narration-main", "clip_id": "narration-001", "asset_id": "asset-server-narration-002", "source_sha256": HASH},
+        {"op": "replace_music", "track_id": "music-main", "clip_id": "music-001", "asset_id": "asset-server-music-002", "source_sha256": HASH},
         {"op": "set_caption_text", "track_id": "subtitle-main", "clip_id": "subtitle-001", "text": "水分被毛巾带走"},
         {"op": "set_caption_timing", "track_id": "subtitle-main", "clip_id": "subtitle-001", "start_seconds": 1.0, "end_seconds": 2.6},
         {"op": "set_text_style", "track_id": "text-main", "clip_id": "text-001", "style_token": "taobao_selling_point_v1", "position": "top_center"},
         {"op": "set_text_timing", "track_id": "text-main", "clip_id": "text-001", "start_seconds": 0.5, "end_seconds": 2.5},
+        {"op": "set_enabled", "track_id": "text-main", "clip_id": "text-001", "enabled": False},
     ],
 )
 def test_editorial_edit_delta_accepts_only_declared_typed_operations(operation: dict) -> None:

@@ -21,8 +21,15 @@
     "base_edit_revision": {"type": "string", "minLength": 1},
     "source_artifact_hashes": {
       "type": "object",
-      "minProperties": 1,
-      "additionalProperties": {"$ref": "#/$defs/sha256"}
+      "required": ["edit_decisions", "final_props", "asset_manifest", "coverage_matrix", "product_facts"],
+      "properties": {
+        "edit_decisions": {"$ref": "#/$defs/sha256"},
+        "final_props": {"$ref": "#/$defs/sha256"},
+        "asset_manifest": {"$ref": "#/$defs/sha256"},
+        "coverage_matrix": {"$ref": "#/$defs/sha256"},
+        "product_facts": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
     },
     "tracks": {
       "type": "array",
