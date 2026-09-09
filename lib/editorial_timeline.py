@@ -910,3 +910,157 @@ def materialize_editorial_timeline(
     catalogue["catalogue_hash"] = canonical_digest(catalogue)
     validate_artifact("editorial_timeline", timeline)
     return {"timeline": timeline, "asset_catalogue": catalogue}
+
+
+def project_timeline_for_compose(
+    timeline: Mapping[str, Any],
+    *,
+    asset_catalogue: Mapping[str, Any],
+    asset_manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Adapt the canonical timeline into explicit Remotion composition props.
+
+    The adapter is intentionally strict: only the locked Remotion contract is
+    projected and every media reference is resolved through the server-owned
+    catalogue/manifest pair.  Unsupported runtime features fail before a
+    renderer is invoked instead of being silently dropped.
+    """
+    source = deepcopy(dict(timeline))
+    profile = source.get("profile")
+    if not isinstance(profile, Mapping) or profile.get("render_runtime") != "remotion":
+        _reject(
+            "unsupported_delivery_operation",
+            "editorial composition is locked to the remotion runtime",
+            render_runtime=profile.get("render_runtime") if isinstance(profile, Mapping) else None,
+        )
+    # The catalogue is bound to the base snapshot.  A validated EditDelta
+    # legitimately changes the current timeline hash, so only immutable
+    # generation/revision/source ownership is checked here.
+    if asset_catalogue.get("base_generation_id") != source.get("base_generation_id") or asset_catalogue.get("base_edit_revision") != source.get("base_edit_revision"):
+        _reject("catalogue_binding_mismatch", "approved asset catalogue belongs to another revision")
+    manifest_assets = asset_manifest.get("assets") if isinstance(asset_manifest, Mapping) else None
+    if not isinstance(manifest_assets, list):
+        _reject("unsupported_delivery_operation", "asset manifest is required for composition")
+    manifest_by_id = {
+        item.get("id"): item for item in manifest_assets
+        if isinstance(item, Mapping) and isinstance(item.get("id"), str)
+    }
+    catalogue_by_id = {
+        item.get("asset_id"): item for item in (asset_catalogue.get("assets") or [])
+        if isinstance(item, Mapping) and isinstance(item.get("asset_id"), str)
+    }
+    fps = int(profile.get("fps") or 30)
+    if fps <= 0:
+        _reject("unsupported_delivery_operation", "timeline fps must be positive")
+
+    def media_source(clip: Mapping[str, Any], *, audio: bool = False) -> str:
+        asset_id = clip.get("asset_id")
+        catalogue_asset = catalogue_by_id.get(asset_id)
+        if catalogue_asset is None:
+            _reject("unsupported_delivery_operation", f"asset {asset_id} is not in the approved catalogue", asset_id=asset_id)
+        manifest_id = catalogue_asset.get("source_asset_id")
+        item = manifest_by_id.get(manifest_id)
+        if item is None or not isinstance(item.get("path"), str) or not item.get("path"):
+            _reject("unsupported_delivery_operation", f"asset {asset_id} has no renderable path", asset_id=asset_id)
+        if audio and item.get("type") != "audio":
+            _reject("unsupported_delivery_operation", f"asset {asset_id} is not audio", asset_id=asset_id)
+        if not audio and item.get("type") != "video":
+            _reject("unsupported_delivery_operation", f"asset {asset_id} is not video", asset_id=asset_id)
+        return str(item["path"])
+
+    order = {"video": 0, "narration": 1, "music": 2, "text": 3, "subtitle": 4}
+    projected_tracks: list[dict[str, Any]] = []
+    max_end = 0.0
+    for track in sorted(
+        (item for item in source.get("tracks", []) if isinstance(item, Mapping)),
+        key=lambda item: (order.get(str(item.get("kind")), 99), str(item.get("id", ""))),
+    ):
+        kind = str(track.get("kind"))
+        if kind not in order:
+            _reject("unsupported_delivery_operation", f"track kind {kind} is not supported")
+        clips: list[dict[str, Any]] = []
+        for clip in sorted(
+            (item for item in track.get("clips", []) if isinstance(item, Mapping)),
+            key=lambda item: (float(item.get("start_seconds", 0)), str(item.get("id", ""))),
+        ):
+            start = _finite_number(clip.get("start_seconds"), field=f"{kind}.start_seconds")
+            end = _finite_number(clip.get("end_seconds"), field=f"{kind}.end_seconds") if kind in {"narration", "music", "text", "subtitle"} else None
+            speed = _finite_number(clip.get("speed", 1.0), field="video.speed") if kind == "video" else 1.0
+            if speed <= 0:
+                _reject("unsupported_delivery_operation", "video speed must be positive", clip_id=clip.get("id"))
+            if kind == "video":
+                _validate_changed_video_binding(clip, asset_catalogue)
+                source_in = _finite_number(clip.get("source_in_seconds"), field="video.source_in_seconds")
+                source_out = _finite_number(clip.get("source_out_seconds"), field="video.source_out_seconds")
+                duration = (source_out - source_in) / speed
+                if duration <= 0:
+                    _reject("unsupported_delivery_operation", "video source range must be positive", clip_id=clip.get("id"))
+                end = start + duration
+            assert end is not None
+            if end <= start:
+                _reject("unsupported_delivery_operation", "clip range must be positive", clip_id=clip.get("id"))
+            max_end = max(max_end, end)
+            item: dict[str, Any] = {
+                "id": str(clip.get("id")),
+                "startFrame": round(start * fps),
+                "durationInFrames": max(1, round((end - start) * fps)),
+            }
+            if kind == "video":
+                transition = clip.get("transition", "cut")
+                if transition not in {"cut", "fade", "crossfade"}:
+                    _reject("unsupported_delivery_operation", f"transition {transition} is not supported", clip_id=clip.get("id"))
+                item.update({
+                    "source": media_source(clip),
+                    "sourceInSeconds": source_in,
+                    "sourceOutSeconds": source_out,
+                    "playbackRate": speed,
+                    "zIndex": int(clip.get("z_index", 0)),
+                    "transition": transition,
+                    "fadeInSeconds": float(clip.get("fade_in_seconds", 0) or 0),
+                    "fadeOutSeconds": float(clip.get("fade_out_seconds", 0) or 0),
+                    "transform": dict(clip.get("transform") or {}),
+                })
+            elif kind in {"narration", "music"}:
+                approved_audio = catalogue_by_id.get(clip.get("asset_id"))
+                if (
+                    approved_audio is None
+                    or approved_audio.get("media_kind") != "audio"
+                    or approved_audio.get("role") != kind
+                    or approved_audio.get("source_sha256") != clip.get("source_sha256")
+                ):
+                    _reject(
+                        "unsupported_delivery_operation",
+                        f"audio asset {clip.get('asset_id')} is not approved for {kind}",
+                        asset_id=clip.get("asset_id"),
+                    )
+                item.update({
+                    "source": media_source(clip, audio=True),
+                    "gainDb": float(clip.get("gain_db", 0) or 0),
+                    "fadeInSeconds": float(clip.get("fade_in_seconds", 0) or 0),
+                    "fadeOutSeconds": float(clip.get("fade_out_seconds", 0) or 0),
+                })
+                if kind == "music":
+                    item["ducking"] = dict(clip.get("ducking") or {"enabled": False, "reductionDb": 0})
+            else:
+                item.update({
+                    "text": str(clip.get("text", "")),
+                    "position": str(clip.get("position")),
+                    "styleToken": str(clip.get("style_token")),
+                    "claimIds": list(clip.get("claim_ids") or []),
+                    "enabled": clip.get("enabled", True),
+                })
+            clips.append(item)
+        projected_tracks.append({"id": str(track.get("id")), "kind": kind, "clips": clips})
+
+    return {
+        "renderer_family": "editorial-timeline",
+        "composition_id": "EditorialTimeline",
+        "durationInFrames": max(1, round(max_end * fps)),
+        "editorialTimeline": {
+            "fps": fps,
+            "width": int(profile.get("width")),
+            "height": int(profile.get("height")),
+            "safeZone": profile.get("safe_zone"),
+            "tracks": projected_tracks,
+        },
+    }

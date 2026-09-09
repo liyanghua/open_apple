@@ -1,4 +1,5 @@
 import { Composition, CalculateMetadataFunction } from "remotion";
+import type React from "react";
 import { Explainer, ExplainerProps } from "./Explainer";
 import {
   CinematicRenderer,
@@ -16,6 +17,8 @@ import { ProductReveal, ProductRevealProps } from "./components/ProductReveal";
 import { CaptionOverlay, WordCaption } from "./components/CaptionOverlay";
 import { CollageBurst, CollageBurstProps } from "./CollageBurst";
 import { LyricOverlay, LyricOverlayProps } from "./LyricOverlay";
+import { EditorialTimeline } from "./editorial/EditorialTimeline";
+import type { EditorialTimelineProps } from "./editorial/types";
 
 // ---------------------------------------------------------------------------
 // Theme System — prevents every video from looking like dark fintech
@@ -161,6 +164,15 @@ export const Root: React.FC = () => {
           audio: {},
         }}
         calculateMetadata={calculateMetadata}
+      />
+      <Composition
+        id="EditorialTimeline"
+        component={EditorialTimeline as unknown as React.FC<Record<string, unknown>>}
+        durationInFrames={30 * 60}
+        fps={30}
+        width={1080}
+        height={1440}
+        defaultProps={{fps: 30, width: 1080, height: 1440, tracks: []} as EditorialTimelineProps}
       />
       <Composition
         id="CinematicRenderer"

@@ -1210,3 +1210,53 @@ def test_apply_delta_rejects_claim_text_spanning_gap_between_different_scope_cli
             timeline,
             _delta_for(timeline, {"op": "set_gain", "track_id": "music-main", "clip_id": "music-001", "gain_db": -10}),
         )
+
+
+def test_project_timeline_for_compose_adapts_all_tracks_deterministically() -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline, project_timeline_for_compose
+
+    inputs = _source_led_materialization_inputs()
+    snapshot = materialize_editorial_timeline(**inputs)
+    props = project_timeline_for_compose(
+        snapshot["timeline"], asset_catalogue=snapshot["asset_catalogue"], asset_manifest=inputs["asset_manifest"]
+    )
+
+    assert props["composition_id"] == "EditorialTimeline"
+    editorial = props["editorialTimeline"]
+    assert [track["kind"] for track in editorial["tracks"]] == ["video", "narration", "music", "text", "subtitle"]
+    assert editorial["tracks"][0]["clips"][0]["source"] == "assets/video/shot-001.mp4"
+    assert editorial["tracks"][0]["clips"][0]["durationInFrames"] == 60
+    assert editorial["tracks"][3]["clips"][0]["position"] == "top_center"
+    assert editorial["tracks"][4]["clips"][0]["position"] == "bottom_center"
+    assert project_timeline_for_compose(
+        snapshot["timeline"], asset_catalogue=snapshot["asset_catalogue"], asset_manifest=inputs["asset_manifest"]
+    ) == props
+
+
+def test_project_timeline_for_compose_rejects_locked_runtime_operations() -> None:
+    from lib.editorial_timeline import EditorialDeltaError, materialize_editorial_timeline, project_timeline_for_compose
+
+    inputs = _source_led_materialization_inputs()
+    snapshot = materialize_editorial_timeline(**inputs)
+    timeline = deepcopy(snapshot["timeline"])
+    timeline["profile"]["render_runtime"] = "hyperframes"
+    with pytest.raises(EditorialDeltaError, match="unsupported_delivery_operation"):
+        project_timeline_for_compose(
+            timeline, asset_catalogue=snapshot["asset_catalogue"], asset_manifest=inputs["asset_manifest"]
+        )
+
+
+def test_project_timeline_for_compose_accepts_validated_post_delta_snapshot() -> None:
+    from lib.editorial_timeline import apply_delta, materialize_editorial_timeline, project_timeline_for_compose
+
+    inputs = _source_led_materialization_inputs()
+    snapshot = materialize_editorial_timeline(**inputs)
+    operation = {"op": "set_gain", "track_id": "music-main", "clip_id": "music-main-001", "gain_db": -18}
+    edited = apply_delta(
+        snapshot["timeline"], _delta_for(snapshot["timeline"], operation), asset_catalogue=snapshot["asset_catalogue"]
+    )["timeline"]
+    props = project_timeline_for_compose(
+        edited, asset_catalogue=snapshot["asset_catalogue"], asset_manifest=inputs["asset_manifest"]
+    )
+    music = next(track for track in props["editorialTimeline"]["tracks"] if track["kind"] == "music")
+    assert music["clips"][0]["gainDb"] == -18

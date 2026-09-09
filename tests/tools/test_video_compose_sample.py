@@ -11,6 +11,19 @@ def test_sample_window_is_half_open_and_bounded():
     assert validate_sample_window(180, 540) == (180, 540)
 
 
+def test_editorial_timeline_adapter_is_explicit_and_does_not_use_legacy_cuts():
+    from lib.editorial_timeline import materialize_editorial_timeline, project_timeline_for_compose
+    from tests.lib.test_editorial_timeline import _source_led_materialization_inputs
+
+    inputs = _source_led_materialization_inputs()
+    snapshot = materialize_editorial_timeline(**inputs)
+    props = project_timeline_for_compose(
+        snapshot["timeline"], asset_catalogue=snapshot["asset_catalogue"], asset_manifest=inputs["asset_manifest"]
+    )
+    assert props["composition_id"] == "EditorialTimeline"
+    assert "editorialTimeline" in props and "cuts" not in props["editorialTimeline"]
+
+
 def test_sample_window_rejects_short_or_long_ranges():
     import pytest
     with pytest.raises(ValueError):

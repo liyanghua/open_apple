@@ -35,6 +35,8 @@ import { ProviderChip } from "./components/ProviderChip";
 import { resolveAsset } from "./lib/resolveAsset";
 import type { ParticleType } from "./components/ParticleOverlay";
 import { resolveTheme, type ThemeConfig, DEFAULT_THEME } from "./Root";
+import { EditorialTimeline } from "./editorial/EditorialTimeline";
+import type { EditorialTimelineProps } from "./editorial/types";
 
 // Load Space Grotesk font for cinematic typography
 const { fontFamily } = loadFont("normal", {
@@ -306,6 +308,7 @@ export interface ExplainerProps {
   narrationSubtitles?: import("@remotion/captions").Caption[];
   captionSafeZoneProfile?: import("./components/SafeCaptionTrack").SafeZoneProfile;
   narrationSafeZoneProfile?: import("./components/SafeCaptionTrack").SafeZoneProfile;
+  editorialTimeline?: EditorialTimelineProps;
 }
 
 // ---------------------------------------------------------------------------
@@ -852,6 +855,9 @@ const OverlayRenderer: React.FC<{ overlay: Overlay }> = ({ overlay }) => {
 // ---------------------------------------------------------------------------
 
 export const Explainer: React.FC<ExplainerProps> = (props) => {
+  if (props.editorialTimeline) {
+    return <EditorialTimeline {...props.editorialTimeline} />;
+  }
   const { cuts, overlays, captions, audio } = props;
   const { fps, durationInFrames } = useVideoConfig();
 

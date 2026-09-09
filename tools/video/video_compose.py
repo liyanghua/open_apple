@@ -1011,6 +1011,7 @@ class VideoCompose(BaseTool):
         "screen-demo": "Explainer",
         "presenter": "TalkingHead",
         "animation-first": "Explainer",
+        "editorial-timeline": "EditorialTimeline",
     }
 
     @classmethod
@@ -2954,6 +2955,13 @@ class VideoCompose(BaseTool):
         # This prevents all pipelines from collapsing into the Explainer visual grammar.
         renderer_family = (composition_data or {}).get("renderer_family", "explainer-data")
         composition_id = self._get_composition_id(renderer_family)
+
+        if composition_id == "EditorialTimeline":
+            editorial_props = composition_data.get("editorialTimeline")
+            if not isinstance(editorial_props, dict):
+                return ToolResult(success=False, error="EditorialTimeline requires editorialTimeline props")
+            props = editorial_props
+            props["durationInFrames"] = total_frames or props.get("durationInFrames")
 
         if composition_id == "CinematicRenderer":
             if not props.get("scenes") and props.get("cuts"):
