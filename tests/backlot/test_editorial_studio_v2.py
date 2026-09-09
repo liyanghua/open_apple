@@ -298,3 +298,15 @@ def test_create_rejects_timeline_generation_mismatch_and_client_catalogue_is_not
     timeline = json.loads((project / "artifacts/editorial_timeline.json").read_text())
     session = service.create_session(base_timeline=timeline, idempotency_key="server-only-catalogue")
     assert session["asset_catalogue"] is None
+
+
+def test_save_draft_rejects_unsupported_or_cross_scope_operation(tmp_path: Path) -> None:
+    from backlot.operator_errors import OperatorError
+
+    project = _project(tmp_path)
+    service = _service(project)
+    timeline = json.loads((project / "artifacts/editorial_timeline.json").read_text())
+    session = service.create_session(base_timeline=timeline, idempotency_key="typed-op")
+    with pytest.raises(OperatorError) as failure:
+        service.save_draft(session["session_id"], {"operations": [{"op": "replace_clip", "track_id": "video", "clip_id": "video-1", "asset_id": "forged", "source_sha256": "a" * 64, "source_in_seconds": 0, "source_out_seconds": 1}]}, idempotency_key="replace-forged")
+    assert failure.value.code == "validation_failed"
