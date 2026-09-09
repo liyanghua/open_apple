@@ -19,6 +19,14 @@ def _canonical_bytes(value: Mapping[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 class DeliveryVersionService:
     """Register complete delivery versions and move the certified pointer."""
 
@@ -65,6 +73,104 @@ class DeliveryVersionService:
         except (OSError, json.JSONDecodeError, Exception) as exc:
             raise OperatorError("recovery_required", "成片版本状态需要管理员恢复", 503) from exc
         return value
+
+    def manifest(self, version_id: str) -> dict[str, Any]:
+        path = self._path(version_id)
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+            self.manifest_validator.validate(value)
+        except (OSError, json.JSONDecodeError, Exception) as exc:
+            raise OperatorError.validation_failed("找不到完整的成片版本") from exc
+        return value
+
+    def manifest_hash(self, version_id: str) -> str:
+        return hashlib.sha256(_canonical_bytes(self.manifest(version_id))).hexdigest()
+
+    def _project_file(self, relative_path: str) -> Path:
+        try:
+            path = self.store._canonical_path(relative_path)
+        except OperatorError as exc:
+            raise OperatorError.validation_failed("成片文件路径不符合要求") from exc
+        if not path.is_file():
+            raise OperatorError.validation_failed("成片文件不存在或不可读取")
+        return path
+
+    def restore(
+        self,
+        version_id: str,
+        *,
+        actor_id: str,
+        expected_generation: str,
+        manifest_sha256: str,
+        output_sha256: str,
+        idempotency_key: str,
+        request_digest: str | None = None,
+        can_edit: bool = True,
+    ) -> dict[str, Any]:
+        """Atomically repoint delivery after verifying an immutable old version.
+
+        The selected manifest and media hashes are supplied as an explicit CAS
+        fence.  They are verified again while the project transaction owns the
+        project lock; restoring never rewrites the immutable version itself.
+        """
+        if not can_edit or not isinstance(actor_id, str) or not actor_id.strip():
+            raise OperatorError("forbidden", "当前用户没有恢复成片版本的权限", 403)
+        if not all(isinstance(item, str) and item for item in (expected_generation, idempotency_key)):
+            raise OperatorError.validation_failed("恢复请求缺少版本保护信息")
+        request_digest = request_digest or hashlib.sha256(
+            _canonical_bytes({
+                "version_id": version_id,
+                "manifest_sha256": manifest_sha256,
+                "output_sha256": output_sha256,
+            })
+        ).hexdigest()
+        for directory in sorted(self.store.generations_dir.glob("generation-*"), reverse=True):
+            try:
+                manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+                status = (directory / "status").read_text(encoding="ascii")
+            except (OSError, json.JSONDecodeError):
+                continue
+            action = manifest.get("action") or {}
+            if status != "committed" or action.get("idempotency_key") != idempotency_key:
+                continue
+            if action.get("request_digest") != request_digest:
+                raise OperatorError("idempotency_conflict", "该请求标识已用于其他内容", 409)
+            return dict(manifest.get("result") or {})
+
+        selected = self.manifest(version_id)
+        actual_manifest_hash = hashlib.sha256(_canonical_bytes(selected)).hexdigest()
+        if actual_manifest_hash != manifest_sha256:
+            raise OperatorError("revision_conflict", "所选历史成片版本已变化", 409)
+        video = selected.get("video") or {}
+        output = self._project_file(str(video.get("path") or ""))
+        actual_output_hash = _file_sha256(output)
+        if actual_output_hash != output_sha256 or actual_output_hash != selected.get("video_master_sha256"):
+            raise OperatorError("revision_conflict", "所选历史成片文件校验失败", 409)
+        pointer = {
+            "schema_version": "1.0",
+            "project_id": self.store.project_id,
+            "version_id": version_id,
+            "manifest_sha256": actual_manifest_hash,
+        }
+        self.pointer_validator.validate(pointer)
+        with self.store.transaction(
+            action={
+                "action_id": f"restore-delivery-{version_id}",
+                "type": "restore_delivery_revision",
+                "idempotency_key": idempotency_key,
+                "request_digest": request_digest,
+            },
+            result={"status": "restored", **pointer},
+            audit={"event_type": "delivery_restored", "actor_id": actor_id},
+            expected_generation=expected_generation,
+        ) as sink:
+            # Recheck the files while the ProjectCommitStore lock is held.
+            if hashlib.sha256(_canonical_bytes(self.manifest(version_id))).hexdigest() != manifest_sha256:
+                raise OperatorError("revision_conflict", "所选历史成片版本已变化", 409)
+            if _file_sha256(output) != output_sha256:
+                raise OperatorError("revision_conflict", "所选历史成片文件校验失败", 409)
+            sink.stage_json("operator/current-delivery.json", pointer, schema="current_delivery")
+        return {"status": "restored", **pointer}
 
     def certify(
         self,
