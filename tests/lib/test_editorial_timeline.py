@@ -296,3 +296,130 @@ def test_editorial_edit_delta_rejects_unknown_operation_discriminator() -> None:
 
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(delta, schema)
+
+
+def _source_led_materialization_inputs() -> dict:
+    source_hash = "b" * 64
+    narration_hash = "c" * 64
+    music_hash = "d" * 64
+    return {
+        "candidate_id": "candidate-001",
+        "base_generation_id": "generation-001",
+        "base_edit_revision": "revision-001",
+        "edit_decisions": {
+            "semantic_sha256": "e" * 64,
+            "render_runtime": "remotion",
+            "safe_zone_profile": "taobao_detail_3_4",
+            "cuts": [{
+                "id": "shot-001", "source": "assets/video/shot-001.mp4",
+                "in_seconds": 0.0, "out_seconds": 2.0,
+            }],
+        },
+        "final_props": {
+            "semantic_sha256": "f" * 64,
+            "fps": 30,
+            "width": 2160,
+            "height": 2880,
+            "scenes": [{
+                "id": "shot-001", "assetId": "source-video-001",
+                "fromFrame": 0, "toFrameExclusive": 60,
+                "sourceInSeconds": 1.0, "sourceOutSeconds": 3.0,
+                "claim_ids": ["claim-absorb-visible"],
+                "evidence_row_ids": ["matrix-001"],
+                "screen_copy": "吸水过程清晰可见",
+            }],
+            "captions": [{"text": "水分被毛巾带走", "startMs": 0, "endMs": 2000}],
+        },
+        "asset_manifest": {"semantic_sha256": "1" * 64, "assets": [
+            {
+                "id": "source-video-001", "type": "video",
+                "path": "assets/video/shot-001.mp4", "sha256": source_hash,
+                "duration_seconds": 8.0, "approved": True,
+            },
+            {
+                "id": "narration-mix-001", "type": "audio",
+                "role": "narration", "path": "assets/audio/narration.mp3",
+                "sha256": narration_hash, "duration_seconds": 2.0, "approved": True,
+            },
+            {
+                "id": "bgm-001", "type": "audio", "role": "music",
+                "path": "assets/music/bgm.mp3", "sha256": music_hash,
+                "duration_seconds": 2.0, "approved": True,
+            },
+        ]},
+        "coverage_matrix": {
+            "semantic_sha256": "2" * 64,
+            "matrix_mode": "source_led",
+            "rows": [{
+                "matrix_row_id": "matrix-001", "resolution": "accept",
+                "source_media_id": "source-video-001", "source_hash": source_hash,
+                "source_time_range": {"start_seconds": 1.0, "end_seconds_exclusive": 3.0},
+                "claim_ids": ["claim-absorb-visible"],
+                "visual_requirement_id": "visual-absorb-result",
+            }],
+        },
+        "product_facts": {
+            "semantic_sha256": "3" * 64,
+            "claims": [{
+                "id": "claim-absorb-visible",
+                "visual_requirement_id": "visual-absorb-result",
+            }],
+        },
+        "source_media_evidence": {"files": [{
+            "media_id": "source-video-001", "reviewed": True,
+            "media_type": "video", "sha256": source_hash,
+            "technical_probe": {"duration_seconds": 8.0},
+        }]},
+        "source_videos": {"source-video-001": {
+            "sha256": source_hash, "duration_seconds": 8.0,
+        }},
+        "narration": {
+            "asset_id": "narration-mix-001", "text": "水分被毛巾带走",
+            "claim_ids": ["claim-absorb-visible"], "start_seconds": 0.0,
+            "end_seconds": 2.0,
+        },
+        "bgm": {"asset_id": "bgm-001", "start_seconds": 0.0, "end_seconds": 2.0},
+    }
+
+
+def test_materialize_source_led_timeline() -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    snapshot = materialize_editorial_timeline(**_source_led_materialization_inputs())
+
+    timeline = snapshot["timeline"]
+    catalogue = snapshot["asset_catalogue"]
+    assert [track["kind"] for track in timeline["tracks"]] == [
+        "video", "narration", "music", "text", "subtitle",
+    ]
+    video_clip = timeline["tracks"][0]["clips"][0]
+    assert video_clip["source_sha256"] == "b" * 64
+    assert video_clip["fact_scope"] == {
+        "claim_ids": ["claim-absorb-visible"],
+        "shot_id": "shot-001",
+        "visual_requirement_id": "visual-absorb-result",
+        "allowed_source_classes": ["owned_source"],
+    }
+    assert timeline["source_artifact_hashes"] == {
+        "edit_decisions": "e" * 64,
+        "final_props": "f" * 64,
+        "asset_manifest": "1" * 64,
+        "coverage_matrix": "2" * 64,
+        "product_facts": "3" * 64,
+    }
+    approved_asset = catalogue["assets"][0]
+    assert approved_asset["asset_id"].startswith("editorial-")
+    assert approved_asset["source_sha256"] == "b" * 64
+    assert approved_asset["valid_range"] == {"start_seconds": 1.0, "end_seconds": 3.0}
+    assert approved_asset["claim_ids"] == ["claim-absorb-visible"]
+    assert approved_asset["visual_requirement_id"] == "visual-absorb-result"
+
+
+def test_materialize_source_led_timeline_rejects_missing_accepted_coverage() -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    inputs = _source_led_materialization_inputs()
+    inputs["coverage_matrix"]["rows"][0]["resolution"] = "reject"
+
+    with pytest.raises(ValueError, match="accepted coverage"):
+        materialize_editorial_timeline(**inputs)
