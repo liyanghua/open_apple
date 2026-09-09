@@ -17,6 +17,8 @@ class _QA:
         self.status = status
 
     def execute(self, inputs):
+        if inputs.get("scope") is not None:
+            assert inputs["scope"] in {"sample", "final"}
         payload = {"status": self.status, "subject_hash": inputs.get("subject_hash")}
         Path(inputs["output_path"]).write_text(json.dumps(payload), encoding="utf-8")
         return ToolResult(success=self.status == "pass", data=payload)
@@ -83,3 +85,22 @@ def test_executor_rejects_stale_baseline_and_qa_failure_without_touching_deliver
     assert result["status"] == "failed"
     assert current.read_bytes() == b"current-delivery"
     assert not (tmp_path / "renders/final.mp4").read_bytes() == b"rendered-editorial-video"
+
+
+def test_executor_rejects_unsafe_revision_before_creating_version(tmp_path: Path):
+    from lib.editorial_executor import EditorialRenderExecutor
+
+    executor = EditorialRenderExecutor(tmp_path, video_compose=_Compose(),
+                                       technical_validator=_QA(), final_qa=_QA())
+    try:
+        executor.render_preview(
+            revision="../../renders", timeline=_timeline(), asset_catalogue={},
+            asset_manifest={}, product_facts_hash="c" * 64, script_hash="b" * 64,
+            output_probe=None, frame_samples=None, fact_bindings=[],
+            visual_requirements=[],
+        )
+    except ValueError as exc:
+        assert "safe version identifier" in str(exc)
+    else:
+        raise AssertionError("unsafe revision was accepted")
+    assert not (tmp_path / "operator").exists()

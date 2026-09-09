@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -110,6 +111,8 @@ class EditorialRenderExecutor:
                 baseline_alignment: Mapping[str, Any] | None = None,
                 expected_profile: str | None = None,
                 expected_duration_s: float | None = None) -> dict[str, Any]:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", revision) or ".." in revision:
+            raise ValueError("revision must be a safe version identifier")
         version_dir = self.project_dir / "operator" / "editorial" / "versions" / revision
         version_dir.mkdir(parents=True, exist_ok=True)
         output = version_dir / f"{kind}.mp4"
@@ -146,6 +149,8 @@ class EditorialRenderExecutor:
             if not getattr(compose, "success", False) or not output.is_file():
                 raise RuntimeError(getattr(compose, "error", None) or "video composition failed")
             actual_hash = _sha256(output)
+            report["output_sha256"] = actual_hash
+            report["output_path"] = output.relative_to(self.project_dir).as_posix()
             probe = self.probe_runner(output) if self.probe_runner is not None else self._probe(output)
             samples = self._frames(output, version_dir)
             checks = []
@@ -166,7 +171,8 @@ class EditorialRenderExecutor:
             (qa_dir / "alignment.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
             report["gates"]["alignment"] = evidence.get("status")
             common = {"input_path": str(output), "project_id": str(self.project_dir.name),
-                      "project_dir": str(self.project_dir), "scope": kind,
+                      "project_dir": str(self.project_dir),
+                      "scope": "sample" if kind == "preview" else "final",
                       "subject_hash": actual_hash, "subject_version": revision,
                       "expected_profile": self._profile_name(timeline, expected_profile),
                       "output_path": str(qa_dir / "l1a.json")}
@@ -184,8 +190,6 @@ class EditorialRenderExecutor:
             report["gates"]["final_qa"] = self._result_status(final_qa)
             if all(value == "pass" for value in report["gates"].values()):
                 report["status"] = "pass"
-            report["output_sha256"] = actual_hash
-            report["output_path"] = output.relative_to(self.project_dir).as_posix()
             report["evidence_sha256"] = evidence.get("evidence_sha256")
         except Exception as exc:
             report["error"] = str(exc)
