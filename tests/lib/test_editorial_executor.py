@@ -62,7 +62,7 @@ def test_executor_writes_versioned_preview_and_preserves_delivery(tmp_path: Path
     assert output.is_file()
     assert result["output_sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
     assert current.read_bytes() == b"current-delivery"
-    assert (output.parent / "execution_report.json").is_file()
+    assert (output.parent / "preview-execution_report.json").is_file()
 
 
 def test_executor_rejects_stale_baseline_and_qa_failure_without_touching_delivery(tmp_path: Path):

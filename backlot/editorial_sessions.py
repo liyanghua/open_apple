@@ -131,6 +131,15 @@ class EditorialSessionService:
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():
             raise OperatorError.validation_failed("创建会话需要幂等键")
         timeline = deepcopy(dict(base_timeline or {}))
+        if not timeline.get("tracks"):
+            artifact_path = self.project_dir / "artifacts" / "editorial_timeline.json"
+            if artifact_path.is_file():
+                try:
+                    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+                    if isinstance(artifact, dict):
+                        timeline = artifact
+                except (OSError, json.JSONDecodeError):
+                    pass
         request_digest = canonical_digest({"candidate_id": candidate_id, "timeline": timeline, "idempotency_key": idempotency_key, "actor_id": self.actor_id})
         self.store.initialize()
         for path in self.sessions_dir.glob("*.json") if self.sessions_dir.exists() else []:
@@ -149,6 +158,7 @@ class EditorialSessionService:
         if self._path(sid).exists():
             raise OperatorError("revision_conflict", "编辑会话标识已存在", 409)
         pointer = self.store.initialize()
+        timeline["base_generation_id"] = pointer["generation_id"]
         session: dict[str, Any] = {
             "schema_version": "2.0",
             "session_id": sid,
@@ -187,15 +197,25 @@ class EditorialSessionService:
             raise OperatorError.validation_failed("当前编辑会话已结束")
         if not isinstance(delta, Mapping) or not delta:
             raise OperatorError.validation_failed("编辑增量不能为空")
+        current_hash = str(session.get("timeline_hash") or "")
         payload = dict(delta)
+        request_hash = canonical_digest(payload)
+        # Compatibility shorthand from the shell is normalized into the
+        # canonical EditorialTimeline delta envelope before validation.
+        if "operations" not in payload and payload.get("op") == "set_caption":
+            payload = {"version": "1.0", "delta_id": f"delta-{canonical_digest({'session_id': session_id, 'idempotency_key': idempotency_key, 'text': payload.get('text')})[:24]}", "session_id": session_id,
+                       "base_generation_id": session.get("timeline", {}).get("base_generation_id"),
+                       "base_timeline_hash": current_hash,
+                       "operation_sequence": int(session.get("revision") or 0) + 1,
+                       "idempotency_key": idempotency_key,
+                       "operations": [{"op": "set_caption_text", "track_id": "subtitle", "clip_id": "subtitle-1", "text": str(payload.get("text") or "")}]}
         payload_hash = canonical_digest(payload)
         for item in session.get("deltas") or []:
             if item.get("idempotency_key") != idempotency_key:
                 continue
-            if item.get("payload_hash") != payload_hash:
+            if item.get("request_hash", item.get("payload_hash")) != request_hash:
                 raise OperatorError("idempotency_conflict", "同一提交编号对应不同编辑内容", 409)
             return session
-        current_hash = str(session.get("timeline_hash") or "")
         if base_timeline_hash is not None and base_timeline_hash != current_hash:
             raise OperatorError("revision_conflict", "编辑基座已变化，请刷新后重试", 409)
         expected = expected_generation or str(session.get("base_generation_id") or "")
@@ -203,15 +223,26 @@ class EditorialSessionService:
         if pointer["generation_id"] != expected:
             raise OperatorError("revision_conflict", "候选项目已更新，请重新打开编辑会话", 409)
         timeline = deepcopy(dict(session.get("timeline") or {}))
-        timeline.setdefault("editorial_deltas", []).append(payload)
-        timeline_hash = self._timeline_hash(timeline)
+        try:
+            from lib.editorial_timeline import apply_delta, EditorialDeltaError
+            applied = apply_delta(
+                timeline,
+                payload,
+                asset_catalogue=session.get("asset_catalogue"),
+            )
+        except EditorialDeltaError as exc:
+            raise OperatorError.validation_failed("编辑操作未通过时间轴约束") from exc
+        except (ImportError, KeyError, TypeError) as exc:
+            raise OperatorError.validation_failed("编辑时间轴格式无效") from exc
+        timeline = applied["timeline"]
+        timeline_hash = applied["timeline_hash"]
         revision = int(session.get("revision") or 0) + 1
         session.update({
             "timeline": timeline,
             "timeline_hash": timeline_hash,
             "revision": revision,
             "revision_id": f"edit-{revision:06d}",
-            "deltas": list(session.get("deltas") or []) + [{"idempotency_key": idempotency_key, "payload_hash": payload_hash}],
+            "deltas": list(session.get("deltas") or []) + [{"idempotency_key": idempotency_key, "payload_hash": payload_hash, "request_hash": request_hash}],
             "preview": None,
             "preview_approval": None,
             "final": None,
@@ -234,7 +265,7 @@ class EditorialSessionService:
         try:
             path = self.store._canonical_path(str(report_path))
             expected_dir = self.project_dir / "operator" / "editorial" / "versions" / str(session.get("revision_id"))
-            expected_name = "execution_report.json"
+            expected_name = f"{kind}-execution_report.json"
             if path.parent != expected_dir or path.name != expected_name:
                 raise OperatorError("forbidden", "执行报告路径不属于当前编辑版本", 403)
             loaded = json.loads(path.read_text(encoding="utf-8"))
@@ -251,6 +282,7 @@ class EditorialSessionService:
             raise OperatorError("revision_conflict", "渲染结果不属于当前编辑版本", 409)
         if value.get("kind") != kind:
             raise OperatorError("revision_conflict", "执行报告类型与当前操作不匹配", 409)
+        failed = value.get("status") in {"failed", "fail"}
         if kind == "preview":
             if value.get("status") not in {"pass", "failed", "fail"}:
                 raise OperatorError.validation_failed("预览执行报告状态无效")
@@ -258,6 +290,8 @@ class EditorialSessionService:
             gates = value.get("gates") or {}
             if value.get("status") != "pass" or not all(gates.get(name) == "pass" for name in ("alignment", "l1a", "final_qa")):
                 value["status"] = "fail"
+        if failed:
+            return value
         output_hash = value.get("output_sha256")
         if not isinstance(output_hash, str) or not _HEX64.fullmatch(output_hash):
             raise OperatorError.validation_failed("渲染输出哈希无效")

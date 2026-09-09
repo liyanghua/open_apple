@@ -151,7 +151,7 @@ class EditorialRenderExecutor:
         version_dir = self.project_dir / "operator" / "editorial" / "versions" / revision
         version_dir.mkdir(parents=True, exist_ok=True)
         output = version_dir / f"{kind}.mp4"
-        report_path = version_dir / "execution_report.json"
+        report_path = version_dir / f"{kind}-execution_report.json"
         qa_dir = version_dir / "qa"
         qa_dir.mkdir(exist_ok=True)
         materialized = version_dir / "materialized"
