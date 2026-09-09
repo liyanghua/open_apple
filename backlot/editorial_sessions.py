@@ -233,8 +233,8 @@ class EditorialSessionService:
             raise OperatorError("forbidden", "渲染状态只能来自服务端执行报告", 403)
         try:
             path = self.store._canonical_path(str(report_path))
-            expected_dir = self.project_dir / "operator" / "editorial" / "versions" / str(session.get("revision"))
-            expected_name = f"{kind}-execution_report.json"
+            expected_dir = self.project_dir / "operator" / "editorial" / "versions" / str(session.get("revision_id"))
+            expected_name = "execution_report.json"
             if path.parent != expected_dir or path.name != expected_name:
                 raise OperatorError("forbidden", "执行报告路径不属于当前编辑版本", 403)
             loaded = json.loads(path.read_text(encoding="utf-8"))
@@ -247,8 +247,10 @@ class EditorialSessionService:
             raise OperatorError("forbidden", "渲染状态只能来自服务端执行报告", 403) from exc
         value["report_path"] = str(report_path)
         value["server_owned"] = True
-        if not isinstance(value, dict) or str(value.get("revision")) not in {str(session.get("revision")), str(session.get("revision_id"))}:
+        if str(value.get("revision")) != str(session.get("revision_id")):
             raise OperatorError("revision_conflict", "渲染结果不属于当前编辑版本", 409)
+        if value.get("kind") != kind:
+            raise OperatorError("revision_conflict", "执行报告类型与当前操作不匹配", 409)
         if kind == "preview":
             if value.get("status") not in {"pass", "failed", "fail"}:
                 raise OperatorError.validation_failed("预览执行报告状态无效")
@@ -266,7 +268,7 @@ class EditorialSessionService:
             output_file = self.store._canonical_path(output_path)
         except OperatorError as exc:
             raise OperatorError.validation_failed("执行报告输出路径无效") from exc
-        expected_dir = self.project_dir / "operator" / "editorial" / "versions" / str(session.get("revision"))
+        expected_dir = self.project_dir / "operator" / "editorial" / "versions" / str(session.get("revision_id"))
         if output_file.parent != expected_dir or not output_file.is_file() or _sha256_file(output_file) != output_hash:
             raise OperatorError("revision_conflict", "执行报告输出文件校验失败", 409)
         return value

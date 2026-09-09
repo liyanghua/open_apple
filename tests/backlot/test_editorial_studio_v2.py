@@ -25,13 +25,14 @@ def _service(project: Path, actor: str = "operator-a"):
 
 
 def _report(project: Path, revision: int, kind: str, **values):
-    path = project / "operator/editorial/versions" / str(revision)
+    revision_id = f"edit-{revision:06d}"
+    path = project / "operator/editorial/versions" / revision_id
     path.mkdir(parents=True, exist_ok=True)
     output = path / f"{kind}.mp4"
     output.write_bytes(values.pop("_output_bytes", f"{kind}-output".encode()))
     output_hash = hashlib.sha256(output.read_bytes()).hexdigest()
-    report = {"revision": revision, "output_path": output.relative_to(project).as_posix(), "output_sha256": output_hash, **values}
-    report_path = path / f"{kind}-execution_report.json"
+    report = {"version": "editorial-execution-1.0", "revision": revision_id, "kind": kind, "output_path": output.relative_to(project).as_posix(), "output_sha256": output_hash, **values}
+    report_path = path / "execution_report.json"
     report_path.write_text(json.dumps(report), encoding="utf-8")
     return {"report_path": report_path.relative_to(project).as_posix()}
 
@@ -176,7 +177,7 @@ def test_report_path_must_be_canonical_for_current_revision(tmp_path: Path) -> N
     service = _service(project)
     session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
-    wrong = project / "operator/editorial/versions/1/not-execution.json"
+    wrong = project / "operator/editorial/versions/edit-000001/not-execution.json"
     wrong.parent.mkdir(parents=True, exist_ok=True)
     wrong.write_text(json.dumps({"revision": 1, "status": "pass"}), encoding="utf-8")
     with pytest.raises(OperatorError) as failure:
@@ -192,7 +193,7 @@ def test_preview_approval_rehashes_output_and_rejects_replacement(tmp_path: Path
     session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     session = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass"))
-    output = project / "operator/editorial/versions/1/preview.mp4"
+    output = project / "operator/editorial/versions/edit-000001/preview.mp4"
     output.write_bytes(b"tampered")
     with pytest.raises(OperatorError) as failure:
         service.approve_preview(session["session_id"], output_sha256=session["preview"]["output_sha256"])
@@ -206,7 +207,7 @@ def test_malformed_json_report_is_operator_error(tmp_path: Path) -> None:
     service = _service(project)
     session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
-    report = project / "operator/editorial/versions/1/preview-execution_report.json"
+    report = project / "operator/editorial/versions/edit-000001/execution_report.json"
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text("[]", encoding="utf-8")
     with pytest.raises(OperatorError):
@@ -231,3 +232,33 @@ def test_promote_requires_strict_server_owned_final_report(tmp_path: Path) -> No
     with pytest.raises(OperatorError) as failure:
         service.promote(session["session_id"])
     assert failure.value.code == "forbidden"
+
+
+def test_task5_execution_report_contract_uses_revision_id_for_preview_and_final(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+    service = _service(project)
+    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-task5")
+    session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-task5")
+
+    preview = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass", gates={"alignment": "pass", "l1a": "pass", "final_qa": "pass"}))
+    assert preview["preview"]["revision"] == "edit-000001"
+    preview = service.approve_preview(session["session_id"], output_sha256=preview["preview"]["output_sha256"])
+    service.request_final(session["session_id"])
+
+    final = service.record_final(session["session_id"], _report(project, 1, "final", status="pass", gates={"alignment": "pass", "l1a": "pass", "final_qa": "pass"}))
+    assert final["status"] == "final_review"
+    assert final["final"]["report_path"] == "operator/editorial/versions/edit-000001/execution_report.json"
+
+
+def test_execution_report_kind_must_match_record_operation(tmp_path: Path) -> None:
+    from backlot.operator_errors import OperatorError
+
+    project = _project(tmp_path)
+    service = _service(project)
+    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-kind")
+    session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-kind")
+
+    final_report = _report(project, 1, "final", status="pass", gates={"alignment": "pass", "l1a": "pass", "final_qa": "pass"})
+    with pytest.raises(OperatorError) as failure:
+        service.record_preview(session["session_id"], final_report)
+    assert failure.value.code == "revision_conflict"
