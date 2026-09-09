@@ -17,6 +17,36 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def editorial_execution_report(project_dir: str | Path, *, revision: str,
+                               timeline: dict, asset_catalogue: dict,
+                               asset_manifest: dict, script_hash: str,
+                               product_facts_hash: str, fact_bindings: list,
+                               visual_requirements: list, kind: str = "preview") -> dict:
+    """Run the server-owned editorial executor for a versioned render.
+
+    This helper is intentionally thin: unlike the legacy template QA path it
+    never accepts client QA flags or output paths and always writes under the
+    immutable operator/editorial version directory.
+    """
+    from lib.editorial_executor import EditorialRenderExecutor
+    from tools.tool_registry import registry
+    registry.discover()
+    executor = EditorialRenderExecutor(
+        project_dir,
+        video_compose=registry.get("video_compose"),
+        technical_validator=registry.get("technical_validator"),
+        final_qa=registry.get("final_qa"),
+    )
+    method = executor.render_final if kind == "final" else executor.render_preview
+    return method(
+        revision=revision, timeline=timeline, asset_catalogue=asset_catalogue,
+        asset_manifest=asset_manifest, script_hash=script_hash,
+        product_facts_hash=product_facts_hash, fact_bindings=fact_bindings,
+        visual_requirements=visual_requirements, output_probe=None,
+        frame_samples=None,
+    )
+
+
 def _load(project: Path, name: str) -> dict | None:
     f = project / "artifacts" / f"{name}.json"
     if not f.is_file():
