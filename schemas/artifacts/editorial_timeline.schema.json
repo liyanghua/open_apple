@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/editorial_timeline",
+  "title": "Editorial Timeline",
+  "description": "The immutable, source-led multi-track editorial snapshot.",
+  "type": "object",
+  "required": [
+    "version",
+    "timeline_id",
+    "profile",
+    "base_generation_id",
+    "base_edit_revision",
+    "source_artifact_hashes",
+    "tracks"
+  ],
+  "properties": {
+    "version": {"const": "1.0"},
+    "timeline_id": {"type": "string", "minLength": 1},
+    "profile": {"$ref": "#/$defs/profile"},
+    "base_generation_id": {"type": "string", "minLength": 1},
+    "base_edit_revision": {"type": "string", "minLength": 1},
+    "source_artifact_hashes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/sha256"}
+    },
+    "tracks": {
+      "type": "array",
+      "minItems": 5,
+      "items": {"$ref": "#/$defs/track"},
+      "allOf": [
+        {"contains": {"properties": {"kind": {"const": "video"}}, "required": ["kind"]}},
+        {"contains": {"properties": {"kind": {"const": "narration"}}, "required": ["kind"]}},
+        {"contains": {"properties": {"kind": {"const": "music"}}, "required": ["kind"]}},
+        {"contains": {"properties": {"kind": {"const": "text"}}, "required": ["kind"]}},
+        {"contains": {"properties": {"kind": {"const": "subtitle"}}, "required": ["kind"]}}
+      ]
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "identifier": {"type": "string", "minLength": 1},
+    "seconds": {"type": "number", "minimum": 0},
+    "interval": {
+      "type": "object",
+      "required": ["start_seconds", "end_seconds"],
+      "properties": {
+        "start_seconds": {"$ref": "#/$defs/seconds"},
+        "end_seconds": {"type": "number", "exclusiveMinimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "profile": {
+      "type": "object",
+      "required": ["profile_id", "aspect_ratio", "width", "height", "fps", "render_runtime", "safe_zone"],
+      "properties": {
+        "profile_id": {"$ref": "#/$defs/identifier"},
+        "aspect_ratio": {"enum": ["3:4"]},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "fps": {"type": "integer", "minimum": 1},
+        "render_runtime": {"const": "remotion"},
+        "safe_zone": {"enum": ["taobao_detail_3_4"]}
+      },
+      "additionalProperties": false
+    },
+    "fact_scope": {
+      "type": "object",
+      "required": ["claim_ids", "shot_id", "visual_requirement_id", "allowed_source_classes"],
+      "properties": {
+        "claim_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        },
+        "shot_id": {"$ref": "#/$defs/identifier"},
+        "visual_requirement_id": {"$ref": "#/$defs/identifier"},
+        "allowed_source_classes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["owned_source", "generated_from_product_image", "approved_generated_asset"]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "transform": {
+      "type": "object",
+      "properties": {
+        "scale": {"type": "number", "exclusiveMinimum": 0},
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "rotation_degrees": {"type": "number"}
+      },
+      "additionalProperties": false
+    },
+    "video_clip": {
+      "type": "object",
+      "required": [
+        "id",
+        "asset_id",
+        "source_sha256",
+        "source_in_seconds",
+        "source_out_seconds",
+        "start_seconds",
+        "fact_scope"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "asset_id": {"$ref": "#/$defs/identifier"},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "source_in_seconds": {"$ref": "#/$defs/seconds"},
+        "source_out_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "start_seconds": {"$ref": "#/$defs/seconds"},
+        "speed": {"type": "number", "exclusiveMinimum": 0},
+        "transform": {"$ref": "#/$defs/transform"},
+        "fade_in_seconds": {"$ref": "#/$defs/seconds"},
+        "fade_out_seconds": {"$ref": "#/$defs/seconds"},
+        "z_index": {"type": "integer", "minimum": 0},
+        "transition": {"enum": ["cut", "fade", "crossfade"]},
+        "fact_scope": {"$ref": "#/$defs/fact_scope"}
+      },
+      "additionalProperties": false
+    },
+    "narration_clip": {
+      "type": "object",
+      "required": ["id", "asset_id", "source_sha256", "start_seconds", "end_seconds", "claim_ids", "original_text_sha256"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "asset_id": {"$ref": "#/$defs/identifier"},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "start_seconds": {"$ref": "#/$defs/seconds"},
+        "end_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "claim_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+        "original_text_sha256": {"$ref": "#/$defs/sha256"},
+        "gain_db": {"type": "number"},
+        "fade_in_seconds": {"$ref": "#/$defs/seconds"},
+        "fade_out_seconds": {"$ref": "#/$defs/seconds"}
+      },
+      "additionalProperties": false
+    },
+    "music_clip": {
+      "type": "object",
+      "required": ["id", "asset_id", "source_sha256", "start_seconds", "end_seconds"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "asset_id": {"$ref": "#/$defs/identifier"},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "start_seconds": {"$ref": "#/$defs/seconds"},
+        "end_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "gain_db": {"type": "number"},
+        "fade_in_seconds": {"$ref": "#/$defs/seconds"},
+        "fade_out_seconds": {"$ref": "#/$defs/seconds"},
+        "ducking": {
+          "type": "object",
+          "required": ["enabled", "reduction_db"],
+          "properties": {"enabled": {"type": "boolean"}, "reduction_db": {"type": "number", "maximum": 0}},
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "text_style_token": {"enum": ["taobao_selling_point_v1", "taobao_subtitle_v1", "taobao_cta_v1"]},
+    "text_position": {"enum": ["top_center", "center", "bottom_center"]},
+    "text_clip": {
+      "type": "object",
+      "required": ["id", "text", "start_seconds", "end_seconds", "style_token", "position", "claim_ids"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "text": {"type": "string", "minLength": 1},
+        "start_seconds": {"$ref": "#/$defs/seconds"},
+        "end_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "style_token": {"$ref": "#/$defs/text_style_token"},
+        "position": {"$ref": "#/$defs/text_position"},
+        "claim_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+        "enabled": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "subtitle_clip": {
+      "type": "object",
+      "required": ["id", "text", "start_seconds", "end_seconds", "style_token", "position", "claim_ids", "original_text_sha256"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "text": {"type": "string", "minLength": 1},
+        "start_seconds": {"$ref": "#/$defs/seconds"},
+        "end_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "style_token": {"const": "taobao_subtitle_v1"},
+        "position": {"const": "bottom_center"},
+        "claim_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+        "original_text_sha256": {"$ref": "#/$defs/sha256"},
+        "enabled": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "track": {
+      "type": "object",
+      "required": ["id", "kind", "clips"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "kind": {"enum": ["video", "narration", "music", "text", "subtitle"]},
+        "clips": {"type": "array"}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"const": "video"}}, "required": ["kind"]}, "then": {"properties": {"clips": {"items": {"$ref": "#/$defs/video_clip"}}}}},
+        {"if": {"properties": {"kind": {"const": "narration"}}, "required": ["kind"]}, "then": {"properties": {"clips": {"items": {"$ref": "#/$defs/narration_clip"}}}}},
+        {"if": {"properties": {"kind": {"const": "music"}}, "required": ["kind"]}, "then": {"properties": {"clips": {"items": {"$ref": "#/$defs/music_clip"}}}}},
+        {"if": {"properties": {"kind": {"const": "text"}}, "required": ["kind"]}, "then": {"properties": {"clips": {"items": {"$ref": "#/$defs/text_clip"}}}}},
+        {"if": {"properties": {"kind": {"const": "subtitle"}}, "required": ["kind"]}, "then": {"properties": {"clips": {"items": {"$ref": "#/$defs/subtitle_clip"}}}}}
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
