@@ -99,7 +99,7 @@ def test_prep_media_binds_generated_mapping_to_realized_clip(tmp_path: Path) -> 
 
 
 def test_qa_profile_follows_locked_taobao_output_profile(tmp_path: Path) -> None:
-    from scripts.qa_template_render import resolve_qa_profile
+    from scripts.qa_template_render import resolve_qa_profile, resolve_sample_qa_profile
 
     project = tmp_path / "run"
     (project / "artifacts").mkdir(parents=True)
@@ -107,6 +107,13 @@ def test_qa_profile_follows_locked_taobao_output_profile(tmp_path: Path) -> None
         json.dumps({"locked_values": {"output": {"profile": "social_vertical_3_4_2160p30"},
                                        "platform": "taobao"}}), encoding="utf-8")
     assert resolve_qa_profile(project) == ("social_vertical_3_4_2160p30", "taobao_detail_3_4")
+    assert resolve_sample_qa_profile("social_vertical_3_4_2160p30") == "social_vertical_3_4_sample_540p30"
+
+
+def test_sample_qa_profile_maps_standard_vertical_to_sample_profile() -> None:
+    from scripts.qa_template_render import resolve_sample_qa_profile
+
+    assert resolve_sample_qa_profile("social_vertical_1080p30") == "social_vertical_sample_540p30"
 
 
 def test_final_review_schema_accepts_taobao_caption_safe_zone() -> None:
@@ -137,6 +144,12 @@ def test_compose_alignment_prefers_current_report_when_final_report_absent(tmp_p
     (tmp_path / "analysis").mkdir(parents=True)
     (tmp_path / "analysis" / "alignment_check.json").write_text('{"sample_sha256":"x"}', encoding="utf-8")
     assert resolve_alignment_report(tmp_path)["sample_sha256"] == "x"
+
+
+def test_finish_compose_targets_certified_final_render() -> None:
+    from scripts.finish_template_compose import FINAL
+
+    assert FINAL == "renders/final.mp4"
 
 
 def test_compose_uses_source_led_semantic_checks_with_generated_integrity_fields() -> None:

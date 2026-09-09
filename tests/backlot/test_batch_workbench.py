@@ -127,6 +127,28 @@ def test_candidate_view_carries_evaluation_and_audio(batch_project: Path):
     assert all(t["state"] == "not_planned" for t in second["media"]["audio_tracks"])
 
 
+def test_published_candidate_prefers_final_video_over_stale_batch_status(tmp_path: Path, monkeypatch):
+    """A completed child project is authoritative even when its batch index lags."""
+    batch_dir = _batch_root(tmp_path, n=1, statuses=["in_progress"])
+    root = batch_dir.parent
+    _child(root, "cand-01", with_sample=True)
+    child = root / "cand-01"
+    _write(child / "checkpoint_publish.json", {
+        "version": "1.0", "project_id": "cand-01", "pipeline_type": "cinematic-fast",
+        "stage": "publish", "status": "completed", "timestamp": "2026-09-09T00:00:00+00:00",
+        "artifacts": {},
+    })
+    (child / "renders" / "final.mp4").write_bytes(b"final")
+    monkeypatch.setattr(state_mod, "PROJECTS_DIR", root)
+
+    view = _data(load_operator_state(batch_dir))["candidates"][0]
+
+    assert view["candidate_phase"] == "published"
+    assert view["media"]["final_url"] is not None
+    assert view["media"]["preview_kind"] == "final"
+    assert view["selection_block_reason"] is None
+
+
 def test_candidate_view_exposes_hashes_for_safe_selection(tmp_path: Path, monkeypatch):
     batch_dir = _batch_root(tmp_path, n=1, statuses=["evaluated"])
     root = batch_dir.parent

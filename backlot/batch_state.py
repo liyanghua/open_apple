@@ -193,7 +193,10 @@ def child_snapshot(project_dir: Path, child_dir: Path) -> dict[str, Any]:
         "child_revision": None,
         "stage_states": [],
         "pending_reviews": [],
+        "sample_url": None,
+        "final_url": None,
         "preview_url": None,
+        "preview_kind": None,
         "evaluation": None,
         "evaluation_hash": None,
         "audio_tracks": [],
@@ -221,14 +224,28 @@ def child_snapshot(project_dir: Path, child_dir: Path) -> dict[str, Any]:
         snapshot["corrupt"] = True
         return snapshot
     renders = (board.get("media") or {}).get("renders") if isinstance(board.get("media"), Mapping) else []
-    render = next(
+    sample_render = next(
         (item for item in renders if isinstance(item, Mapping) and "sample" in str(item.get("path", "")).lower()),
         None,
     )
-    if render:
+    final_render = next(
+        (item for item in renders if isinstance(item, Mapping) and "final" in Path(str(item.get("path", ""))).name.lower()),
+        None,
+    )
+    if sample_render:
         from backlot.operator_state import _media_url
 
-        snapshot["preview_url"] = _media_url(child_dir.name, render.get("path"))
+        snapshot["sample_url"] = _media_url(child_dir.name, sample_render.get("path"))
+    if final_render:
+        from backlot.operator_state import _media_url
+
+        snapshot["final_url"] = _media_url(child_dir.name, final_render.get("path"))
+    if snapshot["final_url"]:
+        snapshot["preview_url"] = snapshot["final_url"]
+        snapshot["preview_kind"] = "final"
+    elif snapshot["sample_url"]:
+        snapshot["preview_url"] = snapshot["sample_url"]
+        snapshot["preview_kind"] = "sample"
     artifacts = board.get("artifacts") if isinstance(board.get("artifacts"), Mapping) else {}
     eval_report = artifacts.get("evaluation_report.sample") or artifacts.get("evaluation_report")
     if isinstance(eval_report, Mapping) and eval_report.get("scope") == "sample":
@@ -420,7 +437,10 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
                 "evaluation": snapshot.get("evaluation"),
             },
             "media": {
-                "sample_url": snapshot.get("preview_url"),
+                "sample_url": snapshot.get("sample_url"),
+                "final_url": snapshot.get("final_url"),
+                "preview_url": snapshot.get("preview_url"),
+                "preview_kind": snapshot.get("preview_kind"),
                 "audio_tracks": snapshot.get("audio_tracks") or [],
             },
             "cost": {
@@ -443,7 +463,10 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
             ),
             "preview_url": snapshot.get("preview_url"),
             "selection_eligible": snapshot.get("selection_eligible", False),
-            "selection_block_reason": snapshot.get("selection_block_reason"),
+            "selection_block_reason": (
+                None if phase in {"composed", "published"}
+                else snapshot.get("selection_block_reason")
+            ),
             "evaluation_hash": snapshot.get("evaluation_hash"),
         })
 

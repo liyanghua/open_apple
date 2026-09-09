@@ -164,10 +164,9 @@ def refresh_template_batch_status(
 ) -> dict[str, Any]:
     """把每个 run 的 status 从其项目 checkpoint 推进点刷新（只读投影，不写 run 项目）。
 
-    映射（设计文档 §4.3 八态）：research→proposal 未完成/未审 = planned；
-    有 proposal 且 scene_plan 在 completed = in_progress（可进入 assets）；
-    有 scene_plan + 后续 sample 完成 = sampled/...；failed 由 run 的 failure 状态带出。
-    这里只做"最低可观察状态"推进，避免伪造尚未发生的阶段。
+    映射（设计文档 §4.3 八态）按最新完成阶段投影。终态必须优先：
+    publish → published，compose → evaluated，sample → sampled；否则才回落到
+    进行中或等待审批。这样 Overview 不会把已交付的成片误显示为进行中。
     """
     from lib.checkpoint import get_completed_stages, read_checkpoint
     from pathlib import Path
@@ -182,7 +181,13 @@ def refresh_template_batch_status(
             completed = set(get_completed_stages(pipeline_dir, project_id, pipeline_type))
         except Exception:
             completed = set()
-        if "scene_plan" in completed:
+        if "publish" in completed:
+            r["status"] = "published"
+        elif "compose" in completed:
+            r["status"] = "evaluated"
+        elif "sample" in completed:
+            r["status"] = "sampled"
+        elif "scene_plan" in completed:
             r["status"] = "in_progress"  # 已产出 scene_plan，可进 assets
         elif "script" in completed or "proposal" in completed:
             cp = read_checkpoint(pipeline_dir, project_id, "script")
@@ -193,6 +198,25 @@ def refresh_template_batch_status(
             r["status"] = "planned"
     updated = dict(batch)
     updated["runs"] = runs
+    statuses = [str(item.get("status") or "planned") for item in runs]
+    published = sum(status == "published" for status in statuses)
+    failed = sum(status == "failed" for status in statuses)
+    terminal = {"published", "skipped"}
+    updated["progress"] = {
+        "total": len(runs),
+        "published": published,
+        "completed": sum(status in terminal for status in statuses),
+        "failed": failed,
+        "in_progress": sum(status not in terminal | {"failed"} for status in statuses),
+    }
+    if runs and all(status in terminal for status in statuses):
+        updated["status"] = "completed"
+    elif failed and failed == len(runs):
+        updated["status"] = "failed"
+    elif any(status == "awaiting_human" for status in statuses):
+        updated["status"] = "awaiting_human"
+    else:
+        updated["status"] = "in_progress"
     return updated
 
 

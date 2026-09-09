@@ -95,17 +95,21 @@ def build(proj: Path, *, run: str, l1a: dict, qa: dict, sink=None) -> dict:
     # 评估报告（sample scope）来自 L1a
     hg = l1a.get("hard_gate") or {}
     alignment_report = _load(proj / "analysis" / "alignment_check.json") or {}
-    from lib.template_alignment import adapt_legacy_alignment_report
-    semantic_checks = adapt_legacy_alignment_report(
-        alignment_report, sample_sha256=probe["sha256"],
-        script_sha256=str(script.get("semantic_sha256") or ""),
-    )
     product_facts = _load(proj / "artifacts" / "product_facts.json") or {}
     try:
         from lib.pipeline_loader import load_input_context
         input_mode = str(load_input_context(proj).get("input_mode") or "reference_driven")
     except (FileNotFoundError, ValueError):
         input_mode = "reference_driven"
+    # Source-led reports carry generated-shot integrity fields in addition to
+    # the five visual dimensions. The legacy adapter intentionally drops those
+    # fields, which would falsely fail a valid image-to-video shot.
+    from lib.template_alignment import alignment_report_semantic_checks
+    semantic_checks = alignment_report_semantic_checks(
+        alignment_report, sample_sha256=probe["sha256"],
+        script_sha256=str(script.get("semantic_sha256") or ""),
+        input_mode=input_mode,
+    )
     alignment = build_semantic_alignment(
         {"script": script, "scene_plan": scene_plan, "shot_execution_plan": shot_plan,
          "final_props": fp or {}, "render": {"sha256": probe["sha256"]},

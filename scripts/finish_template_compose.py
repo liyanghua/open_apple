@@ -18,7 +18,7 @@ from lib.artifact_io import write_artifact_atomic
 
 PIPELINE = "cinematic-fast"
 ROOT = Path(__file__).resolve().parents[1]
-FINAL = "renders/sample-v1.mp4"  # mode=full 成片（与 sample 同文件，1080x1920）
+FINAL = "renders/final.mp4"
 
 
 def _load(p: Path) -> dict | None:

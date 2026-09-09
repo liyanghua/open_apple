@@ -124,6 +124,18 @@ def test_batch_workbench_has_plain_language_information_hierarchy() -> None:
         assert term in css
 
 
+def test_batch_workbench_labels_and_previews_published_candidates_as_final() -> None:
+    app = _read(OPERATOR_ROOT / "app.js")
+
+    for phrase in (
+        'published: "已交付"',
+        'composed: "成片已生成"',
+        'candidate.media?.preview_url',
+        'return candidate.media?.preview_kind === "final" ? "成片" : "样片"',
+    ):
+        assert phrase in app
+
+
 def test_batch_workbench_keeps_one_contextual_decision_area() -> None:
     app = _read(OPERATOR_ROOT / "app.js")
     batch = app.split("function renderBatch(", 1)[1].split("function renderDelivery(", 1)[0]

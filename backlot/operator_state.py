@@ -2538,6 +2538,41 @@ def _batch_operator_state(board: Mapping[str, Any], batch: Mapping[str, Any]) ->
     return state
 
 
+def _template_batch_as_candidate_batch(batch: Mapping[str, Any]) -> dict[str, Any]:
+    """Adapt the template production control plane to the read-only batch cockpit.
+
+    ``batch_state`` intentionally consumes the older candidate-batch contract.
+    Template runs are still real child projects, so this adapter exposes their
+    membership and direction metadata without creating a second source of truth
+    or enabling candidate-only mutation actions.
+    """
+    candidates = []
+    for run in batch.get("runs") or []:
+        if not isinstance(run, Mapping):
+            continue
+        project_id = str(run.get("project_id") or "").strip()
+        if not project_id:
+            continue
+        template_id = str(run.get("template_id") or project_id)
+        candidates.append({
+            "candidate_id": project_id,
+            "project_id": project_id,
+            "label": template_id.removeprefix("yinlizi-").replace("_", " "),
+            "direction": {"template_id": template_id},
+            "status": str(run.get("status") or "planned"),
+            "cost_usd": float(run.get("cost_usd") or 0.0),
+            "attempts": int(run.get("attempts") or 0),
+            "failure": {"failure": run.get("failure_reason")} if run.get("failure_reason") else None,
+        })
+    adapted = dict(batch)
+    adapted["candidates"] = candidates
+    adapted["batch_id"] = str(batch.get("batch_id") or "")
+    adapted["max_cost_usd"] = (batch.get("budget") or {}).get("max_cost_usd")
+    adapted["max_parallel"] = (batch.get("concurrency") or {}).get("max_parallel")
+    adapted["_template_batch_read_only"] = True
+    return adapted
+
+
 def operator_revision(state: Mapping[str, Any]) -> str:
     payload = {key: value for key, value in state.items() if key != "revision"}
     canonical = json.dumps(
@@ -2568,10 +2603,15 @@ def _performance_summary(project_dir: Path) -> dict[str, Any]:
 def project_operator_state(board_state: Mapping[str, Any]) -> dict[str, Any]:
     """Project BoardState into a recursively closed business response."""
     board = dict(board_state)
-    # 批项目（candidate_batch 索引存在）走批级驾驶舱分支（设计文档 §4.1）。
+    # 批项目索引走批级驾驶舱分支（设计文档 §4.1）。Template batches use
+    # ``runs`` instead of candidate-batch ``candidates`` but share the same
+    # read-only overview projection.
     candidate_batch = _artifact(board, "candidate_batch")
     if isinstance(candidate_batch, Mapping) and candidate_batch.get("candidates"):
         return _batch_operator_state(board, candidate_batch)
+    template_batch = _artifact(board, "template_batch")
+    if isinstance(template_batch, Mapping) and template_batch.get("runs"):
+        return _batch_operator_state(board, _template_batch_as_candidate_batch(template_batch))
     pipeline_meta = board.get("pipeline") if isinstance(board.get("pipeline"), Mapping) else {}
     pipeline_type = str(pipeline_meta.get("pipeline_type") or "unknown")
     raw_stages = [

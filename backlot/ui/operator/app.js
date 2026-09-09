@@ -32,6 +32,7 @@ function businessErrorMessage(error) {
 const CANDIDATE_STATUS_LABELS = {
   planned: "未开始", forking: "准备中", sampling: "生成样片", evaluating: "检查中",
   awaiting_review: "等待确认", evaluated: "已完成检查", editing: "等待精剪",
+  composed: "成片已生成", published: "已交付",
   approved: "已通过", needs_revision: "需要调整", failed: "处理失败",
   missing: "资料缺失", corrupt: "资料异常", excluded: "不参与本批",
   awaiting_human: "等待确认", completed: "已完成", in_progress: "制作中",
@@ -42,6 +43,9 @@ const STAGE_STATUS_LABELS = {
   research: "了解任务", proposal: "看创意方案", scene_plan: "看分镜",
 };
 function candidateStatusLabel(status) { return CANDIDATE_STATUS_LABELS[status] || "处理中"; }
+function candidatePreviewLabel(candidate) {
+  return candidate.media?.preview_kind === "final" ? "成片" : "样片";
+}
 function stageStateLabel(stageId, status) {
   return `${STAGE_STATUS_LABELS[stageId] || "制作步骤"}：${candidateStatusLabel(status)}`;
 }
@@ -1288,13 +1292,13 @@ function renderBatch(container, data, { project } = {}) {
     close.setAttribute("aria-label", "关闭快速查看");
     head.append(title, close);
     drawer.append(head);
-    if (candidate.media?.sample_url) {
+    if (candidate.media?.preview_url) {
       const video = document.createElement("video");
       video.controls = true; video.playsInline = true; video.preload = "metadata";
-      video.src = candidate.media.sample_url; video.setAttribute("aria-label", "视频预览");
+      video.src = candidate.media.preview_url; video.setAttribute("aria-label", `${candidatePreviewLabel(candidate)}预览`);
       drawer.append(video);
     } else {
-      drawer.append(node("div", "batch-candidate-preview-empty", "样片还没有生成"));
+      drawer.append(node("div", "batch-candidate-preview-empty", "视频还没有生成"));
     }
     drawer.append(node("p", "row-copy", candidateBlockLabel(candidate.selection_block_reason) || "这里用于快速浏览，确认操作请在当前要做中完成。"));
     if (candidate.links?.project_page) {
@@ -1466,19 +1470,23 @@ function renderBatch(container, data, { project } = {}) {
   candidates.forEach((candidate, candidateIndex) => {
     const cell = setTestId(node("article", `batch-candidate-card status-${candidate.candidate_phase || candidate.status || "planned"}`), `candidate-card-${candidate.candidate_id}`);
     const mediaFrame = node("div", "batch-candidate-media");
-    if (candidate.media?.sample_url) {
+    const previewLabel = candidatePreviewLabel(candidate);
+    if (candidate.media?.preview_url) {
       const video = document.createElement("video");
       video.className = "batch-candidate-preview";
       video.controls = true; video.playsInline = true; video.preload = "metadata";
-      video.src = candidate.media.sample_url;
-      video.setAttribute("aria-label", `${candidate.label || "视频"}样片预览`);
+      video.src = candidate.media.preview_url;
+      video.setAttribute("aria-label", `${candidate.label || "视频"}${previewLabel}预览`);
       video.addEventListener("error", () => {
-        const error = setTestId(node("p", "batch-media-error", "样片无法播放，请检查文件后重新拉取"), `media-error-${candidate.candidate_id}`);
+        const playbackError = previewLabel === "成片"
+          ? "成片无法播放，请检查文件后重新拉取"
+          : "样片无法播放，请检查文件后重新拉取";
+        const error = setTestId(node("p", "batch-media-error", playbackError), `media-error-${candidate.candidate_id}`);
         mediaFrame.replaceChildren(error);
       }, { once: true });
       mediaFrame.append(video);
     } else {
-      mediaFrame.append(node("div", "batch-candidate-preview-empty", "样片还没有生成"));
+      mediaFrame.append(node("div", "batch-candidate-preview-empty", "视频还没有生成"));
     }
     cell.append(mediaFrame);
     const heading = node("div", "batch-candidate-heading");

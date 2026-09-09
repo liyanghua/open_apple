@@ -69,3 +69,22 @@ def test_refresh_status_reflects_completed_scene_plan(tmp_path: Path):
     refreshed = refresh_template_batch_status(b, pipeline_dir=tmp_path)
     statuses = {r["template_id"]: r["status"] for r in refreshed["runs"]}
     assert statuses[template_id] == "in_progress"
+
+
+def test_refresh_status_marks_published_runs_and_batch_complete(tmp_path: Path, monkeypatch) -> None:
+    import json
+    import lib.checkpoint as checkpoint
+
+    batch = create_template_batch(_pack(), product_facts_ref={"artifact_sha256": "b" * 64})
+    for run in batch["runs"]:
+        (tmp_path / run["project_id"]).mkdir()
+        (tmp_path / run["project_id"] / "project.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(checkpoint, "get_completed_stages", lambda *_args, **_kwargs: ["publish"])
+
+    refreshed = refresh_template_batch_status(batch, pipeline_dir=tmp_path)
+
+    assert {run["status"] for run in refreshed["runs"]} == {"published"}
+    assert refreshed["status"] == "completed"
+    assert refreshed["progress"] == {
+        "total": 2, "published": 2, "completed": 2, "failed": 0, "in_progress": 0,
+    }

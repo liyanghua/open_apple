@@ -236,6 +236,15 @@ def test_stage51_maps_review_sections_to_sample_timeline(tmp_path: Path) -> None
     ]
 
 
+def test_stage51_reviews_the_same_proxy_file_as_the_sample_gate() -> None:
+    source = (ROOT / "scripts/towel_batch_2026_09_02/stage51_verify_alignment.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'sample_path = d / "renders" / "sample-v1-540x960.mp4"' in source
+    assert 'sample_path = d / "renders" / "sample-v1.mp4"' in source
+    assert 'str(sample_path), "-frames:v", "1"' in source
+
+
 def test_canonical_props_carry_product_identity_into_realized_scenes(tmp_path: Path) -> None:
     from lib.template_render import build_final_props
 

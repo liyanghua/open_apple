@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +41,25 @@ def resolve_qa_profile(project: Path) -> tuple[str, str]:
     return profile, safe_zone
 
 
+def resolve_sample_qa_profile(full_profile: str) -> str:
+    """Return the matching 0.5x profile for the approved sample render."""
+    mapping = {
+        "social_vertical_3_4_2160p30": "social_vertical_3_4_sample_540p30",
+        "social_vertical_3_4_1080p30": "social_vertical_3_4_sample_540p30",
+        "social_vertical_1080p30": "social_vertical_sample_540p30",
+    }
+    return mapping.get(full_profile, "social_vertical_sample_540p30")
+
+
+def _media_duration(path: Path) -> float:
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=nw=1:nk=1", str(path)],
+        check=True, capture_output=True, text=True,
+    )
+    return float(result.stdout.strip())
+
+
 def qa(run: str) -> dict:
     import sys
 
@@ -64,12 +84,27 @@ def qa(run: str) -> dict:
     ).hexdigest()
     from lib.media_profiles import get_profile
     profile_dims = get_profile(qa_profile)
-    boxes = layout_captions(cues, width=profile_dims.width, height=profile_dims.height,
-                            bottom_margin=round(profile_dims.height * 0.15625))
-    caption_spec = {"captions": cues, "computed_boxes": boxes, "props_hash": prop_hash}
-    declaration = {"caption_render_mode": "remotion_overlay",
-                   "caption_source": "script.json#sections[].narration",
-                   "safe_zone_profile": safe_zone_profile}
+
+    def caption_inputs(profile_name: str) -> tuple[dict, dict]:
+        dims = get_profile(profile_name)
+        bottom_offset = round(dims.height * 0.15625)
+        boxes = layout_captions(cues, width=dims.width, height=dims.height,
+                                bottom_margin=bottom_offset)
+        spec = {"captions": cues, "computed_boxes": boxes, "props_hash": prop_hash}
+        declaration = {"caption_render_mode": "remotion_overlay",
+                       "caption_source": "script.json#sections[].narration",
+                       "safe_zone_profile": safe_zone_profile,
+                       "bottom_offset_px": bottom_offset}
+        return spec, declaration
+
+    caption_spec, declaration = caption_inputs(qa_profile)
+
+    full = project / "renders/final.mp4"
+    if not full.is_file():
+        full = project / "renders/sample-v1.mp4"
+    sample = project / "renders/sample-v1-540x960.mp4"
+    if not sample.is_file():
+        sample = project / "renders/sample-v1.mp4"
 
     from tools.tool_registry import registry
 
@@ -77,7 +112,7 @@ def qa(run: str) -> dict:
     qa_tool = registry._tools["final_qa"]
     qa_result = qa_tool.execute({
         "mode": "full",
-        "input_path": str(project / "renders/sample-v1.mp4"),
+        "input_path": str(full),
         "expected_profile": qa_profile,
         "caption_declaration": declaration,
         "caption_spec": caption_spec,
@@ -90,7 +125,8 @@ def qa(run: str) -> dict:
             f"{qa_file.get('status') if qa_file else '缺失'}）——禁止交付为 final.mp4（评审 P0-3）")
 
     final = project / "renders/final.mp4"
-    shutil.copy2(project / "renders/sample-v1.mp4", final)
+    if not final.is_file():
+        shutil.copy2(full, final)
 
     script = _load(project, "script")
     shot_plan = _load(project, "shot_execution_plan")
@@ -125,9 +161,13 @@ def qa(run: str) -> dict:
     })
     l1a_sample = validator.execute({
         **common,
-        "input_path": str(project / "renders/sample-v1.mp4"), "scope": "sample",
-        "subject_ref": {"name": "sample_video", "path": "renders/sample-v1.mp4"},
-        "subject_version": "1.0", "subject_hash": _sha256(project / "renders/sample-v1.mp4"),
+        "input_path": str(sample), "scope": "sample",
+        "subject_ref": {"name": "sample_video", "path": sample.relative_to(project).as_posix()},
+        "subject_version": "1.0", "subject_hash": _sha256(sample),
+        "expected_profile": resolve_sample_qa_profile(qa_profile),
+        "expected_duration_s": _media_duration(sample),
+        "caption_declaration": caption_inputs(resolve_sample_qa_profile(qa_profile))[1],
+        "caption_spec": caption_inputs(resolve_sample_qa_profile(qa_profile))[0],
         "output_path": str(project / "artifacts/l1a_sample.json"),
     })
     for label, result in (("l1a_final", l1a_final), ("l1a_sample", l1a_sample)):
@@ -156,8 +196,8 @@ def qa(run: str) -> dict:
         "media": {
             "final_path": "renders/final.mp4",
             "final_sha256": _file_sha(final),
-            "sample_path": "renders/sample-v1.mp4",
-            "sample_sha256": _file_sha(project / "renders/sample-v1.mp4"),
+            "sample_path": sample.relative_to(project).as_posix(),
+            "sample_sha256": _file_sha(sample),
         },
         "source_hashes": {
             name: _file_sha(project / "artifacts" / f"{name}.json")

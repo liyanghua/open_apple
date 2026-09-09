@@ -585,6 +585,26 @@ def test_finish_sample_resolves_taobao_review_output_from_l1a(tmp_path) -> None:
     assert resolved == "renders/sample-v1.mp4"
 
 
+def test_finish_sample_preserves_generated_alignment_integrity_fields() -> None:
+    """Source-led sample finishing must not downgrade generated-shot checks."""
+    report = {
+        "sample_sha256": "5" * 64,
+        "script_sha256": "1" * 64,
+        "checks": [_generated_check(shot_id="shot-001", section_id="sec-001")],
+    }
+    checks = alignment_report_semantic_checks(
+        report,
+        sample_sha256="5" * 64,
+        script_sha256="1" * 64,
+        input_mode="source_led_template",
+    )
+    assert checks[0]["generated_text_integrity"] == "pass"
+    assert checks[0]["voice_caption_timing_match"] == "pass"
+    assert build_semantic_alignment(
+        _generated_artifacts(), scope="sample", semantic_checks=checks,
+    )["status"] == "pass"
+
+
 def test_source_led_alignment_requires_semantic_review_for_proof_shots() -> None:
     report = build_semantic_alignment(_artifacts(), scope="sample", semantic_checks=[])
     assert report["status"] == "fail"
@@ -622,6 +642,7 @@ def test_stage51_dimensions_flow_into_canonical_alignment_and_missing_dimension_
     check = canonicalize_vlm_check(
         raw, expected_shot_id="shot-001", expected_section_id="sec-001",
     )
+    assert check["match"] == "yes"
     report = {
         "sample_sha256": "5" * 64, "script_sha256": "1" * 64,
         "checks": [check],

@@ -99,6 +99,9 @@ def canonicalize_vlm_check(
         "section_id": expected_section_id,
         **normalized,
         "reason": str(raw.get("reason") or "")[:60],
+        # Backward-compatible summary consumed by legacy sample gates. The
+        # canonical per-dimension fields remain authoritative.
+        "match": "yes" if all(value == "pass" for value in normalized.values()) else "no",
     }
     if generated_route:
         # The VLM dimensions cover visible action/identity/crop.  Generated
@@ -220,10 +223,17 @@ def main(argv: list[str] | None = None) -> int:
             str(shot.get("section_id")): str(shot.get("id") or shot.get("shot_id"))
             for shot in shot_plan.get("shots", []) if isinstance(shot, dict) and shot.get("section_id")
         }
+        # Review the same proxy file exposed at the sample gate when it exists.
+        # Falling back to the full render is valid for older runs that did not
+        # materialize a 540x720 preview, but mixing the two files invalidates
+        # the hash-bound alignment report.
+        sample_path = d / "renders" / "sample-v1-540x960.mp4"
+        if not sample_path.is_file():
+            sample_path = d / "renders" / "sample-v1.mp4"
         sample_duration = float(
             subprocess.check_output(
                 ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                 "-of", "default=nw=1:nk=1", str(d / "renders" / "sample-v1.mp4")],
+                 "-of", "default=nw=1:nk=1", str(sample_path)],
                 text=True,
             ).strip()
         )
@@ -262,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
                 frame = d / "analysis" / "alignment" / f"{sec['id']}-{point_index}.jpg"
                 frame.parent.mkdir(parents=True, exist_ok=True)
                 subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{timestamp:.3f}", "-i",
-                                str(d / "renders" / "sample-v1.mp4"), "-frames:v", "1",
+                                str(sample_path), "-frames:v", "1",
                                 "-vf", "scale=540:720", "-q:v", "3", str(frame)],
                                check=True, timeout=60)
                 frames.append(frame)
@@ -292,7 +302,6 @@ def main(argv: list[str] | None = None) -> int:
                                **{field: "fail" for field in DIMENSIONS}, "reason": str(last)[:60]})
                 totals["fail"] += 1
         out = d / "analysis" / "alignment_check.json"
-        sample_path = d / "renders" / "sample-v1.mp4"
         report = {
             "version": "1.0",
             "run": run,
