@@ -282,9 +282,20 @@ def create_operator_router(
         key = request.headers.get("idempotency-key", "").strip() or str(payload.pop("idempotency_key", "")).strip()
         if not key:
             raise OperatorError.validation_failed("缺少重复提交保护标识")
-        return service.save_draft(session_id, payload, idempotency_key=key,
-                                  base_timeline_hash=payload.pop("base_timeline_hash", None),
-                                  expected_generation=payload.pop("expected_generation", None))
+        current = service.load_session(session_id)
+        if isinstance(payload.get("actions"), list):
+            from backlot.openreel_bridge import BridgeError, actions_to_delta
+            try:
+                delta = actions_to_delta(current, payload["actions"], idempotency_key=key)
+            except BridgeError as exc:
+                raise OperatorError.validation_failed(str(exc)) from exc
+        else:
+            delta = payload.get("delta") if isinstance(payload.get("delta"), Mapping) else payload
+        return service.save_draft(
+            session_id, delta, idempotency_key=key,
+            base_timeline_hash=payload.get("base_timeline_hash"),
+            expected_generation=payload.get("expected_generation"),
+        )
 
     @router.get("/projects/{project_id}/editorial-gallery/edit-session/{session_id}/snapshot")
     async def editorial_session_snapshot_alias(project_id: str, session_id: str, request: Request) -> dict:

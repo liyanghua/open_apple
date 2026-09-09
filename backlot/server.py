@@ -574,10 +574,8 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
         redirect = page_login_redirect(request)
         if redirect is not None:
             return redirect
-        return _ui_html("operator.html", (
-            "operator/styles.css", "operator/app.js", "operator/api.js",
-            "operator/store.js", "operator/language.js", "operator/editors.js",
-            "operator/impact.js", "operator/revisions.js",
+        return _ui_html("editorial-editor-shell.html", (
+            "editorial-editor-shell.css", "editorial-editor-shell.js",
         ))
 
     @app.get("/")
