@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
+import math
 from typing import Any
 
 from lib.cache_keys import canonical_digest
@@ -30,6 +31,38 @@ class EditorialDeltaError(ValueError):
 
 def _reject(code: str, message: str, **details: Any) -> None:
     raise EditorialDeltaError(code, message, **details)
+
+
+def _finite_number(value: Any, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        _reject("invalid_numeric", f"{field} must be a finite number", field=field, value=value)
+    return float(value)
+
+
+def _validate_operation_numbers(operation: Mapping[str, Any]) -> None:
+    operation_name = operation.get("op")
+    required: dict[str, tuple[str, ...]] = {
+        "move_clip": ("start_seconds",),
+        "split_clip": ("at_seconds",),
+        "trim_clip": ("source_in_seconds", "source_out_seconds"),
+        "set_speed": ("speed",),
+        "move_audio": ("start_seconds",),
+        "set_gain": ("gain_db",),
+        "set_caption_timing": ("start_seconds", "end_seconds"),
+        "set_text_timing": ("start_seconds", "end_seconds"),
+    }
+    for field in required.get(str(operation_name), ()):
+        if field not in operation:
+            _reject("invalid_numeric", f"{operation_name}.{field} is required", field=field)
+        _finite_number(operation[field], field=f"{operation_name}.{field}")
+    for field in ("fade_in_seconds", "fade_out_seconds", "reduction_db"):
+        if field in operation:
+            _finite_number(operation[field], field=f"{operation_name}.{field}")
+    if operation_name == "replace_clip":
+        for field in ("source_in_seconds", "source_out_seconds"):
+            if field not in operation:
+                _reject("invalid_numeric", f"replace_clip.{field} is required", field=field)
+            _finite_number(operation[field], field=f"replace_clip.{field}")
 
 
 def _timeline_track(timeline: Mapping[str, Any], track_id: str) -> dict[str, Any]:
@@ -143,7 +176,12 @@ def _require_fact_scope(
     expected: Mapping[str, Any], asset: Mapping[str, Any], *, asset_id: str
 ) -> None:
     actual = asset.get("fact_scope")
-    if not isinstance(actual, Mapping) or dict(actual) != dict(expected):
+    if (
+        not isinstance(actual, Mapping)
+        or dict(actual) != dict(expected)
+        or list(asset.get("claim_ids") or []) != list(expected.get("claim_ids") or [])
+        or asset.get("visual_requirement_id") != expected.get("visual_requirement_id")
+    ):
         _reject(
             "fact_scope_violation",
             f"asset {asset_id} does not preserve the clip product-fact scope",
@@ -159,21 +197,97 @@ def _require_fact_scope(
         )
 
 
+def _validate_catalogue_binding(
+    timeline: Mapping[str, Any], asset_catalogue: Mapping[str, Any] | None
+) -> None:
+    if asset_catalogue is None:
+        return
+    supplied_hash = asset_catalogue.get("catalogue_hash")
+    unsigned = dict(asset_catalogue)
+    unsigned.pop("catalogue_hash", None)
+    if not isinstance(supplied_hash, str) or supplied_hash != canonical_digest(unsigned):
+        _reject("catalogue_hash_mismatch", "approved asset catalogue hash is invalid")
+    expected_timeline_hash = canonical_digest(timeline)
+    if asset_catalogue.get("timeline_hash") != expected_timeline_hash:
+        _reject(
+            "catalogue_binding_mismatch",
+            "approved asset catalogue is bound to another timeline snapshot",
+            expected_timeline_hash=expected_timeline_hash,
+        )
+    for field in ("base_generation_id", "base_edit_revision", "timeline_id"):
+        if asset_catalogue.get(field) != timeline.get(field):
+            _reject(
+                "catalogue_binding_mismatch",
+                f"approved asset catalogue {field} does not match timeline",
+                field=field,
+            )
+    source_hashes = asset_catalogue.get("source_artifact_hashes")
+    if source_hashes != timeline.get("source_artifact_hashes"):
+        _reject(
+            "catalogue_binding_mismatch",
+            "approved asset catalogue source snapshot does not match timeline",
+        )
+    if not isinstance(asset_catalogue.get("candidate_id"), str) or not isinstance(asset_catalogue.get("project_id"), str):
+        _reject("catalogue_binding_mismatch", "approved asset catalogue ownership is required")
+
+
+def _all_clip_ids(timeline: Mapping[str, Any]) -> set[str]:
+    return {
+        str(clip.get("id"))
+        for track in timeline.get("tracks", [])
+        if isinstance(track, Mapping)
+        for clip in track.get("clips", [])
+        if isinstance(clip, Mapping) and isinstance(clip.get("id"), str)
+    }
+
+
+def _validate_fact_bound_timing(
+    timeline: Mapping[str, Any], clip: Mapping[str, Any], *, start: float, end: float
+) -> None:
+    if end <= start:
+        _reject("invalid_numeric", "timing end must be greater than start")
+    claims = set(clip.get("claim_ids") or [])
+    if not claims:
+        return
+    for track in timeline.get("tracks", []):
+        if not isinstance(track, Mapping) or track.get("kind") != "video":
+            continue
+        for video in track.get("clips", []):
+            if not isinstance(video, Mapping):
+                continue
+            scope = video.get("fact_scope")
+            if not isinstance(scope, Mapping) or not claims.issubset(set(scope.get("claim_ids") or [])):
+                continue
+            speed = _finite_number(video.get("speed", 1.0), field="video.speed")
+            video_start = _finite_number(video.get("start_seconds"), field="video.start_seconds")
+            video_end = video_start + (
+                _finite_number(video.get("source_out_seconds"), field="video.source_out_seconds")
+                - _finite_number(video.get("source_in_seconds"), field="video.source_in_seconds")
+            ) / speed
+            if video_start <= start and end <= video_end:
+                return
+    _reject(
+        "fact_bound_timing_violation",
+        "text timing must remain within a fact-bound video clip",
+        clip_id=clip.get("id"),
+    )
+
+
 def _validate_primary_video_overlaps(timeline: Mapping[str, Any]) -> None:
     for track in timeline.get("tracks", []):
         if not isinstance(track, Mapping) or track.get("kind") != "video":
             continue
         intervals: list[tuple[float, float, str]] = []
         for clip in track.get("clips", []):
-            speed = float(clip.get("speed", 1.0))
+            speed = _finite_number(clip.get("speed", 1.0), field="video.speed")
             if speed <= 0:
                 _reject(
                     "invalid_speed", "video speed must be positive", clip_id=clip.get("id")
                 )
-            start = float(clip["start_seconds"])
+            start = _finite_number(clip.get("start_seconds"), field="video.start_seconds")
             end = start + (
-                float(clip["source_out_seconds"])
-                - float(clip["source_in_seconds"])
+                _finite_number(clip.get("source_out_seconds"), field="video.source_out_seconds")
+                - _finite_number(clip.get("source_in_seconds"), field="video.source_in_seconds")
             ) / speed
             intervals.append((start, end, str(clip.get("id"))))
         intervals.sort()
@@ -224,6 +338,7 @@ def apply_delta(
     """
     source = deepcopy(dict(timeline))
     request = deepcopy(dict(delta))
+    _validate_catalogue_binding(source, asset_catalogue)
     if request.get("base_generation_id") != source.get("base_generation_id"):
         _reject("stale_generation", "delta targets another generation")
     expected_hash = canonical_digest(source)
@@ -237,7 +352,6 @@ def apply_delta(
     if not isinstance(operations, list) or not operations:
         _reject("invalid_delta", "delta must contain at least one operation")
 
-    changed_video_ids: set[tuple[str, str]] = set()
     for operation_index, operation in enumerate(operations, start=1):
         if not isinstance(operation, Mapping):
             _reject("invalid_delta", "each operation must be an object")
@@ -246,6 +360,7 @@ def apply_delta(
         clip_id = operation.get("clip_id")
         if not isinstance(operation_name, str) or not isinstance(track_id, str):
             _reject("invalid_delta", "operation and track IDs are required")
+        _validate_operation_numbers(operation)
         track = _timeline_track(source, track_id)
 
         if operation_name == "add_clip":
@@ -255,8 +370,10 @@ def apply_delta(
                 _reject("invalid_delta", "add_clip requires a video clip")
             if any(existing.get("id") == clip.get("id") for existing in track["clips"]):
                 _reject("duplicate_clip_id", f"clip {clip.get('id')} already exists")
+            if clip.get("id") in _all_clip_ids(source):
+                _reject("duplicate_clip_id", f"clip {clip.get('id')} already exists")
             track["clips"].append(clip)
-            changed_video_ids.add((track_id, str(clip.get("id"))))
+            _validate_changed_video_binding(clip, asset_catalogue)
         else:
             if not isinstance(clip_id, str):
                 _reject("invalid_delta", f"{operation_name} requires clip_id")
@@ -270,11 +387,11 @@ def apply_delta(
             elif operation_name == "split_clip":
                 _require_track_kind(track, {"video"}, operation=operation_name)
                 at = operation.get("at_seconds")
-                speed = float(clip.get("speed", 1.0))
-                timeline_start = float(clip["start_seconds"])
+                speed = _finite_number(clip.get("speed", 1.0), field="video.speed")
+                timeline_start = _finite_number(clip.get("start_seconds"), field="video.start_seconds")
                 timeline_end = timeline_start + (
-                    float(clip["source_out_seconds"])
-                    - float(clip["source_in_seconds"])
+                    _finite_number(clip.get("source_out_seconds"), field="video.source_out_seconds")
+                    - _finite_number(clip.get("source_in_seconds"), field="video.source_in_seconds")
                 ) / speed
                 if not isinstance(at, (int, float)) or not timeline_start < at < timeline_end:
                     _reject(
@@ -286,17 +403,21 @@ def apply_delta(
                 left = deepcopy(clip)
                 right = deepcopy(clip)
                 left["source_out_seconds"] = source_at
+                child_id = f"{clip_id}-split-{operation_index}"
+                if child_id in _all_clip_ids(source):
+                    _reject("duplicate_clip_id", f"split child ID {child_id} already exists")
                 right.update({
-                    "id": f"{clip_id}-split-{operation_index}",
+                    "id": child_id,
                     "source_in_seconds": source_at,
                     "start_seconds": float(at),
                 })
                 track["clips"][clip_index:clip_index + 1] = [left, right]
-                changed_video_ids.update({(track_id, left["id"]), (track_id, right["id"])})
+                _validate_changed_video_binding(left, asset_catalogue)
+                _validate_changed_video_binding(right, asset_catalogue)
             elif operation_name == "trim_clip":
                 _require_track_kind(track, {"video"}, operation=operation_name)
                 _set_fields(clip, operation, "source_in_seconds", "source_out_seconds")
-                changed_video_ids.add((track_id, clip_id))
+                _validate_changed_video_binding(clip, asset_catalogue)
             elif operation_name == "replace_clip":
                 _require_track_kind(track, {"video"}, operation=operation_name)
                 replacement = _catalogue_asset(asset_catalogue, str(operation.get("asset_id")))
@@ -316,7 +437,7 @@ def apply_delta(
                     operation,
                     "asset_id", "source_sha256", "source_in_seconds", "source_out_seconds",
                 )
-                changed_video_ids.add((track_id, clip_id))
+                _validate_changed_video_binding(clip, asset_catalogue)
             elif operation_name == "set_speed":
                 _require_track_kind(track, {"video"}, operation=operation_name)
                 speed = operation.get("speed")
@@ -328,9 +449,9 @@ def apply_delta(
                 clip["transition"] = operation.get("transition")
             elif operation_name == "move_audio":
                 _require_track_kind(track, {"narration", "music"}, operation=operation_name)
-                duration = float(clip["end_seconds"]) - float(clip["start_seconds"])
+                duration = _finite_number(clip.get("end_seconds"), field="audio.end_seconds") - _finite_number(clip.get("start_seconds"), field="audio.start_seconds")
                 clip["start_seconds"] = operation.get("start_seconds")
-                clip["end_seconds"] = float(operation.get("start_seconds")) + duration
+                clip["end_seconds"] = _finite_number(operation.get("start_seconds"), field="move_audio.start_seconds") + duration
             elif operation_name == "set_gain":
                 _require_track_kind(track, {"narration", "music"}, operation=operation_name)
                 clip["gain_db"] = operation.get("gain_db")
@@ -352,6 +473,16 @@ def apply_delta(
                     operation.get("source_sha256"),
                     asset_id=str(operation.get("asset_id")),
                 )
+                if replacement.get("media_kind") != "audio":
+                    _reject(
+                        "asset_media_kind_violation",
+                        f"asset {operation.get('asset_id')} is not approved audio",
+                    )
+                if replacement.get("role") != expected_kind:
+                    _reject(
+                        "asset_role_violation",
+                        f"asset {operation.get('asset_id')} is not approved for {expected_kind}",
+                    )
                 _set_fields(clip, operation, "asset_id", "source_sha256")
             elif operation_name == "set_caption_text":
                 _require_track_kind(track, {"subtitle"}, operation=operation_name)
@@ -359,12 +490,24 @@ def apply_delta(
             elif operation_name == "set_caption_timing":
                 _require_track_kind(track, {"subtitle"}, operation=operation_name)
                 _set_fields(clip, operation, "start_seconds", "end_seconds")
+                _validate_fact_bound_timing(
+                    source,
+                    clip,
+                    start=_finite_number(clip.get("start_seconds"), field="caption.start_seconds"),
+                    end=_finite_number(clip.get("end_seconds"), field="caption.end_seconds"),
+                )
             elif operation_name == "set_text_style":
                 _require_track_kind(track, {"text"}, operation=operation_name)
                 _set_fields(clip, operation, "style_token", "position")
             elif operation_name == "set_text_timing":
                 _require_track_kind(track, {"text"}, operation=operation_name)
                 _set_fields(clip, operation, "start_seconds", "end_seconds")
+                _validate_fact_bound_timing(
+                    source,
+                    clip,
+                    start=_finite_number(clip.get("start_seconds"), field="text.start_seconds"),
+                    end=_finite_number(clip.get("end_seconds"), field="text.end_seconds"),
+                )
             elif operation_name == "set_enabled":
                 _require_track_kind(track, {"text", "subtitle"}, operation=operation_name)
                 clip["enabled"] = operation.get("enabled")
@@ -375,10 +518,6 @@ def apply_delta(
                     operation=operation_name,
                 )
 
-    for track_id, clip_id in changed_video_ids:
-        track = _timeline_track(source, track_id)
-        _, clip = _timeline_clip(track, clip_id)
-        _validate_changed_video_binding(clip, asset_catalogue)
     _validate_primary_video_overlaps(source)
     try:
         validate_artifact("editorial_timeline", source)
@@ -563,7 +702,7 @@ def materialize_editorial_timeline(
         })
 
     assets = _asset_index(asset_manifest)
-    narration_id, narration_hash = _approved_audio(
+    narration_source_id, narration_hash = _approved_audio(
         assets, narration, role="narration"
     )
     narration_start = _number(
@@ -589,11 +728,48 @@ def materialize_editorial_timeline(
     }
     if any(claim not in fact_ids for claim in narration_claims):
         raise EditorialMaterializationError("narration claim is outside product facts")
-    music_id, music_hash = _approved_audio(assets, bgm, role="music")
+    music_source_id, music_hash = _approved_audio(assets, bgm, role="music")
     music_start = _number(bgm.get("start_seconds"), field="bgm.start_seconds")
     music_end = _number(bgm.get("end_seconds"), field="bgm.end_seconds")
     if music_end <= music_start:
         raise EditorialMaterializationError("bgm must have a positive range")
+
+    # Audio assets participate in the same server-issued catalogue as visual
+    # assets so replacement operations cannot inject arbitrary files.
+    catalogue_assets = list(catalogue.get("assets") or [])
+    audio_ids: dict[str, str] = {}
+    for source_asset_id, audio_asset in assets.items():
+        if (
+            audio_asset.get("approved") is not True
+            or audio_asset.get("type") != "audio"
+            or audio_asset.get("role") not in {"narration", "music"}
+        ):
+            continue
+        source_hash = _sha256(
+            audio_asset.get("sha256"),
+            field=f"asset_manifest {source_asset_id}.sha256",
+        )
+        issued_id = "editorial-audio-" + canonical_digest({
+            "candidate_id": candidate_id,
+            "project_id": project_id,
+            "source_asset_id": source_asset_id,
+            "source_sha256": source_hash,
+            "role": audio_asset.get("role"),
+        })[:24]
+        audio_ids[source_asset_id] = issued_id
+        catalogue_assets.append({
+            "asset_id": issued_id,
+            "candidate_id": candidate_id,
+            "project_id": project_id,
+            "source_asset_id": source_asset_id,
+            "source_sha256": source_hash,
+            "media_kind": "audio",
+            "role": audio_asset.get("role"),
+            "provenance": {"source": "asset_manifest", "asset_id": source_asset_id},
+        })
+    narration_id = audio_ids.get(narration_source_id, narration_source_id)
+    music_id = audio_ids.get(music_source_id, music_source_id)
+    catalogue = {**catalogue, "assets": catalogue_assets}
 
     subtitle_clips: list[dict[str, Any]] = []
     captions = final_props.get("captions")
@@ -672,5 +848,17 @@ def materialize_editorial_timeline(
             {"id": "subtitle-main", "kind": "subtitle", "clips": subtitle_clips},
         ],
     }
+    # Bind the read-only catalogue to this exact timeline snapshot and source
+    # artifact set. The hash excludes its own field to remain recomputable.
+    catalogue = {
+        **catalogue,
+        "timeline_id": timeline["timeline_id"],
+        "base_generation_id": base_generation_id,
+        "base_edit_revision": base_edit_revision,
+        "timeline_hash": canonical_digest(timeline),
+        "source_artifact_hashes": dict(timeline["source_artifact_hashes"]),
+    }
+    catalogue.pop("catalogue_hash", None)
+    catalogue["catalogue_hash"] = canonical_digest(catalogue)
     validate_artifact("editorial_timeline", timeline)
     return {"timeline": timeline, "asset_catalogue": catalogue}
