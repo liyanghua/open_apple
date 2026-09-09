@@ -75,6 +75,7 @@ def _scene_time(scene: Mapping[str, Any], *, fps: float, field: str) -> tuple[fl
 def materialize_editorial_timeline(
     *,
     candidate_id: str,
+    project_id: str,
     base_generation_id: str,
     base_edit_revision: str,
     edit_decisions: Mapping[str, Any],
@@ -92,6 +93,7 @@ def materialize_editorial_timeline(
     """Build a five-track snapshot, rejecting unproven material before rendering."""
     identifiers = (
         ("candidate_id", candidate_id),
+        ("project_id", project_id),
         ("base_generation_id", base_generation_id),
         ("base_edit_revision", base_edit_revision),
     )
@@ -109,6 +111,7 @@ def materialize_editorial_timeline(
 
     catalogue = build_editorial_asset_catalogue(
         candidate_id=candidate_id,
+        project_id=project_id,
         asset_manifest=asset_manifest,
         coverage_matrix=coverage_matrix,
         product_facts=product_facts,
@@ -258,6 +261,7 @@ def materialize_editorial_timeline(
         "version": "1.0",
         "timeline_id": "editorial-" + canonical_digest({
             "candidate_id": candidate_id,
+            "project_id": project_id,
             "revision": base_edit_revision,
         })[:24],
         "profile": {

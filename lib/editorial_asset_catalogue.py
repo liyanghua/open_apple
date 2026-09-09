@@ -95,10 +95,15 @@ def _candidate_owner(value: Mapping[str, Any]) -> str | None:
     nested = metadata if isinstance(metadata, Mapping) else {}
     owner = (
         value.get("candidate_id")
-        or value.get("project_id")
         or nested.get("candidate_id")
-        or nested.get("project_id")
     )
+    return str(owner) if owner else None
+
+
+def _project_owner(value: Mapping[str, Any]) -> str | None:
+    metadata = value.get("metadata")
+    nested = metadata if isinstance(metadata, Mapping) else {}
+    owner = value.get("project_id") or nested.get("project_id")
     return str(owner) if owner else None
 
 
@@ -111,9 +116,19 @@ def _require_candidate_owner(
         )
 
 
+def _require_project_owner(
+    value: Mapping[str, Any], *, project_id: str, field: str
+) -> None:
+    if _project_owner(value) != project_id:
+        raise EditorialMaterializationError(
+            f"{field} project does not match {project_id}"
+        )
+
+
 def build_editorial_asset_catalogue(
     *,
     candidate_id: str,
+    project_id: str,
     asset_manifest: Mapping[str, Any],
     coverage_matrix: Mapping[str, Any],
     product_facts: Mapping[str, Any],
@@ -129,14 +144,19 @@ def build_editorial_asset_catalogue(
     these scoped asset entries and its verified source range.
     """
     candidate_id = _identifier(candidate_id, field="candidate_id")
+    project_id = _identifier(project_id, field="project_id")
     coverage_matrix = _mapping(coverage_matrix, field="coverage_matrix")
+    asset_manifest = _mapping(asset_manifest, field="asset_manifest")
     _require_candidate_owner(
-        _mapping(asset_manifest, field="asset_manifest"),
+        asset_manifest,
         candidate_id=candidate_id,
         field="asset_manifest",
     )
-    _require_candidate_owner(
-        coverage_matrix, candidate_id=candidate_id, field="coverage_matrix"
+    _require_project_owner(
+        asset_manifest, project_id=project_id, field="asset_manifest"
+    )
+    _require_project_owner(
+        coverage_matrix, project_id=project_id, field="coverage_matrix"
     )
     if coverage_matrix.get("matrix_mode") not in {"source_led", "source_led_template"}:
         raise EditorialMaterializationError("coverage_matrix must be source-led")
@@ -160,8 +180,8 @@ def build_editorial_asset_catalogue(
     if shot_execution_plan is None:
         raise EditorialMaterializationError("shot execution plan is required")
     shot_plan = _mapping(shot_execution_plan, field="shot execution plan")
-    _require_candidate_owner(
-        shot_plan, candidate_id=candidate_id, field="shot execution plan"
+    _require_project_owner(
+        shot_plan, project_id=project_id, field="shot execution plan"
     )
     if shot_plan.get("status") != "approved":
         raise EditorialMaterializationError(
@@ -177,6 +197,9 @@ def build_editorial_asset_catalogue(
     for task in task_items.values():
         _require_candidate_owner(
             task, candidate_id=candidate_id, field="generation task"
+        )
+        _require_project_owner(
+            task, project_id=project_id, field="generation task"
         )
     fact_requirements = _claim_requirements(_mapping(product_facts, field="product_facts"))
     catalogue_assets: list[dict[str, Any]] = []
@@ -360,6 +383,7 @@ def build_editorial_asset_catalogue(
         }
         issued_id = "editorial-" + canonical_digest({
             "candidate_id": candidate_id,
+            "project_id": project_id,
             "matrix_row_id": row_id,
             "shot_id": shot_id,
             "source_asset_id": source_asset_id,
@@ -370,6 +394,7 @@ def build_editorial_asset_catalogue(
         catalogue_assets.append({
             "asset_id": issued_id,
             "candidate_id": candidate_id,
+            "project_id": project_id,
             "source_asset_id": source_asset_id,
             "source_sha256": source_hash,
             "source_class": source_class,
@@ -385,6 +410,7 @@ def build_editorial_asset_catalogue(
     catalogue = {
         "version": "1.0",
         "candidate_id": candidate_id,
+        "project_id": project_id,
         "assets": catalogue_assets,
     }
     return {**catalogue, "catalogue_hash": canonical_digest(catalogue)}

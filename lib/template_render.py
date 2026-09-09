@@ -216,6 +216,7 @@ def build_render_plan(project: Path, *, mode: str, total_frames: int, audio_path
 def build_editorial_snapshot(
     *,
     candidate_id: str,
+    project_id: str,
     base_generation_id: str,
     base_edit_revision: str,
     artifacts: Mapping[str, Any],
@@ -237,6 +238,7 @@ def build_editorial_snapshot(
 
     return materialize_editorial_timeline(
         candidate_id=candidate_id,
+        project_id=project_id,
         base_generation_id=base_generation_id,
         base_edit_revision=base_edit_revision,
         edit_decisions=artifact("edit_decisions"),

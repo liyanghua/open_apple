@@ -304,6 +304,7 @@ def _source_led_materialization_inputs() -> dict:
     music_hash = "d" * 64
     return {
         "candidate_id": "candidate-001",
+        "project_id": "project-001",
         "base_generation_id": "generation-001",
         "base_edit_revision": "revision-001",
         "edit_decisions": {
@@ -332,7 +333,9 @@ def _source_led_materialization_inputs() -> dict:
         },
         "asset_manifest": {
             "semantic_sha256": "1" * 64,
-            "metadata": {"candidate_id": "candidate-001"},
+            "metadata": {
+                "candidate_id": "candidate-001", "project_id": "project-001",
+            },
             "assets": [
             {
                 "id": "source-video-001", "type": "video",
@@ -352,7 +355,7 @@ def _source_led_materialization_inputs() -> dict:
         ]},
         "coverage_matrix": {
             "semantic_sha256": "2" * 64,
-            "project_id": "candidate-001",
+            "project_id": "project-001",
             "matrix_mode": "source_led",
             "rows": [{
                 "matrix_row_id": "matrix-001", "resolution": "accept",
@@ -378,7 +381,7 @@ def _source_led_materialization_inputs() -> dict:
             "sha256": source_hash, "duration_seconds": 8.0,
         }},
         "shot_execution_plan": {
-            "project_id": "candidate-001", "status": "approved", "shots": [{
+            "project_id": "project-001", "status": "approved", "shots": [{
             "id": "shot-001", "evidence_row_ids": ["matrix-001"],
             "visual_route": "owned_source", "source_media_id": "source-video-001",
             "source_selection": {
@@ -426,6 +429,7 @@ def test_materialize_source_led_timeline() -> None:
     approved_asset = catalogue["assets"][0]
     assert approved_asset["asset_id"].startswith("editorial-")
     assert approved_asset["candidate_id"] == "candidate-001"
+    assert approved_asset["project_id"] == "project-001"
     assert approved_asset["source_sha256"] == "b" * 64
     assert approved_asset["valid_range"] == {"start_seconds": 1.0, "end_seconds": 3.0}
     assert approved_asset["claim_ids"] == ["claim-absorb-visible"]
@@ -507,7 +511,7 @@ def _generated_materialization_inputs() -> dict:
         "source_time_range": {"start_seconds": 0.0, "end_seconds_exclusive": 2.0},
     })
     inputs["shot_execution_plan"] = {
-        "project_id": "candidate-001", "status": "approved", "shots": [{
+        "project_id": "project-001", "status": "approved", "shots": [{
         "id": "shot-001", "evidence_row_ids": ["matrix-001"],
         "visual_route": "approved_generated_asset",
         "selected_generation_task_id": "generation-task-001",
@@ -516,6 +520,7 @@ def _generated_materialization_inputs() -> dict:
     inputs["generation_tasks"] = [{
         "task_id": "generation-task-001", "shot_id": "shot-001",
         "candidate_id": "candidate-001",
+        "project_id": "project-001",
         "status": "approved", "approved": True,
         "output": {
             "asset_id": "generated-video-001", "sha256": generated_hash,
@@ -570,6 +575,7 @@ def test_template_render_builds_editorial_snapshot_from_source_led_artifacts() -
     narration = inputs.pop("narration")
     bgm = inputs.pop("bgm")
     candidate_id = inputs.pop("candidate_id")
+    project_id = inputs.pop("project_id")
     base_generation_id = inputs.pop("base_generation_id")
     base_edit_revision = inputs.pop("base_edit_revision")
     coverage_matrix = inputs.pop("coverage_matrix")
@@ -589,6 +595,7 @@ def test_template_render_builds_editorial_snapshot_from_source_led_artifacts() -
 
     snapshot = build_editorial_snapshot(
         candidate_id=candidate_id,
+        project_id=project_id,
         base_generation_id=base_generation_id,
         base_edit_revision=base_edit_revision,
         artifacts=artifacts,
@@ -598,6 +605,7 @@ def test_template_render_builds_editorial_snapshot_from_source_led_artifacts() -
 
     assert len(snapshot["timeline"]["tracks"]) == 5
     assert snapshot["asset_catalogue"]["candidate_id"] == candidate_id
+    assert snapshot["asset_catalogue"]["project_id"] == project_id
 
 
 def _verified_materialization_inputs() -> dict:
@@ -621,26 +629,53 @@ def test_materialization_rejects_mutated_verified_artifact_hash() -> None:
         materialize_editorial_timeline(**inputs)
 
 
-@pytest.mark.parametrize("artifact_name", [
-    "asset_manifest", "coverage_matrix", "shot_execution_plan", "generation_tasks",
-])
-def test_materialization_rejects_candidate_id_mismatch_across_artifacts(artifact_name: str) -> None:
+@pytest.mark.parametrize("artifact_name", ["asset_manifest", "generation_tasks"])
+def test_materialization_rejects_candidate_id_mismatch(artifact_name: str) -> None:
     from lib.editorial_timeline import materialize_editorial_timeline
 
     inputs = _source_led_materialization_inputs()
     if artifact_name == "asset_manifest":
         inputs[artifact_name]["metadata"]["candidate_id"] = "other-candidate"
-    elif artifact_name == "coverage_matrix":
-        inputs[artifact_name]["project_id"] = "other-candidate"
-    elif artifact_name == "shot_execution_plan":
-        inputs[artifact_name]["project_id"] = "other-candidate"
     else:
         inputs[artifact_name] = [{
             "task_id": "generation-task-001", "candidate_id": "other-candidate",
+            "project_id": "project-001",
         }]
 
     with pytest.raises(ValueError, match="candidate"):
         materialize_editorial_timeline(**inputs)
+
+
+@pytest.mark.parametrize("artifact_name", [
+    "asset_manifest", "coverage_matrix", "shot_execution_plan", "generation_tasks",
+])
+def test_materialization_rejects_project_id_mismatch(artifact_name: str) -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    inputs = _source_led_materialization_inputs()
+    if artifact_name == "asset_manifest":
+        inputs[artifact_name]["metadata"]["project_id"] = "other-project"
+    elif artifact_name in {"coverage_matrix", "shot_execution_plan"}:
+        inputs[artifact_name]["project_id"] = "other-project"
+    else:
+        inputs[artifact_name] = [{
+            "task_id": "generation-task-001", "candidate_id": "candidate-001",
+            "project_id": "other-project",
+        }]
+
+    with pytest.raises(ValueError, match="project"):
+        materialize_editorial_timeline(**inputs)
+
+
+def test_candidate_and_project_are_distinct_matching_ownership_scopes() -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    inputs = _source_led_materialization_inputs()
+    snapshot = materialize_editorial_timeline(**inputs)
+
+    catalogue = snapshot["asset_catalogue"]
+    assert catalogue["candidate_id"] == "candidate-001"
+    assert catalogue["project_id"] == "project-001"
 
 
 def test_caption_end_must_stay_inside_one_fact_bound_video_clip() -> None:
