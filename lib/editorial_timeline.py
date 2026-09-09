@@ -141,6 +141,10 @@ def materialize_editorial_timeline(
         approved = catalogue_by_row.get(row_ids[0])
         if approved is None:
             raise EditorialMaterializationError(f"scene {shot_id} has no accepted coverage")
+        if approved.get("shot_id") != shot_id:
+            raise EditorialMaterializationError(
+                f"scene {shot_id} does not match shot execution plan"
+            )
         scene_claims = scene.get("claim_ids")
         if not isinstance(scene_claims, list) or scene_claims != approved["claim_ids"]:
             raise EditorialMaterializationError(f"scene {shot_id} claim ids do not match accepted coverage")
@@ -160,7 +164,7 @@ def materialize_editorial_timeline(
             or source_out <= source_in
         ):
             raise EditorialMaterializationError(f"scene {shot_id} exceeds approved source range")
-        fact_scope = {**approved["fact_scope"], "shot_id": shot_id}
+        fact_scope = dict(approved["fact_scope"])
         video_clips.append({
             "id": f"video-{shot_id}", "asset_id": approved["asset_id"],
             "source_sha256": approved["source_sha256"], "source_in_seconds": source_in,

@@ -128,10 +128,19 @@ def build_editorial_asset_catalogue(
         key="media_id",
     )
     source_metadata = _index_items(source_videos, field="source_videos", key="media_id")
+    if shot_execution_plan is None:
+        raise EditorialMaterializationError("shot execution plan is required")
+    shot_plan = _mapping(shot_execution_plan, field="shot execution plan")
+    if shot_plan.get("status") not in {"approved", "completed"}:
+        raise EditorialMaterializationError(
+            "shot execution plan must be approved or completed"
+        )
     shot_plan_items = _index_items(
-        _mapping(shot_execution_plan or {}, field="shot_execution_plan").get("shots") or [],
+        shot_plan.get("shots") or [],
         field="shot_execution_plan.shots", key="id",
     )
+    if not shot_plan_items:
+        raise EditorialMaterializationError("shot execution plan has no shots")
     task_items = _index_items(generation_tasks or [], field="generation_tasks", key="task_id")
     fact_requirements = _claim_requirements(_mapping(product_facts, field="product_facts"))
     catalogue_assets: list[dict[str, Any]] = []
@@ -171,8 +180,55 @@ def build_editorial_asset_catalogue(
             raise EditorialMaterializationError(f"coverage row {row_id} source hash does not match asset")
 
         valid_range = _range(row.get("source_time_range"), field=f"coverage row {row_id}.source_time_range")
+        shot_id_hint = row.get("shot_id") or row.get("scene_id")
+        shot = shot_plan_items.get(str(shot_id_hint)) if shot_id_hint else None
+        if shot is None:
+            shot = next(
+                (
+                    item for item in shot_plan_items.values()
+                    if row_id in (item.get("evidence_row_ids") or [])
+                ),
+                None,
+            )
+        if shot is None:
+            raise EditorialMaterializationError(
+                f"coverage row {row_id} lacks shot execution plan binding"
+            )
+        shot_id = _identifier(shot.get("id"), field=f"coverage row {row_id}.shot_id")
+        if row_id not in (shot.get("evidence_row_ids") or []):
+            raise EditorialMaterializationError(
+                f"coverage row {row_id} is not bound to shot execution plan"
+            )
+        if shot.get("visual_route") not in {
+            "owned_source", "generated_from_product_image", "approved_generated_asset",
+        }:
+            raise EditorialMaterializationError(
+                f"coverage row {row_id} has unsupported shot execution route"
+            )
         if source_class == "owned_source":
+            if shot.get("visual_route") != "owned_source":
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} shot execution plan route mismatch"
+                )
             media_id = _identifier(row.get("source_media_id"), field=f"coverage row {row_id}.source_media_id")
+            if str(shot.get("source_media_id") or "") != media_id:
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} shot execution plan media mismatch"
+                )
+            selection = shot.get("source_selection")
+            if not isinstance(selection, Mapping):
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} shot execution plan lacks source selection"
+                )
+            if str(selection.get("media_id") or "") != media_id:
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} shot execution plan media mismatch"
+                )
+            selected_range = _range(selection, field=f"shot {shot_id}.source_selection")
+            if selected_range != valid_range:
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} shot execution plan range mismatch"
+                )
             evidence = evidence_files.get(media_id)
             metadata = source_metadata.get(media_id)
             if (
@@ -194,11 +250,6 @@ def build_editorial_asset_catalogue(
             if valid_range["end_seconds"] > duration:
                 raise EditorialMaterializationError(f"coverage row {row_id} exceeds source video duration")
         else:
-            shot_id = _identifier(
-                row.get("shot_id") or row.get("scene_id"),
-                field=f"coverage row {row_id}.shot_id",
-            )
-            shot = shot_plan_items.get(shot_id)
             if shot is None or shot.get("visual_route") not in {
                 "generated_from_product_image", "approved_generated_asset",
             }:
@@ -259,12 +310,14 @@ def build_editorial_asset_catalogue(
 
         fact_scope = {
             "claim_ids": list(claim_ids),
+            "shot_id": shot_id,
             "visual_requirement_id": visual_requirement_id,
             "allowed_source_classes": [source_class],
         }
         issued_id = "editorial-" + canonical_digest({
             "candidate_id": candidate_id,
             "matrix_row_id": row_id,
+            "shot_id": shot_id,
             "source_asset_id": source_asset_id,
             "source_sha256": source_hash,
             "valid_range": valid_range,
@@ -281,6 +334,7 @@ def build_editorial_asset_catalogue(
             "fact_scope": fact_scope,
             "visual_requirement_id": visual_requirement_id,
             "matrix_row_id": row_id,
+            "shot_id": shot_id,
         })
 
     catalogue_assets.sort(key=lambda item: item["asset_id"])

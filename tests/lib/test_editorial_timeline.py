@@ -373,9 +373,13 @@ def _source_led_materialization_inputs() -> dict:
         "source_videos": {"source-video-001": {
             "sha256": source_hash, "duration_seconds": 8.0,
         }},
-        "shot_execution_plan": {"shots": [{
+        "shot_execution_plan": {"status": "approved", "shots": [{
             "id": "shot-001", "evidence_row_ids": ["matrix-001"],
             "visual_route": "owned_source", "source_media_id": "source-video-001",
+            "source_selection": {
+                "media_id": "source-video-001", "start_seconds": 1.0,
+                "end_seconds": 3.0,
+            },
         }]},
         "generation_tasks": [],
         "narration": {
@@ -431,6 +435,35 @@ def test_materialize_source_led_timeline_rejects_missing_accepted_coverage() -> 
         materialize_editorial_timeline(**inputs)
 
 
+def test_owned_asset_requires_shot_execution_plan_binding() -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    inputs = _source_led_materialization_inputs()
+    inputs.pop("shot_execution_plan")
+
+    with pytest.raises(ValueError, match="shot execution plan"):
+        materialize_editorial_timeline(**inputs)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda plan: plan.update(status="draft"),
+        lambda plan: plan["shots"][0].update(id="other-shot"),
+        lambda plan: plan["shots"][0]["source_selection"].update(media_id="other-media"),
+        lambda plan: plan["shots"][0]["source_selection"].update(end_seconds=2.5),
+    ],
+)
+def test_owned_asset_rejects_mismatched_shot_plan_binding(mutation) -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    inputs = _source_led_materialization_inputs()
+    mutation(inputs["shot_execution_plan"])
+
+    with pytest.raises(ValueError, match="shot execution plan"):
+        materialize_editorial_timeline(**inputs)
+
+
 def _generated_materialization_inputs() -> dict:
     inputs = deepcopy(_source_led_materialization_inputs())
     generated_hash = "6" * 64
@@ -456,7 +489,7 @@ def _generated_materialization_inputs() -> dict:
         "source_hash": generated_hash,
         "source_time_range": {"start_seconds": 0.0, "end_seconds_exclusive": 2.0},
     })
-    inputs["shot_execution_plan"] = {"shots": [{
+    inputs["shot_execution_plan"] = {"status": "approved", "shots": [{
         "id": "shot-001", "evidence_row_ids": ["matrix-001"],
         "visual_route": "approved_generated_asset",
         "selected_generation_task_id": "generation-task-001",
