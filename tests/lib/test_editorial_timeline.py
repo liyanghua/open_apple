@@ -330,7 +330,10 @@ def _source_led_materialization_inputs() -> dict:
             }],
             "captions": [{"text": "水分被毛巾带走", "startMs": 0, "endMs": 2000}],
         },
-        "asset_manifest": {"semantic_sha256": "1" * 64, "assets": [
+        "asset_manifest": {
+            "semantic_sha256": "1" * 64,
+            "metadata": {"candidate_id": "candidate-001"},
+            "assets": [
             {
                 "id": "source-video-001", "type": "video",
                 "path": "assets/video/shot-001.mp4", "sha256": source_hash,
@@ -349,6 +352,7 @@ def _source_led_materialization_inputs() -> dict:
         ]},
         "coverage_matrix": {
             "semantic_sha256": "2" * 64,
+            "project_id": "candidate-001",
             "matrix_mode": "source_led",
             "rows": [{
                 "matrix_row_id": "matrix-001", "resolution": "accept",
@@ -373,7 +377,8 @@ def _source_led_materialization_inputs() -> dict:
         "source_videos": {"source-video-001": {
             "sha256": source_hash, "duration_seconds": 8.0,
         }},
-        "shot_execution_plan": {"status": "approved", "shots": [{
+        "shot_execution_plan": {
+            "project_id": "candidate-001", "status": "approved", "shots": [{
             "id": "shot-001", "evidence_row_ids": ["matrix-001"],
             "visual_route": "owned_source", "source_media_id": "source-video-001",
             "source_selection": {
@@ -392,9 +397,11 @@ def _source_led_materialization_inputs() -> dict:
 
 
 def test_materialize_source_led_timeline() -> None:
+    from lib.artifact_hashing import semantic_sha256
     from lib.editorial_timeline import materialize_editorial_timeline
 
-    snapshot = materialize_editorial_timeline(**_source_led_materialization_inputs())
+    inputs = _source_led_materialization_inputs()
+    snapshot = materialize_editorial_timeline(**inputs)
 
     timeline = snapshot["timeline"]
     catalogue = snapshot["asset_catalogue"]
@@ -410,11 +417,11 @@ def test_materialize_source_led_timeline() -> None:
         "allowed_source_classes": ["owned_source"],
     }
     assert timeline["source_artifact_hashes"] == {
-        "edit_decisions": "e" * 64,
-        "final_props": "f" * 64,
-        "asset_manifest": "1" * 64,
-        "coverage_matrix": "2" * 64,
-        "product_facts": "3" * 64,
+        name: semantic_sha256(inputs[name])
+        for name in (
+            "edit_decisions", "final_props", "asset_manifest",
+            "coverage_matrix", "product_facts",
+        )
     }
     approved_asset = catalogue["assets"][0]
     assert approved_asset["asset_id"].startswith("editorial-")
@@ -499,7 +506,8 @@ def _generated_materialization_inputs() -> dict:
         "source_hash": generated_hash,
         "source_time_range": {"start_seconds": 0.0, "end_seconds_exclusive": 2.0},
     })
-    inputs["shot_execution_plan"] = {"status": "approved", "shots": [{
+    inputs["shot_execution_plan"] = {
+        "project_id": "candidate-001", "status": "approved", "shots": [{
         "id": "shot-001", "evidence_row_ids": ["matrix-001"],
         "visual_route": "approved_generated_asset",
         "selected_generation_task_id": "generation-task-001",
@@ -507,6 +515,7 @@ def _generated_materialization_inputs() -> dict:
     }]}
     inputs["generation_tasks"] = [{
         "task_id": "generation-task-001", "shot_id": "shot-001",
+        "candidate_id": "candidate-001",
         "status": "approved", "approved": True,
         "output": {
             "asset_id": "generated-video-001", "sha256": generated_hash,
@@ -589,3 +598,66 @@ def test_template_render_builds_editorial_snapshot_from_source_led_artifacts() -
 
     assert len(snapshot["timeline"]["tracks"]) == 5
     assert snapshot["asset_catalogue"]["candidate_id"] == candidate_id
+
+
+def _verified_materialization_inputs() -> dict:
+    from lib.artifact_hashing import attach_hashes
+
+    inputs = _source_led_materialization_inputs()
+    for name in (
+        "edit_decisions", "final_props", "asset_manifest", "coverage_matrix", "product_facts",
+    ):
+        inputs[name] = attach_hashes(inputs[name])
+    return inputs
+
+
+def test_materialization_rejects_mutated_verified_artifact_hash() -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    inputs = _verified_materialization_inputs()
+    inputs["edit_decisions"]["cuts"][0]["out_seconds"] = 1.5
+
+    with pytest.raises(ValueError, match="hash"):
+        materialize_editorial_timeline(**inputs)
+
+
+@pytest.mark.parametrize("artifact_name", [
+    "asset_manifest", "coverage_matrix", "shot_execution_plan", "generation_tasks",
+])
+def test_materialization_rejects_candidate_id_mismatch_across_artifacts(artifact_name: str) -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    inputs = _source_led_materialization_inputs()
+    if artifact_name == "asset_manifest":
+        inputs[artifact_name]["metadata"]["candidate_id"] = "other-candidate"
+    elif artifact_name == "coverage_matrix":
+        inputs[artifact_name]["project_id"] = "other-candidate"
+    elif artifact_name == "shot_execution_plan":
+        inputs[artifact_name]["project_id"] = "other-candidate"
+    else:
+        inputs[artifact_name] = [{
+            "task_id": "generation-task-001", "candidate_id": "other-candidate",
+        }]
+
+    with pytest.raises(ValueError, match="candidate"):
+        materialize_editorial_timeline(**inputs)
+
+
+def test_caption_end_must_stay_inside_one_fact_bound_video_clip() -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    inputs = _source_led_materialization_inputs()
+    inputs["final_props"]["captions"][0]["endMs"] = 2500
+
+    with pytest.raises(ValueError, match="caption.*video clip"):
+        materialize_editorial_timeline(**inputs)
+
+
+def test_generated_source_range_must_fit_generated_media_duration() -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    inputs = _generated_materialization_inputs()
+    inputs["asset_manifest"]["assets"][0]["duration_seconds"] = 1.0
+
+    with pytest.raises(ValueError, match="generated media duration"):
+        materialize_editorial_timeline(**inputs)

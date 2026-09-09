@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from lib.cache_keys import canonical_digest
+from lib.artifact_hashing import semantic_sha256, verify_hashes
 from lib.editorial_asset_catalogue import (
     EditorialMaterializationError,
     build_editorial_asset_catalogue,
@@ -32,7 +33,11 @@ def _number(value: Any, *, field: str) -> float:
 
 
 def _artifact_hash(artifact: Mapping[str, Any], *, field: str) -> str:
-    return _sha256(artifact.get("semantic_sha256", artifact.get("sha256")), field=f"{field}.semantic_sha256")
+    value = dict(artifact)
+    if "artifact_sha256" in value:
+        if not verify_hashes(value).valid:
+            raise EditorialMaterializationError(f"{field} artifact hash verification failed")
+    return semantic_sha256(value)
 
 
 def _asset_index(asset_manifest: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
@@ -230,12 +235,18 @@ def materialize_editorial_timeline(
             (
                 clip for clip in video_clips
                 if clip["start_seconds"] <= start
-                < clip["start_seconds"] + clip["source_out_seconds"] - clip["source_in_seconds"]
+                and end <= (
+                    clip["start_seconds"]
+                    + clip["source_out_seconds"]
+                    - clip["source_in_seconds"]
+                )
             ),
             None,
         )
         if end <= start or matching_video is None:
-            raise EditorialMaterializationError("caption lacks approved video coverage")
+            raise EditorialMaterializationError(
+                "caption must stay within one fact-bound video clip"
+            )
         claims = matching_video["fact_scope"]["claim_ids"]
         subtitle_clips.append({
             "id": f"subtitle-{index}", "text": caption["text"].strip(), "start_seconds": start,

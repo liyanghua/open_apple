@@ -90,6 +90,27 @@ def _approved_asset(
     return asset
 
 
+def _candidate_owner(value: Mapping[str, Any]) -> str | None:
+    metadata = value.get("metadata")
+    nested = metadata if isinstance(metadata, Mapping) else {}
+    owner = (
+        value.get("candidate_id")
+        or value.get("project_id")
+        or nested.get("candidate_id")
+        or nested.get("project_id")
+    )
+    return str(owner) if owner else None
+
+
+def _require_candidate_owner(
+    value: Mapping[str, Any], *, candidate_id: str, field: str
+) -> None:
+    if _candidate_owner(value) != candidate_id:
+        raise EditorialMaterializationError(
+            f"{field} candidate does not match {candidate_id}"
+        )
+
+
 def build_editorial_asset_catalogue(
     *,
     candidate_id: str,
@@ -109,6 +130,14 @@ def build_editorial_asset_catalogue(
     """
     candidate_id = _identifier(candidate_id, field="candidate_id")
     coverage_matrix = _mapping(coverage_matrix, field="coverage_matrix")
+    _require_candidate_owner(
+        _mapping(asset_manifest, field="asset_manifest"),
+        candidate_id=candidate_id,
+        field="asset_manifest",
+    )
+    _require_candidate_owner(
+        coverage_matrix, candidate_id=candidate_id, field="coverage_matrix"
+    )
     if coverage_matrix.get("matrix_mode") not in {"source_led", "source_led_template"}:
         raise EditorialMaterializationError("coverage_matrix must be source-led")
     rows = coverage_matrix.get("rows")
@@ -131,6 +160,9 @@ def build_editorial_asset_catalogue(
     if shot_execution_plan is None:
         raise EditorialMaterializationError("shot execution plan is required")
     shot_plan = _mapping(shot_execution_plan, field="shot execution plan")
+    _require_candidate_owner(
+        shot_plan, candidate_id=candidate_id, field="shot execution plan"
+    )
     if shot_plan.get("status") != "approved":
         raise EditorialMaterializationError(
             "shot execution plan must be approved"
@@ -142,6 +174,10 @@ def build_editorial_asset_catalogue(
     if not shot_plan_items:
         raise EditorialMaterializationError("shot execution plan has no shots")
     task_items = _index_items(generation_tasks or [], field="generation_tasks", key="task_id")
+    for task in task_items.values():
+        _require_candidate_owner(
+            task, candidate_id=candidate_id, field="generation task"
+        )
     fact_requirements = _claim_requirements(_mapping(product_facts, field="product_facts"))
     catalogue_assets: list[dict[str, Any]] = []
 
@@ -297,6 +333,14 @@ def build_editorial_asset_catalogue(
             ):
                 raise EditorialMaterializationError(
                     f"coverage row {row_id} generation provenance range mismatch"
+                )
+            asset_duration = _seconds(
+                asset.get("duration_seconds"),
+                field=f"asset_manifest {source_asset_id}.duration_seconds",
+            )
+            if valid_range["end_seconds"] > asset_duration:
+                raise EditorialMaterializationError(
+                    f"coverage row {row_id} exceeds generated media duration"
                 )
             provenance = asset.get("provenance")
             if (
