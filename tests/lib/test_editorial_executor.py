@@ -45,7 +45,7 @@ def test_executor_writes_versioned_preview_and_preserves_delivery(tmp_path: Path
     executor = EditorialRenderExecutor(tmp_path, video_compose=_Compose(),
                                        technical_validator=_QA(), final_qa=_QA(),
                                        timeline_adapter=lambda timeline, **_: timeline,
-                                       alignment_evaluator=lambda **_: [{"shot_id": "shot-1", "scene_id": "scene-1", "action_match": "pass", "result_support": "pass", "narration_caption_match": "pass", "crop_completeness": "pass", "product_identity_match": "pass", "status": "pass", "reason_codes": []}],
+        alignment_evaluator=lambda **_: [{"clip_id": "video-1", "shot_id": "shot-1", "scene_id": "scene-1", "match": "yes", "action_match": "pass", "result_support": "pass", "narration_caption_match": "pass", "crop_completeness": "pass", "product_identity_match": "pass", "status": "pass", "reason_codes": []}],
                                        probe_runner=lambda _: {"duration_seconds": 1.0},
                                        frame_sampler=lambda *_: [{"timestamp_seconds": 0.0}])
     result = executor.render_preview(
@@ -53,7 +53,7 @@ def test_executor_writes_versioned_preview_and_preserves_delivery(tmp_path: Path
         asset_manifest={"assets": []}, product_facts_hash="c" * 64,
         script_hash="b" * 64,
         output_probe={"duration_seconds": 1.0}, frame_samples=[{"timestamp_seconds": 0}],
-        fact_bindings=[{"shot_id": "shot-1", "claim_ids": ["claim-1"],
+        fact_bindings=[{"clip_id": "video-1", "shot_id": "shot-1", "claim_ids": ["claim-1"],
                         "visual_requirement_id": "visual-1"}],
         visual_requirements=[{"id": "visual-1"}],
     )
@@ -104,3 +104,31 @@ def test_executor_rejects_unsafe_revision_before_creating_version(tmp_path: Path
     else:
         raise AssertionError("unsafe revision was accepted")
     assert not (tmp_path / "operator").exists()
+
+
+def test_executor_default_alignment_and_l1a_receive_server_owned_inputs(tmp_path: Path):
+    from lib.editorial_executor import EditorialRenderExecutor
+
+    class CaptureQA(_QA):
+        def execute(self, inputs):
+            assert "expected_facts" in inputs
+            assert "text_sources" in inputs
+            assert "caption_declaration" in inputs
+            assert "caption_spec" in inputs
+            assert "shot_map" in inputs
+            return super().execute(inputs)
+
+    executor = EditorialRenderExecutor(tmp_path, video_compose=_Compose(),
+        technical_validator=CaptureQA(), final_qa=_QA(),
+        timeline_adapter=lambda timeline, **_: timeline,
+        probe_runner=lambda _: {"duration_seconds": 1},
+        frame_sampler=lambda *_: [{"timestamp_seconds": 0}],
+    )
+    result = executor.render_preview(
+        revision="rev-inputs", timeline=_timeline(), asset_catalogue={}, asset_manifest={},
+        product_facts_hash="c" * 64, script_hash="b" * 64,
+        output_probe=None, frame_samples=None,
+        fact_bindings=[{"clip_id": "video-1", "shot_id": "shot-1", "claim_ids": ["claim-1"], "visual_requirement_id": "visual-1"}],
+        visual_requirements=[{"id": "visual-1"}],
+    )
+    assert result["status"] == "pass"

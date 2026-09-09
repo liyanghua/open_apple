@@ -84,14 +84,16 @@ def build_editorial_alignment_evidence(
             if not isinstance(fact_scope, Mapping):
                 raise ValueError("every rendered video clip requires a fact binding")
             binding = {
+                "clip_id": str(clip.get("id") or ""),
                 "shot_id": str(fact_scope.get("shot_id") or ""),
                 "claim_ids": sorted(str(value) for value in (fact_scope.get("claim_ids") or [])),
                 "visual_requirement_id": str(fact_scope.get("visual_requirement_id") or ""),
             }
-            if not all((binding["shot_id"], binding["claim_ids"], binding["visual_requirement_id"])):
+            if not all((binding["clip_id"], binding["shot_id"], binding["claim_ids"], binding["visual_requirement_id"])):
                 raise ValueError("video fact binding is incomplete")
             expected_bindings.append(binding)
     supplied_bindings = [{
+        "clip_id": str(item.get("clip_id") or ""),
         "shot_id": str(item.get("shot_id") or ""),
         "claim_ids": sorted(str(value) for value in (item.get("claim_ids") or [])),
         "visual_requirement_id": str(item.get("visual_requirement_id") or ""),
@@ -106,9 +108,9 @@ def build_editorial_alignment_evidence(
         raise ValueError("current visual requirements do not cover every rendered clip")
     output_hash = _sha256(output)
     rows = [dict(item) for item in (checks or []) if isinstance(item, Mapping)]
-    covered_shots = {str(row.get("shot_id") or "") for row in rows}
-    expected_shots = {item["shot_id"] for item in expected_bindings}
-    status = "pass" if covered_shots == expected_shots and all(
+    covered_clips = {str(row.get("clip_id") or "") for row in rows}
+    expected_clips = {item["clip_id"] for item in expected_bindings}
+    status = "pass" if covered_clips == expected_clips and all(
         str(row.get("status")) == "pass" for row in rows
     ) else "fail"
     report = {

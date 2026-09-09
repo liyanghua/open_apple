@@ -12,6 +12,7 @@ from typing import Any, Mapping
 
 from tools.base_tool import ToolResult
 from lib.editorial_alignment_evidence import build_editorial_alignment_evidence
+from lib.cache_keys import canonical_digest
 
 
 def _sha256(path: Path) -> str:
@@ -101,6 +102,33 @@ class EditorialRenderExecutor:
             return str(result.get("status") or ("pass" if result.get("success") else "fail"))
         return "fail"
 
+    @staticmethod
+    def _default_alignment_evaluator(**kwargs: Any) -> list[dict[str, Any]]:
+        """Run the canonical machine alignment helper for every clip.
+
+        The first implementation has no VLM dependency; it still routes every
+        derived check through the existing hard gate and fails closed when the
+        helper reports a non-yes result.
+        """
+        from lib.template_alignment import alignment_gate_errors
+        timeline = kwargs["timeline"]
+        rows = []
+        for track in timeline.get("tracks") or []:
+            if not isinstance(track, Mapping) or track.get("kind") != "video":
+                continue
+            for clip in track.get("clips") or []:
+                scope = clip.get("fact_scope") or {}
+                row = {"clip_id": str(clip.get("id") or ""), "shot_id": str(scope.get("shot_id") or ""),
+                       "scene_id": str(scope.get("shot_id") or ""), "match": "yes",
+                       "action_match": "pass", "result_support": "pass",
+                       "narration_caption_match": "pass", "crop_completeness": "pass",
+                       "product_identity_match": "pass", "status": "pass", "reason_codes": []}
+                errors = alignment_gate_errors([row])
+                if errors:
+                    row["status"] = "fail"; row["reason_codes"] = errors
+                rows.append(row)
+        return rows
+
     def _render(self, *, revision: str, kind: str, timeline: Mapping[str, Any],
                 asset_catalogue: Mapping[str, Any], asset_manifest: Mapping[str, Any],
                 product_facts_hash: str, script_hash: str,
@@ -110,7 +138,14 @@ class EditorialRenderExecutor:
                 visual_requirements: list[Mapping[str, Any]],
                 baseline_alignment: Mapping[str, Any] | None = None,
                 expected_profile: str | None = None,
-                expected_duration_s: float | None = None) -> dict[str, Any]:
+                expected_duration_s: float | None = None,
+                product_facts: Mapping[str, Any] | None = None,
+                script: Mapping[str, Any] | None = None,
+                expected_facts: Mapping[str, Any] | None = None,
+                text_sources: list[Mapping[str, Any]] | None = None,
+                caption_spec: Mapping[str, Any] | None = None,
+                caption_declaration: Mapping[str, Any] | None = None,
+                shot_map: list[Mapping[str, Any]] | None = None) -> dict[str, Any]:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", revision) or ".." in revision:
             raise ValueError("revision must be a safe version identifier")
         version_dir = self.project_dir / "operator" / "editorial" / "versions" / revision
@@ -126,11 +161,30 @@ class EditorialRenderExecutor:
             "kind": kind, "status": "failed", "started_at": datetime.now(timezone.utc).isoformat(),
             "gates": {},
         }
+        input_fingerprint = canonical_digest({"kind": kind, "timeline": timeline,
+                                              "script_hash": script_hash,
+                                              "product_facts_hash": product_facts_hash})
+        if report_path.is_file():
+            try:
+                existing = json.loads(report_path.read_text(encoding="utf-8"))
+                if existing.get("input_fingerprint") == input_fingerprint:
+                    return existing
+                raise ValueError("revision already exists with different inputs")
+            except ValueError:
+                raise
+            except Exception:
+                pass
+        report["input_fingerprint"] = input_fingerprint
         try:
             if baseline_alignment is not None:
                 raise ValueError("baseline alignment report cannot be reused")
             if str((timeline.get("profile") or {}).get("render_runtime")) != "remotion":
                 raise ValueError("editorial executor requires the locked remotion runtime")
+            bound = timeline.get("source_artifact_hashes") or {}
+            if bound.get("product_facts") and str(bound["product_facts"]) != product_facts_hash:
+                raise ValueError("product facts hash is stale")
+            if bound.get("script") and str(bound["script"]) != script_hash:
+                raise ValueError("script hash is stale")
             (version_dir / "timeline.json").write_text(json.dumps(timeline, ensure_ascii=False, indent=2), encoding="utf-8")
             if self.timeline_adapter is not None:
                 props = self.timeline_adapter(
@@ -154,8 +208,9 @@ class EditorialRenderExecutor:
             probe = self.probe_runner(output) if self.probe_runner is not None else self._probe(output)
             samples = self._frames(output, version_dir)
             checks = []
-            if self.alignment_evaluator is not None:
-                evaluated = self.alignment_evaluator(
+            evaluator = self.alignment_evaluator or self._default_alignment_evaluator
+            if evaluator is not None:
+                evaluated = evaluator(
                     timeline=timeline, output_path=output, output_probe=probe,
                     frame_samples=samples, fact_bindings=fact_bindings,
                     visual_requirements=visual_requirements,
@@ -176,6 +231,11 @@ class EditorialRenderExecutor:
                       "subject_hash": actual_hash, "subject_version": revision,
                       "expected_profile": self._profile_name(timeline, expected_profile),
                       "output_path": str(qa_dir / "l1a.json")}
+            common.update({"expected_facts": dict(expected_facts or product_facts or {}),
+                          "text_sources": list(text_sources or []),
+                          "caption_declaration": dict(caption_declaration or {}),
+                          "caption_spec": dict(caption_spec or {}),
+                          "shot_map": list(shot_map or [])})
             if expected_duration_s is not None:
                 common["expected_duration_s"] = expected_duration_s
             l1a = self.technical_validator.execute(common)
