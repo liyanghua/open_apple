@@ -776,6 +776,16 @@ def test_generated_source_range_must_fit_generated_media_duration() -> None:
         materialize_editorial_timeline(**inputs)
 
 
+@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
+def test_materialization_rejects_nonfinite_source_numbers(bad_value: float) -> None:
+    from lib.editorial_timeline import materialize_editorial_timeline
+
+    inputs = _source_led_materialization_inputs()
+    inputs["coverage_matrix"]["rows"][0]["source_time_range"]["end_seconds_exclusive"] = bad_value
+    with pytest.raises(ValueError, match="finite|non-negative"):
+        materialize_editorial_timeline(**inputs)
+
+
 def test_apply_delta_trim_preserves_clip_id_and_returns_new_timeline() -> None:
     from lib.editorial_timeline import apply_delta
 
@@ -785,7 +795,7 @@ def test_apply_delta_trim_preserves_clip_id_and_returns_new_timeline() -> None:
         timeline,
         _delta_for(timeline, {
             "op": "trim_clip", "track_id": "video-main", "clip_id": "video-001",
-            "source_in_seconds": 0.4, "source_out_seconds": 2.6,
+            "source_in_seconds": 0.4, "source_out_seconds": 3.2,
         }),
         asset_catalogue=_catalogue_for(timeline),
     )
@@ -794,7 +804,7 @@ def test_apply_delta_trim_preserves_clip_id_and_returns_new_timeline() -> None:
     assert timeline == original
     clip = result["timeline"]["tracks"][0]["clips"][0]
     assert clip["id"] == "video-001"
-    assert (clip["source_in_seconds"], clip["source_out_seconds"]) == (0.4, 2.6)
+    assert (clip["source_in_seconds"], clip["source_out_seconds"]) == (0.4, 3.2)
     assert result["timeline_hash"] != _delta_for(timeline, {"op": "noop"})["base_timeline_hash"]
 
 
@@ -802,6 +812,8 @@ def test_apply_delta_split_creates_child_ids_and_preserves_track_order() -> None
     from lib.editorial_timeline import apply_delta
 
     timeline = _timeline()
+    timeline["tracks"][3]["clips"][0].update({"start_seconds": 0.1, "end_seconds": 0.8})
+    timeline["tracks"][4]["clips"][0].update({"start_seconds": 0.1, "end_seconds": 0.8})
     result = apply_delta(
         timeline,
         _delta_for(timeline, {
@@ -829,10 +841,10 @@ def test_apply_delta_non_ripple_move_only_changes_named_video_track() -> None:
     }
     result = apply_delta(timeline, _delta_for(timeline, {
         "op": "move_clip", "track_id": "video-main", "clip_id": "video-001",
-        "start_seconds": 1.25,
+        "start_seconds": 0.25,
     }))
 
-    assert result["timeline"]["tracks"][0]["clips"][0]["start_seconds"] == 1.25
+    assert result["timeline"]["tracks"][0]["clips"][0]["start_seconds"] == 0.25
     for track in result["timeline"]["tracks"][1:]:
         assert track["clips"] == untouched[track["id"]]
 
@@ -851,7 +863,7 @@ def test_apply_delta_replace_clip_requires_catalogued_same_scope_asset() -> None
         _delta_for(timeline, {
             "op": "replace_clip", "track_id": "video-main", "clip_id": "video-001",
             "asset_id": "asset-server-video-002", "source_sha256": "b" * 64,
-            "source_in_seconds": 1.0, "source_out_seconds": 3.0,
+            "source_in_seconds": 1.0, "source_out_seconds": 4.2,
         }),
         asset_catalogue=catalogue,
     )
@@ -982,9 +994,11 @@ def test_apply_delta_supports_trim_then_remove_sequence() -> None:
     from lib.editorial_timeline import apply_delta
 
     timeline = _timeline()
+    timeline["tracks"][3]["clips"] = []
+    timeline["tracks"][4]["clips"] = []
     delta = _delta_for(timeline, {
         "op": "trim_clip", "track_id": "video-main", "clip_id": "video-001",
-        "source_in_seconds": 0.4, "source_out_seconds": 2.6,
+        "source_in_seconds": 0.4, "source_out_seconds": 3.2,
     })
     delta["operations"].append({"op": "remove_clip", "track_id": "video-main", "clip_id": "video-001"})
     result = apply_delta(timeline, delta, asset_catalogue=_catalogue_for(timeline))
@@ -996,6 +1010,8 @@ def test_apply_delta_supports_split_then_remove_child_sequence() -> None:
     from lib.editorial_timeline import apply_delta
 
     timeline = _timeline()
+    timeline["tracks"][3]["clips"][0].update({"start_seconds": 0.1, "end_seconds": 0.8})
+    timeline["tracks"][4]["clips"][0].update({"start_seconds": 0.1, "end_seconds": 0.8})
     delta = _delta_for(timeline, {
         "op": "split_clip", "track_id": "video-main", "clip_id": "video-001",
         "at_seconds": 1.0,
@@ -1121,3 +1137,34 @@ def test_apply_delta_rejects_forged_or_stale_catalogue_hash_and_binding() -> Non
     stale = _rehash_catalogue(stale)
     with pytest.raises(EditorialDeltaError, match="catalogue_binding_mismatch"):
         apply_delta(timeline, _delta_for(timeline, {"op": "replace_clip", "track_id": "video-main", "clip_id": "video-001", "asset_id": timeline["tracks"][0]["clips"][0]["asset_id"], "source_sha256": HASH, "source_in_seconds": 0, "source_out_seconds": 1}), asset_catalogue=stale)
+
+
+def test_apply_delta_rejects_video_move_that_orphans_existing_claim_text() -> None:
+    from lib.editorial_timeline import EditorialDeltaError, apply_delta
+
+    timeline = _timeline()
+    operation = {"op": "move_clip", "track_id": "video-main", "clip_id": "video-001", "start_seconds": 1.25}
+    with pytest.raises(EditorialDeltaError, match="fact_bound_timing_violation"):
+        apply_delta(timeline, _delta_for(timeline, operation))
+
+
+def test_apply_delta_allows_video_move_when_existing_claim_text_remains_covered() -> None:
+    from lib.editorial_timeline import apply_delta
+
+    timeline = _timeline()
+    operation = {"op": "move_clip", "track_id": "video-main", "clip_id": "video-001", "start_seconds": 0.25}
+    result = apply_delta(timeline, _delta_for(timeline, operation))
+    assert result["timeline"]["tracks"][0]["clips"][0]["start_seconds"] == 0.25
+
+
+@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
+def test_apply_delta_rejects_nonfinite_catalogue_valid_range(bad_value: float) -> None:
+    from lib.editorial_timeline import EditorialDeltaError, apply_delta
+
+    timeline = _timeline()
+    catalogue = _catalogue_for(timeline)
+    catalogue["assets"][0]["valid_range"]["end_seconds"] = bad_value
+    catalogue = _rehash_catalogue(catalogue)
+    operation = {"op": "trim_clip", "track_id": "video-main", "clip_id": "video-001", "source_in_seconds": 0.4, "source_out_seconds": 2.6}
+    with pytest.raises(EditorialDeltaError, match="invalid_numeric"):
+        apply_delta(timeline, _delta_for(timeline, operation), asset_catalogue=catalogue)

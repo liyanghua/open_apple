@@ -159,12 +159,14 @@ def _require_source_range(
     if (
         not isinstance(start, (int, float))
         or not isinstance(end, (int, float))
+        or not math.isfinite(float(start))
+        or not math.isfinite(float(end))
         or source_in < start
         or source_out > end
         or source_out <= source_in
     ):
         _reject(
-            "source_range_overflow",
+            "invalid_numeric" if not math.isfinite(float(start)) or not math.isfinite(float(end)) else "source_range_overflow",
             f"requested range for {asset_id} exceeds its approved source range",
             asset_id=asset_id,
             requested={"start_seconds": source_in, "end_seconds": source_out},
@@ -271,6 +273,34 @@ def _validate_fact_bound_timing(
         "text timing must remain within a fact-bound video clip",
         clip_id=clip.get("id"),
     )
+
+
+def _validate_all_fact_bound_timing(timeline: Mapping[str, Any]) -> None:
+    videos = [
+        clip for track in timeline.get("tracks", [])
+        if isinstance(track, Mapping) and track.get("kind") == "video"
+        for clip in track.get("clips", []) if isinstance(clip, Mapping)
+    ]
+    for track in timeline.get("tracks", []):
+        if not isinstance(track, Mapping) or track.get("kind") not in {"text", "subtitle"}:
+            continue
+        for clip in track.get("clips", []):
+            if not isinstance(clip, Mapping) or not clip.get("claim_ids"):
+                continue
+            start = _finite_number(clip.get("start_seconds"), field=f"{track.get('kind')}.start_seconds")
+            end = _finite_number(clip.get("end_seconds"), field=f"{track.get('kind')}.end_seconds")
+            claims = set(clip.get("claim_ids") or [])
+            if not any(
+                isinstance(video.get("fact_scope"), Mapping)
+                and claims.issubset(set(video["fact_scope"].get("claim_ids") or []))
+                and _finite_number(video.get("start_seconds"), field="video.start_seconds") <= start
+                and end <= _finite_number(video.get("start_seconds"), field="video.start_seconds") + (
+                    _finite_number(video.get("source_out_seconds"), field="video.source_out_seconds")
+                    - _finite_number(video.get("source_in_seconds"), field="video.source_in_seconds")
+                ) / _finite_number(video.get("speed", 1.0), field="video.speed")
+                for video in videos
+            ):
+                _reject("fact_bound_timing_violation", "claim-bearing text is not covered by a fact-bound video clip", clip_id=clip.get("id"))
 
 
 def _validate_primary_video_overlaps(timeline: Mapping[str, Any]) -> None:
@@ -519,6 +549,7 @@ def apply_delta(
                 )
 
     _validate_primary_video_overlaps(source)
+    _validate_all_fact_bound_timing(source)
     try:
         validate_artifact("editorial_timeline", source)
         validate_artifact("editorial_edit_delta", request)
@@ -542,7 +573,10 @@ def _sha256(value: Any, *, field: str) -> str:
 def _number(value: Any, *, field: str) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise EditorialMaterializationError(f"{field} must be numeric")
-    return float(value)
+    result = float(value)
+    if not math.isfinite(result):
+        raise EditorialMaterializationError(f"{field} must be finite")
+    return result
 
 
 def _artifact_hash(artifact: Mapping[str, Any], *, field: str) -> str:

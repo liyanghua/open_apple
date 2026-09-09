@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import math
 from typing import Any
 
 from lib.cache_keys import canonical_digest
@@ -34,7 +35,10 @@ def _sha256(value: Any, *, field: str) -> str:
 def _seconds(value: Any, *, field: str) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
         raise EditorialMaterializationError(f"{field} must be a non-negative number")
-    return float(value)
+    result = float(value)
+    if not math.isfinite(result):
+        raise EditorialMaterializationError(f"{field} must be finite")
+    return result
 
 
 def _range(value: Any, *, field: str) -> dict[str, float]:
