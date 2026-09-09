@@ -7,7 +7,7 @@ from copy import deepcopy
 import jsonschema
 import pytest
 
-from schemas.artifacts import load_schema
+from schemas.artifacts import ARTIFACT_NAMES, load_schema, validate_artifact
 
 
 HASH = "a" * 64
@@ -150,6 +150,13 @@ def test_editorial_timeline_accepts_all_supported_tracks_and_fact_bound_video_cl
     jsonschema.validate(_timeline(), schema)
 
 
+def test_editorial_contracts_are_registered_for_artifact_validation() -> None:
+    assert {"editorial_timeline", "editorial_edit_delta"}.issubset(ARTIFACT_NAMES)
+
+    validate_artifact("editorial_timeline", _timeline())
+    validate_artifact("editorial_edit_delta", _delta())
+
+
 def test_editorial_timeline_requires_fact_binding_for_video_clip() -> None:
     schema = load_schema("editorial_timeline")
     timeline = _timeline()
@@ -187,6 +194,62 @@ def test_editorial_timeline_rejects_unapproved_text_style_and_extra_fields() -> 
     timeline["tracks"][0]["clips"][0]["custom_filter"] = "url(https://example.test)"
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(timeline, schema)
+
+
+@pytest.mark.parametrize(
+    ("track_index", "clip_field", "start", "end"),
+    [
+        (0, "source_in_seconds", 2.0, 1.0),
+        (1, "start_seconds", 2.0, 1.0),
+        (2, "start_seconds", 2.0, 1.0),
+        (3, "start_seconds", 2.0, 1.0),
+        (4, "start_seconds", 2.0, 1.0),
+    ],
+)
+def test_editorial_timeline_rejects_reversed_clip_ranges(
+    track_index: int, clip_field: str, start: float, end: float
+) -> None:
+    timeline = _timeline()
+    clip = timeline["tracks"][track_index]["clips"][0]
+    clip[clip_field] = start
+    clip["source_out_seconds" if track_index == 0 else "end_seconds"] = end
+
+    with pytest.raises(jsonschema.ValidationError):
+        validate_artifact("editorial_timeline", timeline)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        {"op": "trim_clip", "track_id": "video-main", "clip_id": "video-001", "source_in_seconds": 2.0, "source_out_seconds": 1.0},
+        {"op": "set_caption_timing", "track_id": "subtitle-main", "clip_id": "subtitle-001", "start_seconds": 2.0, "end_seconds": 1.0},
+        {"op": "set_text_timing", "track_id": "text-main", "clip_id": "text-001", "start_seconds": 2.0, "end_seconds": 1.0},
+    ],
+)
+def test_editorial_edit_delta_rejects_reversed_ranges(operation: dict) -> None:
+    delta = _delta()
+    delta["operations"] = [operation]
+
+    with pytest.raises(jsonschema.ValidationError):
+        validate_artifact("editorial_edit_delta", delta)
+
+
+def test_editorial_timeline_rejects_duplicate_track_ids() -> None:
+    timeline = _timeline()
+    duplicate_track = deepcopy(timeline["tracks"][1])
+    duplicate_track["id"] = timeline["tracks"][0]["id"]
+    timeline["tracks"].append(duplicate_track)
+
+    with pytest.raises(jsonschema.ValidationError):
+        validate_artifact("editorial_timeline", timeline)
+
+
+def test_editorial_timeline_rejects_duplicate_clip_ids_within_track() -> None:
+    timeline = _timeline()
+    timeline["tracks"][0]["clips"].append(deepcopy(timeline["tracks"][0]["clips"][0]))
+
+    with pytest.raises(jsonschema.ValidationError):
+        validate_artifact("editorial_timeline", timeline)
 
 
 @pytest.mark.parametrize(

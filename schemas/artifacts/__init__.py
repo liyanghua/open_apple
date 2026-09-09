@@ -75,6 +75,8 @@ ARTIFACT_NAMES = [
     "template_batch",
     "differentiation_plan",
     "human_ab_review",
+    "editorial_timeline",
+    "editorial_edit_delta",
 ]
 
 
@@ -555,6 +557,10 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
         _validate_template_pack(data)
     elif name == "template_batch":
         _validate_template_batch(data)
+    elif name == "editorial_timeline":
+        _validate_editorial_timeline(data)
+    elif name == "editorial_edit_delta":
+        _validate_editorial_edit_delta(data)
 
 
 def _validate_template_run_plan(data: dict[str, Any]) -> None:
@@ -630,6 +636,61 @@ def _validate_template_batch(data: dict[str, Any]) -> None:
                 raise jsonschema.ValidationError(
                     f"run {tid} template_run_plan_ref.artifact_sha256 非法（{sha!r}）"
                 )
+
+
+def _validate_editorial_timeline(data: dict[str, Any]) -> None:
+    """Validate ordering and local identity invariants for a timeline snapshot."""
+    seen_track_ids: set[str] = set()
+    for track in data.get("tracks") or []:
+        track_id = str(track["id"])
+        if track_id in seen_track_ids:
+            raise jsonschema.ValidationError(
+                f"editorial_timeline duplicate track id {track_id!r}"
+            )
+        seen_track_ids.add(track_id)
+
+        seen_clip_ids: set[str] = set()
+        kind = track["kind"]
+        for clip in track.get("clips") or []:
+            clip_id = str(clip["id"])
+            if clip_id in seen_clip_ids:
+                raise jsonschema.ValidationError(
+                    f"editorial_timeline track {track_id!r} duplicate clip id {clip_id!r}"
+                )
+            seen_clip_ids.add(clip_id)
+            if kind == "video":
+                _require_forward_range(
+                    clip, "source_in_seconds", "source_out_seconds", "editorial_timeline video clip"
+                )
+            else:
+                _require_forward_range(
+                    clip, "start_seconds", "end_seconds", f"editorial_timeline {kind} clip"
+                )
+
+
+def _validate_editorial_edit_delta(data: dict[str, Any]) -> None:
+    """Validate forward-only ranges in typed operations before they are applied."""
+    for operation in data.get("operations") or []:
+        op = operation["op"]
+        if op in {"trim_clip", "replace_clip"}:
+            _require_forward_range(
+                operation, "source_in_seconds", "source_out_seconds", f"editorial_edit_delta {op}"
+            )
+        elif op == "add_clip":
+            _require_forward_range(
+                operation["clip"], "source_in_seconds", "source_out_seconds", "editorial_edit_delta add_clip"
+            )
+        elif op in {"set_caption_timing", "set_text_timing"}:
+            _require_forward_range(
+                operation, "start_seconds", "end_seconds", f"editorial_edit_delta {op}"
+            )
+
+
+def _require_forward_range(
+    value: dict[str, Any], start_key: str, end_key: str, context: str
+) -> None:
+    if value[end_key] <= value[start_key]:
+        raise jsonschema.ValidationError(f"{context} requires {end_key} > {start_key}")
 
 
 def list_schemas() -> list[str]:
