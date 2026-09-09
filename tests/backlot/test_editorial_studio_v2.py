@@ -25,6 +25,11 @@ def _project(tmp_path: Path) -> Path:
         ],
     }
     (project / "artifacts/editorial_timeline.json").write_text(json.dumps(timeline), encoding="utf-8")
+    from lib.cache_keys import canonical_digest
+    catalogue = {"version": "1.0", "project_id": "candidate", "candidate_id": "candidate", "base_generation_id": "generation-000000", "timeline_hash": canonical_digest(timeline), "assets": []}
+    catalogue["catalogue_hash"] = canonical_digest(catalogue)
+    (project / "operator/editorial").mkdir(parents=True, exist_ok=True)
+    (project / "operator/editorial/asset-catalogue.json").write_text(json.dumps(catalogue), encoding="utf-8")
     return project
 
 

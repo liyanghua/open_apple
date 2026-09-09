@@ -131,16 +131,19 @@ class EditorialSessionService:
     ) -> dict[str, Any]:
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():
             raise OperatorError.validation_failed("创建会话需要幂等键")
-        timeline = deepcopy(dict(base_timeline or {}))
-        if not timeline.get("tracks"):
-            artifact_path = self.project_dir / "artifacts" / "editorial_timeline.json"
-            if artifact_path.is_file():
-                try:
-                    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
-                    if isinstance(artifact, dict):
-                        timeline = artifact
-                except (OSError, json.JSONDecodeError):
-                    pass
+        artifact_path = self.project_dir / "artifacts" / "editorial_timeline.json"
+        try:
+            timeline = json.loads(artifact_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OperatorError("recovery_required", "编辑时间轴缺失或无效", 503) from exc
+        if not isinstance(timeline, dict):
+            raise OperatorError("recovery_required", "编辑时间轴缺失或无效", 503)
+        # Client content is never used as the canonical snapshot.  A legacy
+        # caller may send it only as an equality assertion; mismatches fail
+        # closed rather than allowing a forged timeline into a session.
+        if base_timeline:
+            if canonical_digest(dict(base_timeline)) != canonical_digest(timeline):
+                raise OperatorError("revision_conflict", "客户端时间轴不是服务端当前版本", 409)
         self.store.initialize()
         sid = session_id or f"editorial-{uuid.uuid4().hex[:20]}"
         if self._path(sid).exists():
@@ -150,6 +153,8 @@ class EditorialSessionService:
             raise OperatorError("revision_conflict", "时间轴基座已更新，请重新加载候选", 409)
         catalogue = None
         catalogue_path = self.project_dir / "operator" / "editorial" / "asset-catalogue.json"
+        if not catalogue_path.is_file():
+            raise OperatorError("recovery_required", "批准素材目录缺失，需要重新物化候选", 503)
         if catalogue_path.is_file():
             try:
                 catalogue = json.loads(catalogue_path.read_text(encoding="utf-8"))
