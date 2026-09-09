@@ -359,6 +359,29 @@ def test_create_fails_closed_when_server_catalogue_is_missing(tmp_path: Path) ->
     assert failure.value.code == "recovery_required"
 
 
+def test_create_fails_closed_when_canonical_timeline_is_schema_invalid(tmp_path: Path) -> None:
+    from backlot.operator_errors import OperatorError
+
+    project = _project(tmp_path)
+    timeline = _canonical_timeline(project)
+    timeline.pop("tracks")
+    _write_timeline(project, timeline)
+    with pytest.raises(OperatorError) as failure:
+        _service(project).create_session(idempotency_key="invalid-timeline")
+    assert failure.value.code == "recovery_required"
+
+
+def test_create_rejects_requested_candidate_id_not_bound_to_server_catalogue(tmp_path: Path) -> None:
+    from backlot.operator_errors import OperatorError
+
+    project = _project(tmp_path)
+    with pytest.raises(OperatorError) as failure:
+        _service(project).create_session(
+            candidate_id="different-candidate", idempotency_key="candidate-mismatch"
+        )
+    assert failure.value.code == "validation_failed"
+
+
 def test_save_draft_rejects_unsupported_or_cross_scope_operation(tmp_path: Path) -> None:
     from backlot.operator_errors import OperatorError
 

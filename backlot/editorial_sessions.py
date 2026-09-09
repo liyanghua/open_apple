@@ -16,11 +16,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+import jsonschema
+
 from backlot.delivery_versions import DeliveryVersionService
 from backlot.operator_errors import OperatorError
 from backlot.project_commit import ProjectCommitStore
 from lib.cache_keys import canonical_digest
 from lib.editorial_timeline import EditorialDeltaError, apply_delta
+from schemas.artifacts import validate_artifact
 
 
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -94,6 +97,60 @@ class EditorialSessionService:
         value.pop("timeline_hash", None)
         return canonical_digest(value)
 
+    def _project_candidate_id(self) -> str:
+        """Resolve the server-owned candidate identity for this project."""
+        try:
+            marker = json.loads((self.project_dir / "project.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            marker = {}
+        if isinstance(marker, Mapping):
+            value = marker.get("candidate_id") or marker.get("project_id")
+            if isinstance(value, str) and value.strip():
+                return value
+        return self.store.project_id
+
+    def _validate_catalogue(
+        self,
+        catalogue: Mapping[str, Any],
+        timeline: Mapping[str, Any],
+        *,
+        requested_candidate_id: str | None,
+    ) -> None:
+        required = (
+            "version", "project_id", "candidate_id", "timeline_id",
+            "base_generation_id", "base_edit_revision", "timeline_hash",
+            "source_artifact_hashes", "assets", "catalogue_hash",
+        )
+        missing = [field for field in required if field not in catalogue]
+        if missing:
+            raise OperatorError("recovery_required", "商品素材目录字段不完整，需要重新物化候选", 503)
+        string_fields = (
+            "version", "project_id", "candidate_id", "timeline_id",
+            "base_generation_id", "base_edit_revision", "timeline_hash", "catalogue_hash",
+        )
+        if any(not isinstance(catalogue.get(field), str) or not catalogue[field].strip() for field in string_fields):
+            raise OperatorError.validation_failed("商品素材目录字段类型无效")
+        if not isinstance(catalogue.get("source_artifact_hashes"), Mapping) or not isinstance(catalogue.get("assets"), list):
+            raise OperatorError.validation_failed("商品素材目录字段类型无效")
+        unsigned = dict(catalogue)
+        supplied = unsigned.pop("catalogue_hash", None)
+        if supplied != canonical_digest(unsigned):
+            raise OperatorError("revision_conflict", "商品素材目录校验失败，请重新加载候选", 409)
+        expected_candidate = self._project_candidate_id()
+        if catalogue["candidate_id"] != expected_candidate or catalogue["project_id"] != self.store.project_id:
+            raise OperatorError("revision_conflict", "商品素材目录候选归属不匹配", 409)
+        if requested_candidate_id is not None and requested_candidate_id != catalogue["candidate_id"]:
+            raise OperatorError.validation_failed("请求候选与服务端商品素材目录不匹配")
+        bindings = {
+            "timeline_id": timeline.get("timeline_id"),
+            "base_generation_id": timeline.get("base_generation_id"),
+            "base_edit_revision": timeline.get("base_edit_revision"),
+            "timeline_hash": self._timeline_hash(timeline),
+            "source_artifact_hashes": timeline.get("source_artifact_hashes"),
+        }
+        if any(catalogue.get(field) != expected for field, expected in bindings.items()):
+            raise OperatorError("revision_conflict", "商品素材目录与时间轴基座不匹配", 409)
+
     def _commit_session(
         self,
         session: dict[str, Any],
@@ -138,6 +195,10 @@ class EditorialSessionService:
             raise OperatorError("recovery_required", "编辑时间轴缺失或无效", 503) from exc
         if not isinstance(timeline, dict):
             raise OperatorError("recovery_required", "编辑时间轴缺失或无效", 503)
+        try:
+            validate_artifact("editorial_timeline", timeline)
+        except (jsonschema.ValidationError, KeyError, TypeError, ValueError) as exc:
+            raise OperatorError("recovery_required", "编辑时间轴格式无效，需要重新物化候选", 503) from exc
         # Client content is never used as the canonical snapshot.  A legacy
         # caller may send it only as an equality assertion; mismatches fail
         # closed rather than allowing a forged timeline into a session.
@@ -162,12 +223,12 @@ class EditorialSessionService:
                 raise OperatorError("recovery_required", "商品素材目录需要管理员恢复", 503) from exc
             if not isinstance(catalogue, dict):
                 raise OperatorError.validation_failed("商品素材目录格式无效")
-            unsigned = dict(catalogue)
-            supplied = unsigned.pop("catalogue_hash", None)
-            if supplied != canonical_digest(unsigned):
-                raise OperatorError("revision_conflict", "商品素材目录校验失败，请重新加载候选", 409)
-            if catalogue.get("project_id") != self.store.project_id or catalogue.get("base_generation_id") != timeline.get("base_generation_id") or catalogue.get("timeline_hash") != self._timeline_hash(timeline):
-                raise OperatorError("revision_conflict", "商品素材目录与时间轴基座不匹配", 409)
+            self._validate_catalogue(
+                catalogue,
+                timeline,
+                requested_candidate_id=candidate_id,
+            )
+        resolved_candidate_id = candidate_id or str((catalogue or {}).get("candidate_id") or self._project_candidate_id())
         request_digest = canonical_digest({"candidate_id": candidate_id, "timeline": timeline, "catalogue": catalogue, "idempotency_key": idempotency_key, "actor_id": self.actor_id})
         for path in self.sessions_dir.glob("*.json") if self.sessions_dir.exists() else []:
             try:
@@ -185,7 +246,7 @@ class EditorialSessionService:
             "schema_version": "2.0",
             "session_id": sid,
             "project_id": self.store.project_id,
-            "candidate_id": candidate_id or self.store.project_id,
+            "candidate_id": resolved_candidate_id,
             "actor_id": self.actor_id,
             "create_idempotency_key": idempotency_key,
             "create_request_digest": request_digest,
