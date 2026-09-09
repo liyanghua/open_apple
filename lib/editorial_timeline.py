@@ -1002,12 +1002,16 @@ def project_timeline_for_compose(
             max_end = max(max_end, end)
             item: dict[str, Any] = {
                 "id": str(clip.get("id")),
+                "startSeconds": start,
+                "endSeconds": end,
                 "startFrame": round(start * fps),
                 "durationInFrames": max(1, round((end - start) * fps)),
             }
             if kind == "video":
                 transition = clip.get("transition", "cut")
-                if transition not in {"cut", "fade", "crossfade"}:
+                if transition == "crossfade":
+                    _reject("unsupported_delivery_operation", "crossfade requires overlap rendering and is not supported", clip_id=clip.get("id"))
+                if transition not in {"cut", "fade"}:
                     _reject("unsupported_delivery_operation", f"transition {transition} is not supported", clip_id=clip.get("id"))
                 item.update({
                     "source": media_source(clip),

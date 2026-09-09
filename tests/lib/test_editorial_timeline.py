@@ -1226,6 +1226,8 @@ def test_project_timeline_for_compose_adapts_all_tracks_deterministically() -> N
     assert [track["kind"] for track in editorial["tracks"]] == ["video", "narration", "music", "text", "subtitle"]
     assert editorial["tracks"][0]["clips"][0]["source"] == "assets/video/shot-001.mp4"
     assert editorial["tracks"][0]["clips"][0]["durationInFrames"] == 60
+    assert editorial["tracks"][0]["clips"][0]["startSeconds"] == 0
+    assert editorial["tracks"][0]["clips"][0]["endSeconds"] == 2
     assert editorial["tracks"][3]["clips"][0]["position"] == "top_center"
     assert editorial["tracks"][4]["clips"][0]["position"] == "bottom_center"
     assert project_timeline_for_compose(
@@ -1260,3 +1262,14 @@ def test_project_timeline_for_compose_accepts_validated_post_delta_snapshot() ->
     )
     music = next(track for track in props["editorialTimeline"]["tracks"] if track["kind"] == "music")
     assert music["clips"][0]["gainDb"] == -18
+
+
+def test_project_timeline_for_compose_rejects_crossfade_until_overlap_is_supported() -> None:
+    from lib.editorial_timeline import EditorialDeltaError, materialize_editorial_timeline, project_timeline_for_compose
+
+    inputs = _source_led_materialization_inputs()
+    snapshot = materialize_editorial_timeline(**inputs)
+    timeline = deepcopy(snapshot["timeline"])
+    timeline["tracks"][0]["clips"][0]["transition"] = "crossfade"
+    with pytest.raises(EditorialDeltaError, match="unsupported_delivery_operation"):
+        project_timeline_for_compose(timeline, asset_catalogue=snapshot["asset_catalogue"], asset_manifest=inputs["asset_manifest"])

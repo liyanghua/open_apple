@@ -23,6 +23,17 @@ describe("EditorialTimeline", () => {
     expect(schedule[0].clips.map((clip) => clip.id)).toEqual(["v1", "v2"]);
     expect(schedule[0].clips[1].durationInFrames).toBe(15);
   });
+
+  test("renders every track of the same kind and suppresses disabled subtitles", () => {
+    const multi = {...fixture, tracks: [
+      ...fixture.tracks,
+      {id: "text-2", kind: "text" as const, clips: [{id: "t2", text: "第二卖点", startSeconds: 1, endSeconds: 2, position: "top_center" as const, styleToken: "taobao_selling_point_v1"}]},
+      {id: "subtitle-2", kind: "subtitle" as const, clips: [{id: "s2", text: "隐藏字幕", startSeconds: 1, endSeconds: 2, position: "bottom_center" as const, styleToken: "taobao_subtitle_v1", enabled: false}]},
+    ]};
+    const schedule = buildEditorialSchedule(multi);
+    expect(schedule.filter((track) => track.kind === "text")).toHaveLength(2);
+    expect(schedule.filter((track) => track.kind === "subtitle")[1].clips[0].enabled).toBe(false);
+  });
   test("keeps selling point and one-line subtitle placements", () => {
     expect(textPlacementStyle("top_center", "taobao_selling_point_v1")).toMatchObject({top: 96});
     expect(textPlacementStyle("bottom_center", "taobao_subtitle_v1")).toMatchObject({bottom: 120, whiteSpace: "nowrap"});

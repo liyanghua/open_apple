@@ -76,14 +76,18 @@ const AudioClip: React.FC<{clip: EditorialClip; narrationWindows?: Array<[number
 
 export const EditorialTimeline: React.FC<EditorialTimelineProps> = (props) => {
   const schedule = buildEditorialSchedule(props);
-  const narration = schedule.find((track) => track.kind === "narration");
-  const narrationWindows: Array<[number, number]> = (narration?.clips ?? []).map((clip) => [clip.startFrame ?? 0, (clip.startFrame ?? 0) + (clip.durationInFrames ?? 1)]);
-  const subtitles: Caption[] = (schedule.find((track) => track.kind === "subtitle")?.clips ?? []).map((clip) => ({text: clip.text ?? "", startMs: clip.startSeconds * 1000, endMs: (clip.endSeconds ?? clip.startSeconds) * 1000, timestampMs: null, confidence: null}));
+  const narrationClips = schedule.filter((track) => track.kind === "narration").flatMap((track) => track.clips);
+  const narrationWindows: Array<[number, number]> = narrationClips.map((clip) => [clip.startFrame ?? 0, (clip.startFrame ?? 0) + (clip.durationInFrames ?? 1)]);
+  const subtitleClips = schedule.filter((track) => track.kind === "subtitle").flatMap((track) => track.clips).filter((clip) => clip.enabled !== false);
+  const textClips = schedule.filter((track) => track.kind === "text").flatMap((track) => track.clips);
+  const videoClips = schedule.filter((track) => track.kind === "video").flatMap((track) => track.clips);
+  const musicClips = schedule.filter((track) => track.kind === "music").flatMap((track) => track.clips);
+  const subtitles: Caption[] = subtitleClips.map((clip) => ({text: clip.text ?? "", startMs: clip.startSeconds * 1000, endMs: (clip.endSeconds ?? clip.startSeconds) * 1000, timestampMs: null, confidence: null}));
   return <AbsoluteFill style={{background: "#111"}}>
-    {schedule.find((track) => track.kind === "video")?.clips.map((clip) => <Sequence key={clip.id} from={clip.startFrame ?? 0} durationInFrames={clip.durationInFrames ?? 1}><VideoClip clip={clip} /></Sequence>)}
-    {schedule.find((track) => track.kind === "text")?.clips.map((clip) => <Sequence key={clip.id} from={clip.startFrame ?? 0} durationInFrames={clip.durationInFrames ?? 1}><TextClip clip={clip} /></Sequence>)}
+    {videoClips.map((clip) => <Sequence key={clip.id} from={clip.startFrame ?? 0} durationInFrames={clip.durationInFrames ?? 1}><VideoClip clip={clip} /></Sequence>)}
+    {textClips.map((clip) => <Sequence key={clip.id} from={clip.startFrame ?? 0} durationInFrames={clip.durationInFrames ?? 1}><TextClip clip={clip} /></Sequence>)}
     {subtitles.length > 0 ? <SafeCaptionTrack captions={subtitles} safeZoneProfile="taobao_detail_3_4" fontMin={36} fontMax={52} singleLine /> : null}
-    {narration?.clips.map((clip) => <Sequence key={clip.id} from={clip.startFrame ?? 0} durationInFrames={clip.durationInFrames ?? 1}><AudioClip clip={clip} /></Sequence>)}
-    {schedule.find((track) => track.kind === "music")?.clips.map((clip) => <Sequence key={clip.id} from={clip.startFrame ?? 0} durationInFrames={clip.durationInFrames ?? 1}><AudioClip clip={clip} narrationWindows={narrationWindows} /></Sequence>)}
+    {narrationClips.map((clip) => <Sequence key={clip.id} from={clip.startFrame ?? 0} durationInFrames={clip.durationInFrames ?? 1}><AudioClip clip={clip} /></Sequence>)}
+    {musicClips.map((clip) => <Sequence key={clip.id} from={clip.startFrame ?? 0} durationInFrames={clip.durationInFrames ?? 1}><AudioClip clip={clip} narrationWindows={narrationWindows} /></Sequence>)}
   </AbsoluteFill>;
 };

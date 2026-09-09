@@ -1821,6 +1821,23 @@ class VideoCompose(BaseTool):
             except ValueError as exc:
                 return ToolResult(success=False, error=str(exc))
             inputs = dict(inputs, edit_decisions=runtime_payload)
+        canonical_timeline = inputs.get("editorial_timeline")
+        if canonical_timeline is not None:
+            if not isinstance(canonical_timeline, dict):
+                return ToolResult(success=False, error="unsupported_delivery_operation: editorial_timeline must be an object")
+            if not inputs.get("asset_catalogue") or not inputs.get("asset_manifest"):
+                return ToolResult(success=False, error="unsupported_delivery_operation: editorial timeline requires asset_catalogue and asset_manifest")
+            try:
+                from lib.editorial_timeline import project_timeline_for_compose
+                projected = project_timeline_for_compose(
+                    canonical_timeline,
+                    asset_catalogue=inputs["asset_catalogue"],
+                    asset_manifest=inputs["asset_manifest"],
+                )
+            except Exception as exc:
+                code = getattr(exc, "code", "unsupported_delivery_operation")
+                return ToolResult(success=False, error=f"{code}: {exc}")
+            return self._remotion_render({**inputs, "edit_decisions": projected})
         edit_decisions = inputs.get("edit_decisions")
         asset_manifest = inputs.get("asset_manifest")
         if not edit_decisions:

@@ -24,6 +24,30 @@ def test_editorial_timeline_adapter_is_explicit_and_does_not_use_legacy_cuts():
     assert "editorialTimeline" in props and "cuts" not in props["editorialTimeline"]
 
 
+def test_video_compose_routes_canonical_editorial_timeline_through_adapter(tmp_path, monkeypatch):
+    from lib.editorial_timeline import materialize_editorial_timeline
+    from tests.lib.test_editorial_timeline import _source_led_materialization_inputs
+
+    inputs = _source_led_materialization_inputs()
+    snapshot = materialize_editorial_timeline(**inputs)
+    seen = {}
+
+    def fake_render(self, render_inputs):
+        seen.update(render_inputs)
+        return ToolResult(success=True, data={"output": str(tmp_path / "out.mp4")})
+
+    monkeypatch.setattr(VideoCompose, "_remotion_render", fake_render)
+    result = VideoCompose()._render({
+        "editorial_timeline": snapshot["timeline"],
+        "asset_catalogue": snapshot["asset_catalogue"],
+        "asset_manifest": inputs["asset_manifest"],
+        "edit_decisions": {"render_runtime": "remotion"},
+        "output_path": str(tmp_path / "out.mp4"),
+    })
+    assert result.success
+    assert seen["edit_decisions"]["composition_id"] == "EditorialTimeline"
+
+
 def test_sample_window_rejects_short_or_long_ranges():
     import pytest
     with pytest.raises(ValueError):
