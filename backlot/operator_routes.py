@@ -227,7 +227,9 @@ def create_operator_router(
 
     @router.post("/projects/{project_id}/editorial-gallery/candidates/{candidate_id}/edit-session")
     async def editorial_session_create(project_id: str, candidate_id: str, request: Request) -> dict:
-        session = authenticate(request, project_id, "edit", csrf=True)
+        authenticate(request, project_id, "edit", csrf=True)
+        child_dir, _ = _editorial_candidate(project_id, candidate_id)
+        child_session = authenticate(request, child_dir.name, "edit", csrf=False)
         payload = await body(request)
         gallery = build_editorial_gallery(project(project_id))
         item = next((c for c in gallery.get("candidates", []) if str(c.get("candidate_id")) == candidate_id), None)
@@ -239,7 +241,7 @@ def create_operator_router(
         key = str(payload.get("idempotency_key") or request.headers.get("idempotency-key") or "").strip()
         if not key:
             raise OperatorError.validation_failed("缺少重复提交保护标识")
-        return EditorialSessionService(project(project_id), actor_id=session.actor.user_id).create_session(
+        return EditorialSessionService(child_dir, actor_id=child_session.actor.user_id).create_session(
             idempotency_key=key, candidate_id=candidate_id,
         )
 
@@ -269,13 +271,14 @@ def create_operator_router(
 
     @router.post("/projects/{project_id}/editorial-gallery/edit-session/{session_id}/delta")
     async def editorial_session_delta(project_id: str, session_id: str, request: Request) -> dict:
-        session = authenticate(request, project_id, "edit", csrf=True)
+        authenticate(request, project_id, "edit", csrf=True)
         payload = await body(request)
         candidate_id = str(payload.pop("candidate_id", "") or "")
         if not candidate_id:
             raise OperatorError.validation_failed("缺少候选标识")
         child_dir, _ = _editorial_candidate(project_id, candidate_id)
-        service = EditorialSessionService(child_dir, actor_id=session.actor.user_id)
+        child_session = authenticate(request, child_dir.name, "edit", csrf=False)
+        service = EditorialSessionService(child_dir, actor_id=child_session.actor.user_id)
         key = request.headers.get("idempotency-key", "").strip() or str(payload.pop("idempotency_key", "")).strip()
         if not key:
             raise OperatorError.validation_failed("缺少重复提交保护标识")
@@ -285,12 +288,13 @@ def create_operator_router(
 
     @router.get("/projects/{project_id}/editorial-gallery/edit-session/{session_id}/snapshot")
     async def editorial_session_snapshot_alias(project_id: str, session_id: str, request: Request) -> dict:
-        session = authenticate(request, project_id, "read")
+        authenticate(request, project_id, "read")
         child_dir, _ = _editorial_session_candidate(project_id, session_id)
-        return EditorialSessionService(child_dir, actor_id=session.actor.user_id).load_session(session_id)
+        child_session = authenticate(request, child_dir.name, "read")
+        return EditorialSessionService(child_dir, actor_id=child_session.actor.user_id).load_session(session_id)
 
     async def _session_service(project_id: str, session_id: str, request: Request, *, action: str, csrf: bool = False):
-        session = authenticate(request, project_id, action, csrf=csrf)
+        authenticate(request, project_id, action, csrf=csrf)
         candidate_id = request.query_params.get("candidate_id", "")
         if not candidate_id:
             payload = await body(request) if request.method != "GET" else {}
@@ -299,15 +303,20 @@ def create_operator_router(
             child_dir, _ = _editorial_candidate(project_id, candidate_id)
         else:
             child_dir, candidate_id = _editorial_session_candidate(project_id, session_id)
-        return EditorialSessionService(child_dir, actor_id=session.actor.user_id), session, candidate_id, payload
+        child_session = authenticate(request, child_dir.name, action, csrf=False)
+        return EditorialSessionService(child_dir, actor_id=child_session.actor.user_id), child_session, candidate_id, payload
+
+    def _report_ref(service: EditorialSessionService, session_id: str, kind: str) -> str:
+        snapshot = service.load_session(session_id)
+        revision_id = str(snapshot.get("revision_id") or "")
+        if not revision_id:
+            raise OperatorError.validation_failed("编辑版本标识缺失")
+        return f"operator/editorial/versions/{revision_id}/{kind}-execution_report.json"
 
     @router.post("/projects/{project_id}/editorial-gallery/edit-session/{session_id}/preview")
     async def editorial_session_preview(project_id: str, session_id: str, request: Request) -> dict:
         service, _session, _candidate, payload = await _session_service(project_id, session_id, request, action="edit", csrf=True)
-        report_path = payload.get("report_path")
-        if not isinstance(report_path, str) or not report_path:
-            raise OperatorError("forbidden", "预览状态只能来自服务端执行报告", 403)
-        return service.record_preview(session_id, {"report_path": report_path}, expected_generation=payload.get("expected_generation"))
+        return service.record_preview(session_id, {"report_path": _report_ref(service, session_id, "preview")}, expected_generation=payload.get("expected_generation"))
 
     @router.post("/projects/{project_id}/editorial-gallery/edit-session/{session_id}/run")
     async def editorial_session_run(project_id: str, session_id: str, request: Request) -> dict:
@@ -319,10 +328,7 @@ def create_operator_router(
             output_sha256 = str(payload.get("output_sha256") or "")
             return service.approve_preview(session_id, output_sha256=output_sha256)
         if operation == "record_final":
-            report_path = payload.get("report_path")
-            if not isinstance(report_path, str) or not report_path:
-                raise OperatorError("forbidden", "成片状态只能来自服务端执行报告", 403)
-            return service.record_final(session_id, {"report_path": report_path}, expected_generation=payload.get("expected_generation"))
+            return service.record_final(session_id, {"report_path": _report_ref(service, session_id, "final")}, expected_generation=payload.get("expected_generation"))
         if operation == "promote":
             return service.promote(session_id, expected_generation=payload.get("expected_generation"))
         if operation == "discard":
