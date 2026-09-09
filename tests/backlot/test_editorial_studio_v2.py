@@ -26,7 +26,17 @@ def _project(tmp_path: Path) -> Path:
     }
     (project / "artifacts/editorial_timeline.json").write_text(json.dumps(timeline), encoding="utf-8")
     from lib.cache_keys import canonical_digest
-    catalogue = {"version": "1.0", "project_id": "candidate", "candidate_id": "candidate", "base_generation_id": "generation-000000", "timeline_hash": canonical_digest(timeline), "assets": []}
+    catalogue = {
+        "version": "1.0",
+        "project_id": "candidate",
+        "candidate_id": "candidate",
+        "timeline_id": timeline["timeline_id"],
+        "base_generation_id": timeline["base_generation_id"],
+        "base_edit_revision": timeline["base_edit_revision"],
+        "timeline_hash": canonical_digest(timeline),
+        "source_artifact_hashes": dict(timeline["source_artifact_hashes"]),
+        "assets": [],
+    }
     catalogue["catalogue_hash"] = canonical_digest(catalogue)
     (project / "operator/editorial").mkdir(parents=True, exist_ok=True)
     (project / "operator/editorial/asset-catalogue.json").write_text(json.dumps(catalogue), encoding="utf-8")
@@ -37,6 +47,35 @@ def _service(project: Path, actor: str = "operator-a"):
     from backlot.editorial_sessions import EditorialSessionService
 
     return EditorialSessionService(project, actor_id=actor)
+
+
+def _canonical_timeline(project: Path) -> dict:
+    return json.loads((project / "artifacts/editorial_timeline.json").read_text())
+
+
+def _rebind_catalogue(project: Path, timeline: dict) -> None:
+    """Keep the fixture catalogue bound to the exact server artifact snapshot."""
+    from lib.cache_keys import canonical_digest
+
+    path = project / "operator/editorial/asset-catalogue.json"
+    catalogue = json.loads(path.read_text())
+    catalogue.update(
+        timeline_id=timeline["timeline_id"],
+        base_generation_id=timeline["base_generation_id"],
+        base_edit_revision=timeline["base_edit_revision"],
+        timeline_hash=canonical_digest(timeline),
+        source_artifact_hashes=dict(timeline["source_artifact_hashes"]),
+    )
+    catalogue.pop("catalogue_hash", None)
+    catalogue["catalogue_hash"] = canonical_digest(catalogue)
+    path.write_text(json.dumps(catalogue), encoding="utf-8")
+
+
+def _write_timeline(project: Path, timeline: dict) -> None:
+    (project / "artifacts/editorial_timeline.json").write_text(
+        json.dumps(timeline), encoding="utf-8"
+    )
+    _rebind_catalogue(project, timeline)
 
 
 def _report(project: Path, revision: int, kind: str, **values):
@@ -60,7 +99,7 @@ def test_session_is_owned_by_creator_and_draft_save_is_idempotent(tmp_path: Path
 
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline=json.loads((project / "artifacts/editorial_timeline.json").read_text()), idempotency_key="open-1")
+    session = service.create_session(idempotency_key="open-1")
     saved = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     replay = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     assert replay["timeline_hash"] == saved["timeline_hash"]
@@ -75,7 +114,7 @@ def test_same_idempotency_key_with_different_payload_is_conflict(tmp_path: Path)
 
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline=json.loads((project / "artifacts/editorial_timeline.json").read_text()), idempotency_key="open-1")
+    session = service.create_session(idempotency_key="open-1")
     service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     with pytest.raises(OperatorError) as conflict:
         service.save_draft(session["session_id"], {"op": "set_caption", "text": "B"}, idempotency_key="delta-1")
@@ -87,7 +126,7 @@ def test_two_deltas_on_same_base_hash_use_generation_cas(tmp_path: Path) -> None
 
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline=json.loads((project / "artifacts/editorial_timeline.json").read_text()), idempotency_key="open-1")
+    session = service.create_session(idempotency_key="open-1")
     base_hash, generation = session["timeline_hash"], session["base_generation_id"]
     service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-a", base_timeline_hash=base_hash, expected_generation=generation)
     with pytest.raises(OperatorError) as stale:
@@ -100,7 +139,7 @@ def test_failed_preview_is_retained_and_new_delta_invalidates_approval(tmp_path:
 
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline=json.loads((project / "artifacts/editorial_timeline.json").read_text()), idempotency_key="open-1")
+    session = service.create_session(idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     failed = service.record_preview(session["session_id"], _report(project, session["revision"], "preview", status="failed", error="render failed", _without_output=True))
     assert failed["status"] == "preview_failed"
@@ -119,7 +158,7 @@ def test_final_requires_current_preview_approval_and_server_pass_report(tmp_path
 
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    session = service.create_session(idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     with pytest.raises(OperatorError):
         service.request_final(session["session_id"])
@@ -137,7 +176,7 @@ def test_generation_advance_during_render_rejects_stale_preview_result(tmp_path:
 
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    session = service.create_session(idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     store = service.store
     with store.transaction(action={"action_id": "external-render-race", "type": "external_edit"}, result={"status": "committed"}) as sink:
@@ -153,7 +192,7 @@ def test_generation_advance_before_promote_rejects_stale_delivery_pointer_update
 
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    session = service.create_session(idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     session = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass"))
     session = service.approve_preview(session["session_id"], output_sha256=session["preview"]["output_sha256"])
@@ -175,9 +214,10 @@ def test_promote_discard_and_restore_prior_delivery_revision(tmp_path: Path) -> 
     old.write_bytes(b"old-delivery")
     old_hash = hashlib.sha256(old.read_bytes()).hexdigest()
     service.install_delivery_revision("old", output_path=old, qa_report={"status": "pass", "gates": {"alignment": "pass", "l1a": "pass", "final_qa": "pass"}, "server_owned": True})
-    timeline = json.loads((project / "artifacts/editorial_timeline.json").read_text())
+    timeline = _canonical_timeline(project)
     timeline["base_generation_id"] = service.store.initialize()["generation_id"]
-    session = service.create_session(base_timeline=timeline, idempotency_key="open-1")
+    _write_timeline(project, timeline)
+    session = service.create_session(idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     session = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass"))
     service.approve_preview(session["session_id"], output_sha256=session["preview"]["output_sha256"])
@@ -186,8 +226,10 @@ def test_promote_discard_and_restore_prior_delivery_revision(tmp_path: Path) -> 
     promoted = service.promote(session["session_id"])
     assert promoted["status"] == "promoted"
     assert service.current_delivery()["version_id"] != "old"
+    timeline = _canonical_timeline(project)
     timeline["base_generation_id"] = service.store.initialize()["generation_id"]
-    discarded = service.create_session(base_timeline=timeline, idempotency_key="open-2")
+    _write_timeline(project, timeline)
+    discarded = service.create_session(idempotency_key="open-2")
     assert service.discard(discarded["session_id"])["status"] == "discarded"
     restored = service.restore_delivery_revision("old", actor_id="operator-a", expected_generation=service.store.initialize()["generation_id"], manifest_sha256=service.delivery_manifest_hash("old"), output_sha256=old_hash, idempotency_key="restore-1")
     assert restored["version_id"] == "old"
@@ -198,7 +240,7 @@ def test_report_path_must_be_canonical_for_current_revision(tmp_path: Path) -> N
 
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    session = service.create_session(idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     wrong = project / "operator/editorial/versions/edit-000001/not-execution.json"
     wrong.parent.mkdir(parents=True, exist_ok=True)
@@ -213,7 +255,7 @@ def test_preview_approval_rehashes_output_and_rejects_replacement(tmp_path: Path
 
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    session = service.create_session(idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     session = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass"))
     output = project / "operator/editorial/versions/edit-000001/preview.mp4"
@@ -228,7 +270,7 @@ def test_malformed_json_report_is_operator_error(tmp_path: Path) -> None:
 
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    session = service.create_session(idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     report = project / "operator/editorial/versions/edit-000001/preview-execution_report.json"
     report.parent.mkdir(parents=True, exist_ok=True)
@@ -242,7 +284,7 @@ def test_promote_requires_strict_server_owned_final_report(tmp_path: Path) -> No
 
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-1")
+    session = service.create_session(idempotency_key="open-1")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-1")
     session = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass"))
     session = service.approve_preview(session["session_id"], output_sha256=session["preview"]["output_sha256"])
@@ -260,7 +302,7 @@ def test_promote_requires_strict_server_owned_final_report(tmp_path: Path) -> No
 def test_task5_execution_report_contract_uses_revision_id_for_preview_and_final(tmp_path: Path) -> None:
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-task5")
+    session = service.create_session(idempotency_key="open-task5")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-task5")
 
     preview = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass", gates={"alignment": "pass", "l1a": "pass", "final_qa": "pass"}))
@@ -278,7 +320,7 @@ def test_execution_report_kind_must_match_record_operation(tmp_path: Path) -> No
 
     project = _project(tmp_path)
     service = _service(project)
-    session = service.create_session(base_timeline={"clips": []}, idempotency_key="open-kind")
+    session = service.create_session(idempotency_key="open-kind")
     session = service.save_draft(session["session_id"], {"op": "set_caption", "text": "A"}, idempotency_key="delta-kind")
 
     final_report = _report(project, 1, "final", status="pass", gates={"alignment": "pass", "l1a": "pass", "final_qa": "pass"})
@@ -302,7 +344,19 @@ def test_create_rejects_timeline_generation_mismatch_and_client_catalogue_is_not
     # supplied field must not be accepted as an implicit catalogue.
     timeline = json.loads((project / "artifacts/editorial_timeline.json").read_text())
     session = service.create_session(base_timeline=timeline, idempotency_key="server-only-catalogue")
-    assert session["asset_catalogue"] is None
+    assert session["asset_catalogue"] == json.loads(
+        (project / "operator/editorial/asset-catalogue.json").read_text()
+    )
+
+
+def test_create_fails_closed_when_server_catalogue_is_missing(tmp_path: Path) -> None:
+    from backlot.operator_errors import OperatorError
+
+    project = _project(tmp_path)
+    (project / "operator/editorial/asset-catalogue.json").unlink()
+    with pytest.raises(OperatorError) as failure:
+        _service(project).create_session(idempotency_key="missing-catalogue")
+    assert failure.value.code == "recovery_required"
 
 
 def test_save_draft_rejects_unsupported_or_cross_scope_operation(tmp_path: Path) -> None:
