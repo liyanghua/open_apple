@@ -117,6 +117,15 @@ def test_editorial_gallery_api_and_studio_entrypoint_are_available(backlot_clien
     page = backlot_client.get(f"/studio/{batch.name}")
     assert page.status_code == 200
 
+    editor = backlot_client.get(f"/studio/{batch.name}/edit/remotion")
+    assert editor.status_code == 200
+    assert "editorial-editor/shell.js" in editor.text
+    assert "editorial-editor-shell.js" not in editor.text
+    # shell.js writes these state nodes during boot.  Keep this contract here
+    # so a markup-only refactor cannot prevent the OpenReel iframe from mounting.
+    for element_id in ("pendingCount", "unsupportedCount", "qaStatus", "progressState"):
+        assert f'id="{element_id}"' in editor.text
+
 
 def test_editorial_session_api_rejects_non_remotion_candidate(backlot_client, projects_root) -> None:
     batch = _fixture(projects_root.parent)

@@ -3,44 +3,71 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>商品视频精剪工作室</title>
-    <link rel="stylesheet" href="/ui/editorial-editor-shell.css" />
+  <title>OpenReel 快速编辑</title>
+  <link rel="stylesheet" href="/ui/editorial-editor/shell.css" />
   </head>
   <body>
-    <main id="editorial-editor" data-batch-id="" data-candidate-id="">
-      <header class="editor-header">
-        <div>
-          <p class="eyebrow">Source-led Editorial Timeline V2</p>
-          <h1>商品视频精剪工作室</h1>
-          <p id="editor-status">正在加载编辑快照…</p>
+  <div id="editorial-editor-shell" class="editor-shell" data-testid="editorial-editor-shell"
+       data-batch-id="" data-candidate-id="">
+    <header class="editor-topbar">
+      <div class="editor-topbar-inner">
+        <a id="backToCandidate" class="back-link" href="#">返回候选证据</a>
+        <div class="title-row">
+          <div>
+            <p class="eyebrow">OpenReel 快速编辑 · Source-led 人工可视化编辑</p>
+            <h1 id="candidateTitle">正在读取候选</h1>
+            <p id="versionLine" class="muted">当前版本：读取中…</p>
+          </div>
+          <div id="statusBadge" class="status-badge" aria-live="polite">读取中</div>
         </div>
-        <div class="editor-actions">
-          <button data-action="save">保存修改</button>
-          <button data-action="preview">生成预览</button>
-          <button data-action="final" class="primary">生成成片</button>
+        <div class="context-actions">
+          <button type="button" id="saveDraft" class="ghost-button" disabled>保存草稿</button>
+          <button type="button" id="previewImpact" class="ghost-button" disabled>预览影响</button>
+          <button type="button" id="finalRender" class="ghost-button" disabled>生成成片</button>
+          <button type="button" id="discardSession" class="ghost-button is-warn" disabled>退出会话</button>
         </div>
-      </header>
-      <section class="editor-grid">
-        <aside class="panel" aria-label="商品事实约束">
-          <h2>商品事实</h2>
-          <p>Source-led 画面、花字和口播只能使用已批准的事实范围。</p>
-          <div id="fact-scope" class="fact-list"></div>
-          <h2>批准素材</h2>
-          <div id="approved-assets" class="asset-list"></div>
-        </aside>
-        <section class="panel timeline-panel" aria-label="时间线">
-          <div id="media-preview" class="media-preview"><span>等待预览</span></div>
-          <div id="timeline" class="timeline"></div>
-          <div id="unsupported-warning" class="warning" hidden>此功能当前不支持提交</div>
-        </section>
-        <aside class="panel" aria-label="版本和质量">
-          <h2>版本与质量</h2>
-          <div id="render-progress" class="status-card">尚未开始渲染</div>
-          <div id="qa-results" class="status-card">等待服务端 QA</div>
-          <div id="version-compare" class="status-card">当前为基线版本</div>
-        </aside>
+      </div>
+    </header>
+
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+    <main class="editor-main">
+      <section id="editorSurface" class="editor-surface" aria-label="OpenReel 时间轴">
+        <div id="editorFallback" class="editor-fallback" data-testid="editor-fallback">
+          <p class="muted">正在加载 OpenReel 编辑器…</p>
+        </div>
       </section>
+      <aside id="sessionPanel" class="session-panel" aria-label="会话状态">
+        <h2>会话状态</h2>
+        <div class="session-summary">
+          <div class="session-metric">
+            <span class="session-label">待保存修改</span>
+            <strong id="pendingCount">0</strong>
+          </div>
+          <div class="session-metric">
+            <span class="session-label">不支持操作</span>
+            <strong id="unsupportedCount">0</strong>
+          </div>
+          <div class="session-metric">
+            <span class="session-label">质量检查</span>
+            <strong id="qaStatus">尚未检查</strong>
+          </div>
+          <div class="session-metric session-metric-state">
+            <span class="session-label">制作状态</span>
+            <strong id="progressState">尚未开始渲染</strong>
+          </div>
+        </div>
+        <p id="sessionState" class="muted">尚未建立编辑会话</p>
+        <ul id="draftList" class="draft-list" aria-label="本地草稿提示"></ul>
+        <details class="session-details">
+          <summary>商品事实与批准素材</summary>
+          <p id="factsSummary" class="muted">正在读取事实范围…</p>
+          <ul id="assetList" class="draft-list" aria-label="批准素材与商品事实"></ul>
+          <p class="muted">不支持的操作不会提交到成片时间轴。</p>
+        </details>
+      </aside>
     </main>
-    <script src="/ui/editorial-editor-shell.js"></script>
+  </div>
+  <script type="module" src="/ui/editorial-editor/shell.js"></script>
   </body>
 </html>

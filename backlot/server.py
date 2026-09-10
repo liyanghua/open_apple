@@ -580,7 +580,7 @@ def create_app(*, auth_store=None, auth_mode: str = "production") -> FastAPI:
         if redirect is not None:
             return redirect
         return _ui_html("editorial-editor-shell.html", (
-            "editorial-editor-shell.css", "editorial-editor-shell.js",
+            "editorial-editor/shell.css", "editorial-editor/shell.js",
         ))
 
     @app.get("/")
