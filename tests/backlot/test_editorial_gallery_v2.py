@@ -41,6 +41,8 @@ def _fixture(tmp_path: Path) -> Path:
             (child / "renders/sample-v2.mp4").write_bytes(b"sample")
         if candidate_id == "cand-remotion":
             (child / "renders/final.mp4").write_bytes(b"final")
+            _write(child / "artifacts/editorial_timeline.json", {"version": "1.0"})
+            _write(child / "operator/editorial/asset-catalogue.json", {"version": "1.0"})
     state_mod.PROJECTS_DIR = root
     return batch
 
@@ -78,6 +80,35 @@ def test_gallery_missing_media_is_honest_and_runtime_blocks_v2_session(tmp_path:
     assert ffmpeg["studio_eligibility"]["can_create_v2_session"] is False
 
 
+def test_gallery_requires_materialized_v2_artifacts_before_showing_studio_entry(tmp_path: Path) -> None:
+    batch = _fixture(tmp_path)
+    candidate = batch.parent / "cand-remotion"
+    (candidate / "artifacts/editorial_timeline.json").unlink()
+    gallery = build_editorial_gallery(batch)
+    remotion = next(item for item in gallery["candidates"] if item["candidate_id"] == "remotion")
+    assert remotion["studio_eligibility"] == {
+        "eligible": False,
+        "runtime": "remotion",
+        "reason": "timeline_unavailable",
+        "can_create_v2_session": False,
+    }
+
+
+def test_gallery_projects_legacy_template_batch_for_a_materialized_candidate(tmp_path: Path) -> None:
+    batch = _fixture(tmp_path)
+    (batch / "artifacts/candidate_batch.json").unlink()
+    _write(batch / "artifacts/template_batch.json", {
+        "version": "1.0", "batch_id": "towel-batch", "runs": [{
+            "project_id": "cand-remotion", "template_id": "source-led-a", "status": "completed",
+        }],
+    })
+
+    gallery = build_editorial_gallery(batch)
+
+    assert gallery["candidates"][0]["candidate_id"] == "cand-remotion"
+    assert gallery["candidates"][0]["studio_eligibility"]["eligible"] is True
+
+
 def test_editorial_gallery_api_and_studio_entrypoint_are_available(backlot_client, projects_root, monkeypatch) -> None:
     batch = _fixture(projects_root.parent)
     response = backlot_client.get(f"/api/v2/projects/{batch.name}/editorial-gallery")
@@ -95,6 +126,25 @@ def test_editorial_session_api_rejects_non_remotion_candidate(backlot_client, pr
     )
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "unsupported_runtime"
+
+
+def test_legacy_template_batch_resolves_candidate_for_studio_session_routes(backlot_client, projects_root) -> None:
+    batch = _fixture(projects_root.parent)
+    (batch / "artifacts/candidate_batch.json").unlink()
+    _write(batch / "artifacts/template_batch.json", {
+        "version": "1.0", "batch_id": batch.name, "runs": [{
+            "project_id": "cand-remotion", "template_id": "source-led-a", "status": "completed",
+        }],
+    })
+
+    response = backlot_client.post(
+        f"/api/v2/projects/{batch.name}/editorial-gallery/edit-session",
+        json={"candidate_id": "cand-remotion", "idempotency_key": "open-legacy"},
+    )
+    # The fixture's intentionally minimal timeline is invalid, but the route
+    # must resolve the legacy batch and reach the V2 session validator.
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "recovery_required"
 
 
 def test_editorial_routes_are_hidden_when_v2_feature_flag_is_off(backlot_client, projects_root, monkeypatch) -> None:

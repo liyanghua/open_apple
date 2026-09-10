@@ -2444,6 +2444,40 @@ def _batch_editor(board: Mapping[str, Any], batch: Mapping[str, Any]) -> dict[st
     from backlot.batch_state import build_batch_review_data
 
     data = build_batch_review_data(board, batch)
+    # The batch cockpit owns its production/status projection.  The Editorial
+    # Gallery independently proves whether each child has a trusted V2
+    # timeline+catalogue, so merge only that capability and its server route
+    # into the existing candidate cards.
+    project_dir = board.get("_project_dir")
+    if isinstance(project_dir, Path):
+        try:
+            from backlot.editorial_gallery import build_editorial_gallery
+
+            gallery = build_editorial_gallery(project_dir)
+            gallery_candidates = {
+                str(item.get("candidate_id")): item
+                for item in gallery.get("candidates", [])
+                if isinstance(item, Mapping) and item.get("candidate_id")
+            }
+            for candidate in data.get("candidates", []):
+                if not isinstance(candidate, dict):
+                    continue
+                gallery_candidate = gallery_candidates.get(str(candidate.get("candidate_id")))
+                if not isinstance(gallery_candidate, Mapping):
+                    continue
+                candidate["studio_eligibility"] = dict(
+                    gallery_candidate.get("studio_eligibility") or {}
+                )
+                studio_edit = (gallery_candidate.get("links") or {}).get("studio_edit")
+                if isinstance(studio_edit, str) and studio_edit:
+                    candidate["links"] = {
+                        **dict(candidate.get("links") or {}),
+                        "studio_edit": studio_edit,
+                    }
+        except Exception:
+            # Gallery is an optional capability projection.  A malformed
+            # child must not make the established batch cockpit unreadable.
+            pass
     return {"type": "batch_review", "data": data}
 
 

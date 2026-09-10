@@ -149,6 +149,23 @@ def test_published_candidate_prefers_final_video_over_stale_batch_status(tmp_pat
     assert view["selection_block_reason"] is None
 
 
+def test_batch_cockpit_merges_trusted_studio_link(tmp_path: Path, monkeypatch):
+    """An eligible Gallery candidate exposes Studio from its batch preview card."""
+    batch_dir = _batch_root(tmp_path, n=1, statuses=["evaluated"])
+    root = batch_dir.parent
+    _child(root, "cand-01", with_sample=True)
+    child = root / "cand-01"
+    _write(child / "artifacts" / "edit_decisions.json", {"render_runtime": "remotion"})
+    _write(child / "artifacts" / "editorial_timeline.json", {"version": "1.0"})
+    _write(child / "operator" / "editorial" / "asset-catalogue.json", {"version": "1.0"})
+    monkeypatch.setattr(state_mod, "PROJECTS_DIR", root)
+
+    candidate = _data(load_operator_state(batch_dir))["candidates"][0]
+
+    assert candidate["studio_eligibility"]["eligible"] is True
+    assert candidate["links"]["studio_edit"] == "/studio/mix-001/edit/cand-01"
+
+
 def test_candidate_view_exposes_hashes_for_safe_selection(tmp_path: Path, monkeypatch):
     batch_dir = _batch_root(tmp_path, n=1, statuses=["evaluated"])
     root = batch_dir.parent

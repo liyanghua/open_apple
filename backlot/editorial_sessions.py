@@ -210,8 +210,6 @@ class EditorialSessionService:
         if self._path(sid).exists():
             raise OperatorError("revision_conflict", "编辑会话标识已存在", 409)
         pointer = self.store.initialize()
-        if str(timeline.get("base_generation_id") or "") != str(pointer["generation_id"]):
-            raise OperatorError("revision_conflict", "时间轴基座已更新，请重新加载候选", 409)
         catalogue = None
         catalogue_path = self.project_dir / "operator" / "editorial" / "asset-catalogue.json"
         if not catalogue_path.is_file():
@@ -242,6 +240,12 @@ class EditorialSessionService:
             if existing.get("actor_id") != self.actor_id:
                 raise OperatorError("forbidden", "该编辑会话属于其他运营人员", 403)
             return existing
+        # Creating an editorial session is itself a commit, so a browser
+        # revisit sees a newer project generation than the immutable source
+        # timeline.  The exact idempotent request above is safe to reuse; a
+        # genuinely new request must still start from the current base.
+        if str(timeline.get("base_generation_id") or "") != str(pointer["generation_id"]):
+            raise OperatorError("revision_conflict", "时间轴基座已更新，请重新加载候选", 409)
         session: dict[str, Any] = {
             "schema_version": "2.0",
             "session_id": sid,

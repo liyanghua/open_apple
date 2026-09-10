@@ -28,6 +28,37 @@ class EditorialGalleryError(ValueError):
     status_code = 404
 
 
+def _legacy_template_batch(template_batch: Mapping[str, Any], *, project_id: str) -> dict[str, Any]:
+    """Project a pre-V2 template batch into the read-only Gallery contract."""
+    candidates = []
+    for run in template_batch.get("runs") or []:
+        if not isinstance(run, Mapping):
+            continue
+        child_id = str(run.get("project_id") or "")
+        if not child_id:
+            continue
+        run_status = str(run.get("status") or "planned")
+        candidates.append({
+            "candidate_id": child_id,
+            "project_id": child_id,
+            "label": str(run.get("template_id") or child_id),
+            "direction": {"hook": "Source-led 商品混剪"},
+            "status": "evaluated" if run_status in {"completed", "published"} else "planned",
+        })
+    return {
+        "version": "1.0",
+        "batch_id": str(template_batch.get("batch_id") or project_id),
+        "project_id": project_id,
+        "created_at": str(template_batch.get("created_at") or "1970-01-01T00:00:00+00:00"),
+        "shared_research": {"refs": [{"name": "template_batch", "path": "artifacts/template_batch.json"}]},
+        "concurrency": {"max_candidates": max(1, len(candidates)), "max_parallel": 1},
+        "differentiation_axes": {},
+        "candidates": candidates,
+        "selection": {"selected_candidate_ids": [], "reason": ""},
+        "diversity_mode": "legacy_read_only",
+    }
+
+
 def _safe_child_dir(batch_dir: Path, project_id: str) -> Path | None:
     if not isinstance(project_id, str) or not project_id or "/" in project_id or "\\" in project_id:
         return None
@@ -120,8 +151,16 @@ def _candidate_view(batch_dir: Path, view: Mapping[str, Any]) -> dict[str, Any]:
     board = load_board_state(child_dir) if child_dir is not None and snapshot.get("exists") else {}
     stages, gate_statuses = _stages(snapshot)
     runtime = _runtime(board, child_dir)
-    eligible = runtime == SUPPORTED_RUNTIME
-    reason = None if eligible else "unsupported_runtime" if runtime else "runtime_unlocked"
+    timeline_path = child_dir / "artifacts" / "editorial_timeline.json" if child_dir is not None else None
+    catalogue_path = child_dir / "operator" / "editorial" / "asset-catalogue.json" if child_dir is not None else None
+    materialized = bool(timeline_path and timeline_path.is_file() and catalogue_path and catalogue_path.is_file())
+    eligible = runtime == SUPPORTED_RUNTIME and materialized
+    reason = (
+        None if eligible
+        else "unsupported_runtime" if runtime and runtime != SUPPORTED_RUNTIME
+        else "timeline_unavailable" if runtime == SUPPORTED_RUNTIME
+        else "runtime_unlocked"
+    )
     evaluation = (view.get("score") or {}).get("evaluation")
     return {
         "candidate_id": str(view.get("candidate_id") or ""),
@@ -158,6 +197,8 @@ def build_editorial_gallery(project_dir: str | Path) -> dict[str, Any]:
     board = load_board_state(project_dir)
     artifacts = board.get("artifacts") if isinstance(board.get("artifacts"), Mapping) else {}
     batch = artifacts.get("candidate_batch")
+    if not isinstance(batch, Mapping) and isinstance(artifacts.get("template_batch"), Mapping):
+        batch = _legacy_template_batch(artifacts["template_batch"], project_id=project_dir.name)
     if not isinstance(batch, Mapping):
         raise EditorialGalleryError("该项目不是批量项目，无法打开编辑工作室")
     board = dict(board)
@@ -168,7 +209,11 @@ def build_editorial_gallery(project_dir: str | Path) -> dict[str, Any]:
     for view in review.get("candidates") or []:
         enriched = dict(view)
         enriched["_selected_ids"] = selected
-        candidates.append(_candidate_view(project_dir, enriched))
+        candidate = _candidate_view(project_dir, enriched)
+        candidate["links"]["studio_edit"] = (
+            f"/studio/{review.get('batch_id') or project_dir.name}/edit/{candidate['candidate_id']}"
+        )
+        candidates.append(candidate)
     return {
         "schema_version": "1.0",
         "batch_id": str(review.get("batch_id") or project_dir.name),

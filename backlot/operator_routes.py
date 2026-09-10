@@ -186,10 +186,10 @@ def create_operator_router(
         _require_editorial_v2()
         batch_dir = project(project_id)
         try:
-            batch = json.loads((batch_dir / "artifacts" / "candidate_batch.json").read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            gallery = build_editorial_gallery(batch_dir)
+        except EditorialGalleryError as exc:
             raise OperatorError("not_found", "批量项目不存在", 404) from exc
-        candidate = next((item for item in (batch.get("candidates") or []) if isinstance(item, dict) and str(item.get("candidate_id")) == candidate_id), None)
+        candidate = next((item for item in (gallery.get("candidates") or []) if isinstance(item, dict) and str(item.get("candidate_id")) == candidate_id), None)
         if not isinstance(candidate, dict):
             raise OperatorError("not_found", "候选不属于当前批次", 404)
         real_id = str(candidate.get("project_id") or candidate_id)
@@ -206,10 +206,10 @@ def create_operator_router(
         """Locate a session by scanning only candidates declared by the batch."""
         batch_dir = project(project_id)
         try:
-            batch = json.loads((batch_dir / "artifacts" / "candidate_batch.json").read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            gallery = build_editorial_gallery(batch_dir)
+        except EditorialGalleryError as exc:
             raise OperatorError("not_found", "批量项目不存在", 404) from exc
-        for item in (batch.get("candidates") or []):
+        for item in (gallery.get("candidates") or []):
             if not isinstance(item, dict):
                 continue
             candidate_id = str(item.get("candidate_id") or "")

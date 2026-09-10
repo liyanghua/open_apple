@@ -109,6 +109,18 @@ def test_session_is_owned_by_creator_and_draft_save_is_idempotent(tmp_path: Path
     assert forbidden.value.code == "forbidden"
 
 
+def test_reopening_the_same_session_request_survives_its_own_generation_commit(tmp_path: Path) -> None:
+    """A batch-card revisit reuses its exact active Studio session."""
+    project = _project(tmp_path)
+    service = _service(project)
+
+    created = service.create_session(idempotency_key="open-from-batch")
+    reopened = service.create_session(idempotency_key="open-from-batch")
+
+    assert reopened["session_id"] == created["session_id"]
+    assert reopened["base_generation_id"] == created["base_generation_id"]
+
+
 def test_same_idempotency_key_with_different_payload_is_conflict(tmp_path: Path) -> None:
     from backlot.operator_errors import OperatorError
 

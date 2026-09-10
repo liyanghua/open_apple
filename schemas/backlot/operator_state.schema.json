@@ -853,6 +853,30 @@
                     "type": "string"
                   }
                 ]
+              },
+              "studio_eligibility": {
+                "type": "object",
+                "required": [
+                  "eligible",
+                  "runtime",
+                  "reason",
+                  "can_create_v2_session"
+                ],
+                "properties": {
+                  "eligible": {
+                    "type": "boolean"
+                  },
+                  "runtime": {
+                    "$ref": "#/$defs/nullable_string"
+                  },
+                  "reason": {
+                    "$ref": "#/$defs/nullable_string"
+                  },
+                  "can_create_v2_session": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
