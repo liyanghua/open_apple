@@ -98,12 +98,96 @@ function setBadge(text, className) {
   badge.className = `status-badge ${className || ""}`;
 }
 
+function mediaUrlForAsset(asset, clip) {
+  const path = asset?.path || asset?.source_path || asset?.media_path;
+  if (typeof path === "string" && path) {
+    return `/media/${encodeURIComponent(currentSession.project_id)}/${path.split("/").map(encodeURIComponent).join("/")}`;
+  }
+  // Legacy materialization records keep the approved media identity in the
+  // fact scope.  The proxy path is deterministic and remains same-origin;
+  // missing media is intentionally represented as a placeholder by OpenReel.
+  const shotId = String(clip?.fact_scope?.shot_id || "");
+  const match = shotId.match(/shot-(\d+)/);
+  if (match) {
+    return `/media/${encodeURIComponent(currentSession.project_id)}/assets/video/shot-${match[1].padStart(2, "0")}-proxy.mp4`;
+  }
+  return null;
+}
+
+function openReelPayload(session) {
+  const timeline = session?.timeline || {};
+  const catalogue = session?.asset_catalogue || {};
+  const assets = new Map(
+    (catalogue.assets || [])
+      .filter((asset) => asset && asset.asset_id)
+      .map((asset) => [String(asset.asset_id), asset]),
+  );
+  const videoTracks = (timeline.tracks || []).filter((track) => track?.kind === "video");
+  const videoClips = videoTracks.flatMap((track) => track.clips || []);
+  const shotForTime = (time) => {
+    const clip = videoClips.find((item) => {
+      const start = Number(item.start_seconds || 0);
+      const end = Number(item.end_seconds ?? (start + Number(item.source_out_seconds || 0) - Number(item.source_in_seconds || 0)));
+      return time >= start && time < end + 0.001;
+    });
+    return clip?.fact_scope?.shot_id || clip?.id || "";
+  };
+  const mapping = { clips: {}, subtitles: {}, transitions: {} };
+  const tracks = videoTracks.map((track) => ({
+    id: track.id,
+    label: track.id,
+    kind: track.kind,
+    clips: (track.clips || []).map((clip) => {
+      const sourceIn = Number(clip.source_in_seconds || 0);
+      const sourceOut = Number(clip.source_out_seconds || sourceIn);
+      const speed = Number(clip.speed || 1) || 1;
+      const duration = Math.max(0.001, (sourceOut - sourceIn) / speed);
+      const shotId = clip.fact_scope?.shot_id || clip.id;
+      mapping.clips[String(clip.id)] = String(clip.id);
+      return {
+        id: clip.id,
+        shot_id: shotId,
+        enabled: true,
+        start_time: Number(clip.start_seconds || 0),
+        duration,
+        in_point: sourceIn,
+        out_point: sourceOut,
+        speed,
+        media: {
+          url: mediaUrlForAsset(assets.get(String(clip.asset_id)), clip),
+          duration_seconds: sourceOut,
+        },
+      };
+    }),
+  }));
+  const subtitlesTrack = (timeline.tracks || []).find((track) => track?.kind === "subtitle");
+  const subtitles = (subtitlesTrack?.clips || []).map((clip) => {
+    mapping.subtitles[String(clip.id)] = String(clip.id);
+    const start = Number(clip.start_seconds || 0);
+    return {
+      id: clip.id,
+      shot_id: shotForTime(start),
+      text: clip.text || "",
+      start_time: start,
+      end_time: Number(clip.end_seconds || start),
+    };
+  });
+  return {
+    session: {
+      session_id: session.session_id,
+      project_id: session.project_id,
+      candidate_id: session.candidate_id,
+    },
+    snapshot: { mapping, tracks, subtitles },
+  };
+}
+
 function postSnapshotOnce() {
   if (!frame || !frame.contentWindow || !currentSnapshot) return;
   if (snapshotPosted) return;
   snapshotPosted = true;
   frame.contentWindow.postMessage(
-    { kind: "openmontage/snapshot", payload: currentSnapshot },
+    { kind: "openmontage/snapshot", payload: openReelPayload(currentSnapshot) },
     window.location.origin,
   );
 }
@@ -263,7 +347,7 @@ async function boot() {
     byId("candidateTitle").textContent = candidate.label || candidate.candidate_id;
     renderEvidence(candidate);
     byId("versionLine").textContent =
-      `候选版本 ${currentSnapshot.session.child_revision} · 会话 ${session.session_id}`;
+      `候选版本 ${candidate.child_revision || currentSnapshot.child_revision || currentSnapshot.timeline?.base_generation_id || "当前"} · 会话 ${session.session_id}`;
     setBadge("会话已就绪", "is-active");
     byId("sessionState").textContent = "编辑会话已建立；时间轴材料已加载。";
     renderDraftList();

@@ -112,6 +112,9 @@ def test_editorial_shell_is_same_origin_and_exposes_required_states() -> None:
     assert "fetch(path" in js
     assert "/api/v2/" in js
     assert "http://" not in js and "https://" not in js
+    assert "function openReelPayload" in js
+    assert "currentSnapshot.session.child_revision" not in js
+    assert "openmontage/snapshot" in js
 
 
 def test_editorial_build_manifest_records_pinned_source_license_and_bundle_hash(tmp_path) -> None:
