@@ -19,6 +19,7 @@ let frame = null;
 let flushTimer = null;
 let snapshotPosted = false;
 let pendingSubmission = null;
+let previewFocus = false;
 
 async function csrfToken() {
   if (csrfCache) return csrfCache;
@@ -96,6 +97,45 @@ function setBadge(text, className) {
   const badge = byId("statusBadge");
   badge.textContent = text;
   badge.className = `status-badge ${className || ""}`;
+}
+
+function syncPreviewFocus() {
+  if (!frame?.contentWindow) return;
+  frame.contentWindow.postMessage(
+    { kind: "openmontage/preview-focus", enabled: previewFocus },
+    window.location.origin,
+  );
+}
+
+function setPreviewFocus(enabled) {
+  previewFocus = enabled;
+  shell.classList.toggle("is-preview-focus", enabled);
+  byId("editorSurface").classList.toggle("is-preview-focus", enabled);
+  const button = byId("focusPreview");
+  button.textContent = enabled ? "还原编辑布局" : "⛶ 仅看画面";
+  button.setAttribute("aria-label", enabled ? "还原编辑布局" : "仅看画面");
+  button.title = enabled ? "还原编辑布局" : "仅看画面";
+  byId("exitPreviewFocus").hidden = !enabled;
+  syncPreviewFocus();
+}
+
+async function togglePreviewFullscreen() {
+  const surface = byId("editorSurface");
+  try {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      if (document.exitFullscreen) await document.exitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      setPreviewFocus(false);
+      return;
+    }
+    setPreviewFocus(true);
+    if (surface.requestFullscreen) await surface.requestFullscreen();
+    else if (surface.webkitRequestFullscreen) surface.webkitRequestFullscreen();
+    else setPreviewFocus(true);
+  } catch {
+    // Browser policies can reject fullscreen; the focus mode is still usable.
+    setPreviewFocus(true);
+  }
 }
 
 function mediaUrlForAsset(asset, clip) {
@@ -209,8 +249,12 @@ async function mountOpenReelSurface() {
     frame.title = "OpenReel 时间轴";
     frame.src = OPENREEL_URL;
     frame.setAttribute("sandbox", "allow-scripts allow-same-origin");
+    frame.setAttribute("allowfullscreen", "true");
     frame.setAttribute("data-testid", "openreel-surface");
-    frame.addEventListener("load", postSnapshotOnce);
+    frame.addEventListener("load", () => {
+      postSnapshotOnce();
+      syncPreviewFocus();
+    });
     byId("editorSurface").append(frame);
   } catch {
     // 构建产物未部署：保留 fallback 提示。
@@ -357,6 +401,8 @@ async function boot() {
     byId("sessionState").textContent = "编辑会话已建立；时间轴材料已加载。";
     renderDraftList();
     await mountOpenReelSurface();
+    byId("focusPreview").disabled = false;
+    byId("togglePreviewFullscreen").disabled = false;
     byId("saveDraft").disabled = false;
     byId("discardSession").disabled = false;
     clearNotice();
@@ -370,6 +416,17 @@ window.addEventListener("message", (event) => {
   if (event.origin !== window.location.origin) return;
   if (!frame || event.source !== frame.contentWindow) return;
   const message = event.data || {};
+  if (message.kind === "openreel/focus-bridge-ready") {
+    shell.dataset.focusBridge = "ready";
+    syncPreviewFocus();
+    return;
+  }
+  if (message.kind === "openreel/preview-focus") {
+    shell.dataset.previewFocus = message.enabled ? "active" : "inactive";
+    shell.dataset.previewFocusGrid = message.grid_found ? "found" : "missing";
+    shell.dataset.previewFocusArea = message.grid_area || "";
+    return;
+  }
   if (message.kind === "openreel/ready") {
     byId("sessionState").textContent = "OpenReel 时间轴已同步。";
     return;
@@ -388,5 +445,16 @@ byId("saveDraft").addEventListener("click", flushDraft);
 byId("previewImpact").addEventListener("click", previewImpact);
 byId("discardSession").addEventListener("click", discardSession);
 byId("finalRender").addEventListener("click", renderFinal);
+byId("focusPreview").addEventListener("click", () => setPreviewFocus(!previewFocus));
+byId("exitPreviewFocus").addEventListener("click", () => setPreviewFocus(false));
+byId("togglePreviewFullscreen").addEventListener("click", togglePreviewFullscreen);
+document.addEventListener("fullscreenchange", () => {
+  const active = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+  byId("togglePreviewFullscreen").textContent = active ? "退出全屏" : "全屏预览";
+  if (!active && previewFocus) setPreviewFocus(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && previewFocus && !document.fullscreenElement) setPreviewFocus(false);
+});
 
 boot();

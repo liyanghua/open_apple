@@ -115,6 +115,15 @@ def test_editorial_shell_is_same_origin_and_exposes_required_states() -> None:
     assert "function openReelPayload" in js
     assert "currentSnapshot.session.child_revision" not in js
     assert "openmontage/snapshot" in js
+    assert 'id="focusPreview"' in html
+    assert 'id="togglePreviewFullscreen"' in html
+    assert 'id="exitPreviewFocus"' in html
+    assert "function setPreviewFocus" in js
+    assert "function togglePreviewFullscreen" in js
+    openreel_html = (root / "editorial-editor" / "openreel" / "index.html").read_text(encoding="utf-8")
+    focus_bridge = (root / "editorial-editor" / "openreel" / "openmontage-focus-bridge.js").read_text(encoding="utf-8")
+    assert "openmontage-focus-bridge.js" in openreel_html
+    assert "openmontage/preview-focus" in js + focus_bridge
 
 
 def test_editorial_build_manifest_records_pinned_source_license_and_bundle_hash(tmp_path) -> None:

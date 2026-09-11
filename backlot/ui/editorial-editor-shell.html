@@ -21,6 +21,8 @@
           <div id="statusBadge" class="status-badge" aria-live="polite">读取中</div>
         </div>
         <div class="context-actions">
+          <button type="button" id="focusPreview" class="ghost-button" disabled aria-label="仅看画面" title="仅看画面">⛶ 仅看画面</button>
+          <button type="button" id="togglePreviewFullscreen" class="ghost-button" disabled aria-label="全屏预览" title="全屏预览">全屏预览</button>
           <button type="button" id="saveDraft" class="ghost-button" disabled>保存草稿</button>
           <button type="button" id="previewImpact" class="ghost-button" disabled>预览影响</button>
           <button type="button" id="finalRender" class="ghost-button" disabled>生成成片</button>
@@ -33,6 +35,7 @@
 
     <main class="editor-main">
       <section id="editorSurface" class="editor-surface" aria-label="OpenReel 时间轴">
+        <button type="button" id="exitPreviewFocus" class="preview-focus-exit" aria-label="还原编辑布局" title="还原编辑布局" hidden>还原编辑布局</button>
         <div id="editorFallback" class="editor-fallback" data-testid="editor-fallback">
           <p class="muted">正在加载 OpenReel 编辑器…</p>
         </div>
