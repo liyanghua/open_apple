@@ -109,6 +109,11 @@ function mediaUrlForAsset(asset, clip) {
   const shotId = String(clip?.fact_scope?.shot_id || "");
   const match = shotId.match(/shot-(\d+)/);
   if (match) {
+    const sourceAssetId = String(asset?.source_asset_id || "");
+    if (sourceAssetId.startsWith("generated-shotgen-")) {
+      const generatedFile = `${sourceAssetId.slice("generated-".length)}.mp4`;
+      return `/media/${encodeURIComponent(currentSession.project_id)}/assets/video/generated/generate-shot-${match[1].padStart(2, "0")}/${encodeURIComponent(generatedFile)}`;
+    }
     return `/media/${encodeURIComponent(currentSession.project_id)}/assets/video/shot-${match[1].padStart(2, "0")}-proxy.mp4`;
   }
   return null;
