@@ -62,7 +62,10 @@ def test_refresh_status_reflects_completed_scene_plan(tmp_path: Path):
     rp = create_template_run(template, template_pack_ref={"artifact_sha256": "a" * 64, "version": "1.0"},
                              product_facts_ref={"artifact_sha256": facts.get("artifact_sha256", "b" * 64)})
     match_run_plan(template.get("slots") or [], rp)
-    write_artifact_atomic("artifacts/template_run_plan.json", "template_run_plan", rp, project_dir=tmp_path / run_id)
+    from backlot.project_commit import ProjectCommitStore
+    with ProjectCommitStore(tmp_path / run_id).transaction(action={"type": "prepare_test_run_plan"}) as sink:
+        write_artifact_atomic("artifacts/template_run_plan.json", "template_run_plan", rp,
+                              project_dir=tmp_path / run_id, sink=sink)
     advance_run_full(run_id, pipeline_dir=tmp_path, pack=pack)
 
     b = create_template_batch(pack, product_facts_ref={"artifact_sha256": facts.get("artifact_sha256", "b" * 64)})
