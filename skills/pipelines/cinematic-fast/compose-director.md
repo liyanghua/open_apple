@@ -23,6 +23,74 @@ FFmpeg exactly as the cinematic compose director specifies. A runtime failure
 is a blocker: do not silently swap away from the approved engine, and do not
 use `mux_only` when the runtime or visual timeline changed.
 
+## Production-brand mainline (approved towel profile)
+
+Read [the production brand contract](../../meta/production-brand-contract.md)
+before using `renderer_family="production-brand"`. This family is supported
+in the canonical proposal and edit schemas. Lock `render_runtime="remotion"`
+and the reusable `composition_mode="templated"` at proposal; carry those
+choices forward through edit. The branded component's exact font, media,
+word timestamps, captions and title schedule come from the approved final
+props artifact; do not invent a second timeline or mutate canonical edit JSON
+to add render-only props.
+
+Use the normal **`video_compose(operation="render")`** entry. Build its
+`edit_decisions` render payload from a copy of the canonical decisions plus
+the approved `ProductionBrandProps` fields. Keep the runtime and family
+identical to the approved decisions. Pass `project_dir`, `asset_manifest`,
+`proposal_packet`, `render_plan`, `output_path`, and the final script /
+independent narration transcript used by final review. Example orchestration:
+
+```python
+payload = {**canonical_edit_decisions, **approved_brand_props,
+           "renderer_family": canonical_edit_decisions["renderer_family"],
+           "render_runtime": canonical_edit_decisions["render_runtime"]}
+video_compose = registry.get("video_compose")  # registry already discovered at preflight
+result = video_compose.execute({
+    "operation": "render", "project_dir": str(project_dir),
+    "edit_decisions": payload, "asset_manifest": asset_manifest,
+    "proposal_packet": proposal_packet, "render_plan": approved_render_plan,
+    "output_path": str(project_dir / approved_render_plan["output_path"]),
+    "script_text": final_script_text,
+    "narration_transcript_path": str(independent_transcript_path),
+})
+```
+
+`approved_render_plan.mode` must currently be **`full`** and its delivery
+profile dimensions/FPS must match the props. Include every referenced video,
+logo, font and audio file in the asset manifest; references may be manifest
+IDs or project-relative/absolute paths resolving to those entries. The tool
+resolves and stages local media, checks declared content hashes, invokes
+brand preflight and the actual `src/brand/entry.tsx` / `ProductionBrand`
+component, applies delivery pixel-format normalization, and runs existing
+pre-compose and final self-review gates. Failed brand preflight remains in
+`result.data.brand_preflight`; failures cannot silently route to another
+renderer.
+
+For an approved final mixed audio track, keep `render_plan.audio.path/sha256`
+bound to that manifest asset and omit the component's `audio` props; the tool
+muxes that exact track before final review. Alternatively, when the approved
+plan has no external mix, use the component's real `audio.narrationSrc` and
+optional `bgmSrc`. Supplying both paths is rejected to prevent replacing or
+doubling approved audio silently.
+
+The generic `still/window/sample/range/mux_only` adapters, `sample_frames`,
+dimension overrides, subtitle sidecars and generic compose `options` are
+**not supported for this family yet** and fail explicitly. The render-gradient
+instructions below apply only to families with those adapters. Do not bypass
+this limitation by calling low-level `remotion_render` to label a partial
+render as approved mainline output. Existing dedicated local still diagnostics
+may test the component, but cannot count as the missing pipeline adapter or
+production approval. Keep any plan requiring those modes blocked until its
+adapter or an explicit revised full-render plan is approved.
+
+Collect actual browser font-loading/DOM evidence at title/caption changes,
+transition boundaries and the last frame as described in the brand contract.
+The returned `brand_preflight` is source-file preflight, never final visual
+QA; run the normal `final_qa` and specified human final review on the resulting
+file and bind their evidence to its dependencies. A legacy font appearance
+does not certify Microsoft YaHei and cannot unlock strict batch production.
+
 ## Remotion Render Payload Contract (templated / Explainer)
 
 The canonical `edit_decisions` artifact is schema-strict and must NOT be

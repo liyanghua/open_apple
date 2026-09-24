@@ -4,7 +4,7 @@
 // 不含编辑器、草稿、版本历史或影响计算；技术字段只进入“查看制作记录”折叠区。
 // 数据全部来自现有 operator-state 投影与 review API
 // （script_editor / asset_review / sample_review / delivery_review 均为只读事实）。
-import { decideReview } from "./api.js";
+import { decideReview, prepareProductionReview, submitProductionReviewNote } from "./api.js";
 import { parseBatchContext } from "./store.js";
 import {
   STAGE_LABELS,
@@ -117,7 +117,7 @@ function renderTopbar(project, snapshot, model) {
   if (state) {
     const pending = project.pending_review;
     const isCurrent = Boolean(model.reviewGateId && model.selectedStageId === model.reviewGateId);
-    state.textContent = pending && isCurrent
+    state.textContent = selected?.artifacts.some((item) => item.id === "production_reviews") ? selected.status : pending && isCurrent
       ? APPROVAL_COPY.stateAwaiting
       : project.summary?.progress_percent === 100 ? APPROVAL_COPY.stateDone : "制作中";
     state.classList.toggle("is-waiting", pending && isCurrent);
@@ -354,6 +354,11 @@ function renderApprovalMaterials(project, model) {
     container.append(button);
   });
   const note = node("p", "approval-left-note");
+  if (selected.artifacts.some((item) => item.id === "production_reviews")) {
+    note.textContent = "在视频下方分别保存审核意见。";
+    container.append(note);
+    return;
+  }
   note.append(node("strong", "", isCurrent ? "这一步需要你确认" : "这里先只查看"), document.createTextNode(isCurrent
     ? "：点击材料查看详情，右侧确认结果。" : "：需要确认时，回到当前确认。"));
   container.append(note);
@@ -581,6 +586,7 @@ function renderArtifactValue(container, value, depth = 0) {
 // ---------------------------------------------------------------------------
 
 let currentApprovalProjectId = null;
+let currentApprovalCanReview = false;
 
 function hasText(value) {
   return value !== undefined && value !== null && value !== "";
@@ -1251,6 +1257,152 @@ function renderMediaObjectDetail(container, payload) {
   return true;
 }
 
+function renderProductionReviews(container, payload) {
+  container.append(node("p", "approval-detail-copy", "逐条播放并确认当前版本。正式验收、审核意见和自动检查分别保存；人工通过不会补造缺失的检查证据。"));
+  const list = node("div", "production-review-list");
+  (payload.items || []).forEach((item) => {
+    const card = node("section", "approval-detail-group");
+    card.dataset.productionId = item.id;
+    card.append(node("h3", "approval-detail-group-title", `${item.id} · ${item.title}`));
+    if (item.video_url) card.append(mediaVideo(item.video_url, null, `${item.id} 成片预览`));
+    card.append(detailRow("时长", `${item.duration_seconds ?? "—"} 秒`));
+    card.append(detailRow("人工审核", item.review_status));
+    card.append(detailRow("技术检查记录", item.technical_label));
+    card.append(detailRow("历史 alignment 记录", item.alignment_label));
+    card.append(detailRow("历史视觉评分记录", item.judge_label));
+    if (item.quality_label) card.append(detailRow("完整生产认证", item.quality_label));
+    if (item.cost_label) card.append(detailRow("费用记录", item.cost_label));
+    if (item.blocking_checks?.length) {
+      const labels = {file_integrity:"文件完整性",decode:"完整解码",video_profile:"输出规格",duration:"时长",audio_track:"音轨",
+        font_identity:"指定字体",text_layout:"文字布局",dependency_integrity:"依赖版本",fact_source:"商品事实来源",
+        product_identity:"商品一致性",narration_content:"独立口播核验",caption_alignment:"字幕对应",visual_continuity:"转场连续性"};
+      card.append(detailRow("待补检查", item.blocking_checks.map(id => labels[id] || id).join("、")));
+    }
+    const notes = node("div", "approval-detail-list");
+    (item.notes || []).forEach((note) => notes.append(node("p", "approval-detail-copy", note.note)));
+    card.append(notes);
+    if (item.video_url && currentApprovalCanReview) {
+      const input = node("textarea", "review-note-input");
+      input.rows = 3;
+      input.maxLength = 4000;
+      input.setAttribute("aria-label", `${item.id} 审核意见`);
+      input.placeholder = "记录时间点和修改要求；正式验收请使用下方按钮。";
+      const submit = node("button", "quiet-button", "保存审核意见");
+      submit.type = "button";
+      const status = node("p", "approval-muted");
+      status.setAttribute("role", "status");
+      const projectId = currentApprovalProjectId;
+      let submission = null;
+      submit.addEventListener("click", async () => {
+        const note = input.value.trim();
+        if (!note) { status.textContent = "请先填写审核意见"; return; }
+        if (!submission || submission.note !== note) submission = { note, key: crypto.randomUUID() };
+        submit.disabled = true;
+        try {
+          await submitProductionReviewNote(projectId, item.version_ref, note, submission.key);
+          notes.append(node("p", "approval-detail-copy", note));
+          input.value = "";
+          submission = null;
+          status.textContent = "审核意见已保存";
+        } catch (error) { status.textContent = error.message || "保存失败，请重试"; }
+        finally { submit.disabled = false; }
+      });
+      card.append(input, submit, status);
+      if (item.final_review?.status !== "approved") {
+        const approve = node("button", "primary-button", "验收当前成片");
+        const reject = node("button", "quiet-button", "退回修改");
+        approve.type = reject.type = "button";
+        const reasonChoice = node("select", "production-review-reason");
+        reasonChoice.setAttribute("aria-label", `${item.id} 退回原因`);
+        [["timing","节奏或口播时长"],["caption_overlap","字幕重叠"],["brand_mismatch","品牌规范"],
+         ["identity_drift","商品不一致"],["unsupported_claim","缺少事实依据"],["repetition","内容雷同"],["artifact","画面或转场异常"]]
+          .forEach(([value, label]) => {const option = node("option", "", label);option.value=value;reasonChoice.append(option);});
+        const decide = async (decision) => {
+          if (decision === "rejected" && !input.value.trim()) {status.textContent="请填写具体修改要求";return;}
+          approve.disabled = reject.disabled = true;
+          try {
+            const review = item.final_review?.status === "awaiting_human" ? item.final_review : await prepareProductionReview(projectId, item.id);
+            await decideReview(projectId, review.review_id, decision, input.value.trim() || "验收当前成片通过", null,
+              review.subject_version, review.subject_hash, decision === "rejected" ? [reasonChoice.value] : null);
+            status.textContent = decision === "approved" ? "当前版本已验收；检查证据仍按实际完成情况显示" : "已退回修改";
+            window.location.reload();
+          } catch (error) {status.textContent=error.message || "验收未保存，请刷新后重试";approve.disabled=reject.disabled=false;}
+        };
+        approve.addEventListener("click", () => decide("approved"));
+        reject.addEventListener("click", () => decide("rejected"));
+        card.append(reasonChoice, approve, reject);
+      }
+    }
+    list.append(card);
+  });
+  container.append(list);
+  return true;
+}
+
+function renderProductionPanorama(container, payload) {
+  const summary = payload.summary || {};
+  const labels = {planned:"计划中",awaiting_assets:"待素材",in_production:"生产中",awaiting_review:"待审核",
+    approved:"已通过",rework:"返工",cancelled:"已取消",deferred:"延期"};
+  const directions = {test_selection:"实测与选购",healing_ritual:"治愈微仪式",relationship_story:"关系微故事",
+    space_play:"空间与玩趣",comment_faq:"真实评论与答疑",transaction:"交易与直播承接"};
+  const money = value => typeof value === "number" ? `¥${value.toFixed(2)}` : "待核实";
+  verdictBanner(container, "info", "原方案 300 条生产全景", `独立合格作品 ${summary.approved_unique || 0} / ${summary.planned || 300}；试点人工验收 ${payload.pilot_review_count || 0} 条，另行统计。`);
+  container.append(node("p", "approval-detail-copy", "保留原三款商品和四周实验安排。试点成片、旧基准引用和重复导出不计新增。W1 校准已解锁类型，其他结构在所属周先过首件。"));
+  const metrics = node("div", "production-panorama-metrics");
+  metrics.append(detailRow("目录估算", money(summary.costs?.estimated_cny)), detailRow("已核实实付", money(summary.costs?.paid_cny)));
+  Object.entries(summary.status_counts || {}).forEach(([key, value]) => metrics.append(detailRow(labels[key] || key, String(value))));
+  container.append(metrics);
+  if (payload.pilot_media_comparison) {
+    const compared = payload.pilot_media_comparison;
+    const fraction = typeof compared.near_frame_fraction === "number" ? `${Math.round(compared.near_frame_fraction*100)}%` : "未测量";
+    container.append(node("p", "approval-detail-copy", `试点实际媒体比较：首三秒${compared.first_three_seconds_repeated ? "重复" : "不完全相同"}；逐秒近似关键帧比例 ${fraction}。这是灰度像素预警，统一背景和品牌层可能相似，仍需结合镜头顺序、口播与内容目的人工判断。两条可在“本批成片审核”并排查看。`));
+  }
+  const filters = node("div", "production-panorama-filters");
+  const selectors = {};
+  const slots = payload.slots || [];
+  [["week","周次"],["sku","商品"],["direction_id","内容方向"],["structure_id","叙事结构"],["status","状态"]].forEach(([key, label]) => {
+    const select = node("select", "production-panorama-filter");
+    select.setAttribute("aria-label", label);
+    const all = node("option", "", `全部${label}`);all.value="";select.append(all);
+    [...new Set(slots.flatMap(row => key === "structure_id" ? [row[key], ...(row.structure_options || [])] : [row[key]]).filter(v => v != null && v !== ""))].sort().forEach(value => {
+      const option = node("option", "", key === "direction_id" ? (directions[value] || value) : key === "status" ? (labels[value] || value) : key === "week" ? `第 ${value} 周` : String(value));
+      option.value=String(value);select.append(option);
+    });
+    selectors[key]=select;filters.append(select);
+  });
+  container.append(filters);
+  const tally = node("p", "approval-muted");
+  const scroll = node("div", "production-panorama-scroll");
+  const table = node("table", "production-panorama-table");
+  const head = node("thead", "");const titles=node("tr", "");
+  ["内容槽位","周 / 商品","方向 / 结构","制作路径","状态","释放条件","费用估算 / 实付","模型 / 渲染 / 人工耗时","审核"].forEach(label=>titles.append(node("th","",label)));
+  head.append(titles);table.append(head);const body=node("tbody", "");table.append(body);scroll.append(table);container.append(tally,scroll);
+  const blockers = {facts_not_approved:"缺已批准商品事实",brand_not_approved:"缺品牌版本",production_budget_not_approved:"缺生产预算批准",
+    recipe_first_article_not_approved:"该结构尚未首件验收",week_not_approved:"周次尚未释放",structure_not_selected:"待选择叙事结构",
+    structure_not_in_w1_calibration:"该结构不属于 W1 校准范围"};
+  const draw = () => {
+    body.replaceChildren();
+    const visible=slots.filter(row=>Object.entries(selectors).every(([key,select])=>!select.value||String(row[key])===select.value||
+      (key === "structure_id" && (row.structure_options || []).includes(select.value))));
+    tally.textContent=`显示 ${visible.length} 条；通过并去重后才计入交付数量。`;
+    visible.forEach(row=>{
+      const tr=node("tr", "");
+      const route={manual:"人工",ai_assisted:"AI 辅助",support:"支持内容"}[row.production_route] || row.production_route || "待确认";
+      const values=[row.content_slot_id,`W${row.week} / ${row.sku}`,`${directions[row.direction_id]||row.direction_id} / ${row.structure_id||(row.structure_options||[]).join("、")||"待定"}`,route,
+        labels[row.status]||row.status,row.release?.ready ? "已具备释放条件" : (row.release?.blockers||[]).map(item=>blockers[item]||item).join("；"),
+        `${money(row.costs?.estimated_cny)} / ${money(row.costs?.paid_cny)}`,
+        ["generation_ms","render_ms","human_work_ms"].map(key=>typeof row.timing?.[key] === "number" ? `${(row.timing[key]/60000).toFixed(1)} 分钟` : "未测量").join(" / ")];
+      values.forEach(value=>tr.append(node("td","",String(value ?? "—"))));
+      const review=node("td", "");
+      if(row.review_url && String(row.review_url).startsWith("/p/")) {const link=node("a","","查看记录");link.href=row.review_url;review.append(link);}
+      else review.textContent="尚未生产";
+      tr.append(review);body.append(tr);
+    });
+  };
+  Object.values(selectors).forEach(select=>select.addEventListener("change",draw));draw();
+  return true;
+}
+
 function renderPictureSoundDetail(container, payload) {
   const list = node("div", "approval-detail-list");
   (payload.tracks || []).forEach((track) => {
@@ -1427,6 +1579,8 @@ const STAGE_DETAIL_READERS = {
   compose_readiness: renderComposeReadinessDetail,
   // 成片
   final_video: renderMediaObjectDetail,
+  production_reviews: renderProductionReviews,
+  production_panorama: renderProductionPanorama,
   picture_sound: renderPictureSoundDetail,
   quality_conclusion: renderQualityConclusionDetail,
   version_history: renderVersionHistoryDetail,
@@ -1486,6 +1640,10 @@ function renderGateCopy(project, model) {
   if (!box) return;
   box.replaceChildren();
   const stage = model.stages.find((item) => item.stageId === model.selectedStageId);
+  if (stage?.artifacts.some((item) => item.id === "production_reviews")) {
+    box.append(node("p", "approval-gate-intro", "本批每条的检查结果展示在视频下方，请逐条核对画面、口播、字幕和转场。"));
+    return;
+  }
   const isCurrent = model.selectedStageId === model.reviewGateId;
   const detail = GATE_DETAILS[model.selectedStageId] || GATE_DETAILS.done;
   const kicker = node("span", "approval-kicker", `${isCurrent ? `第 ${GATE_TO_INDEX[model.selectedStageId] || 1} 次确认` : "制作步骤"} · ${stage?.stageLabel || "制作步骤"}`);
@@ -1908,6 +2066,16 @@ function renderConfirmation(project, model) {
   const selectedStageId = model.selectedStageId;
   const reviewGateId = model.reviewGateId;
   const selectedStage = model.stages.find((stage) => stage.stageId === selectedStageId);
+  if (selectedStage?.artifacts.some((item) => item.id === "production_reviews")) {
+    const box = byId("approval-confirmation");
+    if (box) {
+      box.replaceChildren();
+      box.append(node("h2", "approval-confirm-title", "逐条审核成片"));
+      box.append(node("p", "approval-confirm-intro", "逐条播放并检查画面、声音与字幕。需要修改时保存具体意见；待审核版本使用“验收当前成片”登记正式批准。"));
+      box.append(node("p", "approval-muted", "保存留言不会改变审批状态。已验收版本仍保留独立的机器检查和历史缺口。"));
+    }
+    return;
+  }
   const actionableBase = selectedStageId === reviewGateId && selectedStage?.review?.actionable && hasReviewPermission(project);
   const materialsReady = actionableBase && reviewGateId ? gateMaterialsReady(project, reviewGateId) : true;
   const canAct = actionableBase && materialsReady;
@@ -1975,6 +2143,7 @@ function requestApprovalRefresh(projectId) {
 export function renderApprovalWorkbench(container, project, snapshot) {
   const view = buildApprovalViewModel(project);
   currentApprovalProjectId = project.project_id || project.id || null;
+  currentApprovalCanReview = hasReviewPermission(project);
   const requestedStage = view.stages.find((stage) => stage.stageId === snapshot.selectedStageId);
   const selectedStage = requestedStage || view.stages.find((stage) => stage.stageId === view.reviewGateId) || view.stages[0];
   view.selectedStageId = selectedStage?.stageId || null;

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/content_recipe",
+  "title": "Content Recipe",
+  "description": "需求、内容类型、事实、证据、动作和实验变量的单条视频配方。",
+  "type": "object",
+  "required": ["version", "recipe_id", "sku", "direction_id", "structure_id", "support_type", "content_role", "need_id", "fact_snapshot_ref", "claim_ids", "evidence_ids", "asset_slots", "control_variables"],
+  "properties": {
+    "version": {"type": "string", "const": "1.0"},
+    "recipe_id": {"type": "string", "minLength": 1},
+    "sku": {"type": "string", "minLength": 1},
+    "direction_id": {"type": "string", "enum": ["test_selection", "healing_ritual", "relationship_story", "space_play", "comment_faq", "transaction"]},
+    "structure_id": {"type": "string", "pattern": "^P[1-6]$"},
+    "support_type": {"type": "string", "enum": ["experiment", "trust", "faq", "transaction"]},
+    "content_role": {"type": "string", "enum": ["product_evidence", "life_context", "graphic_support"]},
+    "need_id": {"type": "string", "minLength": 1},
+    "fact_snapshot_ref": {"type": "string", "minLength": 1},
+    "claim_ids": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "evidence_ids": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "visual_action": {"type": "string", "minLength": 1},
+    "asset_slots": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "control_variables": {
+      "type": "object",
+      "required": ["fixed", "variable"],
+      "properties": {
+        "fixed": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "variable": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      },
+      "additionalProperties": false
+    },
+    "allowed_wording": {"type": "array", "items": {"type": "string"}},
+    "forbidden_wording": {"type": "array", "items": {"type": "string"}},
+    "cta": {"type": ["string", "null"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "semantic_sha256": {"type": "string"},
+    "artifact_sha256": {"type": "string"}
+  },
+  "additionalProperties": false
+}

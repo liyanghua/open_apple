@@ -115,7 +115,7 @@ def test_same_product_threshold_fixture_marks_high_similarity_and_distinct() -> 
     assert distinct["status"] == "distinct"
 
 
-def test_fewer_than_two_changed_axes_requires_redesign() -> None:
+def test_fewer_than_three_substantive_axes_requires_redesign() -> None:
     a = _candidate(
         "a", "towel", hook="同一片头", primary_actions=("pour",), actions=("pour",),
         copy="完全不同的口播甲", beats=(50, 50),
@@ -125,16 +125,16 @@ def test_fewer_than_two_changed_axes_requires_redesign() -> None:
         copy="另一套完全不同的口播乙", beats=(20, 30, 50),
     )
     result = compare_candidates(a, b)
-    assert result["differing_axes"] == []
+    assert result["differing_axes"] == ["action_sequence"]
     assert result["status"] == "needs_redesign"
 
 
-def test_cross_product_status_ignores_every_axis_except_hook_and_primary_actions() -> None:
+def test_cross_product_names_and_primary_action_labels_do_not_create_three_axes() -> None:
     a = _candidate("a", "p1", hook="same", primary_actions=("pour",), actions=("pour",), copy="same", beats=(1,), scene_context="x")
     b = _candidate("b", "p2", hook="different", primary_actions=("touch",), actions=("pour",), copy="same", beats=(1,), scene_context="x")
     result = compare_candidates(a, b)
-    assert result["differing_axes"] == ["hook_pattern", "primary_action_keys"]
-    assert result["status"] == "distinct"
+    assert result["differing_axes"] == ["hook_pattern"]
+    assert result["status"] == "needs_redesign"
 
 
 def test_pair_uses_the_stricter_sibling_similarity_budget_for_action_gate() -> None:

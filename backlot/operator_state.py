@@ -982,12 +982,17 @@ def _script_editor(board: Mapping[str, Any]) -> dict[str, Any]:
                 "source": source,
             },
         })
+    # Checkpoint statuses describe workflow gates (for example
+    # ``awaiting_human``), while the editor contract only exposes the
+    # document lifecycle states below. Keep the projection schema-safe.
+    raw_status = _safe_text(script.get("status"), "draft")
+    editor_status = raw_status if raw_status in {"draft", "needs_revision", "approved"} else "draft"
     return {
         "type": "script_editor",
         "data": {
             "script_id": _safe_text(script.get("script_id")),
             "script_version": int(script.get("script_version") or 1),
-            "status": _safe_text(script.get("status"), "draft"),
+            "status": editor_status,
             "duration_seconds": _number(script.get("total_duration_seconds")),
             "sections": sections,
         },
@@ -2323,6 +2328,20 @@ def _delivery_editor(
     # The publish stage shares this review workbench but additionally surfaces
     # the delivery package: publish_log entries, copy metadata and delivery
     # notes. Compose keeps the review-only surface.
+    if stage_name == "compose" and board.get("_project_dir"):
+        from backlot.production_review_items import production_review_items
+
+        items = production_review_items(
+            Path(board["_project_dir"]), _artifact(board, "production_review_index"),
+            board.get("review_notes") or [],
+        )
+        if items:
+            data["production_reviews"] = items
+        from backlot.campaign_production import campaign_production_panorama
+
+        panorama = campaign_production_panorama(Path(board["_project_dir"]), _artifact(board, "production_campaign_index"))
+        if panorama:
+            data["production_panorama"] = panorama
     if stage_name == "publish":
         publish_log = _artifact(board, "publish_log")
         entries = []

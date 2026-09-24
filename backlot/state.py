@@ -231,6 +231,8 @@ def _build_stage_rail(
 # ---------------------------------------------------------------------------
 
 ARTIFACT_FILES = {
+    "production_review_index": "production_review_index.json",
+    "production_campaign_index": "production_campaign_index.json",
     "research_brief": "research_brief.json",
     "video_analysis_brief": "video_analysis_brief.json",
     "source_media_review": "source_media_review.json",

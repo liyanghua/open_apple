@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/campaign_plan",
+  "title": "Campaign Plan",
+  "description": "300条内容计划的批次根契约；slot是交付计数单位，pilot_count属于target_count而不是额外产量。",
+  "type": "object",
+  "required": [
+    "version",
+    "campaign_id",
+    "plan_revision",
+    "target_count",
+    "pilot_count",
+    "status",
+    "slots"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "campaign_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "plan_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "target_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "pilot_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "approved",
+        "pilot",
+        "active",
+        "paused",
+        "completed"
+      ]
+    },
+    "fact_snapshot_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "wave_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "slots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "content_slot_id",
+          "week",
+          "direction_id",
+          "support_type",
+          "sku",
+          "status"
+        ],
+        "properties": {
+          "content_slot_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "week": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "direction_id": {
+            "type": "string",
+            "enum": [
+              "test_selection",
+              "healing_ritual",
+              "relationship_story",
+              "space_play",
+              "comment_faq",
+              "transaction"
+            ]
+          },
+          "structure_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "support_type": {
+            "type": "string",
+            "enum": [
+              "experiment",
+              "trust",
+              "faq",
+              "transaction"
+            ]
+          },
+          "sku": {
+            "type": "string",
+            "minLength": 1
+          },
+          "product_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "item_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fact_snapshot_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recipe_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content_version_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_group": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_angle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "changed_variable": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "claim_mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "required_evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "in_progress",
+              "awaiting_human",
+              "approved",
+              "completed",
+              "blocked",
+              "cancelled",
+              "skipped"
+            ]
+          },
+          "experiment_family_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "matched_brief_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "baseline_slot_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "production_route": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "original_slot": {
+            "type": "boolean"
+          },
+          "structure_options": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "P1",
+                "P2",
+                "P3",
+                "P4",
+                "P5",
+                "P6"
+              ]
+            },
+            "uniqueItems": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "quotas": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "budget_ref": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "semantic_sha256": {
+      "type": "string"
+    },
+    "artifact_sha256": {
+      "type": "string"
+    },
+    "origin": {
+      "type": "string"
+    },
+    "source_revision": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

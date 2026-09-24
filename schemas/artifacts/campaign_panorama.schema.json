@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/campaign_panorama",
+  "title": "Read-only campaign panorama",
+  "type": "object",
+  "required": [
+    "version",
+    "campaign_id",
+    "target_count",
+    "slots",
+    "summary",
+    "by_week",
+    "by_sku",
+    "by_direction",
+    "by_structure",
+    "coverage",
+    "release_prerequisites",
+    "excluded_records"
+  ],
+  "properties": {
+    "pilot_review_count": {"type": "integer", "minimum": 0},
+    "pilot_media_comparison": {"type": "object"},
+    "version": {
+      "const": "1.0"
+    },
+    "campaign_id": {
+      "type": "string"
+    },
+    "plan_revision": {
+      "type": "integer"
+    },
+    "target_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "slots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "content_slot_id",
+          "status",
+          "counted",
+          "verification_status",
+          "counting_exclusions",
+          "costs",
+          "timing",
+          "release",
+          "human_review_required"
+        ],
+        "properties": {
+          "status": {
+            "enum": [
+              "planned",
+              "awaiting_assets",
+              "in_production",
+              "awaiting_review",
+              "approved",
+              "rework",
+              "cancelled",
+              "deferred"
+            ]
+          },
+          "counted": {
+            "type": "boolean"
+          },
+          "verification_status": {
+            "enum": [
+              "verified",
+              "unverified"
+            ]
+          },
+          "human_review_required": {
+            "const": true
+          },
+          "costs": {
+            "type": "object",
+            "required": [
+              "estimated_cny",
+              "paid_cny"
+            ],
+            "properties": {
+              "estimated_cny": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "paid_cny": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "summary": {
+      "type": "object"
+    },
+    "by_week": {
+      "type": "object"
+    },
+    "by_sku": {
+      "type": "object"
+    },
+    "by_direction": {
+      "type": "object"
+    },
+    "by_structure": {
+      "type": "object"
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "release_prerequisites": {
+      "type": "object"
+    },
+    "excluded_records": {
+      "type": "array"
+    },
+    "path_cost_comparison": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

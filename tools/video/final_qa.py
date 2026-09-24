@@ -198,6 +198,10 @@ class FinalQA(BaseTool):
             },
         }
         report = {"version": "2.0", "output_path": str(path), "status": status, "checks": checks, "issues_found": issues, "recommended_action": "present_to_user" if status == "pass" else "re_render"}
+        from lib.production_evidence import file_sha256
+
+        report["metadata"] = {"review_scope": "technical_and_caption_geometry", "media_sha256": file_sha256(path),
+                              "independent_narration_checked": False, "certification_eligible": False}
         output = inputs.get("output_path")
         if output:
             Path(output).parent.mkdir(parents=True, exist_ok=True); Path(output).write_text(json.dumps(report, ensure_ascii=False, indent=2))

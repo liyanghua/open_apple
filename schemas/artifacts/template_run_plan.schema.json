@@ -24,6 +24,20 @@
       "properties": { "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
       "additionalProperties": false
     },
+    "campaign_content_ref": {
+      "type": ["object", "null"],
+      "properties": {
+        "campaign_id": {"type": "string", "minLength": 1},
+        "content_slot_id": {"type": "string", "minLength": 1},
+        "content_version_id": {"type": "string", "minLength": 1},
+        "direction_id": {"type": "string", "minLength": 1},
+        "structure_id": {"type": "string", "pattern": "^P[1-6]$"},
+        "support_type": {"type": "string", "enum": ["experiment", "trust", "faq", "transaction"]},
+        "recipe_id": {"type": "string", "minLength": 1}
+      },
+      "required": ["campaign_id", "content_slot_id", "content_version_id", "direction_id", "structure_id", "support_type", "recipe_id"],
+      "additionalProperties": false
+    },
     "adaptation_policy": { "type": "string", "description": "改编策略（如 proof-first / pain-first / story），由模板表达或人工指定" },
     "differentiation_plan_ref": { "type": ["object", "null"], "required": ["name", "path", "artifact_sha256"], "properties": {"name": {"type": "string", "const": "differentiation_plan"}, "path": {"type": "string", "pattern": "^artifacts/[^.].*\\.json$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "additionalProperties": false },
     "slot_bindings": {

@@ -33,6 +33,19 @@
     "creative_control_ref": {
       "$ref": "#/$defs/creative_control_ref"
     },
+    "content_context": {
+      "type": "object",
+      "properties": {
+        "direction_id": {"type": "string", "enum": ["test_selection", "healing_ritual", "relationship_story", "space_play", "comment_faq", "transaction"]},
+        "structure_id": {"type": "string", "pattern": "^P[1-6]$"},
+        "support_type": {"type": "string", "enum": ["experiment", "trust", "faq", "transaction"]},
+        "need_id": {"type": "string", "minLength": 1},
+        "content_role": {"type": "string", "enum": ["product_evidence", "life_context", "graphic_support"]},
+        "recipe_id": {"type": "string", "minLength": 1}
+      },
+      "required": ["direction_id", "structure_id", "support_type", "need_id", "content_role", "recipe_id"],
+      "additionalProperties": false
+    },
     "title": {
       "type": "string"
     },

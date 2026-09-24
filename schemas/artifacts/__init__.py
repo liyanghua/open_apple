@@ -26,6 +26,7 @@ ARTIFACT_NAMES = [
     "publish_log",
     "review",
     "cost_log",
+    "production_record",
     "decision_log",
     "source_media_review",
     "final_review",
@@ -77,6 +78,13 @@ ARTIFACT_NAMES = [
     "human_ab_review",
     "editorial_timeline",
     "editorial_edit_delta",
+    "campaign_plan",
+    "campaign_panorama",
+    "content_recipe",
+    "fact_snapshot",
+    "campaign_content_link",
+    "campaign_content_links",
+    "motion_generation_task",
 ]
 
 
@@ -242,6 +250,26 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
                     raise jsonschema.ValidationError(
                         "product capture volatile exclusion count does not match captured facts"
                     )
+    elif name in {"campaign_plan", "content_recipe", "fact_snapshot", "motion_generation_task"}:
+        # Cross-field business invariants are checked here as well as by the
+        # convenience builders, so direct artifact writes remain fail-closed.
+        from lib.campaign_contracts import (
+            validate_campaign_plan_semantics,
+            validate_content_recipe_semantics,
+            validate_fact_snapshot_semantics,
+            validate_motion_task_semantics,
+        )
+
+        validators = {
+            "campaign_plan": validate_campaign_plan_semantics,
+            "content_recipe": validate_content_recipe_semantics,
+            "fact_snapshot": validate_fact_snapshot_semantics,
+            "motion_generation_task": validate_motion_task_semantics,
+        }
+        try:
+            validators[name](data)
+        except ValueError as exc:
+            raise jsonschema.ValidationError(str(exc)) from exc
     elif name == "reference_source_matrix":
         matrix_mode = data.get("matrix_mode", "reference")
         for row in data.get("rows", []):

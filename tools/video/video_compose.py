@@ -1012,6 +1012,7 @@ class VideoCompose(BaseTool):
         "presenter": "TalkingHead",
         "animation-first": "Explainer",
         "editorial-timeline": "EditorialTimeline",
+        "production-brand": "ProductionBrand",
     }
 
     @classmethod
@@ -1117,12 +1118,12 @@ class VideoCompose(BaseTool):
         """
 
         staged_by_source: dict[Path, str] = {}
-        media_keys = {"source", "src", "backgroundSrc"}
+        media_keys = {"source", "src", "backgroundSrc", "logoSrc", "narrationSrc", "bgmSrc"}
 
         def visit(node: Any, parent_key: str | None = None) -> Any:
             if isinstance(node, dict):
                 for key, child in list(node.items()):
-                    node[key] = visit(child, key)
+                    node[key] = visit(child, "src" if parent_key == "footage" else key)
                 return node
             if isinstance(node, list):
                 for index, child in enumerate(node):
@@ -1810,6 +1811,10 @@ class VideoCompose(BaseTool):
         The agent should pass edit_decisions, asset_manifest, and optionally
         profile, subtitle_path, audio_path, and options.
         """
+        if (inputs.get("edit_decisions") or {}).get("renderer_family") == "production-brand":
+            for key in ("sample_payload", "editorial_timeline"):
+                if inputs.get(key) is not None:
+                    return ToolResult(success=False, error=f"production-brand does not support {key}; pass its approved full render payload")
         sample_payload = inputs.get("sample_payload")
         if sample_payload is not None:
             if not isinstance(sample_payload, dict):
@@ -1872,6 +1877,12 @@ class VideoCompose(BaseTool):
                     f"render_runtime must be set at proposal stage."
                 ),
             )
+
+        # Brand props are a different timeline contract from generic cuts. Route
+        # only after resolving the locked runtime, and before generic partial
+        # render adapters can silently substitute another entry or dimensions.
+        if edit_decisions.get("renderer_family") == "production-brand":
+            return self._render_production_brand(inputs, edit_decisions)
 
         render_plan = inputs.get("render_plan")
         if isinstance(render_plan, dict) and render_plan.get("mode") == "mux_only":
@@ -2101,6 +2112,140 @@ class VideoCompose(BaseTool):
                 )
 
         return render_result
+
+    def _render_production_brand(self, inputs: dict[str, Any], edit_decisions: dict[str, Any]) -> ToolResult:
+        """Full branded rendering through the same media, preflight and QA gates."""
+        if edit_decisions.get("render_runtime", "").strip().lower() != "remotion":
+            return ToolResult(success=False, error="production-brand requires the approved render_runtime='remotion'; runtime substitution is forbidden")
+        plan = inputs.get("render_plan")
+        if not isinstance(plan, dict) or plan.get("mode") != "full":
+            return ToolResult(success=False, error="production-brand currently supports only an approved render_plan.mode='full'; still/window/sample/range/mux_only are unsupported")
+        for key in ("sample_frames", "remotion_width", "remotion_height", "subtitle_path"):
+            if inputs.get(key) is not None:
+                return ToolResult(success=False, error=f"production-brand full render does not support {key}; revise the approved props instead")
+        if inputs.get("options"):
+            return ToolResult(success=False, error="production-brand does not support generic compose options; use its explicit props contract")
+        proposal_plan = (inputs.get("proposal_packet") or {}).get("production_plan") or {}
+        proposal_runtime = proposal_plan.get("render_runtime")
+        if proposal_runtime and proposal_runtime.strip().lower() != "remotion":
+            return ToolResult(success=False, error="production-brand runtime differs from the approved proposal render_runtime")
+        if proposal_plan.get("renderer_family") not in (None, "production-brand"):
+            return ToolResult(success=False, error="production-brand differs from the approved proposal renderer_family")
+        if edit_decisions.get("composition_mode") not in (None, "templated") or proposal_plan.get("composition_mode") not in (None, "templated"):
+            return ToolResult(success=False, error="production-brand requires the approved templated composition_mode; atelier is a different contract")
+        project_dir = Path(inputs["project_dir"]).resolve() if inputs.get("project_dir") else self._infer_project_dir(inputs)
+        if project_dir is None:
+            return ToolResult(success=False, error="production-brand requires project_dir to resolve its approved media")
+        manifest = inputs.get("asset_manifest")
+        if not isinstance(manifest, dict) or not isinstance(manifest.get("assets"), list) or not manifest["assets"]:
+            return ToolResult(success=False, error="asset_manifest required for production-brand render")
+        try:
+            from lib.media_profiles import get_profile
+            profile_name = plan.get("profile")
+            if not profile_name:
+                raise ValueError("production-brand render_plan.profile is required")
+            for supplied in (inputs.get("profile"), inputs.get("output_profile")):
+                if supplied and supplied != profile_name:
+                    raise ValueError("delivery profile conflicts with approved render_plan.profile")
+            delivery = get_profile(profile_name)
+            if any(edit_decisions.get(key) != getattr(delivery, key) for key in ("width", "height", "fps")):
+                raise ValueError("production-brand props dimensions/fps differ from approved render_plan.profile")
+            if inputs.get("pixel_format") and inputs["pixel_format"] != delivery.pixel_format:
+                raise ValueError("pixel_format conflicts with approved delivery profile")
+
+            assets = manifest["assets"]
+            by_id = {a["id"]: a for a in assets}
+            if len(by_id) != len(assets):
+                raise ValueError("asset_manifest ids must be unique")
+            by_path = {(project_dir / a["path"]).resolve(): a for a in assets}
+
+            def resolve_media(reference: str) -> str:
+                if not isinstance(reference, str) or not reference:
+                    raise ValueError("production-brand media references must be nonempty local paths or manifest ids")
+                entry = by_id.get(reference)
+                path = (project_dir / (entry["path"] if entry else reference)).resolve()
+                entry = entry or by_path.get(path)
+                if entry is None:
+                    raise ValueError(f"production-brand media not registered in asset_manifest: {reference}")
+                if not path.is_file():
+                    raise ValueError(f"production-brand media file missing: {reference}")
+                expected_hash = entry.get("source_content_sha256")
+                if expected_hash:
+                    # Proxy manifests retain the original source's hash; it is
+                    # not a hash of the derived proxy stored at entry.path.
+                    hash_path = (project_dir / entry.get("source_path", str(path))).resolve()
+                    digest = hashlib.sha256()
+                    with hash_path.open("rb") as handle:
+                        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                            digest.update(chunk)
+                    if digest.hexdigest() != expected_hash:
+                        raise ValueError(f"production-brand manifest media hash mismatch: {reference}")
+                return str(path)
+
+            props = json.loads(json.dumps(edit_decisions))
+            props["footage"] = {key: resolve_media(ref) for key, ref in props["footage"].items()}
+            props["logoSrc"] = resolve_media(props["logoSrc"])
+            for font in props.get("profile", {}).get("font", {}).get("files") or []:
+                font["path"] = resolve_media(font["path"])
+                font["src"] = font["path"]
+            for key in ("narrationSrc", "bgmSrc"):
+                if (props.get("audio") or {}).get(key):
+                    props["audio"][key] = resolve_media(props["audio"][key])
+            external_audio = inputs.get("audio_path") or (plan.get("audio") or {}).get("path")
+            if external_audio:
+                if props.get("audio"):
+                    raise ValueError("production-brand cannot combine internal audio props with an external approved mix; supply one audio path")
+                external_audio = resolve_media(external_audio)
+                planned_audio = plan.get("audio") or {}
+                if planned_audio.get("path") and external_audio != resolve_media(planned_audio["path"]):
+                    raise ValueError("audio_path conflicts with approved render_plan.audio")
+                if planned_audio.get("sha256") and hashlib.sha256(Path(external_audio).read_bytes()).hexdigest() != planned_audio["sha256"]:
+                    raise ValueError("approved render_plan audio hash mismatch")
+            raw_output = inputs.get("output_path") or plan.get("output_path")
+            if not raw_output:
+                raise ValueError("production-brand requires an explicit output_path")
+            output_path = (project_dir / raw_output).resolve()
+            if plan.get("output_path") and output_path != (project_dir / plan["output_path"]).resolve():
+                raise ValueError("output_path conflicts with approved render_plan.output_path")
+            if output_path in by_path:
+                raise ValueError("production-brand output must not overwrite a manifest source")
+
+            fps = props["fps"]
+            resolved_cuts = [{"id": scene["id"], "type": "video", "source": props["footage"][scene["footageKey"]],
+                "in_seconds": scene["fromFrame"] / fps, "out_seconds": (scene["fromFrame"] + scene["durationInFrames"]) / fps,
+                "source_in_seconds": scene["sourceInSeconds"], "playback_rate": scene["playbackRate"]}
+                for scene in props["scenes"]]
+        except (KeyError, TypeError, ValueError, AttributeError, OSError, ZeroDivisionError) as exc:
+            return ToolResult(success=False, error=f"production-brand render contract: {exc}")
+
+        review_decisions = dict(props, cuts=resolved_cuts, caption_render_mode="remotion_overlay")
+        validation = self._pre_compose_validation(review_decisions, resolved_cuts, inputs.get("scene_plan"))
+        if validation is not None:
+            return validation
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        result = self._remotion_render({**inputs, "edit_decisions": props, "project_dir": str(project_dir),
+                                       "profile": profile_name, "output_path": str(output_path)})
+        if not result.success:
+            return result  # Preserve structured brand_preflight failure evidence.
+        if not output_path.is_file():
+            return ToolResult(success=False, data=result.data, error="production-brand render output is missing")
+        result.data = result.data or {}
+        if self._normalize_render_to_profile(output_path, profile_name):
+            result.data["post_encode"] = True
+        if external_audio:
+            mux = self._mux_external_audio(output_path, external_audio)
+            if not mux.success:
+                return mux
+            result.data["has_mixed_audio"] = True
+        review = self._run_final_review(output_path, review_decisions, inputs.get("proposal_packet"),
+            narration_transcript_path=inputs.get("narration_transcript_path"),
+            script_text=inputs.get("script_text") or self._read_text_file(inputs.get("script_path")))
+        result.data.update({"render_mode": "full", "render_plan_hash": plan.get("semantic_sha256"),
+                            "final_review": review, "final_review_status": review["status"]})
+        if review["status"] == "fail":
+            return ToolResult(success=False, data=result.data, artifacts=result.artifacts,
+                              error="Post-render self-review FAILED (production-brand): " + "; ".join(review.get("issues_found", [])))
+        return result
 
     def _render_framed_window(
         self, inputs: dict[str, Any], render_plan: dict[str, Any], *, mode: str
@@ -2939,6 +3084,18 @@ class VideoCompose(BaseTool):
 
         # Deep-copy props so we don't mutate the original
         props = json.loads(json.dumps(composition_data))
+        media_project_dir = Path(inputs["project_dir"]).resolve() if inputs.get("project_dir") else self._infer_project_dir(inputs)
+        brand_preflight = None
+        if composition_data.get("renderer_family") == "production-brand":
+            from lib.production_brand import preflight_production_brand
+
+            brand_preflight = preflight_production_brand(props.get("profile") or {}, props,
+                project_dir=media_project_dir or Path.cwd())
+            if brand_preflight.get("status") == "blocked":
+                return ToolResult(success=False, data={"brand_preflight": brand_preflight},
+                                  error="Production brand preflight blocked rendering; inspect font, layout and speech checks")
+            for font in (props.get("profile", {}).get("font", {}).get("files") or []):
+                font["src"] = font["path"]
 
         # Build a custom themeConfig from the playbook's actual colors.
         # This ensures every video gets a unique visual identity derived
@@ -3014,19 +3171,19 @@ class VideoCompose(BaseTool):
             cleanup_public_dir = True
 
         staged_count = self._stage_remotion_media(
-            props, public_dir, project_dir=self._infer_project_dir(inputs)
+            props, public_dir, project_dir=media_project_dir
         )
         if not staged_count and cleanup_public_dir:
             public_dir = None
 
         # Write the fully adapted/staged props, never the original cut payload.
-        props_path = output_path.parent / ".remotion_props.json"
+        props_path = output_path.parent / f".remotion_props-{output_path.stem}-{time.time_ns()}.json"
         with open(props_path, "w", encoding="utf-8") as f:
             json.dump(props, f)
 
         cmd = [
             "npx", "remotion", "render",
-            str(composer_dir / "src" / "index.tsx"),
+            str(composer_dir / "src" / ("brand/entry.tsx" if composition_id == "ProductionBrand" else "index.tsx")),
             composition_id,
             str(output_path),
             # Use the `--props=<path>` equals form rather than two separate
@@ -3133,6 +3290,7 @@ class VideoCompose(BaseTool):
                 "output": str(output_path),
                 "profile": profile_name,
                 "staged_media_count": staged_count,
+                **({"brand_preflight": brand_preflight} if brand_preflight is not None else {}),
             },
             artifacts=[str(output_path)],
         )
@@ -3173,8 +3331,7 @@ class VideoCompose(BaseTool):
 
         # Preserve hyphenated words as single tokens ("many-worlds" -> "many-worlds").
         # Drop everything except letters, digits, hyphens, apostrophes.
-        cleaned = re.sub(r"[^A-Za-z0-9\-' ]+", " ", text.lower())
-        return [t for t in cleaned.split() if t and t != "-"]
+        return re.findall(r"[\u3400-\u9fff]|[a-z0-9]+(?:[-'][a-z0-9]+)*", text.lower())
 
     @classmethod
     def _compare_transcript_to_script(
@@ -3201,6 +3358,7 @@ class VideoCompose(BaseTool):
         silently quiet on this contract.
         """
         result: dict[str, Any] = {
+            "status": "not_run",
             "transcript_matches_script": False,
             "word_accuracy": None,
             "script_word_count": 0,
@@ -3223,6 +3381,7 @@ class VideoCompose(BaseTool):
         try:
             transcript_data = json.loads(Path(transcript_path).read_text(encoding="utf-8"))
         except Exception as e:
+            result["status"] = "error"
             result["issues"].append(f"transcript_comparison could not parse transcript: {e}")
             return result
 
@@ -3236,6 +3395,7 @@ class VideoCompose(BaseTool):
         result["transcript_word_count"] = len(transcript_tokens)
 
         if not script_tokens or not transcript_tokens:
+            result["status"] = "error"
             result["issues"].append(
                 f"transcript_comparison: empty token set "
                 f"(script={len(script_tokens)}, transcript={len(transcript_tokens)})"
@@ -3264,15 +3424,16 @@ class VideoCompose(BaseTool):
                 f"em-dashes, etc.) and regenerate narration."
             )
 
-        # --- Word accuracy via set overlap (cheap & ordering-insensitive) ---
-        # We don't penalize small word-order differences or minor TTS
-        # hallucinations; we just want to know "did 90%+ of the script's
-        # content make it into the audio." Using set overlap on the script
-        # side is robust to transcription noise.
-        matched = sum(1 for t in script_tokens if t in set(transcript_tokens))
-        accuracy = matched / max(1, len(script_tokens))
+        # Preserve spoken order and multiplicity, including Chinese characters.
+        # English-only tokenization can falsely pass an otherwise missing
+        # Mandarin script as long as the brand name was spoken.
+        from difflib import SequenceMatcher
+
+        matched = sum(block.size for block in SequenceMatcher(None, script_tokens, transcript_tokens, autojunk=False).get_matching_blocks())
+        accuracy = matched / max(1, len(script_tokens), len(transcript_tokens))
         result["word_accuracy"] = round(accuracy, 3)
         result["transcript_matches_script"] = accuracy >= 0.9 and not leak_occurrences
+        result["status"] = "pass" if result["transcript_matches_script"] else "fail"
 
         if accuracy < 0.9:
             result["issues"].append(
@@ -3675,6 +3836,12 @@ class VideoCompose(BaseTool):
         if critical_issues:
             status = "revise"
             recommended_action = "re_render"
+        elif (script_text or narration_transcript_path or audio_spotcheck.get("narration_present")) and transcript_comparison.get("status") != "pass":
+            status = "revise"
+            recommended_action = "verify_narration"
+        elif subtitle_check.get("subtitles_expected") and not subtitle_check.get("subtitles_present"):
+            status = "revise"
+            recommended_action = "verify_captions"
         elif issues:
             status = "pass"
             recommended_action = "present_to_user"

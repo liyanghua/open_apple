@@ -257,10 +257,12 @@ def _compute_control(supports: dict[str, Any]) -> float:
 
 
 def _compute_cost_efficiency(
-    estimated_cost: float,
+    estimated_cost: float | None,
     budget_remaining: float | None,
 ) -> float:
-    """Score cost efficiency. Free is 1.0, over-budget is 0.0."""
+    """Unknown cost earns no affordability credit; free is explicitly zero."""
+    if estimated_cost is None:
+        return 0.0
     if estimated_cost <= 0:
         return 1.0
     if budget_remaining is not None and budget_remaining <= 0:
@@ -416,7 +418,7 @@ def score_provider(tool, task_context: dict[str, Any]) -> ProviderScore:
     try:
         estimated_cost = tool.estimate_cost(task_context)
     except Exception:
-        estimated_cost = 0.0
+        estimated_cost = None
     cost_efficiency = _compute_cost_efficiency(
         estimated_cost, task_context.get("budget_remaining_usd")
     )

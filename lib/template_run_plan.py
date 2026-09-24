@@ -40,6 +40,7 @@ def create_template_run(
     product_facts_ref: Mapping[str, Any],
     adaptation_policy: str = "proof-first",
     differentiation_plan_ref: Mapping[str, Any] | None = None,
+    campaign_content_ref: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """由模板创建 template_run_plan（slot_bindings 初始为 require-binding 的 unbound）。"""
     template_id = str(template.get("template_id") or "")
@@ -62,6 +63,7 @@ def create_template_run(
         "template_id": template_id,
         "template_pack_ref": dict(template_pack_ref),
         "product_facts_ref": dict(product_facts_ref),
+        "campaign_content_ref": dict(campaign_content_ref) if campaign_content_ref else None,
         "adaptation_policy": adaptation_policy,
         "differentiation_plan_ref": dict(differentiation_plan_ref) if differentiation_plan_ref else None,
         "slot_bindings": bindings,
@@ -241,6 +243,9 @@ def check_template_run_plan_ready(
     - 若提供 template：每个 binding 的 slot_id 必须是模板的已知 slot。
     """
     blockers: list[str] = []
+    from lib.campaign_contracts import campaign_content_ref_blockers
+
+    blockers.extend(campaign_content_ref_blockers(run_plan))
     status = str(run_plan.get("status") or "").strip()
     if status != "approved":
         blockers.append(f"template_run_plan 未批准（status={status or '未决'}），禁止付费生成")

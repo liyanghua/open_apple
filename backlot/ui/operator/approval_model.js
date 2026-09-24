@@ -991,6 +991,8 @@ function payloadForArtifact(data, descriptor, status) {
   if (id === "audio_captions") return compactAudioCaptions(data);
   if (id === "compose_readiness") return compactComposeReadiness(data, status);
   if (id === "final_video" || id === "delivery_video") return compactFinalVideo(data);
+  if (id === "production_reviews") return {items: data.production_reviews};
+  if (id === "production_panorama") return data.production_panorama;
   if (id === "picture_sound") return compactPictureSound(data);
   if (id === "quality_conclusion") return compactQualityConclusion(data);
   if (id === "version_history") return compactVersionHistory(data);
@@ -1019,7 +1021,7 @@ function artifactModel(data, descriptor, stageHealth, stageStatus) {
           : Array.isArray(payload?.steps)
             ? `${payload.steps.length} 个步骤，可查看详情`
             : Array.isArray(payload?.items)
-              ? `${payload.items.length} 条素材，可查看详情`
+              ? `${payload.items.length} 条${id === "production_reviews" ? "成片" : "素材"}，可查看详情`
               : Array.isArray(payload?.rows)
                 ? `${payload.rows.length} 个镜头，可查看详情`
                 : Array.isArray(payload?.shots)
@@ -1060,14 +1062,23 @@ export function buildApprovalStages(project = {}) {
     const data = stage.editor?.data && typeof stage.editor.data === "object" ? stage.editor.data : {};
     const status = stageStatus(stage);
     const health = statusHealth(status, data, stage.editor?.type);
-    const descriptors = STAGE_MATERIALS[stageId];
+    const hasProductions = stageId === "compose" && data.production_reviews?.length;
+    const descriptors = hasProductions
+      ? [["production_reviews", "本批成片审核", ["production_reviews"]]]
+      : STAGE_MATERIALS[stageId];
+    const materials = data.production_panorama
+      ? [...descriptors, ["production_panorama", "300 条生产全景", ["production_panorama"]]] : descriptors;
+    const approvedProductions = (data.production_reviews || []).filter(item => item.review_status === "已通过").length;
     return {
       stageId,
       stageLabel: STAGE_LABELS[stageLabelKey(stageId)] || stage.label || "制作步骤",
-      status,
+      status: hasProductions ? (approvedProductions === data.production_reviews.length ? "成片已验收" : "成片可审") : status,
       version: stage.version ?? stage.editor?.version ?? null,
-      summary: stage.summary || (health === "missing" ? "该步骤暂未生成材料" : `${STAGE_LABELS[stageLabelKey(stageId)] || stage.label || "该步骤"}${status}`),
-      artifacts: descriptors.map((descriptor) => artifactModel(data, descriptor, health, status)),
+      summary: hasProductions
+        ? (approvedProductions ? `${approvedProductions}/${data.production_reviews.length} 条成片已验收；自动检查与生产认证分别显示。`
+          : `${data.production_reviews.length} 条成片已提交审核${status !== "已完成" ? "；完整流程记录仍待补齐" : ""}。`)
+        : stage.summary || (health === "missing" ? "该步骤暂未生成材料" : `${STAGE_LABELS[stageLabelKey(stageId)] || stage.label || "该步骤"}${status}`),
+      artifacts: materials.map((descriptor) => artifactModel(data, descriptor, health, status)),
       review: reviewFor(project, stageId, status),
     };
   });

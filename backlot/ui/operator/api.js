@@ -34,6 +34,19 @@ export async function fetchProjectState(projectId) {
   return call(`/api/v2/projects/${encodeURIComponent(projectId)}/operator-state`);
 }
 
+export async function submitProductionReviewNote(projectId, versionRef, note, idempotencyKey) {
+  return call(`/api/v2/projects/${encodeURIComponent(projectId)}/review-notes`, {
+    method: "POST", body: { stage: "compose", version_ref: versionRef, note },
+    mutation: true, headers: { "Idempotency-Key": idempotencyKey },
+  });
+}
+
+export async function prepareProductionReview(projectId, contentSlotId) {
+  return call(`/api/v2/projects/${encodeURIComponent(projectId)}/production-reviews/${encodeURIComponent(contentSlotId)}/prepare`, {
+    method: "POST", body: {}, mutation: true,
+  });
+}
+
 export async function fetchDraft(projectId, stage) {
   return call(`/api/v2/projects/${encodeURIComponent(projectId)}/drafts/${encodeURIComponent(stage)}`);
 }

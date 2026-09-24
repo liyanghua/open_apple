@@ -299,7 +299,14 @@ def test_approval_degraded_states_have_visible_reasons_and_recovery() -> None:
 def test_approval_never_fakes_an_approved_state_after_failed_submit() -> None:
     approval = _read_operator("approval.js")
     app = _read_operator("app.js")
-    assert "已通过" not in approval
+    # Read-only campaign status labels may say 已通过. Submission handlers must
+    # await the server and must not mutate the source record optimistically.
+    assert 'item.review_status = "已通过"' not in approval
+    assert 'item.final_review.status = "approved"' not in approval
+    production = approval.split('const decide = async (decision) => {', 1)[1].split('approve.addEventListener', 1)[0]
+    assert production.index('await decideReview(') < production.index('当前版本已验收')
+    assert 'catch (error)' in production
+    assert '验收未保存' in production
     # 提交后统一回到 app.js 的刷新路径重新拉取快照。
     assert "requestApprovalRefresh" in approval
     assert "approval-refresh-request" in approval

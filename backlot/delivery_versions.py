@@ -124,6 +124,17 @@ class DeliveryVersionService:
                 "output_sha256": output_sha256,
             })
         ).hexdigest()
+        selected = self.manifest(version_id)
+        actual_manifest_hash = hashlib.sha256(_canonical_bytes(selected)).hexdigest()
+        if actual_manifest_hash != manifest_sha256:
+            raise OperatorError("revision_conflict", "所选历史成片版本已变化", 409)
+        video = selected.get("video") or {}
+        output = self._project_file(str(video.get("path") or ""))
+        actual_output_hash = _file_sha256(output)
+        if actual_output_hash != output_sha256 or actual_output_hash != selected.get("video_master_sha256"):
+            raise OperatorError("revision_conflict", "所选历史成片文件校验失败", 409)
+        self.validate_production_evidence(selected)
+
         for directory in sorted(self.store.generations_dir.glob("generation-*"), reverse=True):
             try:
                 manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
@@ -137,15 +148,6 @@ class DeliveryVersionService:
                 raise OperatorError("idempotency_conflict", "该请求标识已用于其他内容", 409)
             return dict(manifest.get("result") or {})
 
-        selected = self.manifest(version_id)
-        actual_manifest_hash = hashlib.sha256(_canonical_bytes(selected)).hexdigest()
-        if actual_manifest_hash != manifest_sha256:
-            raise OperatorError("revision_conflict", "所选历史成片版本已变化", 409)
-        video = selected.get("video") or {}
-        output = self._project_file(str(video.get("path") or ""))
-        actual_output_hash = _file_sha256(output)
-        if actual_output_hash != output_sha256 or actual_output_hash != selected.get("video_master_sha256"):
-            raise OperatorError("revision_conflict", "所选历史成片文件校验失败", 409)
         pointer = {
             "schema_version": "1.0",
             "project_id": self.store.project_id,
@@ -165,6 +167,7 @@ class DeliveryVersionService:
             expected_generation=expected_generation,
         ) as sink:
             # Recheck the files while the ProjectCommitStore lock is held.
+            self.validate_production_evidence(selected)
             if hashlib.sha256(_canonical_bytes(self.manifest(version_id))).hexdigest() != manifest_sha256:
                 raise OperatorError("revision_conflict", "所选历史成片版本已变化", 409)
             if _file_sha256(output) != output_sha256:
@@ -185,6 +188,7 @@ class DeliveryVersionService:
             raise OperatorError.validation_failed("成片版本内容不符合要求")
         if (value.get("qa") or {}).get("status") != "pass":
             raise OperatorError.validation_failed("完整检查通过后才能设为当前成片")
+        self.validate_production_evidence(value)
         version_id = str(value["version_id"])
         manifest_path = self._path(version_id)
         payload = _canonical_bytes(value)
@@ -206,6 +210,7 @@ class DeliveryVersionService:
             audit={"event_type": "delivery_certified", "actor_id": actor_id},
             expected_generation=expected_generation,
         ) as sink:
+            self.validate_production_evidence(value)
             sink.stage_json(
                 f"operator/delivery-versions/{version_id}/manifest.json",
                 value,
@@ -215,3 +220,36 @@ class DeliveryVersionService:
                 "operator/current-delivery.json", pointer, schema="current_delivery"
             )
         return {"version_id": version_id, "manifest_sha256": digest, "status": "certified"}
+
+    def validate_production_evidence(self, manifest: Mapping[str, Any]) -> None:
+        """All new certification paths require live evidence and exact approval.
+
+        Old manifests remain readable; reading a historical version must not
+        manufacture missing checks or upgrade it to the new certification gate.
+        """
+        from backlot.operator_reviews import ReviewService
+        from lib.production_evidence import quality_summary, read_object
+
+        record_path = manifest.get("production_record_path")
+        review_id = manifest.get("final_review_id")
+        if not record_path or not review_id:
+            raise OperatorError.validation_failed("缺少单条生产记录及正式最终审核，不能认证交付")
+        service = ReviewService(self.project_dir)
+        review = service.review_state(str(review_id))
+        if not review or review.get("kind") != "final_review" or review.get("status") != "approved":
+            raise OperatorError.validation_failed("当前成片尚未获得正式最终审核批准")
+        subject = review.get("production_subject") or {}
+        if subject.get("record_path") != record_path:
+            raise OperatorError.validation_failed("最终审核与单条生产记录不匹配")
+        service._validate_final_subject(subject, review["subject_hash"], review["subject_id"])
+        render = subject.get("render") or {}
+        if (render.get("sha256") != manifest.get("video_master_sha256")
+                or render.get("path") != (manifest.get("video") or {}).get("path")):
+            raise OperatorError.validation_failed("最终审核与交付文件不匹配")
+        try:
+            record = read_object(self.project_dir, record_path)
+            summary = quality_summary(self.project_dir, record)
+        except (ValueError, OSError, TypeError) as exc:
+            raise OperatorError.validation_failed("无法验证必要检查证据") from exc
+        if not summary["eligible"]:
+            raise OperatorError.validation_failed("必要检查尚未完成：" + "、".join(summary["blocking_checks"]))

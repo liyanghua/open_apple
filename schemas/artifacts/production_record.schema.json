@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Canonical single-film production record",
+  "type": "object",
+  "required": ["version", "content_slot_id", "provenance", "render", "canonical_artifacts", "quality_report_ref"],
+  "properties": {
+    "version": {"const": "1.0"},
+    "provenance": {"enum": ["canonical", "legacy_import"]},
+    "content_slot_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "work_id": {"type": "string", "minLength": 1},
+    "sku": {"type": "string", "minLength": 1},
+    "campaign_role": {"enum": ["original", "pilot", "reference"]},
+    "production_route": {"enum": ["manual", "ai_assisted", "support"]},
+    "content_version_id": {"type": "string", "minLength": 1},
+    "fact_version": {"type": ["string", "null"]},
+    "brand_version": {"type": ["string", "null"]},
+    "quality_report_ref": {"type": "string", "minLength": 1},
+    "canonical_artifacts": {"type": "object", "additionalProperties": {"type": "string"}},
+    "render": {"type": "object", "required": ["path", "sha256"], "properties": {
+      "path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+      "seconds": {"type": "number", "exclusiveMinimum": 0}}},
+    "timing": {"type": "object", "additionalProperties": {"type": ["number", "null"], "minimum": 0}},
+    "costs": {"type": "object", "properties": {
+      "estimated_cny": {"type": ["number", "null"], "minimum": 0},
+      "paid_cny": {"type": ["number", "null"], "minimum": 0}}}
+  },
+  "allOf": [{"if": {"properties": {"provenance": {"const": "canonical"}}},
+    "then": {"required": ["run_id", "work_id", "sku", "campaign_role", "production_route", "content_version_id", "fact_version", "brand_version", "timing", "costs"]}}]
+}

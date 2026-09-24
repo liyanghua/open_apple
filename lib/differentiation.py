@@ -1,8 +1,8 @@
 """Deterministic batch-level candidate differentiation and deduplication.
 
-The v1 scorer is intentionally dependency-free and reproducible.  It compares
-copy, action coverage, and normalized beat timing, while keeping cross-product
-comparisons limited to the opening hook and primary proof actions.
+The scorer is dependency-free and reproducible. Metrics are advisory: declared
+creative axes and exact asset overlap cannot replace individual human review.
+Controlled experiments must be preregistered and compared to their baseline.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import re
 import math
 import json
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from itertools import zip_longest
 from typing import Any, Iterable, Mapping, Sequence
@@ -48,6 +48,16 @@ class CandidateSignature:
     forbidden_repeats: tuple[str, ...] = ()
     matrix_row_refs: tuple[str, ...] = ()
     sibling_similarity_budget: float = ACTION_THRESHOLD
+    narrative_structure: str = ""
+    evidence_keys: tuple[str, ...] = ()
+    experiment_family_id: str = ""
+    baseline_candidate_id: str = ""
+    preregistered_variable: str = ""
+    registration_ref: str = ""
+    media_segment_ids: tuple[str, ...] = ()
+    first_three_seconds_sha256: str = ""
+    keyframe_sha256s: tuple[str, ...] = ()
+    allowed_changed_fields: tuple[str, ...] = ()
 
 
 def normalize_copy(value: str | None) -> str:
@@ -137,22 +147,74 @@ def _coerce_signature(value: CandidateSignature | Mapping[str, Any]) -> Candidat
         forbidden_repeats=seq("forbidden_repeats"),
         matrix_row_refs=seq("matrix_row_refs"),
         sibling_similarity_budget=float(value.get("sibling_similarity_budget", ACTION_THRESHOLD)),
+        narrative_structure=str(value.get("narrative_structure") or ""),
+        evidence_keys=seq("evidence_keys"),
+        experiment_family_id=str(value.get("experiment_family_id") or ""),
+        baseline_candidate_id=str(value.get("baseline_candidate_id") or ""),
+        preregistered_variable=str(value.get("preregistered_variable") or ""),
+        registration_ref=str(value.get("registration_ref") or ""),
+        media_segment_ids=seq("media_segment_ids"),
+        first_three_seconds_sha256=str(value.get("first_three_seconds_sha256") or ""),
+        keyframe_sha256s=seq("keyframe_sha256s"),
+        allowed_changed_fields=seq("allowed_changed_fields"),
     )
+
+
+def _axis_values(item: CandidateSignature) -> dict[str, Any]:
+    return {
+        "hook_pattern": item.hook_pattern, "scene_context": item.scene_context,
+        "action_sequence": tuple(item.action_keys),
+        "narrative_structure": item.narrative_structure or tuple(item.beat_order),
+        "evidence_keys": tuple(item.evidence_keys),
+    }
 
 
 def _axes(a: CandidateSignature, b: CandidateSignature, *, cross_product: bool = False) -> list[str]:
-    fields = (
-        ("hook_pattern", a.hook_pattern, b.hook_pattern),
-        ("primary_action_keys", tuple(a.primary_action_keys), tuple(b.primary_action_keys)),
-        ("beat_order", tuple(a.beat_order), tuple(b.beat_order)),
-        ("scene_context", a.scene_context, b.scene_context),
-        ("pacing_curve", a.pacing_curve, b.pacing_curve),
-        ("caption_strategy", a.caption_strategy, b.caption_strategy),
-        ("audio_strategy", a.audio_strategy, b.audio_strategy),
+    # Product names, type size, colour, caption/audio style and pacing are not
+    # substantive creative axes. Missing values do not prove a difference.
+    left, right = _axis_values(a), _axis_values(b)
+    return [name for name in left if left[name] and right[name] and left[name] != right[name]]
+
+
+def _experiment_key(item: CandidateSignature) -> tuple[str, ...] | None:
+    values = (item.experiment_family_id, item.baseline_candidate_id, item.preregistered_variable, item.registration_ref)
+    valid_axes = {"hook_pattern", "scene_context", "action_sequence", "narrative_structure", "evidence_keys"}
+    return values if all(values) and item.preregistered_variable in valid_axes else None
+
+
+def _experiment_control_changes(a: CandidateSignature, b: CandidateSignature) -> list[str]:
+    """Preregistration names the exact fields one variable may change.
+
+    Changing one effective axis does not authorize unrelated narration, audio,
+    timing or presentation changes. Optional field allowances must agree with
+    the baseline and stay within that variable's declared implementation.
+    """
+    required = {
+        "hook_pattern": {"hook_pattern"}, "scene_context": {"scene_context"},
+        "action_sequence": {"action_keys", "primary_action_keys"},
+        "narrative_structure": {"narrative_structure", "beat_order"},
+        "evidence_keys": {"evidence_keys", "primary_action_keys"},
+    }
+    related = {
+        "hook_pattern": {"copy_text", "first_three_seconds_sha256", "media_segment_ids", "keyframe_sha256s"},
+        "scene_context": {"media_segment_ids", "keyframe_sha256s"},
+        "action_sequence": {"media_segment_ids", "keyframe_sha256s"},
+        "narrative_structure": {"copy_text", "beat_durations"},
+        "evidence_keys": {"copy_text", "media_segment_ids", "keyframe_sha256s"},
+    }
+    variable = a.preregistered_variable
+    allowed = required.get(variable, set())
+    requested = set(a.allowed_changed_fields)
+    if requested != set(b.allowed_changed_fields) or not requested <= allowed | related.get(variable, set()):
+        return ["registration_field_allowances_mismatch"]
+    allowed = allowed | requested
+    controls = (
+        "product_id", "hook_pattern", "primary_action_keys", "action_keys", "copy_text",
+        "beat_durations", "beat_order", "scene_context", "pacing_curve", "caption_strategy",
+        "audio_strategy", "narrative_structure", "evidence_keys", "media_segment_ids",
+        "first_three_seconds_sha256", "keyframe_sha256s",
     )
-    if cross_product:
-        fields = fields[:2]
-    return [name for name, left, right in fields if left != right]
+    return [key for key in controls if key not in allowed and getattr(a, key) != getattr(b, key)]
 
 
 def _validate_signature(item: CandidateSignature) -> None:
@@ -179,7 +241,7 @@ def compare_candidates(
     *,
     scope: str | None = None,
 ) -> dict[str, Any]:
-    """Compare two candidates using deterministic v1 thresholds."""
+    """Compare substantive axes, preserving existing metric thresholds as advice."""
     left, right = _coerce_signature(a), _coerce_signature(b)
     same_product = bool(left.product_id and left.product_id == right.product_id)
     scope = scope or ("same_product" if same_product else "cross_product")
@@ -198,12 +260,35 @@ def compare_candidates(
         compared_axes = ["action_keys", "copy_text", "beat_durations"]
         high = action >= similarity_budget and copy >= COPY_THRESHOLD and beat <= BEAT_THRESHOLD
     differing_axes = _axes(left, right, cross_product=cross_product)
-    if high:
+    experiment = _experiment_key(left)
+    controlled = bool(experiment and experiment == _experiment_key(right))
+    direct_baseline = controlled and left.baseline_candidate_id in {left.candidate_id, right.candidate_id}
+    unregistered_changes = _experiment_control_changes(left, right) if controlled else []
+    if controlled:
+        raw_left, raw_right = _axis_values(left), _axis_values(right)
+        all_changed = [key for key in raw_left if raw_left[key] != raw_right[key]]
+        primary_fixed = left.primary_action_keys == right.primary_action_keys or left.preregistered_variable in {"action_sequence", "evidence_keys"}
+        status = "controlled_experiment" if direct_baseline and same_product and primary_fixed and not unregistered_changes and all_changed == [left.preregistered_variable] else "needs_redesign"
+    elif high:
         status = "high_similarity"
-    elif len(differing_axes) < 2:
+    elif len(differing_axes) < 3:
         status = "needs_redesign"
     else:
         status = "distinct"
+    segment_overlap = action_jaccard(left.media_segment_ids, right.media_segment_ids) if left.media_segment_ids and right.media_segment_ids else None
+    opening_repeated = left.first_three_seconds_sha256 == right.first_three_seconds_sha256 if left.first_three_seconds_sha256 and right.first_three_seconds_sha256 else None
+    keyframe_overlap = action_jaccard(left.keyframe_sha256s, right.keyframe_sha256s) if left.keyframe_sha256s and right.keyframe_sha256s else None
+    warnings = []
+    if high:
+        warnings.append("metric_high_similarity")
+    if segment_overlap is not None and segment_overlap >= ACTION_THRESHOLD:
+        warnings.append("media_segment_overlap")
+    if opening_repeated:
+        warnings.append("first_three_seconds_repeated")
+    if keyframe_overlap is not None and keyframe_overlap > 0:
+        warnings.append("keyframe_overlap")
+    if controlled and not direct_baseline:
+        warnings.append("baseline_comparison_required")
     result: dict[str, Any] = {
         "candidate_a": left.candidate_id,
         "candidate_b": right.candidate_id,
@@ -217,6 +302,17 @@ def compare_candidates(
         "beat_duration_delta": None if beat is None else round(beat, 6),
         "sibling_similarity_budget": similarity_budget,
         "status": status,
+        "effective_differing_axes": differing_axes,
+        "minimum_effective_axes": 1 if controlled else 3,
+        "baseline_candidate_id": left.baseline_candidate_id if controlled else None,
+        "experiment_family_id": left.experiment_family_id if controlled else None,
+        "media_segment_overlap": segment_overlap,
+        "first_three_seconds_repeated": opening_repeated,
+        "keyframe_overlap": keyframe_overlap,
+        "warning_fields": warnings,
+        "advisory_only": True,
+        "human_review_required": True,
+        "unregistered_changed_fields": unregistered_changes,
     }
     return result
 
@@ -237,11 +333,22 @@ def build_differentiation_plan(
     if len(candidate_ids) != len(set(candidate_ids)):
         raise ValueError("candidate_id values must be unique")
     comparisons: list[dict[str, Any]] = []
+    by_id = {item.candidate_id: item for item in signatures}
+    warnings = sorted({f"missing_experiment_baseline:{item.baseline_candidate_id}" for item in signatures
+                       if _experiment_key(item) and item.baseline_candidate_id not in by_id})
     for index, left in enumerate(signatures):
         for right in signatures[index + 1 :]:
+            key = _experiment_key(left)
+            if key and key == _experiment_key(right):
+                baseline = by_id.get(left.baseline_candidate_id)
+                if baseline and baseline not in (left, right):
+                    # Each variant is compared to the registered baseline,
+                    # never to a sibling that already accumulated a change.
+                    continue
+                if baseline is right:
+                    comparisons.append(compare_candidates(right, left))
+                    continue
             same = left.product_id == right.product_id
-            # Same-product comparisons use the full metric set. Cross-product
-            # comparisons only detect a repeated opening/proof pair.
             comparisons.append(compare_candidates(left, right, scope="same_product" if same else "cross_product"))
     plan = {
         "version": "1.0",
@@ -250,27 +357,12 @@ def build_differentiation_plan(
         "research_refs": [dict(ref) for ref in (research_refs or ())],
         "thresholds": dict(THRESHOLDS),
         "candidate_signatures": [
-            {
-                "candidate_id": item.candidate_id,
-                "product_id": item.product_id,
-                "hook_pattern": item.hook_pattern,
-                "primary_action_keys": list(item.primary_action_keys),
-                "action_keys": list(item.action_keys),
-                "copy_text": normalize_copy(item.copy_text),
-                "beat_durations": list(item.beat_durations),
-                "beat_order": list(item.beat_order),
-                "scene_context": item.scene_context,
-                "pacing_curve": item.pacing_curve,
-                "caption_strategy": item.caption_strategy,
-                "audio_strategy": item.audio_strategy,
-                "forbidden_repeats": list(item.forbidden_repeats),
-                "matrix_row_refs": list(item.matrix_row_refs),
-                "sibling_similarity_budget": item.sibling_similarity_budget,
-            }
+            {**{key: list(value) if isinstance(value, tuple) else value for key, value in asdict(item).items()}, "copy_text": normalize_copy(item.copy_text)}
             for item in signatures
         ],
         "sibling_comparisons": comparisons,
-        "status": "needs_redesign" if any(row["status"] in {"high_similarity", "needs_redesign"} for row in comparisons) else "pass",
+        "warnings": warnings,
+        "status": "needs_redesign" if warnings or any(row["status"] in {"high_similarity", "needs_redesign"} for row in comparisons) else "pass",
     }
     sealed = attach_hashes(plan)
     validate_artifact("differentiation_plan", sealed)
@@ -282,7 +374,7 @@ def build_dedup_summary(plan: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "thresholds": dict(plan.get("thresholds") or THRESHOLDS),
         "comparisons": comparisons,
-        "status": "needs_redesign" if any(row.get("status") in {"high_similarity", "needs_redesign"} for row in comparisons) else "pass",
+        "status": "needs_redesign" if plan.get("warnings") or any(row.get("status") in {"high_similarity", "needs_redesign"} for row in comparisons) else "pass",
     }
 
 

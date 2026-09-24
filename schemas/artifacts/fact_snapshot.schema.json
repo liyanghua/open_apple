@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/fact_snapshot",
+  "title": "Product Fact Snapshot",
+  "description": "已批准、可追溯、带有效期的商品事实快照。",
+  "type": "object",
+  "required": ["version", "snapshot_id", "product_id", "sku", "source_hash", "status", "claims", "approved_at"],
+  "properties": {
+    "version": {"type": "string", "const": "1.0"},
+    "snapshot_id": {"type": "string", "minLength": 1},
+    "product_id": {"type": "string", "minLength": 1},
+    "sku": {"type": "string", "minLength": 1},
+    "product_name": {"type": "string"},
+    "source_record_id": {"type": ["string", "null"]},
+    "source_hash": {"type": "string", "minLength": 1},
+    "approved_by": {"type": ["string", "null"]},
+    "approved_at": {"type": ["string", "null"], "format": "date-time"},
+    "effective_from": {"type": ["string", "null"], "format": "date-time"},
+    "effective_until": {"type": ["string", "null"], "format": "date-time"},
+    "status": {"type": "string", "enum": ["pending_confirmation", "approved", "superseded", "revoked", "expired"]},
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim_id", "claim", "status", "evidence_status", "allowed_wording", "forbidden_wording", "evidence_ids"],
+        "properties": {
+          "claim_id": {"type": "string", "minLength": 1},
+          "claim": {"type": "string", "minLength": 1},
+          "status": {"type": "string", "enum": ["authorized", "needs_evidence", "forbidden"]},
+          "evidence_status": {"type": "string", "enum": ["page_claim", "visually_observed", "qualified_report", "comment_source", "needs_human_confirmation", "restricted", "forbidden"]},
+          "allowed_wording": {"type": "array", "items": {"type": "string"}},
+          "forbidden_wording": {"type": "array", "items": {"type": "string"}},
+          "evidence_ids": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+        },
+        "additionalProperties": false
+      }
+    },
+    "availability": {"type": "object", "additionalProperties": true},
+    "rights": {"type": "object", "additionalProperties": true},
+    "semantic_sha256": {"type": "string"},
+    "artifact_sha256": {"type": "string"}
+  },
+  "additionalProperties": false
+}

@@ -1319,13 +1319,38 @@
             },
             "product_facts": {
               "type": "object",
-              "required": ["product_name", "selected_sku", "capture", "counts", "facts"],
+              "required": [
+                "product_name",
+                "selected_sku",
+                "capture",
+                "counts",
+                "facts"
+              ],
               "properties": {
-                "product_name": {"type": "string"},
-                "selected_sku": {"type": "string"},
-                "capture": {"type": "object", "additionalProperties": true},
-                "counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
-                "facts": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+                "product_name": {
+                  "type": "string"
+                },
+                "selected_sku": {
+                  "type": "string"
+                },
+                "capture": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "counts": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "facts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
               },
               "additionalProperties": false
             },
@@ -1934,23 +1959,34 @@
         },
         "claim_ids": {
           "type": "array",
-          "items": {"type": "string"}
+          "items": {
+            "type": "string"
+          }
         },
         "action_keys": {
           "type": "array",
-          "items": {"type": "string"}
+          "items": {
+            "type": "string"
+          }
         },
         "evidence_row_ids": {
           "type": "array",
-          "items": {"type": "string"}
+          "items": {
+            "type": "string"
+          }
         },
         "product_fact_refs": {
           "type": "array",
-          "items": {"type": "string"}
+          "items": {
+            "type": "string"
+          }
         },
         "fact_bindings": {
           "type": "array",
-          "items": {"type": "object", "additionalProperties": true}
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
         },
         "evidence": {
           "type": "object",
@@ -2045,15 +2081,21 @@
         },
         "claim_ids": {
           "type": "array",
-          "items": {"type": "string"}
+          "items": {
+            "type": "string"
+          }
         },
         "action_keys": {
           "type": "array",
-          "items": {"type": "string"}
+          "items": {
+            "type": "string"
+          }
         },
         "evidence_row_ids": {
           "type": "array",
-          "items": {"type": "string"}
+          "items": {
+            "type": "string"
+          }
         },
         "subject_completeness": {
           "type": "string"
@@ -2355,10 +2397,16 @@
                     "type": "string"
                   },
                   "preview_url": {
-                    "type": ["string", "null"]
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "poster_url": {
-                    "type": ["string", "null"]
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "shot_purpose": {
                     "type": "string"
@@ -2374,70 +2422,164 @@
                   },
                   "claim_ids": {
                     "type": "array",
-                    "items": {"type": "string"}
+                    "items": {
+                      "type": "string"
+                    }
                   },
                   "action_keys": {
                     "type": "array",
-                    "items": {"type": "string"}
+                    "items": {
+                      "type": "string"
+                    }
                   },
                   "evidence_row_ids": {
                     "type": "array",
-                    "items": {"type": "string"}
+                    "items": {
+                      "type": "string"
+                    }
                   },
                   "product_fact_refs": {
-                    "type": "array", "items": {"type": "string"}
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   },
                   "product_page_refs": {
-                    "type": "array", "items": {"type": "string"}
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   },
                   "page_asset_ids": {
-                    "type": "array", "items": {"type": "string"}
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   },
                   "page_evidence_ids": {
-                    "type": "array", "items": {"type": "string"}
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   },
                   "fact_bindings": {
                     "type": "array",
                     "items": {
                       "type": "object",
-                      "required": ["ref", "claim_id", "statement", "claim_class", "status", "evidence_status", "risk_level", "sku_scope", "allowed_wording", "prohibited_wording", "provenance_refs"],
+                      "required": [
+                        "ref",
+                        "claim_id",
+                        "statement",
+                        "claim_class",
+                        "status",
+                        "evidence_status",
+                        "risk_level",
+                        "sku_scope",
+                        "allowed_wording",
+                        "prohibited_wording",
+                        "provenance_refs"
+                      ],
                       "properties": {
-                        "ref": {"type": "string"},
-                        "claim_id": {"type": "string"},
-                        "statement": {"type": "string"},
-                        "claim_class": {"type": "string"},
-                        "status": {"type": "string"},
-                        "evidence_status": {"type": "string"},
-                        "risk_level": {"type": "string"},
-                        "sku_scope": {"type": "array", "items": {"type": "string"}},
-                        "allowed_wording": {"type": "array", "items": {"type": "string"}},
-                        "prohibited_wording": {"type": "array", "items": {"type": "string"}},
-                        "provenance_refs": {"type": "array", "items": {"type": "string"}}
+                        "ref": {
+                          "type": "string"
+                        },
+                        "claim_id": {
+                          "type": "string"
+                        },
+                        "statement": {
+                          "type": "string"
+                        },
+                        "claim_class": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "evidence_status": {
+                          "type": "string"
+                        },
+                        "risk_level": {
+                          "type": "string"
+                        },
+                        "sku_scope": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "allowed_wording": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "prohibited_wording": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "provenance_refs": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
                       },
                       "additionalProperties": false
                     }
                   },
                   "fact_role": {
-                    "enum": ["selling_point", "identity_anchor", "none"]
+                    "enum": [
+                      "selling_point",
+                      "identity_anchor",
+                      "none"
+                    ]
                   },
                   "page_evidence": {
                     "type": "array",
                     "items": {
                       "type": "object",
-                      "required": ["id", "label", "kind", "usage_role", "source_path", "preview_url"],
+                      "required": [
+                        "id",
+                        "label",
+                        "kind",
+                        "usage_role",
+                        "source_path",
+                        "preview_url"
+                      ],
                       "properties": {
-                        "id": {"type": "string"},
-                        "label": {"type": "string"},
-                        "kind": {"type": "string"},
-                        "usage_role": {"type": "string"},
-                        "source_path": {"type": "string"},
-                        "preview_url": {"type": ["string", "null"]}
+                        "id": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "type": "string"
+                        },
+                        "usage_role": {
+                          "type": "string"
+                        },
+                        "source_path": {
+                          "type": "string"
+                        },
+                        "preview_url": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
                       },
                       "additionalProperties": false
                     }
                   },
                   "alignment_status": {
-                    "enum": ["pass", "review_required", "not_applicable"]
+                    "enum": [
+                      "pass",
+                      "review_required",
+                      "not_applicable"
+                    ]
                   },
                   "visual_route": {
                     "type": "string"
@@ -2459,39 +2601,124 @@
                     "type": "array",
                     "items": {
                       "type": "object",
-                      "required": ["media_id", "source_path", "source_range", "confidence", "status", "observed_actions", "observed_results", "subject_complete_in_3_4", "rejection_reasons", "preview_url"],
+                      "required": [
+                        "media_id",
+                        "source_path",
+                        "source_range",
+                        "confidence",
+                        "status",
+                        "observed_actions",
+                        "observed_results",
+                        "subject_complete_in_3_4",
+                        "rejection_reasons",
+                        "preview_url"
+                      ],
                       "properties": {
-                        "media_id": {"type": "string"},
-                        "source_path": {"type": "string"},
-                        "source_range": {"type": "string"},
-                        "confidence": {"$ref": "#/$defs/nullable_number"},
-                        "status": {"type": "string"},
-                        "observed_actions": {"type": "array", "items": {"type": "string"}},
-                        "observed_results": {"type": "array", "items": {"type": "string"}},
-                        "subject_complete_in_3_4": {"type": "boolean"},
-                        "rejection_reasons": {"type": "array", "items": {"type": "string"}},
-                        "preview_url": {"type": ["string", "null"]}
+                        "media_id": {
+                          "type": "string"
+                        },
+                        "source_path": {
+                          "type": "string"
+                        },
+                        "source_range": {
+                          "type": "string"
+                        },
+                        "confidence": {
+                          "$ref": "#/$defs/nullable_number"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "observed_actions": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "observed_results": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "subject_complete_in_3_4": {
+                          "type": "boolean"
+                        },
+                        "rejection_reasons": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "preview_url": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
                       },
                       "additionalProperties": false
                     }
                   },
                   "generation_reference": {
                     "oneOf": [
-                      {"type": "null"},
+                      {
+                        "type": "null"
+                      },
                       {
                         "type": "object",
-                        "required": ["asset_id", "parent_asset_id", "source_path", "preview_url", "original_source_path", "original_preview_url", "sku_scope", "identity_status", "ocr_clean", "generation_eligibility"],
+                        "required": [
+                          "asset_id",
+                          "parent_asset_id",
+                          "source_path",
+                          "preview_url",
+                          "original_source_path",
+                          "original_preview_url",
+                          "sku_scope",
+                          "identity_status",
+                          "ocr_clean",
+                          "generation_eligibility"
+                        ],
                         "properties": {
-                          "asset_id": {"type": "string"},
-                          "parent_asset_id": {"type": "string"},
-                          "source_path": {"type": "string"},
-                          "preview_url": {"type": ["string", "null"]},
-                          "original_source_path": {"type": "string"},
-                          "original_preview_url": {"type": ["string", "null"]},
-                          "sku_scope": {"type": "array", "items": {"type": "string"}},
-                          "identity_status": {"type": "string"},
-                          "ocr_clean": {"type": "boolean"},
-                          "generation_eligibility": {"type": "string"}
+                          "asset_id": {
+                            "type": "string"
+                          },
+                          "parent_asset_id": {
+                            "type": "string"
+                          },
+                          "source_path": {
+                            "type": "string"
+                          },
+                          "preview_url": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "original_source_path": {
+                            "type": "string"
+                          },
+                          "original_preview_url": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "sku_scope": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "identity_status": {
+                            "type": "string"
+                          },
+                          "ocr_clean": {
+                            "type": "boolean"
+                          },
+                          "generation_eligibility": {
+                            "type": "string"
+                          }
                         },
                         "additionalProperties": false
                       }
@@ -2499,23 +2726,50 @@
                   },
                   "generation_plan": {
                     "oneOf": [
-                      {"type": "null"},
-                      {"type": "object", "additionalProperties": true}
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
                     ]
                   },
                   "generation_options": {
                     "type": "array",
                     "items": {
                       "type": "object",
-                      "required": ["service", "version", "tool", "estimated_cost_usd", "supports_native_3_4", "supports_local_reference", "selected"],
+                      "required": [
+                        "service",
+                        "version",
+                        "tool",
+                        "estimated_cost_usd",
+                        "supports_native_3_4",
+                        "supports_local_reference",
+                        "selected"
+                      ],
                       "properties": {
-                        "service": {"type": "string"},
-                        "version": {"type": "string"},
-                        "tool": {"type": "string"},
-                        "estimated_cost_usd": {"$ref": "#/$defs/nullable_number"},
-                        "supports_native_3_4": {"type": "boolean"},
-                        "supports_local_reference": {"type": "boolean"}
-                        ,"selected": {"type": "boolean"}
+                        "service": {
+                          "type": "string"
+                        },
+                        "version": {
+                          "type": "string"
+                        },
+                        "tool": {
+                          "type": "string"
+                        },
+                        "estimated_cost_usd": {
+                          "$ref": "#/$defs/nullable_number"
+                        },
+                        "supports_native_3_4": {
+                          "type": "boolean"
+                        },
+                        "supports_local_reference": {
+                          "type": "boolean"
+                        },
+                        "selected": {
+                          "type": "boolean"
+                        }
                       },
                       "additionalProperties": false
                     }
@@ -2898,6 +3152,20 @@
             },
             "delivery": {
               "$ref": "#/$defs/delivery_publish_info"
+            },
+            "production_reviews": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/production_review_item"
+              }
+            },
+            "production_panorama": {
+              "type": "object",
+              "required": [
+                "campaign_id",
+                "summary",
+                "slots"
+              ]
             }
           },
           "additionalProperties": false
@@ -3505,6 +3773,106 @@
         }
       },
       "additionalProperties": false
+    },
+    "production_review_item": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "version_ref",
+        "technical_label",
+        "alignment_label",
+        "judge_label",
+        "review_status",
+        "video_url",
+        "duration_seconds",
+        "notes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "record_path": {
+          "type": "string"
+        },
+        "cost_label": {
+          "type": "string"
+        },
+        "quality_label": {
+          "type": "string"
+        },
+        "blocking_checks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "final_review": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "review_id": {
+              "type": "string"
+            },
+            "subject_hash": {
+              "type": "string"
+            },
+            "subject_version": {
+              "type": "integer"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "version_ref": {
+          "type": "string"
+        },
+        "technical_label": {
+          "type": "string"
+        },
+        "alignment_label": {
+          "type": "string"
+        },
+        "judge_label": {
+          "type": "string"
+        },
+        "review_status": {
+          "type": "string"
+        },
+        "video_url": {
+          "$ref": "#/$defs/delivery_media_url"
+        },
+        "duration_seconds": {
+          "$ref": "#/$defs/nullable_number"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "note",
+              "ts"
+            ],
+            "properties": {
+              "note": {
+                "type": "string"
+              },
+              "ts": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

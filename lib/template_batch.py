@@ -31,6 +31,7 @@ def create_template_batch(
     publish_policy: str = "selective",
     render_runtime: str | None = None,
     differentiation_plan_ref: Mapping[str, Any] | None = None,
+    campaign_ref: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """由 template_pack 创建 template_batch：每条模板一个 run。
 
@@ -65,6 +66,7 @@ def create_template_batch(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "template_pack_ref": {"artifact_sha256": pack_hash, "version": str(template_pack.get("version") or "1.0")},
         "product_facts_ref": dict(product_facts_ref),
+        "campaign_ref": dict(campaign_ref) if campaign_ref else None,
         "shared_research_refs": list(shared_research_refs or []),
         "differentiation_plan_ref": dict(differentiation_plan_ref) if differentiation_plan_ref else None,
         "runs": runs,
@@ -93,6 +95,13 @@ def mark_pilot(batch: Mapping[str, Any], template_ids: list[str]) -> dict[str, A
 
 def validate_template_batch_owner(batch: Mapping[str, Any]) -> None:
     """Ensure the batch root is the only owner of its differentiation ref."""
+    campaign_ref = batch.get("campaign_ref")
+    if campaign_ref is not None:
+        required = ("campaign_id", "production_wave_id", "plan_revision", "fact_snapshot_id")
+        if not isinstance(campaign_ref, Mapping) or any(not campaign_ref.get(key) for key in required):
+            raise ValueError("template_batch campaign_ref requires campaign_id, production_wave_id, plan_revision and fact_snapshot_id")
+        if int(campaign_ref.get("plan_revision") or 0) < 1:
+            raise ValueError("template_batch campaign_ref plan_revision must be positive")
     ref = batch.get("differentiation_plan_ref")
     if ref is not None and not (
         isinstance(ref, Mapping) and ref.get("name") == "differentiation_plan"

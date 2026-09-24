@@ -2,34 +2,289 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "openmontage/artifacts/cost_log",
   "title": "Cost Log",
-  "description": "Estimated, reserved, and actual spend by operation.",
+  "description": "USD budget commitments, provider usage, original-currency catalog estimates and nullable invoiced settlement.",
   "type": "object",
-  "required": ["version", "entries"],
+  "required": [
+    "version",
+    "entries"
+  ],
   "properties": {
-    "version": { "type": "string", "const": "1.0" },
-    "budget_total_usd": { "type": "number", "minimum": 0 },
-    "budget_reserved_usd": { "type": "number", "minimum": 0 },
-    "budget_spent_usd": { "type": "number", "minimum": 0 },
+    "version": {
+      "type": "string",
+      "enum": [
+        "1.0",
+        "1.1"
+      ]
+    },
+    "budget_total_usd": {
+      "type": "number",
+      "minimum": 0
+    },
+    "budget_reserved_usd": {
+      "type": "number",
+      "minimum": 0
+    },
+    "budget_spent_usd": {
+      "type": "number",
+      "minimum": 0
+    },
     "entries": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "tool", "operation", "status", "timestamp"],
+        "required": [
+          "id",
+          "tool",
+          "operation",
+          "status",
+          "timestamp"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "tool": { "type": "string" },
-          "operation": { "type": "string" },
-          "status": { "type": "string", "enum": ["estimated", "reserved", "completed", "failed", "refunded"] },
-          "estimated_usd": { "type": "number", "minimum": 0 },
-          "reserved_usd": { "type": "number", "minimum": 0 },
-          "actual_usd": { "type": "number", "minimum": 0 },
-          "timestamp": { "type": "string", "format": "date-time" },
-          "details": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "estimated",
+              "reserved",
+              "completed",
+              "failed",
+              "refunded"
+            ]
+          },
+          "estimated_usd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "reserved_usd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "actual_usd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "details": {
+            "type": "string"
+          },
+          "actual_cost": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "amount",
+              "currency"
+            ],
+            "properties": {
+              "amount": {
+                "type": "number",
+                "minimum": 0
+              },
+              "currency": {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              }
+            },
+            "additionalProperties": true
+          },
+          "catalog_estimate": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "amount",
+              "currency"
+            ],
+            "properties": {
+              "amount": {
+                "type": "number",
+                "minimum": 0
+              },
+              "currency": {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              }
+            },
+            "additionalProperties": true
+          },
+          "budget_currency": {
+            "const": "USD"
+          },
+          "budget_commitment_usd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "usage": {
+            "type": "object"
+          },
+          "provider_billing_status": {
+            "type": "string",
+            "enum": [
+              "not_submitted",
+              "unconfirmed",
+              "settled"
+            ]
+          },
+          "settlement_provenance": {
+            "type": "object"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "preflight_rejected",
+              "creative_accepted",
+              "provider_success_then_creative_reject"
+            ]
+          },
+          "budget_warning": {
+            "type": "boolean"
+          },
+          "saved_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "provider_status": {
+            "type": "string"
+          },
+          "provider_task_id": {
+            "type": "string"
+          },
+          "attempt_id": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "submission_status": {
+            "type": "string"
+          },
+          "budget_warning_message": {
+            "type": "string"
+          },
+          "cache_key": {
+            "type": "string"
+          },
+          "reused_from": {
+            "type": "string"
+          },
+          "budget_equivalent_cny": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "budget_equivalence_provenance": {
+            "type": "object",
+            "required": [
+              "approval_ref"
+            ],
+            "properties": {
+              "approval_ref": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": true
+          }
         },
         "additionalProperties": false
       }
     },
-    "metadata": { "type": "object" }
+    "metadata": {
+      "type": "object"
+    },
+    "budget_currency": {
+      "const": "USD"
+    },
+    "budget_commitment_usd": {
+      "type": "number",
+      "minimum": 0
+    },
+    "budget_spent_basis": {
+      "const": "known_USD_settlements_only"
+    },
+    "approved_tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "observe",
+            "warn",
+            "cap"
+          ]
+        },
+        "reserve_pct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "single_action_approval_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "require_approval_for_new_paid_tool": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "actual_spend_by_currency": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "number",
+          "null"
+        ],
+        "minimum": 0
+      }
+    },
+    "known_actual_spend_by_currency": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "number",
+          "null"
+        ],
+        "minimum": 0
+      }
+    },
+    "catalog_estimate_by_currency": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "number",
+          "null"
+        ],
+        "minimum": 0
+      }
+    },
+    "unknown_settlement_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "unknown_settlement_currency": {
+      "type": "boolean"
+    }
   },
   "additionalProperties": false
 }

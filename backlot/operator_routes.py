@@ -660,6 +660,18 @@ def create_operator_router(
         )
         return {"status": "committed", "result_revision": revision["revision_id"]}
 
+    @router.post("/projects/{project_id}/production-reviews/{content_slot_id}/prepare")
+    async def prepare_production_review(project_id: str, content_slot_id: str, request: Request) -> dict:
+        session = authenticate(request, project_id, "submit", csrf=True)
+        from backlot.production_review_items import _json
+
+        project_dir = project(project_id)
+        index = _json(project_dir, "artifacts/production_review_index.json")
+        entry = next((i for i in index.get("items", []) if isinstance(i, dict) and i.get("id") == content_slot_id), None)
+        if not entry:
+            raise OperatorError.validation_failed("找不到此条成片的生产记录")
+        return ReviewService(project_dir).create_final_review(record_path=entry["record_path"], submitted_by=session.actor.user_id)
+
     @router.post("/projects/{project_id}/reviews/{review_id}/{decision}")
     async def decide_review(
         project_id: str, review_id: str, decision: str, request: Request

@@ -122,6 +122,7 @@
           "type": "object",
           "description": "Optional: transcribe the output and compare to source script",
           "properties": {
+            "status": {"enum": ["pass", "fail", "not_run", "error"]},
             "transcript_matches_script": { "type": ["boolean", "null"] },
             "word_accuracy": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
             "issues": {
@@ -192,7 +193,7 @@
     },
     "recommended_action": {
       "type": "string",
-      "enum": ["present_to_user", "re_render", "revise_edit", "revise_assets", "block", "re_author"],
+      "enum": ["present_to_user", "re_render", "revise_edit", "revise_assets", "block", "re_author", "verify_narration", "verify_captions"],
       "description": "What the agent should do next based on the review findings"
     },
     "metadata": { "type": "object" }

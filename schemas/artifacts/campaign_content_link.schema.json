@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/campaign_content_link",
+  "title": "Campaign Content Link",
+  "description": "把计划slot、内容版本、recipe、事实快照和单片project绑定起来。",
+  "type": "object",
+  "required": ["version", "campaign_id", "content_slot_id", "content_version_id", "direction_id", "structure_id", "support_type", "recipe_id", "sku", "fact_snapshot_ref", "status"],
+  "properties": {
+    "version": {"type": "string", "const": "1.0"},
+    "campaign_id": {"type": "string", "minLength": 1},
+    "content_slot_id": {"type": "string", "minLength": 1},
+    "content_version_id": {"type": "string", "minLength": 1},
+    "parent_content_version_id": {"type": ["string", "null"]},
+    "direction_id": {"type": "string", "enum": ["test_selection", "healing_ritual", "relationship_story", "space_play", "comment_faq", "transaction"]},
+    "structure_id": {"type": "string", "pattern": "^P[1-6]$"},
+    "support_type": {"type": "string", "enum": ["experiment", "trust", "faq", "transaction"]},
+    "recipe_id": {"type": "string", "minLength": 1},
+    "sku": {"type": "string", "minLength": 1},
+    "fact_snapshot_ref": {"type": "string", "minLength": 1},
+    "run_project_id": {"type": ["string", "null"]},
+    "changed_variable": {"type": ["string", "null"]},
+    "status": {"type": "string", "enum": ["planned", "in_progress", "awaiting_human", "approved", "blocked", "delivered", "superseded", "cancelled"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "semantic_sha256": {"type": "string"},
+    "artifact_sha256": {"type": "string"}
+  },
+  "additionalProperties": false
+}

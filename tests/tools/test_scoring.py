@@ -45,3 +45,17 @@ def test_cinematic_bonus_ignores_adjacent_punctuation() -> None:
 
     assert punctuated.task_fit == plain.task_fit
     assert punctuated.output_quality == plain.output_quality
+
+
+def test_unknown_cost_is_never_scored_as_free() -> None:
+    class UnknownCost(_FakeVideoTool):
+        def estimate_cost(self, inputs):
+            return None
+    assert score_provider(UnknownCost(), {}).cost_efficiency == 0.0
+
+
+def test_failed_cost_estimate_is_never_scored_as_free() -> None:
+    class FailedEstimate(_FakeVideoTool):
+        def estimate_cost(self, inputs):
+            raise ValueError('unknown catalog price')
+    assert score_provider(FailedEstimate(), {}).cost_efficiency == 0.0

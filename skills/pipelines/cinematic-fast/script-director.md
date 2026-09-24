@@ -1,5 +1,7 @@
 # Script Director - Cinematic Fastline
 
+批量商业生产先读取 [批量生产契约](../../meta/batch-production-contract.md)：内容槽位/商品/结构分别绑定，事实不能发明，跨母题三轴差异与预登记单变量实验使用不同判定。标题仅核心词，口播保留完整事实与品牌slogan。
+
 Read the complete `skills/pipelines/cinematic/script-director.md` and
 `skills/meta/fastline.md` before acting. Preserve the approved duration and
 write a section-level production script against real source evidence. Script is

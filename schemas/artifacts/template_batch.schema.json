@@ -24,6 +24,17 @@
       "properties": { "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
       "additionalProperties": false
     },
+    "campaign_ref": {
+      "type": ["object", "null"],
+      "properties": {
+        "campaign_id": {"type": "string", "minLength": 1},
+        "production_wave_id": {"type": "string", "minLength": 1},
+        "plan_revision": {"type": "integer", "minimum": 1},
+        "fact_snapshot_id": {"type": "string", "minLength": 1}
+      },
+      "required": ["campaign_id", "production_wave_id", "plan_revision", "fact_snapshot_id"],
+      "additionalProperties": false
+    },
     "shared_research_refs": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
     "differentiation_plan_ref": { "type": ["object", "null"], "required": ["name", "path", "artifact_sha256"], "properties": {"name": {"type": "string", "const": "differentiation_plan"}, "path": {"type": "string"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "additionalProperties": false },
     "runs": {

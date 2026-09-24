@@ -1,0 +1,83 @@
+{
+  "fixture_only": true,
+  "description": "Synthetic adapter example; never import these records as production evidence.",
+  "record": {
+    "content_slot_id": "W1-001",
+    "run_id": "fixture-run",
+    "content_version_id": "fixture-v1",
+    "work_id": "fixture-work",
+    "media_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "dependency_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "status": "awaiting_review",
+    "structure_id": "P1",
+    "fact_version": "fixture-fact-v1",
+    "brand_version": "fixture-brand-v1",
+    "review_url": "/operator/runs/fixture-run",
+    "costs": {
+      "estimated_cny": 6.111,
+      "paid_cny": null
+    },
+    "timing": {
+      "generation_ms": 150000,
+      "render_ms": 16000,
+      "review_wait_ms": null,
+      "human_work_ms": null
+    },
+    "sku": "S01",
+    "production_route": "ai_assisted"
+  },
+  "verification_report": {
+    "run_id": "fixture-run",
+    "content_version_id": "fixture-v1",
+    "media_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "dependency_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "media_verified": true,
+    "quality_passed": true,
+    "approval_valid": true,
+    "approval_id": "fixture-approval",
+    "quality_report_ref": "artifacts/fixture-quality.json",
+    "content_slot_id": "W1-001",
+    "sku": "S01",
+    "production_route": "ai_assisted",
+    "work_id": "fixture-work"
+  },
+  "release_context": {
+    "fact_versions": {
+      "S01": "fixture-fact-v1"
+    },
+    "brand_version": "fixture-brand-v1",
+    "production_budget": {
+      "approved": true,
+      "cap_cny": 100,
+      "approval_ref": "fixture-budget-approval"
+    },
+    "recipe_first_articles": {
+      "P1": "fixture-first-article-review"
+    },
+    "approved_weeks": [
+      1
+    ]
+  },
+  "cost_entries": [
+    {
+      "cost_id": "fixture-common",
+      "category": "shared_preparation",
+      "estimated_cny": 100,
+      "paid_cny": 80
+    },
+    {
+      "cost_id": "fixture-manual",
+      "category": "path_increment",
+      "production_route": "manual",
+      "estimated_cny": 20,
+      "paid_cny": 20
+    },
+    {
+      "cost_id": "fixture-ai",
+      "category": "path_increment",
+      "production_route": "ai_assisted",
+      "estimated_cny": 10,
+      "paid_cny": null
+    }
+  ]
+}

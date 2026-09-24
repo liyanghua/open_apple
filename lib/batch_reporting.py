@@ -257,6 +257,11 @@ def build_batch_run_report(
         if isinstance(cost_log, Mapping):
             cost_log_count += 1
             log_cost = float(cost_log.get("total_cost_usd") or cost_log.get("budget_spent_usd") or 0.0)
+            if cost_log.get("unknown_settlement_count") or any(
+                row.get("actual_usd") is None and row.get("status") != "refunded"
+                for row in cost_log.get("entries", []) if isinstance(row, Mapping)
+            ):
+                warnings.append({"code": "unsettled_cost", "message": "存在待核实费用；美元合计仅含已知部分，不代表完整实付", "candidate_id": candidate_id})
             if abs(log_cost - index_cost) > 1e-6:
                 warnings.append({"code": "cost_mismatch", "message": "cost_log 与 candidate_batch 不一致", "candidate_id": candidate_id})
         total_cost += log_cost if isinstance(cost_log, Mapping) else index_cost

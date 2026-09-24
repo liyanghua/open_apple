@@ -104,6 +104,7 @@ class ReviewService:
         submitted_by: str,
         approval_scope: str | None = None,
         approval_subject_hashes: list[str] | None = None,
+        production_subject: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Stage a review inside the producer's existing project transaction."""
         review_id = (
@@ -127,9 +128,13 @@ class ReviewService:
         if approval_scope:
             review["approval_scope"] = approval_scope
             review["approval_subject_hashes"] = sorted(set(approval_subject_hashes or []))
+        if kind == "final_review":
+            self._validate_final_subject(production_subject, subject_hash, subject_id)
+            review["production_subject"] = production_subject
         self._validate(review)
         for current in self.list():
-            if current.get("kind") == kind and current.get("status") == "awaiting_human":
+            if (current.get("kind") == kind and current.get("status") == "awaiting_human"
+                    and (kind != "final_review" or current.get("subject_id") == subject_id)):
                 superseded = dict(current)
                 superseded.update(
                     status="superseded",
@@ -188,6 +193,7 @@ class ReviewService:
         submitted_by: str,
         approval_scope: str | None = None,
         approval_subject_hashes: list[str] | None = None,
+        production_subject: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         with self.store.transaction(
             action={"action_id": f"create-{kind}-{subject_id}", "type": "create_review"},
@@ -203,8 +209,35 @@ class ReviewService:
                 submitted_by=submitted_by,
                 approval_scope=approval_scope,
                 approval_subject_hashes=approval_subject_hashes,
+                production_subject=production_subject,
             )
         return review
+
+    def _validate_final_subject(self, subject: Any, expected_hash: str, subject_id: str) -> None:
+        from lib.production_evidence import production_subject_hash, verify_production_subject
+
+        if (not isinstance(subject, dict) or subject.get("content_slot_id") != subject_id
+                or production_subject_hash(subject) != expected_hash
+                or not verify_production_subject(self.project_dir, subject)):
+            raise OperatorError("review_stale", "成片或制作依据已变化，请重新提交最终审核", 409)
+
+    def create_final_review(self, *, record_path: str, submitted_by: str) -> dict[str, Any]:
+        """Register a concrete production, without filling historical checkpoints."""
+        from lib.production_evidence import build_production_subject, production_subject_hash
+
+        try:
+            subject = build_production_subject(self.project_dir, record_path)
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            raise OperatorError.validation_failed(f"无法提交成片审核：{exc}") from exc
+        digest = production_subject_hash(subject)
+        previous = [r for r in self.list() if r.get("kind") == "final_review"
+                    and r.get("subject_id") == subject["content_slot_id"]]
+        for review in reversed(previous):
+            if review.get("subject_hash") == digest and review.get("status") in {"approved", "awaiting_human"}:
+                return review
+        return self.create(kind="final_review", subject_id=subject["content_slot_id"],
+                           subject_version=max((r["subject_version"] for r in previous), default=0) + 1,
+                           subject_hash=digest, submitted_by=submitted_by, production_subject=subject)
 
     def ensure_sample_review_for_checkpoint(self) -> dict[str, Any] | None:
         """Backfill the formal review for a legacy awaiting sample checkpoint.
@@ -277,7 +310,25 @@ class ReviewService:
             checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
-        if not isinstance(checkpoint, Mapping) or checkpoint.get("status") != "awaiting_human":
+        if not isinstance(checkpoint, Mapping):
+            return None
+        # Legacy script checkpoints recorded the gate in metadata/next_action
+        # while retaining the outer stage status as ``in_progress``. Treat that
+        # shape as awaiting human approval so the formal script_lock review can
+        # be recovered through the normal transaction path.
+        awaiting_script_approval = (
+            checkpoint.get("status") == "awaiting_human"
+            or (
+                checkpoint.get("status") == "in_progress"
+                and isinstance(checkpoint.get("next_action"), Mapping)
+                and checkpoint.get("next_action", {}).get("priority") == "awaiting_human"
+            )
+            or (
+                isinstance(checkpoint.get("metadata"), Mapping)
+                and checkpoint.get("metadata", {}).get("script_status") == "awaiting_human"
+            )
+        )
+        if not awaiting_script_approval:
             return None
         record = (checkpoint.get("artifacts") or {}).get("script")
         if isinstance(record, Mapping):
@@ -360,6 +411,11 @@ class ReviewService:
         batch_decision: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         initial = self._find(review_id)
+        if initial.get("kind") == "final_review":
+            if initial.get("subject_version") != expected_version or initial.get("subject_hash") != expected_hash:
+                raise OperatorError("review_stale", "待确认成片版本已变化", 409)
+            if decision == "approved":
+                self._validate_final_subject(initial.get("production_subject"), expected_hash, initial["subject_id"])
         if decision not in {"approved", "rejected"}:
             raise OperatorError.validation_failed("确认结果无效")
         if decision == "rejected":
@@ -388,6 +444,8 @@ class ReviewService:
                 audit={"event_type": f"review_{decision}", "actor_id": actor_id},
             ) as sink:
                 review = self._find(review_id)
+                if review.get("kind") == "final_review" and decision == "approved":
+                    self._validate_final_subject(review.get("production_subject"), expected_hash, review["subject_id"])
                 if review.get("status") == decision:
                     raise _Replay(review)
                 if review.get("status") != "awaiting_human":
@@ -434,13 +492,14 @@ class ReviewService:
                             sink=sink,
                         )
                 stage = (
-                    "assets" if review["kind"] == "creative_lock"
+                    "compose" if review["kind"] == "final_review"
+                    else "assets" if review["kind"] == "creative_lock"
                     else "sample" if review["kind"] == "sample"
                     else "script"
                 )
                 checkpoint_path = self.project_dir / f"checkpoint_{stage}.json"
                 checkpoint = None
-                if checkpoint_path.exists():
+                if checkpoint_path.exists() and review["kind"] != "final_review":
                     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
                 cleanup_only = (
                     review.get("kind") == "creative_lock"
@@ -559,6 +618,28 @@ class ReviewService:
             for key, value in script.items()
             if key not in {"semantic_sha256", "artifact_sha256"}
         }
+        # Early strict-replication drafts carried UI-only review objects and a
+        # duplicate reference_shot_id field. The canonical Script contract
+        # keeps the binding in scene_id and represents review/feedback as
+        # scalar values, so normalize the legacy shape at approval time.
+        normalized_sections = []
+        for raw_section in approved_script.get("sections") or []:
+            if not isinstance(raw_section, Mapping):
+                normalized_sections.append(raw_section)
+                continue
+            section = dict(raw_section)
+            section.pop("reference_shot_id", None)
+            review_value = section.get("review")
+            if isinstance(review_value, Mapping):
+                section["review"] = str(review_value.get("status") or "pending")
+            feedback_value = section.get("feedback")
+            if isinstance(feedback_value, Mapping):
+                section["feedback"] = str(feedback_value.get("notes") or "")
+            elif feedback_value is not None and not isinstance(feedback_value, str):
+                section["feedback"] = str(feedback_value)
+            normalized_sections.append(section)
+        if "sections" in approved_script:
+            approved_script["sections"] = normalized_sections
         approved_script.update(
             status="approved",
             approval={
@@ -661,7 +742,10 @@ class ReviewService:
         )
 
     def pending(self) -> dict[str, Any] | None:
-        active = [item for item in self.list() if item.get("status") == "awaiting_human"]
+        # Final reviews belong to individual production cards, never to the
+        # project's single stage gate (which may still be a historical sample).
+        active = [item for item in self.list() if item.get("status") == "awaiting_human"
+                  and item.get("kind") != "final_review"]
         return active[-1] if active else None
 
     def subject_hash_for_gate(self, kind: str) -> str | None:

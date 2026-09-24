@@ -27,7 +27,8 @@
       "type": "object",
       "properties": {
         "family": {"type": "string", "minLength": 1},
-        "fallbacks": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        "fallbacks": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "files": {"type": "array", "items": {"$ref": "#/$defs/fontFile"}}
       },
       "additionalProperties": false
     },
@@ -56,6 +57,7 @@
       }
     },
     "cta_pattern": {"type": "string", "minLength": 1},
+    "production": {"$ref": "#/$defs/production"},
     "platform_defaults": {
       "type": "object",
       "propertyNames": {"enum": ["douyin", "wechat", "xiaohongshu"]},
@@ -70,5 +72,74 @@
       }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "fontFile": {
+      "type": "object",
+      "required": ["path", "src", "sha256", "weight"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "src": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "weight": {"type": "integer", "enum": [400, 700]}
+      },
+      "additionalProperties": false
+    },
+    "positive": {"type": "number", "exclusiveMinimum": 0},
+    "coordinate": {"type": "number"},
+    "range": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/positive"}},
+    "production": {
+      "type": "object",
+      "required": ["font_mode", "legacy_font_stack", "logo", "title", "underline", "caption", "transition", "slogan", "min_tail_seconds", "recipe"],
+      "properties": {
+        "font_mode": {"enum": ["strict", "legacy_appearance"]},
+        "legacy_font_stack": {"type": "string", "minLength": 1},
+        "logo": {
+          "type": "object", "required": ["right", "top", "width", "clear_space"],
+          "properties": {
+            "right": {"$ref": "#/$defs/coordinate"}, "top": {"$ref": "#/$defs/coordinate"},
+            "width": {"$ref": "#/$defs/positive"}, "clear_space": {"type": "number", "minimum": 0}
+          }, "additionalProperties": false
+        },
+        "title": {
+          "type": "object", "required": ["left", "top", "font_size", "font_weight", "line_height", "characters"],
+          "properties": {
+            "left": {"$ref": "#/$defs/coordinate"}, "top": {"$ref": "#/$defs/coordinate"},
+            "font_size": {"type": "integer", "minimum": 1}, "font_weight": {"const": 700},
+            "line_height": {"$ref": "#/$defs/positive"}, "characters": {"$ref": "#/$defs/range"}
+          }, "additionalProperties": false
+        },
+        "underline": {
+          "type": "object", "required": ["height", "gap", "color", "width"],
+          "properties": {
+            "height": {"$ref": "#/$defs/positive"}, "gap": {"type": "number", "minimum": 0},
+            "color": {"type": "string", "pattern": "^#[a-fA-F0-9]{6}$"}, "width": {"const": "title"}
+          }, "additionalProperties": false
+        },
+        "caption": {
+          "type": "object", "required": ["left", "right", "top", "font_size", "font_weight", "line_height"],
+          "properties": {
+            "left": {"$ref": "#/$defs/coordinate"}, "right": {"$ref": "#/$defs/coordinate"},
+            "top": {"$ref": "#/$defs/coordinate"}, "font_size": {"type": "integer", "minimum": 1},
+            "font_weight": {"const": 400}, "line_height": {"$ref": "#/$defs/positive"}
+          }, "additionalProperties": false
+        },
+        "transition": {
+          "type": "object", "required": ["frames", "rule"],
+          "properties": {"frames": {"const": 5}, "rule": {"const": "incoming_only"}},
+          "additionalProperties": false
+        },
+        "slogan": {"type": "string", "minLength": 1},
+        "min_tail_seconds": {"type": "number", "minimum": 0.4},
+        "recipe": {
+          "type": "object", "required": ["id", "raw_action_seconds", "body_cut_seconds"],
+          "properties": {
+            "id": {"type": "string", "minLength": 1}, "default_raw_seconds": {"$ref": "#/$defs/positive"},
+            "raw_action_seconds": {"$ref": "#/$defs/range"}, "body_cut_seconds": {"$ref": "#/$defs/range"}
+          }, "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }

@@ -132,7 +132,7 @@ class ToolResult:
     data: dict[str, Any] = field(default_factory=dict)
     artifacts: list[str] = field(default_factory=list)
     error: Optional[str] = None
-    cost_usd: float = 0.0
+    cost_usd: float | None = 0.0
     duration_seconds: float = 0.0
     seed: Optional[int] = None
     model: Optional[str] = None
@@ -480,8 +480,8 @@ class BaseTool(ABC):
 
     # ---- Cost estimation ----
 
-    def estimate_cost(self, inputs: dict[str, Any]) -> float:
-        """Estimate cost in USD for the given inputs. Override for paid tools."""
+    def estimate_cost(self, inputs: dict[str, Any]) -> float | None:
+        """Estimate USD cost; None means unknown, including missing FX evidence."""
         return 0.0
 
     def estimate_runtime(self, inputs: dict[str, Any]) -> float:

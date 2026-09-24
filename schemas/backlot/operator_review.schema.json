@@ -9,7 +9,19 @@
     "schema_version": {"const": "1.0"},
     "review_id": {"type": "string", "minLength": 1},
     "project_id": {"type": "string", "minLength": 1},
-    "kind": {"enum": ["creative_lock", "sample", "script_lock"]},
+    "kind": {"enum": ["creative_lock", "sample", "script_lock", "final_review"]},
+    "production_subject": {
+      "type": "object",
+      "required": ["version", "content_slot_id", "record_path", "render", "dependencies"],
+      "properties": {
+        "version": {"const": "1.0"},
+        "content_slot_id": {"type": "string", "minLength": 1},
+        "record_path": {"type": "string", "minLength": 1},
+        "render": {"type": "object", "required": ["path", "sha256"]},
+        "dependencies": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
     "subject_id": {"type": "string", "minLength": 1},
     "subject_version": {"type": "integer", "minimum": 1},
     "subject_hash": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},

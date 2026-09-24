@@ -82,6 +82,7 @@ def _report(project: Path, revision: int, kind: str, **values):
     revision_id = f"edit-{revision:06d}"
     path = project / "operator/editorial/versions" / revision_id
     path.mkdir(parents=True, exist_ok=True)
+    approved_evidence = values.pop("_approved_evidence", False)
     failed_without_output = values.pop("_without_output", False)
     output_bytes = values.pop("_output_bytes", f"{kind}-output".encode())
     report = {"version": "editorial-execution-1.0", "revision": revision_id, "kind": kind, **values}
@@ -89,6 +90,10 @@ def _report(project: Path, revision: int, kind: str, **values):
         output = path / f"{kind}.mp4"
         output.write_bytes(output_bytes)
         report.update(output_path=output.relative_to(project).as_posix(), output_sha256=hashlib.sha256(output.read_bytes()).hexdigest())
+    if approved_evidence:
+        from tests.backlot.test_delivery_versions import approved_manifest
+        evidence = approved_manifest(project, {"version_id": revision_id, "video": {"path": report["output_path"]}})
+        report.update({key: evidence[key] for key in ("production_record_path", "final_review_id")})
     report_path = path / f"{kind}-execution_report.json"
     report_path.write_text(json.dumps(report), encoding="utf-8")
     return {"report_path": report_path.relative_to(project).as_posix()}
@@ -209,7 +214,8 @@ def test_generation_advance_before_promote_rejects_stale_delivery_pointer_update
     session = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass"))
     session = service.approve_preview(session["session_id"], output_sha256=session["preview"]["output_sha256"])
     session = service.request_final(session["session_id"])
-    session = service.record_final(session["session_id"], _report(project, 1, "final", status="pass", gates={"alignment": "pass", "l1a": "pass", "final_qa": "pass"}, _output_bytes=b"new-delivery"))
+    final_report = _report(project, 1, "final", status="pass", gates={"alignment": "pass", "l1a": "pass", "final_qa": "pass"}, _output_bytes=b"new-delivery", _approved_evidence=True)
+    session = service.record_final(session["session_id"], final_report, expected_generation=service.store.initialize()["generation_id"])
     with service.store.transaction(action={"action_id": "external-promote-race", "type": "external_edit"}, result={"status": "committed"}) as sink:
         sink.stage_json("artifacts/external-promote.json", {"changed": True}, schema="operator_state")
     with pytest.raises(OperatorError) as stale:
@@ -225,7 +231,11 @@ def test_promote_discard_and_restore_prior_delivery_revision(tmp_path: Path) -> 
     old.parent.mkdir(parents=True)
     old.write_bytes(b"old-delivery")
     old_hash = hashlib.sha256(old.read_bytes()).hexdigest()
-    service.install_delivery_revision("old", output_path=old, qa_report={"status": "pass", "gates": {"alignment": "pass", "l1a": "pass", "final_qa": "pass"}, "server_owned": True})
+    from tests.backlot.test_delivery_versions import approved_manifest
+    evidence = approved_manifest(project, {"version_id": "old", "video": {"path": "renders/old.mp4"}})
+    service.install_delivery_revision("old", output_path=old,
+        qa_report={"status": "pass", "gates": {"alignment": "pass", "l1a": "pass", "final_qa": "pass"}, "server_owned": True},
+        production_record_path=evidence["production_record_path"], final_review_id=evidence["final_review_id"])
     timeline = _canonical_timeline(project)
     timeline["base_generation_id"] = service.store.initialize()["generation_id"]
     _write_timeline(project, timeline)
@@ -234,7 +244,8 @@ def test_promote_discard_and_restore_prior_delivery_revision(tmp_path: Path) -> 
     session = service.record_preview(session["session_id"], _report(project, 1, "preview", status="pass"))
     service.approve_preview(session["session_id"], output_sha256=session["preview"]["output_sha256"])
     service.request_final(session["session_id"])
-    service.record_final(session["session_id"], _report(project, 1, "final", status="pass", gates={"alignment": "pass", "l1a": "pass", "final_qa": "pass"}, _output_bytes=b"new-delivery"))
+    final_report = _report(project, 1, "final", status="pass", gates={"alignment": "pass", "l1a": "pass", "final_qa": "pass"}, _output_bytes=b"new-delivery", _approved_evidence=True)
+    session = service.record_final(session["session_id"], final_report, expected_generation=service.store.initialize()["generation_id"])
     promoted = service.promote(session["session_id"])
     assert promoted["status"] == "promoted"
     assert service.current_delivery()["version_id"] != "old"
@@ -404,3 +415,49 @@ def test_save_draft_rejects_unsupported_or_cross_scope_operation(tmp_path: Path)
     with pytest.raises(OperatorError) as failure:
         service.save_draft(session["session_id"], {"operations": [{"op": "replace_clip", "track_id": "video", "clip_id": "video-1", "asset_id": "forged", "source_sha256": "a" * 64, "source_in_seconds": 0, "source_out_seconds": 1}]}, idempotency_key="replace-forged")
     assert failure.value.code == "validation_failed"
+
+
+def test_promote_rejects_overall_pass_without_bound_production_evidence(tmp_path):
+    from backlot.operator_errors import OperatorError
+    project = _project(tmp_path)
+    service = _service(project)
+    session = service.create_session(idempotency_key='missing-evidence')
+    session = service.save_draft(session['session_id'], {'op': 'set_caption', 'text': 'A'}, idempotency_key='draft')
+    session = service.record_preview(session['session_id'], _report(project, 1, 'preview', status='pass'))
+    service.approve_preview(session['session_id'], output_sha256=session['preview']['output_sha256'])
+    service.request_final(session['session_id'])
+    service.record_final(session['session_id'], _report(project, 1, 'final', status='pass', gates={'alignment':'pass','l1a':'pass','final_qa':'pass'}))
+    with pytest.raises(OperatorError, match='生产记录|最终审核'):
+        service.promote(session['session_id'])
+    assert service.current_delivery() is None
+    assert service.load_session(session['session_id'])['status'] == 'final_review'
+
+
+def test_install_historical_revision_without_new_evidence_does_not_certify(tmp_path):
+    from backlot.operator_errors import OperatorError
+    project = _project(tmp_path)
+    video = project / 'old.mp4'
+    video.write_bytes(b'historical-video')
+    service = _service(project)
+    with pytest.raises(OperatorError):
+        service.install_delivery_revision('legacy', output_path=video, qa_report={'status':'pass','server_owned':True})
+    assert service.current_delivery() is None
+
+
+def test_promote_rechecks_bound_quality_after_final_recording(tmp_path):
+    from backlot.operator_errors import OperatorError
+    project = _project(tmp_path)
+    service = _service(project)
+    session = service.create_session(idempotency_key='changed-qa')
+    session = service.save_draft(session['session_id'], {'op':'set_caption','text':'A'}, idempotency_key='draft')
+    session = service.record_preview(session['session_id'], _report(project, 1, 'preview', status='pass'))
+    service.approve_preview(session['session_id'], output_sha256=session['preview']['output_sha256'])
+    service.request_final(session['session_id'])
+    final_report = _report(project, 1, 'final', status='pass', gates={'alignment':'pass','l1a':'pass','final_qa':'pass'}, _approved_evidence=True)
+    service.record_final(session['session_id'], final_report, expected_generation=service.store.initialize()['generation_id'])
+    qa = project / 'evidence/edit-000001/quality.json'
+    qa.write_text(qa.read_text() + '\n')
+    with pytest.raises(OperatorError):
+        service.promote(session['session_id'])
+    assert service.current_delivery() is None
+    assert service.load_session(session['session_id'])['status'] == 'final_review'

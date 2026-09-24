@@ -1,5 +1,7 @@
 # Asset Director - Cinematic Fastline
 
+批量商业生产还须执行 [批量生产契约](../../meta/batch-production-contract.md)：SKU参考图与素材哈希入池、预算预占与幂等任务、超时先查询、最多两次创意追加。品牌资产与字体执行 [品牌契约](../../meta/production-brand-contract.md)。
+
 Read the complete `skills/pipelines/cinematic/asset-director.md` and
 `skills/meta/fastline.md` before acting. Build `shot_execution_plan`,
 `asset_plan`, `production_lock` and the atomic `creative_lock` approval bundle.
@@ -37,3 +39,27 @@ continuity constraints, prohibitions, Fast/Standard estimates, and evidence
 risk in `generation_proposals`. Never put `inputs/reference` media in those
 reference paths. Finish with `status: draft`; the operator locks the full
 execution plan before any paid generation button becomes active.
+
+## Campaign content-type and motion-task contract
+
+For campaign runs carrying `template_run_plan.campaign_content_ref`, preserve
+the same `direction_id`, `structure_id`, `support_type`, `recipe_id` and
+`content_version_id` in every execution card. The card must also declare one of
+`product_evidence`, `life_context` or `graphic_support` as its content role.
+
+Use these type-specific checks before proposing a generated motion asset:
+
+- `test_selection`: keep at least one owned evidence or product identity shot.
+- `healing_ritual`: include a real touch, fold or use-context action.
+- `relationship_story`: include a use-context action tied to the relationship behavior.
+- `space_play`: include two action slots that make the before/after change legible.
+- `comment_faq`: bind the shot to the real question/evidence source.
+- `transaction`: bind current product identity/color information and an approved CTA.
+
+When a Seedance or other video-generation provider is proposed, create a
+`motion_generation_task` record before dispatch. The task must carry the
+approved reference asset, fact snapshot, prompt version, 3–5 second duration,
+provider/model and attempt number. A failed or unknown remote result must be
+classified (`identity_drift`, `incomplete_action`, `provider_error`, etc.) and
+enter `reconcile_required` before retry. An asset cannot enter the approved
+pool without identity and action scores.

@@ -470,6 +470,7 @@ class EditorialSessionService:
             "video": {"path": relative, "poster_path": None, "subtitles_path": None},
             "audio_mix": {}, "qa": {"status": "pass", "issues": []},
             "change_summary": "OpenReel V2 服务端审核通过", "video_master_sha256": output_hash,
+            **{key: final[key] for key in ("production_record_path", "final_review_id") if final.get(key)},
         }
 
     def promote(self, session_id: str, *, expected_generation: str | None = None) -> dict[str, Any]:
@@ -483,6 +484,7 @@ class EditorialSessionService:
         errors = list(self.delivery.manifest_validator.iter_errors(manifest))
         if errors:
             raise OperatorError.validation_failed("成片版本内容不符合要求")
+        self.delivery.validate_production_evidence(manifest)
         payload = json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         manifest_hash = hashlib.sha256(payload).hexdigest()
         pointer = {"schema_version": "1.0", "project_id": self.store.project_id, "version_id": manifest["version_id"], "manifest_sha256": manifest_hash}
@@ -497,6 +499,7 @@ class EditorialSessionService:
             audit={"event_type": "editorial_promoted", "actor_id": self.actor_id},
             expected_generation=expected,
         ) as sink:
+            self.delivery.validate_production_evidence(manifest)
             session["base_generation_id"] = sink.generation_id
             sink.stage_json(f"operator/editorial/sessions/{session_id}.json", session, schema="operator_state")
             sink.stage_json(f"operator/delivery-versions/{manifest['version_id']}/manifest.json", manifest, schema="delivery_version")
@@ -511,7 +514,10 @@ class EditorialSessionService:
         session["discard_reason"] = reason
         return self._commit_session(session, action_type="editorial_discarded")
 
-    def install_delivery_revision(self, version_id: str, *, output_path: Path, qa_report: Mapping[str, Any]) -> dict[str, Any]:
+    def install_delivery_revision(self, version_id: str, *, output_path: Path, qa_report: Mapping[str, Any],
+                                  production_record_path: str | None = None,
+                                  final_review_id: str | None = None) -> dict[str, Any]:
+        """Install only an already reviewed version; history alone grants no certification."""
         if qa_report.get("server_owned") is not True or qa_report.get("status") != "pass":
             raise OperatorError("forbidden", "成片状态只能来自服务端执行报告", 403)
         path = Path(output_path).resolve()
@@ -520,6 +526,9 @@ class EditorialSessionService:
         except ValueError as exc:
             raise OperatorError.validation_failed("成片文件必须位于项目目录内") from exc
         manifest = {"schema_version": "1.0", "project_id": self.store.project_id, "version_id": version_id, "created_at": self.clock().isoformat(), "review_revision_id": None, "video": {"path": relative, "poster_path": None, "subtitles_path": None}, "audio_mix": {}, "qa": {"status": "pass", "issues": []}, "change_summary": "历史交付版本", "video_master_sha256": _sha256_file(path)}
+        evidence = {"production_record_path": production_record_path or qa_report.get("production_record_path"),
+                    "final_review_id": final_review_id or qa_report.get("final_review_id")}
+        manifest.update({key: value for key, value in evidence.items() if value})
         return self.delivery.certify(manifest, actor_id=self.actor_id)
 
     def delivery_manifest_hash(self, version_id: str) -> str:

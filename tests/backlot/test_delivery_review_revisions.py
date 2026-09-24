@@ -22,13 +22,14 @@ def test_delivery_review_commit_preserves_compose_and_queues_generation(tmp_path
     }))
     checkpoint = b'{"stage":"compose","status":"completed"}'
     (project / "checkpoint_compose.json").write_bytes(checkpoint)
-    DeliveryVersionService(project).certify({
+    from tests.backlot.test_delivery_versions import approved_manifest
+    DeliveryVersionService(project).certify(approved_manifest(project, {
         "schema_version": "1.0", "project_id": "film", "version_id": "v1",
         "created_at": "2026-08-19T00:00:00Z", "review_revision_id": None,
         "video": {"path": "renders/final-v1.mp4", "poster_path": None, "subtitles_path": None},
         "audio_mix": {}, "qa": {"status": "pass", "issues": []},
         "change_summary": "首个认证版本", "video_master_sha256": "a" * 64,
-    }, actor_id="system")
+    }), actor_id="system")
     current_before = (project / "operator/current-delivery.json").read_bytes()
     store = ProjectCommitStore(project)
     pointer = store.initialize()
