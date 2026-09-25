@@ -205,6 +205,26 @@ def test_rejects_real_video_display_rotation_before_core(video_fixture, tmp_path
     assert not output.exists()
 
 
+@pytest.mark.parametrize("width,height", [(129, 96), (128, 97)])
+def test_rejects_odd_source_geometry_before_output(tmp_path, width, height):
+    from tools.video.temporal_caption_repair import TemporalCaptionRepair
+    frames = np.zeros((3, height, width, 3), dtype=np.uint8)
+    source = tmp_path / "odd.mkv"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
+                    "-s", f"{width}x{height}", "-r", "25", "-i", "pipe:0", "-c:v", "ffv1", "-pix_fmt", "bgr0",
+                    str(source)], input=frames.tobytes(), check=True, timeout=20)
+    mask = np.zeros((height, width), dtype=np.uint8)
+    mask[20:22, 20:22] = 255
+    mask_path = tmp_path / "mask.pgm"
+    mask_path.write_bytes(f"P5\n{width} {height}\n255\n".encode() + mask.tobytes())
+    output = tmp_path / "odd-output"
+    result = TemporalCaptionRepair().execute(dict(input_path=str(source), mask_path=str(mask_path),
+        start_frame=0, end_frame_exclusive=3, output_dir=str(output), single_shot_verified=True))
+    assert not result.success
+    assert "even" in result.error.lower()
+    assert not output.exists()
+
+
 def test_capture_enforces_byte_and_time_limits():
     from tools.video.temporal_caption_repair import _capture
     with pytest.raises(ValueError, match="bounded output limit"):

@@ -336,6 +336,8 @@ class TemporalCaptionRepair(BaseTool):
             output = _output_path(inputs.get("output_dir"), source, mask_path)
             t0 = time.monotonic()
             width, height, fps, time_base = _probe_metadata(source)
+            if width % 2 or height % 2:
+                raise ValueError("source width and height must both be even for the diagnostic H.264 review proxy")
             estimated_bytes = validate_resource_bounds(count, height, width)
             available = _probe_timestamps(source, width, height, fps, time_base)
             if end > available:
