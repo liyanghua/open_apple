@@ -251,3 +251,52 @@ def test_empty_mask_has_complete_recovery_state_and_passes_gate():
     assert report["coverage_gate_passed"] is True
     assert report["frames"][0]["recovery_status"] == "complete"
     assert report["frames"][0]["coverage_gate_passed"] is True
+
+
+def resource_bounds(*dimensions):
+    module = importlib.import_module("lib.temporal_caption_repair")
+    validate = getattr(module, "validate_resource_bounds", None)
+    assert callable(validate), "shared preallocation resource validation is missing"
+    return validate(*dimensions)
+
+
+def test_measured_unsafe_context_is_rejected_before_copying_readonly_source():
+    class CopyForbidden(np.ndarray):
+        def copy(self, *args, **kwargs):
+            raise AssertionError("unsafe context reached candidate allocation")
+
+    shape = (19, 1440, 1440, 3)
+    frames = np.broadcast_to(np.uint8(0), shape).view(CopyForbidden)
+    mask = np.broadcast_to(False, shape[1:3])
+    assert not frames.flags.writeable
+    with pytest.raises(ValueError, match="working memory.*limit"):
+        repair(frames, mask)
+
+
+@pytest.mark.parametrize("dimensions", [(38, 720, 1280), (120, 500, 666), (1, 1400, 1500), (120, 1, 1)])
+def test_allowed_context_dimensions_need_no_image_allocation(dimensions):
+    count, height, width = dimensions
+    estimate = resource_bounds(*dimensions)
+    assert estimate == 448 * 1024**2 + 10 * count * height * width + 200 * height * width
+    assert estimate <= 1024**3
+
+
+@pytest.mark.parametrize("dimensions", [(19, 1440, 1440), (20, 1000, 2000), (121, 1, 1),
+                                        (1, 1450, 1450), (21, 1400, 1400)])
+def test_resource_limits_reject_unsafe_combinations_and_absolute_ceilings(dimensions):
+    with pytest.raises(ValueError, match="limit"):
+        resource_bounds(*dimensions)
+
+
+@pytest.mark.parametrize("dimensions", [(0, 1, 1), (1, -1, 1), (True, 1, 1), (1, 2.5, 3),
+                                        (1, float("nan"), 1)])
+def test_resource_dimensions_must_be_positive_integers(dimensions):
+    with pytest.raises(ValueError, match="positive integer"):
+        resource_bounds(*dimensions)
+
+
+def test_report_uses_same_calibrated_resource_estimate_and_states_its_limit():
+    frames, mask, _ = scene(shifts=(0,))
+    _, report = repair(frames, np.zeros_like(mask))
+    assert report["limits"]["estimated_peak_working_bytes"] == resource_bounds(*frames.shape[:3])
+    assert report["limits"]["memory_estimate_is_os_enforced"] is False

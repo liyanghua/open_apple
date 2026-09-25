@@ -22,9 +22,34 @@ MAX_FRAMES = 120
 MAX_FRAME_PIXELS = 2_100_000
 MAX_TOTAL_PIXELS = 40_000_000
 MAX_DONORS = 12
+WORKING_MEMORY_TARGET_BYTES = 1024**3
 TRACKING_RADIUS = 26  # LK 21x21, level 1, pyramid/derivative/bilinear support.
 LOCAL_RADIUS = 64
 EVIDENCE_RADIUS = 12
+
+
+def validate_resource_bounds(count, height, width):
+    """Validate dimensions before decoding/allocation; return estimated bytes.
+
+    Absolute source ceilings alone do not bound the OpenCV/NumPy working set.
+    This conservative combined estimate is calibrated against local RSS probes:
+    a 448 MiB runtime/allocator allowance, 10 bytes per context pixel and 200
+    bytes per frame pixel. It is a preflight target, not an OS-enforced memory
+    guarantee; runtime, allocator state and other process work can change RSS.
+    Callers can use this helper before allocating or decoding source frames.
+    """
+    if any(isinstance(value, (bool, np.bool_)) or not isinstance(value, numbers.Integral) or value < 1
+           for value in (count, height, width)):
+        raise ValueError("source dimensions must be positive integers")
+    count, height, width = int(count), int(height), int(width)
+    frame_pixels = height * width
+    total_pixels = count * frame_pixels
+    if count > MAX_FRAMES or frame_pixels > MAX_FRAME_PIXELS or total_pixels > MAX_TOTAL_PIXELS:
+        raise ValueError("source context exceeds frame/pixel limit")
+    estimated_bytes = 448 * 1024**2 + 10 * total_pixels + 200 * frame_pixels
+    if estimated_bytes > WORKING_MEMORY_TARGET_BYTES:
+        raise ValueError("estimated working memory exceeds preallocation limit")
+    return estimated_bytes
 
 
 def _validate(frames, masks, min_coverage, max_donors):
@@ -33,8 +58,7 @@ def _validate(frames, masks, min_coverage, max_donors):
     if frames.ndim != 4 or frames.shape[-1] != 3 or min(frames.shape[:3]) < 1:
         raise ValueError("frames must have nonempty shape [N,H,W,3]")
     count, height, width = frames.shape[:3]
-    if count > MAX_FRAMES or height * width > MAX_FRAME_PIXELS or count * height * width > MAX_TOTAL_PIXELS:
-        raise ValueError("source context exceeds frame/pixel limit")
+    estimated_bytes = validate_resource_bounds(count, height, width)
     if (isinstance(min_coverage, (bool, np.bool_)) or not isinstance(min_coverage, numbers.Real)
             or not math.isfinite(min_coverage) or not 0 <= min_coverage <= 1):
         raise ValueError("min_coverage must be finite and between 0 and 1")
@@ -47,7 +71,7 @@ def _validate(frames, masks, min_coverage, max_donors):
         raise ValueError("masks must have shape [H,W] or [N,H,W]")
     if masks.dtype == np.uint8 and np.any((masks != 0) & (masks != 1)):
         raise ValueError("uint8 masks must contain only 0 and 1")
-    return np.broadcast_to(masks.astype(bool, copy=False), (count, height, width))
+    return np.broadcast_to(masks.astype(bool, copy=False), (count, height, width)), estimated_bytes
 
 
 def _clean_footprint(mask, radius):
@@ -238,10 +262,11 @@ def repair_frames(frames, masks, *, min_coverage=0.98, max_donors=12):
 
     Source context and the candidate together use at most 240 MB. Processing is
     one target/donor pair at a time; no dense flow or all-pairs image tensors are
-    retained. The conservative working-set estimate below includes source,
-    output, masks, grayscale cache, provenance and pairwise scratch arrays.
+    retained. The calibrated estimate in ``validate_resource_bounds`` includes
+    runtime/allocator headroom, source, output, masks, grayscale cache, provenance
+    and pairwise scratch arrays. This target is not an OS-enforced RSS guarantee.
     """
-    masks = _validate(frames, masks, min_coverage, max_donors)
+    masks, estimated_bytes = _validate(frames, masks, min_coverage, max_donors)
     count, height, width = frames.shape[:3]
     candidate = frames.copy()
     gray_cache = {}
@@ -254,8 +279,9 @@ def repair_frames(frames, masks, *, min_coverage=0.98, max_donors=12):
                          "max_total_pixels": MAX_TOTAL_PIXELS, "max_donors": int(max_donors),
                          "max_registrations": int(count * max_donors), "tracking_support_radius": TRACKING_RADIUS,
                          "local_feature_radius": LOCAL_RADIUS, "pixel_evidence_radius": EVIDENCE_RADIUS,
-                         "estimated_peak_working_bytes": int(12 * count * height * width + 160 * height * width + 64 * 1024**2),
-                         "working_memory_target_bytes": 1024**3},
+                         "estimated_peak_working_bytes": estimated_bytes,
+                         "working_memory_target_bytes": WORKING_MEMORY_TARGET_BYTES,
+                         "memory_estimate_is_os_enforced": False},
               "limitations": ["Direct near-rigid local motion only; no transform chains.",
                               "Unresolved pixels retain original source values.",
                               "Visible support cannot prove hidden content; visual review is mandatory."]}
