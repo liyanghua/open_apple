@@ -224,14 +224,21 @@ def _pgm_mask(path: Path, width: int, height: int):
 
 def _probe_metadata(path: Path):
     command = ["ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe",
-               "-select_streams", "v:0", "-show_entries",
-               "stream=width,height,avg_frame_rate,r_frame_rate,time_base",
-               "-show_streams", "-of", "json", str(path)]
+               "-select_streams", "v:0", "-show_streams", "-of", "json", str(path)]
     info = json.loads(_capture(command, limit=_PROBE_LIMIT, timeout=_PROBE_TIMEOUT))
     streams = info.get("streams", [])
     if len(streams) != 1:
         raise ValueError("source requires a decodable video stream")
     stream = streams[0]
+    # Display transforms change the relationship between encoded pixels and
+    # a caller-supplied mask. Reject even identity matrices to avoid relying
+    # on differing FFmpeg/container interpretations.
+    if "rotate" in stream.get("tags", {}):
+        raise ValueError("source display rotation metadata is unsupported")
+    for side_data in stream.get("side_data_list", []):
+        if ("display" in str(side_data.get("side_data_type", "")).lower()
+                or "displaymatrix" in side_data or "rotation" in side_data):
+            raise ValueError("source display rotation/matrix metadata is unsupported")
     width, height = int(stream["width"]), int(stream["height"])
     fps = Fraction(stream["avg_frame_rate"])
     nominal = Fraction(stream["r_frame_rate"])
@@ -339,7 +346,7 @@ class TemporalCaptionRepair(BaseTool):
             t0 = time.monotonic()
             select = f"select=between(n\\,{start}\\,{end-1})"
             command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file,pipe",
-                       "-i", str(source), "-map", "0:v:0", "-vf", select, "-vsync", "0",
+                       "-noautorotate", "-i", str(source), "-map", "0:v:0", "-vf", select, "-vsync", "0",
                        "-frames:v", str(count), "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]
             raw = _capture(command, limit=(count + 1) * frame_bytes, timeout=_MEDIA_TIMEOUT)
             if len(raw) != count * frame_bytes:

@@ -182,6 +182,29 @@ def test_rejects_changing_frame_geometry(video_fixture, monkeypatch):
         adapter._probe_timestamps(video_fixture[0], 128, 96, Fraction(25), "1/1000")
 
 
+def test_rejects_real_video_display_rotation_before_core(video_fixture, tmp_path, monkeypatch):
+    from tools.video.temporal_caption_repair import TemporalCaptionRepair
+    from lib import temporal_caption_repair as core
+    source, *_ = video_fixture
+    encoded = tmp_path / "encoded.mp4"
+    rotated = tmp_path / "rotated.mp4"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(source),
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(encoded)], check=True, timeout=20)
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-display_rotation:v:0", "90",
+                    "-i", str(encoded), "-c", "copy", str(rotated)], check=True, timeout=20)
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(rotated)],
+                           capture_output=True, text=True, check=True)
+    assert json.loads(probe.stdout)["streams"][0]["side_data_list"][0]["rotation"] == 90
+    monkeypatch.setattr(core, "repair_frames", lambda *a, **k: pytest.fail("core ran on rotated source"))
+    output = tmp_path / "rotated-output"
+    args = _args(video_fixture, output)
+    args["input_path"] = str(rotated)
+    result = TemporalCaptionRepair().execute(args)
+    assert not result.success
+    assert "rotation" in result.error.lower() or "display transform" in result.error.lower()
+    assert not output.exists()
+
+
 def test_capture_enforces_byte_and_time_limits():
     from tools.video.temporal_caption_repair import _capture
     with pytest.raises(ValueError, match="bounded output limit"):
