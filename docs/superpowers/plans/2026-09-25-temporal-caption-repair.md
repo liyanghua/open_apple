@@ -74,3 +74,12 @@ Baseline: `tests/tools/test_frame_sampler_cache.py`: 2 passed on clean worktree 
 This first release is an evidence-based local reconstruction tool, not universal video inpainting, OCR, automatic segmentation, licensed model integration or a new production pipeline. A truly never-observed region may remain unrecoverable; reject it. No workarounds for provider content restrictions.
 
 Primary technical references: https://docs.opencv.org/4.x/dc/d6b/group__video__track.html ; https://github.com/sczhou/ProPainter#license .
+
+## Implementation and real-footage outcome (2026-09-25)
+
+- Core and adapter implemented through `34ed48a`; independent spec and quality reviews passed after fixes for partial status, measured memory overshoot, output ownership, probe order, display transforms and odd dimensions. Focused core/adapter/baseline suite: 81 passed.
+- Controlled 720×1280 s01 trial ran through the registry after the reviewer approved this even-dimension input. Runtime 8.753 s; 38-frame FFV1 outside-mask RGB verification passed. Only 292/489,022 masked pixels recovered (0.0597%); coverage gate failed. Eight-frame source/trial contact sheet shows the original caption still present.
+- The real-footage release gate failed. Normal-speed human artwork approval and batch expansion were not entered. This is not a successful clean-caption sample. No paid generation, provider swap, source mutation, TTS change, main integration or full composition occurred.
+- Trial artifacts and decision report live under the original production project's `analysis/temporal-caption-repair-v1/` and `artifacts/temporal-caption-trial-v1-review.md`.
+- `/usr/bin/time -l` could not read ancillary kernel statistics in the sandbox; the tool completed successfully, but actual trial RSS is unavailable and is not fabricated from the estimate.
+- Remaining decision: continue source-only multi-plane/local matching research, or authorize evaluation of temporally generated caption-region restoration with forced original pixels outside the mask. A concrete new model, commercial license and cost must be validated and approved before any such call. Keep the branch isolated and production paused pending this decision.
