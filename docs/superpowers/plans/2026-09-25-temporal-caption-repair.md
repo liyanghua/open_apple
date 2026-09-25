@@ -14,6 +14,8 @@
 
 ### Task 1: Temporal source-pixel reconstruction core
 
+Completed implementation and independent spec/quality reviews through commit `40d17c6`; 53 core tests plus 5 existing regression tests pass. A measured memory overshoot was corrected with the combined admission policy below. Real-source visual validation remains Task 3, not implied by this completion.
+
 Files:
 - Create `lib/temporal_caption_repair.py` (registration and masked reconstruction only).
 - Create `tests/lib/test_temporal_caption_repair.py`.
@@ -34,8 +36,8 @@ def repair_frames(frames, masks, *, min_coverage=0.98, max_donors=12):
 - [ ] Exclude the full feature/descriptor support footprint around captions, not only feature centres. Require finite/in-bounds transforms, RANSAC inliers plus forward/backward consistency, and pixel-local clean photometric support before accepting a donor. Reject unsupported parallax/occlusion; any chained transform must validate the final mapping directly, with bounded accumulated error, or be rejected. Never count a global fit alone as recovered pixel evidence.
 - [ ] For each target frame, reconstruct masked pixels only from registered original unmasked donor regions; robust donor selection, no generative or spatial fallback. Report per-frame coverage, unresolved pixels, registration confidence/evidence, donor frame IDs, actual changed-pixel counts and method limitations.
 - [ ] Copy the nearest original donor RGB triplet exactly; no averaging across donors, inpainting or interpolated output colours. Subpixel mapping may inform registration, but sampled output must have an explicit valid unmasked donor coordinate and valid surrounding sampling footprint. Bound the core to the same frame/pixel limits as the adapter and ≤12 donor attempts per target (≤1,440 registrations); working memory target ≤1 GiB at the documented maximum.
-- [ ] Require min frame coverage and valid registration; `status` must be `candidate_requires_visual_review` at best, not `approved`. Lack of recovery yields `insufficient_evidence`. Quality evidence is not human approval.
-- [ ] Every incomplete frame is explicitly partial, even if coverage ≥min_coverage. Use `partial_requires_visual_review` if any masked pixel remains unresolved; do not label the proxy as clean/uncaptioned and never set accepted_for_production true automatically. Only 100% supported coverage may receive `candidate_requires_visual_review`, still requiring visual inspection.
+- [ ] Require min frame coverage and valid registration for a separate `coverage_gate_passed` boolean; `status` must be `candidate_requires_visual_review` at best, not `approved`. Zero recovery yields `insufficient_evidence`. Quality evidence is not human approval.
+- [ ] Every frame has an explicit recovery status (complete/partial/unresolved). Use `partial_requires_visual_review` for any nonzero incomplete recovery, regardless of threshold; the separate coverage gate must still fail when any frame is below min_coverage. Do not label a partial proxy as clean/uncaptioned and never set accepted_for_production true automatically. Only 100% supported coverage may receive `candidate_requires_visual_review`, still requiring visual inspection.
 - [ ] Run tests; record exact command/results and limitations. Commit only Task 1 files.
 
 ### Task 2: Registry adapter and fail-closed diagnostics
@@ -46,6 +48,8 @@ Files:
 - Create `docs/temporal-caption-repair.md` (usage/release gate).
 
 Required inputs: `input_path`, `mask_path`, `start_frame`, `end_frame_exclusive`, `output_dir`, `single_shot_verified` (must be the literal boolean true, no default). Bound to ≤120 decoded frames, ≤2,100,000 pixels per frame and ≤40,000,000 total decoded pixels (120 MB RGB input); apply limits before decode. Bound all subprocesses: probe ≤30s/2 MiB captured output, decode/encode ≤120s and decoded stdout limited to expected raw bytes plus one frame. Output directory must be new, not input parent/root, with no overwrite of source or existing artifacts (including symlink aliases). Masks must exactly match decoded frame geometry, be binary, nonempty and sparse enough for caption repair (≤10% frame pixels). Reject VFR/mismatched frames or invalid intervals rather than guessing. Audio is explicitly excluded for this visual diagnostic; no output should be presented as an audiovisual replacement.
+
+Resource verification correction: a 19×1440×1440 synthetic input measured 1,276.7 MiB peak RSS despite the original estimate of 831.3 MiB. Absolute limits alone are insufficient. Add shared `validate_resource_bounds(count, height, width)` used by the core before allocation and adapter before decoding: reject when conservative estimated working bytes `448 MiB + 10 × total_pixels + 200 × frame_pixels` exceeds 1 GiB. The current 38×720×1280 trial remains allowed (~958 MiB estimate). This is an empirically informed admission policy, not an OS-enforced memory guarantee; report actual trial RSS separately.
 
 - [ ] Write failing tests for registered discovery, input/path/frame/mask validation, source overwrite/existing output protection, geometry/rate mismatch and audio policy. Use small synthetic video fixture and real FFmpeg for end-to-end output, not only mocked success.
 - [ ] Adapter inherits BaseTool, capability video_post, provider local, zero cost, experimental status, dependencies OpenCV/NumPy/FFmpeg/ffprobe; missing dependency yields unavailable and actionable install note. Discover through existing registry without editing provider routing or other pipelines.
