@@ -216,3 +216,38 @@ def test_partial_never_claims_complete_even_with_zero_threshold():
     assert 0 < report["coverage"] < 1
     assert report["status"] == "partial_requires_visual_review"
     assert report["accepted_for_production"] is False
+
+
+def test_partial_recovery_is_explicit_when_default_coverage_gate_fails():
+    frames, mask, _ = scene(shifts=(0, 4))
+    _, report = repair(frames, mask)
+    assert 0 < report["coverage"] < 0.98
+    assert report["status"] == "partial_requires_visual_review"
+    assert report["coverage_gate_passed"] is False
+    assert report["accepted_for_production"] is False
+    for entry in report["frames"]:
+        assert 0 < entry["resolved_pixels"] < entry["masked_pixels"]
+        assert entry["recovery_status"] == "partial"
+        assert entry["coverage_gate_passed"] is False
+
+
+@pytest.mark.parametrize("shifts,threshold,state,gate", [
+    ((0,), 0.98, "unresolved", False),
+    ((-8, -4, 0, 4, 8), 0.98, "complete", True),
+    ((0, 4), 0, "partial", True),
+])
+def test_recovery_state_and_numeric_gate_are_independent(shifts, threshold, state, gate):
+    frames, mask, _ = scene(shifts=shifts)
+    _, report = repair(frames, mask, min_coverage=threshold)
+    assert report["coverage_gate_passed"] is gate
+    for entry in report["frames"]:
+        assert entry["recovery_status"] == state
+        assert entry["coverage_gate_passed"] is gate
+
+
+def test_empty_mask_has_complete_recovery_state_and_passes_gate():
+    frames, mask, _ = scene(shifts=(0,))
+    _, report = repair(frames, np.zeros_like(mask))
+    assert report["coverage_gate_passed"] is True
+    assert report["frames"][0]["recovery_status"] == "complete"
+    assert report["frames"][0]["coverage_gate_passed"] is True

@@ -232,6 +232,9 @@ def repair_frames(frames, masks, *, min_coverage=0.98, max_donors=12):
     A value -1 means no copy; other values index that frame's ``donors`` list.
     For target (x,y), its exact donor coordinate is floor(M @ [x,y,1] + 0.5).
     Only resolved masked pixels are assigned, even if their RGB did not change.
+    Recovery status describes completeness independently of the numeric gate.
+    ``coverage_gate_passed`` requires every frame to meet ``min_coverage``;
+    partial recovery never becomes complete or production-approved by passing it.
 
     Source context and the candidate together use at most 240 MB. Processing is
     one target/donor pair at a time; no dense flow or all-pairs image tensors are
@@ -294,8 +297,10 @@ def repair_frames(frames, masks, *, min_coverage=0.98, max_donors=12):
                 entry["used_donor_frame_ids"].append(int(donor_id))
         resolved = int(np.count_nonzero(assigned >= 0))
         changed = int(np.count_nonzero(np.any(candidate[frame_id] != frames[frame_id], axis=2)))
+        coverage = float(resolved / masked_count) if masked_count else 1.0
         entry.update(resolved_pixels=resolved, unresolved_pixels=masked_count - resolved, changed_pixels=changed,
-                     coverage=float(resolved / masked_count) if masked_count else 1.0,
+                     coverage=coverage, coverage_gate_passed=bool(coverage >= min_coverage),
+                     recovery_status="complete" if resolved == masked_count else "partial" if resolved else "unresolved",
                      provenance={"shape": [height, width], "dtype": "int8", "unassigned": -1,
                                  "assignment_values": "indices into this frame's donors list",
                                  "rounding": "floor(target_to_donor @ [x,y,1] + 0.5)",
@@ -304,8 +309,9 @@ def repair_frames(frames, masks, *, min_coverage=0.98, max_donors=12):
         for key in ("masked_pixels", "resolved_pixels", "unresolved_pixels", "changed_pixels"):
             report[key] += entry[key]
     report["coverage"] = report["resolved_pixels"] / report["masked_pixels"] if report["masked_pixels"] else 1.0
+    report["coverage_gate_passed"] = all(entry["coverage_gate_passed"] for entry in report["frames"])
     if report["unresolved_pixels"] == 0:
         report["status"] = "candidate_requires_visual_review"
-    elif report["resolved_pixels"] and all(entry["coverage"] >= min_coverage for entry in report["frames"]):
+    elif report["resolved_pixels"]:
         report["status"] = "partial_requires_visual_review"
     return candidate, report
