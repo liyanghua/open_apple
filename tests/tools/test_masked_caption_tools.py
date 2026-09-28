@@ -62,12 +62,34 @@ def test_alias_configuration_and_actual_sdk_lifecycle(monkeypatch):
     assert _normalize_upload_lifecycle(StorageSettings(expires_in=86400)) == {"expiration_duration_seconds": 86400}
 
 
+def _pilot_project_path(checkout):
+    project = checkout / "projects/table-mat-reuse-first-v1"
+    if not project.is_dir() and checkout.parent.name == ".worktrees":
+        return checkout.parents[1] / "projects/table-mat-reuse-first-v1"
+    return project
+
+
+@pytest.mark.parametrize("worktree,local_project", [(False, False), (True, False), (True, True)])
+def test_pilot_project_path_supports_main_and_worktree(tmp_path, worktree, local_project):
+    root = tmp_path / "repo"
+    checkout = root / ".worktrees" / "feature" if worktree else root
+    checkout.mkdir(parents=True)
+    main_project = root / "projects/table-mat-reuse-first-v1"
+    main_project.mkdir(parents=True)
+    expected = main_project
+    if local_project:
+        expected = checkout / "projects/table-mat-reuse-first-v1"
+        expected.mkdir(parents=True)
+    resolver = globals().get("_pilot_project_path")
+    assert callable(resolver), "pilot fixture lookup must support main and worktree layouts"
+    assert resolver(checkout) == expected
+
+
 @pytest.fixture(scope="module")
 def prepared_pilot(tmp_path_factory):
     """Use the approved immutable local pilot; never call a provider."""
     from tools.video.masked_caption_composite import MaskedCaptionComposite
-    root = Path(__file__).resolve().parents[2].parents[1]
-    project = root / "projects/table-mat-reuse-first-v1"
+    project = _pilot_project_path(Path(__file__).resolve().parents[2])
     source = project / "inputs/reference/douyin-7670014963255151913.mp4"
     mask = project / "analysis/assets-correction-v3/s01-caption-glyph-mask-v2.pgm"
     if not source.is_file() or not mask.is_file():
