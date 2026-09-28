@@ -198,14 +198,19 @@ def test_uncertain_post_never_retries_and_resume_has_no_arbitrary_id(provider_ca
     assert len(calls["posts"]) == 1
 
 
-def test_resume_polls_owned_request_once(provider_case, monkeypatch):
+@pytest.mark.parametrize("http_status,provider_status", [(200, "IN_PROGRESS"), (202, "IN_QUEUE"), (202, "IN_PROGRESS")])
+def test_resume_polls_owned_request_once(provider_case, monkeypatch, http_status, provider_status):
     module, args, calls, _ = provider_case
     tool = module.VaceCaptionCandidate()
     assert tool.execute(args).success
+    state_path = Path(args["output_dir"]) / "attempt_state.json"
+    stale = json.loads(state_path.read_text())
+    stale.update(http_status=202, provider_error_code="provider_unreported", provider_error_message="old status query failed")
+    module._write_state(state_path, stale)
     class Pending:
-        status_code = 200
+        status_code = http_status
         def json(self):
-            return {"status": "IN_PROGRESS", "request_id": "request-123", "logs": None}
+            return {"status": provider_status, "request_id": "request-123", "logs": None}
     def get(url, **kwargs):
         calls["gets"].append((url, kwargs))
         return Pending()
@@ -215,6 +220,49 @@ def test_resume_polls_owned_request_once(provider_case, monkeypatch):
     assert len(calls["posts"]) == 1 and len(calls["gets"]) == 1
     assert calls["gets"][0][0].endswith("/requests/request-123/status")
     assert calls["gets"][0][1]["allow_redirects"] is False
+    assert "http_status" not in resumed.data and "provider_error_message" not in resumed.data
+    assert "http_status" not in json.loads(state_path.read_text())
+
+
+def test_status_202_unknown_body_cannot_complete_candidate(provider_case, monkeypatch):
+    module, args, calls, _ = provider_case
+    tool = module.VaceCaptionCandidate()
+    assert tool.execute(args).success
+    class Unknown:
+        status_code = 202
+        def json(self):
+            return {"detail": "processing", "request_id": "request-123"}
+    def get(url, **kwargs):
+        calls["gets"].append(url)
+        return Unknown()
+    monkeypatch.setattr(module.requests, "get", get)
+    resumed = tool.execute({**args, "action": "resume"})
+    assert not resumed.success and resumed.data["status"] == "pending"
+    assert "candidate_path" not in resumed.data and len(calls["gets"]) == 1
+    assert len(calls["posts"]) == 1
+
+
+def test_result_202_retains_pending_owned_request(provider_case, monkeypatch):
+    module, args, calls, _ = provider_case
+    tool = module.VaceCaptionCandidate()
+    assert tool.execute(args).success
+    class CompleteStatus:
+        status_code = 202
+        def json(self):
+            return {"status": "COMPLETED", "request_id": "request-123", "logs": None}
+    class PendingResult:
+        status_code = 202
+        def json(self):
+            return {"detail": "result still processing"}
+    def get(url, **kwargs):
+        calls["gets"].append(url)
+        return CompleteStatus() if url.endswith("/status") else PendingResult()
+    monkeypatch.setattr(module.requests, "get", get)
+    resumed = tool.execute({**args, "action": "resume"})
+    assert resumed.success and resumed.data["status"] == "pending"
+    assert resumed.data["request_id"] == "request-123"
+    assert "http_status" not in resumed.data and "candidate_path" not in resumed.data
+    assert len(calls["gets"]) == 2 and len(calls["posts"]) == 1
 
 
 def test_provider_rejection_keeps_bounded_sanitized_diagnostic(provider_case, monkeypatch):

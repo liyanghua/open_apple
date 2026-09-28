@@ -311,10 +311,12 @@ class VaceCaptionCandidate(BaseTool):
             return self._result(state, started, success=False, error="attempt has no recoverable request ID; resubmission forbidden")
         status_url = _queue_url(state.get("status_url"), request_id, status=True)
         response = requests.get(status_url, headers=self._headers(), timeout=(10, 120), allow_redirects=False)
-        if response.status_code != 200:
+        if response.status_code not in {200, 202}:
             state.update(_provider_error(response))
             _write_state(state_path, state)
             return self._result(state, started, success=False, error="status query failed; request retained")
+        for key in ("http_status", "provider_error_code", "provider_error_message"):
+            state.pop(key, None)
         body = response.json()
         provider_status = body.get("status")
         if provider_status in {"IN_QUEUE", "IN_PROGRESS"}:
@@ -322,11 +324,19 @@ class VaceCaptionCandidate(BaseTool):
             _write_state(state_path, state)
             return self._result(state, started)
         if provider_status != "COMPLETED":
+            if response.status_code == 202:
+                state.update(status="pending", provider_status="UNRECOGNIZED")
+                _write_state(state_path, state)
+                return self._result(state, started, success=False, error="pending status response is unrecognized; request retained")
             state.update(status="provider_failed", provider_status=str(provider_status)[:64])
             _write_state(state_path, state)
             return self._result(state, started, success=False, error="provider failed or rejected this candidate")
         result = requests.get(_queue_url(state.get("response_url"), request_id, status=False), headers=self._headers(),
                               timeout=(10, 120), allow_redirects=False)
+        if result.status_code == 202:
+            state.update(status="pending", provider_status="RESULT_PENDING")
+            _write_state(state_path, state)
+            return self._result(state, started)
         if result.status_code != 200:
             state.update(_provider_error(result))
             _write_state(state_path, state)
