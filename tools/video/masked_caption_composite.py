@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 
+from lib.masked_boundary_match import MaskedBoundaryMatcher
 from lib.masked_caption_media import (
     FPS, HEIGHT, PADDED_FRAMES, SOURCE_FRAMES, WIDTH, composite_frame,
     encode_rgb, padding_map, precondition_frame, stream_rgb, validate_contract, verify_pilot_source,
@@ -21,7 +22,7 @@ from tools.video.temporal_caption_repair import _capture, _file_path, _output_pa
 
 class MaskedCaptionComposite(BaseTool):
     name = "masked_caption_composite"
-    version = "0.2.0"
+    version = "0.3.0"
     tier = ToolTier.CORE
     capability = "video_post"
     provider = "local"
@@ -41,6 +42,7 @@ class MaskedCaptionComposite(BaseTool):
                                    "input_preprocessing": {"enum": ["source_rgb", "vace_gray127"]},
                                    "contract_path": {"type": "string"},
                                    "candidate_path": {"type": "string"},
+                                   "blend_mode": {"enum": ["hard", "boundary_match"]},
                                    "output_dir": {"type": "string"}}}
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
@@ -126,8 +128,13 @@ class MaskedCaptionComposite(BaseTool):
 
     @staticmethod
     def _composite(inputs: dict) -> dict:
+        blend_mode = inputs.get("blend_mode", "hard")
+        if blend_mode not in ("hard", "boundary_match"):
+            raise ValueError("unsupported blend_mode")
         contract_path = _file_path(inputs.get("contract_path"), "contract_path")
         contract = validate_contract(contract_path)
+        if blend_mode == "boundary_match" and contract["version"] != 2:
+            raise ValueError("boundary_match requires a version 2 gray-preconditioned contract")
         source = Path(contract["source"]["path"])
         mask_path = Path(contract["mask"]["path"])
         candidate = _file_path(inputs.get("candidate_path"), "candidate_path")
@@ -136,6 +143,8 @@ class MaskedCaptionComposite(BaseTool):
         verify_video(candidate, WIDTH, HEIGHT, FPS, PADDED_FRAMES)
         output = _output_path(inputs.get("output_dir"), source, mask_path)
         mask = verify_pilot_source(source, mask_path)
+        matcher = MaskedBoundaryMatcher(mask) if blend_mode == "boundary_match" else None
+        correction_stats = []
         output.mkdir(exist_ok=False)
         master = output / "master.mkv"
 
@@ -146,7 +155,13 @@ class MaskedCaptionComposite(BaseTool):
                 for _ in range(21):
                     next(generated)
                 for source_frame in original:
-                    yield composite_frame(source_frame, next(generated), mask)
+                    candidate_frame = next(generated)
+                    if matcher is None:
+                        yield composite_frame(source_frame, candidate_frame, mask)
+                    else:
+                        matched, stats = matcher.apply(source_frame, candidate_frame)
+                        correction_stats.append(stats)
+                        yield matched
                 for _ in range(22):
                     next(generated)
                 if next(generated, None) is not None:
@@ -198,6 +213,7 @@ class MaskedCaptionComposite(BaseTool):
                                       "rev-parse", "HEAD"], limit=256, timeout=10)).decode().strip()
         report = {
             "contract_passed": True, "outside_mask_exact": True,
+            "blend_mode": blend_mode,
             "alignment_status": "unverified", "visual_review_status": "pending",
             "accepted_for_production": False, "provenance": "generative_reconstruction",
             "source_sha256": contract["source"]["sha256"], "mask_sha256": contract["mask"]["sha256"],
@@ -216,6 +232,13 @@ class MaskedCaptionComposite(BaseTool):
             "outputs": {p.name: {"path": str(p), "sha256": _source_hash(p)}
                         for p in (master, review, comparison, slow, *sheets)},
         }
+        if matcher is not None:
+            report["boundary_match"] = {
+                "method": "harmonic_exterior_delta_matrix_free_cg",
+                "source_glyph_pixels_used": False,
+                "mask_expanded": False, "temporal_smoothing": False,
+                "frames": correction_stats,
+            }
         report_path = output / "report.json"
         with report_path.open("x", encoding="utf-8") as handle:
             json.dump(report, handle, indent=2)

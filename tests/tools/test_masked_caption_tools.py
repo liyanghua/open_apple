@@ -172,6 +172,45 @@ def test_gray_preparation_and_contract_verify_actual_pixels(gray_pilot, tmp_path
         validate_contract(altered)
 
 
+def test_unknown_blend_mode_rejected_without_output(tmp_path):
+    from tools.video.masked_caption_composite import MaskedCaptionComposite
+    output = tmp_path / "bad-blend"
+    result = MaskedCaptionComposite().execute({"action": "composite", "blend_mode": "feather",
+        "output_dir": str(output)})
+    assert not result.success and "blend_mode" in result.error
+    assert not output.exists()
+
+
+def test_boundary_match_rejects_legacy_contract(prepared_pilot, tmp_path):
+    from tools.video.masked_caption_composite import MaskedCaptionComposite
+    output = tmp_path / "legacy-blend"
+    result = MaskedCaptionComposite().execute({"action": "composite", "blend_mode": "boundary_match",
+        "contract_path": str(prepared_pilot), "output_dir": str(output)})
+    assert not result.success and "version 2" in result.error
+    assert not output.exists()
+
+
+def test_boundary_match_composite_keeps_exterior_and_review_pending(gray_pilot, tmp_path):
+    from tools.video.masked_caption_composite import MaskedCaptionComposite
+    from lib.masked_caption_media import verify_video
+    contract = json.loads(gray_pilot.read_text())
+    output = tmp_path / "boundary-blend"
+    # A synthetic gray candidate is deliberately NOT visually acceptable.
+    result = MaskedCaptionComposite().execute({"action": "composite", "blend_mode": "boundary_match",
+        "contract_path": str(gray_pilot), "candidate_path": contract["input_video"]["path"],
+        "output_dir": str(output)})
+    assert result.success, result.error
+    report = result.data["report"]
+    assert report["blend_mode"] == "boundary_match"
+    assert report["boundary_match"]["source_glyph_pixels_used"] is False
+    stats = report["boundary_match"]["frames"]
+    assert len(stats) == 38 and max(s["max_residual"] for s in stats) < 1e-5
+    assert report["outside_mask_exact"] is True and report["frames_verified"] == 38
+    assert report["accepted_for_production"] is False
+    assert report["alignment_status"] == "unverified" and report["visual_review_status"] == "pending"
+    assert verify_video(output / "master.mkv", 720, 1280, 30, 38) == 38
+
+
 def test_gray_trial_needs_new_exact_approval_and_own_claim(provider_case, gray_pilot, monkeypatch):
     module, args, calls, tracker = provider_case
     args.update(contract_path=str(gray_pilot), approval_ref="d032")
