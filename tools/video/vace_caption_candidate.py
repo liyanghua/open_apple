@@ -284,8 +284,23 @@ class VaceCaptionCandidate(BaseTool):
             raise ValueError("attempt output must not have symlink ancestors")
         state_path = _file_path(output / "attempt_state.json", "attempt state")
         state = json.loads(state_path.read_text())
-        if any(state.get(key) != claim.get(key) for key in claim):
+        submission_fields = ("request_id", "status_url", "response_url")
+        if any(state.get(key) != claim.get(key) for key in claim if key not in submission_fields):
             raise ValueError("attempt state ownership differs from permanent claim")
+        if any(key in claim for key in submission_fields):
+            request_id = claim.get("request_id")
+            if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", request_id):
+                raise ValueError("permanent claim has invalid submission identity")
+            _queue_url(claim.get("status_url"), request_id, status=True)
+            _queue_url(claim.get("response_url"), request_id, status=False)
+            if any(key in state and state[key] != claim[key] for key in submission_fields):
+                raise ValueError("attempt state submission identity differs from permanent claim")
+            missing = [key for key in submission_fields if key not in state]
+            if missing:
+                state.update({key: claim[key] for key in missing})
+                if state.get("status") in {"submission_unknown", "submission_intent", "preparing_upload"}:
+                    state["status"] = "submitted"
+                _write_state(state_path, state)
         if state.get("status") == "completed":
             candidate = _file_path(output / "candidate.mp4", "candidate")
             if _source_hash(candidate) != state.get("candidate_sha256"):
@@ -319,18 +334,20 @@ class VaceCaptionCandidate(BaseTool):
         media = result.json().get("video", {})
         url = _media_url(media.get("url"))
         candidate = output / "candidate.mp4"
-        self._download(url, candidate)
+        self._download(url, candidate, reuse_existing=True)
         state.update(status="completed", candidate_path=str(candidate), candidate_sha256=_source_hash(candidate),
                      model_version="provider_unreported", accepted_for_production=False)
         _write_state(state_path, state)
         return self._result(state, started)
 
     @staticmethod
-    def _download(url: str, destination: Path):
+    def _download(url: str, destination: Path, *, reuse_existing: bool = False):
         _media_url(url)
         started = time.monotonic()
-        if destination.exists() or destination.is_symlink():
+        if destination.is_symlink() or (destination.exists() and not reuse_existing):
             raise ValueError("candidate destination already exists")
+        if destination.exists():
+            _file_path(destination, "existing candidate")
         holder = []
         timed_out = threading.Event()
 
@@ -380,8 +397,15 @@ class VaceCaptionCandidate(BaseTool):
                     raise ValueError("candidate download is empty or truncated")
                 if timed_out.is_set() or time.monotonic() - started > 120:
                     raise ValueError("candidate download exceeds 120 seconds")
-                # Atomic publication without replacing another caller's file.
-                os.link(temporary, destination)
+                # A crash may have published this exact request's bytes before
+                # its completed state was saved. Confirm them against a fresh
+                # bounded download; never replace or accept a foreign file.
+                if reuse_existing and destination.exists():
+                    existing = _file_path(destination, "existing candidate")
+                    if _source_hash(existing) != _source_hash(temporary):
+                        raise ValueError("existing candidate differs from owned provider request")
+                else:
+                    os.link(temporary, destination)
                 temporary.unlink()
         finally:
             watchdog.cancel()

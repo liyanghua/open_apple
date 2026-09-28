@@ -361,3 +361,98 @@ def test_completed_download_has_no_media_auth_and_local_composite_stays_unapprov
     assert len(list(composite_dir.glob("contact-sheet-*.png"))) == 4
     again = tool.execute({**args, "action": "resume"})
     assert again.success and len(calls["gets"]) == 3 and len(calls["posts"]) == 1
+
+
+def test_resume_recovers_claim_written_before_attempt_state_without_accepting_foreign_owner(provider_case, monkeypatch):
+    module, args, calls, _ = provider_case
+    original_write = module._write_state
+    state_path = Path(args["output_dir"]) / "attempt_state.json"
+    class Crash(BaseException):
+        pass
+    def crash_after_claim(path, state):
+        if path == state_path and state.get("status") == "submitted":
+            raise Crash()
+        original_write(path, state)
+    monkeypatch.setattr(module, "_write_state", crash_after_claim)
+    with pytest.raises(Crash):
+        module.VaceCaptionCandidate().execute(args)
+    assert len(calls["posts"]) == 1
+    persisted = json.loads(state_path.read_text())
+    assert "request_id" not in persisted
+    monkeypatch.setattr(module, "_write_state", original_write)
+    class Pending:
+        status_code = 200
+        def json(self):
+            return {"status": "IN_PROGRESS", "request_id": "request-123", "logs": None}
+    def get(url, **kwargs):
+        calls["gets"].append(url)
+        return Pending()
+    monkeypatch.setattr(module.requests, "get", get)
+    result = module.VaceCaptionCandidate().execute({**args, "action": "resume"})
+    assert result.success and result.data["request_id"] == "request-123"
+    assert len(calls["posts"]) == 1 and len(calls["gets"]) == 1
+    assert json.loads(state_path.read_text())["response_url"].endswith("/requests/request-123")
+    owned = json.loads(state_path.read_text())
+    foreign = dict(owned)
+    foreign["reservation_id"] = "foreign-owner"
+    original_write(state_path, foreign)
+    assert not module.VaceCaptionCandidate().execute({**args, "action": "resume"}).success
+    assert len(calls["posts"]) == 1 and len(calls["gets"]) == 1
+    original_write(state_path, {**owned, "request_id": "foreign-request"})
+    assert not module.VaceCaptionCandidate().execute({**args, "action": "resume"}).success
+    assert len(calls["posts"]) == 1 and len(calls["gets"]) == 1
+
+
+def test_resume_recovers_published_candidate_before_completed_state_without_foreign_file_acceptance(provider_case, monkeypatch):
+    module, args, calls, _ = provider_case
+    tool = module.VaceCaptionCandidate()
+    assert tool.execute(args).success
+    contract = json.loads(Path(args["contract_path"]).read_text())
+    candidate_bytes = Path(contract["input_video"]["path"]).read_bytes()
+    class Response:
+        status_code = 200
+        headers = {"Content-Length": str(len(candidate_bytes))}
+        def __init__(self, body):
+            self.body = body
+        def json(self):
+            return self.body
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def iter_content(self, size):
+            for start in range(0, len(candidate_bytes), size):
+                yield candidate_bytes[start:start + size]
+    def get(url, **kwargs):
+        calls["gets"].append(url)
+        if url.endswith("/status"):
+            return Response({"status": "COMPLETED", "request_id": "request-123", "logs": None})
+        if url.startswith("https://queue.fal.run/"):
+            return Response({"video": {"url": "https://v3.fal.media/candidate.mp4", "content_type": "video/mp4", "file_name": "candidate.mp4", "file_size": len(candidate_bytes)}})
+        assert "headers" not in kwargs
+        return Response({})
+    monkeypatch.setattr(module.requests, "get", get)
+    state_path = Path(args["output_dir"]) / "attempt_state.json"
+    crashed_state = json.loads(state_path.read_text())
+    original_write = module._write_state
+    class Crash(BaseException):
+        pass
+    def crash_after_publication(path, state):
+        if path == state_path and state.get("status") == "completed":
+            raise Crash()
+        original_write(path, state)
+    monkeypatch.setattr(module, "_write_state", crash_after_publication)
+    with pytest.raises(Crash):
+        tool.execute({**args, "action": "resume"})
+    candidate = Path(args["output_dir"]) / "candidate.mp4"
+    assert candidate.read_bytes() == candidate_bytes
+    assert json.loads(state_path.read_text())["status"] == "submitted"
+    monkeypatch.setattr(module, "_write_state", original_write)
+    recovered = tool.execute({**args, "action": "resume"})
+    assert recovered.success and recovered.data["status"] == "completed"
+    assert recovered.data["request_id"] == "request-123" and len(calls["posts"]) == 1
+    candidate.write_bytes(b"foreign candidate")
+    original_write(state_path, crashed_state)
+    rejected = tool.execute({**args, "action": "resume"})
+    assert not rejected.success
+    assert candidate.read_bytes() == b"foreign candidate" and len(calls["posts"]) == 1
