@@ -30,6 +30,12 @@ QUEUE = "https://queue.fal.run/" + ENDPOINT
 OPERATION = "s01_wan_vace14b_once"
 APPROVAL = "d030"
 CLAIM_NAME = ".masked-caption-d030-s01-attempt.json"
+TRIALS = {
+    "d030": {"version": 1, "selected": "wan_vace14b_single_trial", "operation": OPERATION,
+             "claim_name": CLAIM_NAME},
+    "d032": {"version": 2, "selected": "wan_vace14b_gray127_single_trial",
+             "operation": "s01_wan_vace14b_gray127_once", "claim_name": ".masked-caption-d032-s01-attempt.json"},
+}
 PAYLOAD = {
     "match_input_num_frames": True, "num_frames": 81,
     "match_input_frames_per_second": True, "frames_per_second": 30,
@@ -77,8 +83,9 @@ def _project_path(raw) -> Path:
 
 
 def _approval(project: Path, approval_ref: str) -> None:
-    if approval_ref != APPROVAL:
-        raise ValueError("approval_ref must be the approved d030 single trial")
+    if approval_ref not in TRIALS:
+        raise ValueError("approval_ref must be an explicitly supported single trial")
+    profile = TRIALS[approval_ref]
     path = _file_path(project / "checkpoint_assets.json", "checkpoint_assets")
     checkpoint = json.loads(path.read_text(encoding="utf-8"))
     artifact = checkpoint.get("artifacts", {}).get("decision_log", {})
@@ -90,18 +97,20 @@ def _approval(project: Path, approval_ref: str) -> None:
     # The canonical checkpoint stores the trial record under this namespace.
     if not metadata:
         for value in checkpoint.get("metadata", {}).values():
-            if isinstance(value, dict) and value.get("approval_ref") == APPROVAL:
+            if isinstance(value, dict) and value.get("approval_ref") == approval_ref:
                 metadata = value
                 break
-    if (decision.get("decision_id") != APPROVAL
-            or decision.get("selected") != "wan_vace14b_single_trial"
+    if (decision.get("decision_id") != approval_ref
+            or decision.get("selected") != profile["selected"]
             or decision.get("user_approved") is not True
-            or metadata.get("approval_ref") != APPROVAL
+            or metadata.get("approval_ref") != approval_ref
             or metadata.get("model_call_approved") is not True
             or metadata.get("proposed_endpoint") != ENDPOINT
             or metadata.get("proposed_trial_ceiling_usd") != 0.5
             or metadata.get("proposed_upload_scope") != "s01 silent padded frames and glyph mask only"):
         raise ValueError("canonical checkpoint does not approve this exact single trial")
+    if profile["version"] == 2 and metadata.get("input_preprocessing") != "vace_gray127":
+        raise ValueError("checkpoint does not approve gray conditioning")
 
 
 def _write_state(path: Path, state: dict) -> None:
@@ -133,7 +142,7 @@ def _provider_error(response) -> dict:
 
 class VaceCaptionCandidate(BaseTool):
     name = "vace_caption_candidate"
-    version = "0.1.0"
+    version = "0.2.0"
     tier = ToolTier.CORE
     capability = "video_post"
     provider = "fal"
@@ -146,7 +155,7 @@ class VaceCaptionCandidate(BaseTool):
     dependencies = ["python:requests", "python:fal_client", "env:FAL_KEY", "cmd:ffmpeg", "cmd:ffprobe", "python:numpy"]
     install_instructions = "Install requests and fal-client 1.0.3, configure FAL_KEY or FAL_AI_API_KEY, and install FFmpeg/NumPy."
     capabilities = ["approved_s01_masked_caption_candidate"]
-    best_for = ["One d030-approved s01 Wan VACE14B candidate"]
+    best_for = ["An explicitly approved single s01 Wan VACE14B diagnostic (d030 or d032)"]
     not_good_for = ["Automatic retries", "unapproved clips", "production acceptance", "general video generation"]
     resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, disk_mb=200, network_required=True)
     side_effects = ["Uploads only prepared pilot video/mask; permanently claims one project attempt; submits at most once"]
@@ -154,7 +163,7 @@ class VaceCaptionCandidate(BaseTool):
     input_schema = {"type": "object", "required": ["action", "contract_path", "output_dir", "project_dir", "reservation_id", "approval_ref"],
                     "properties": {"action": {"enum": ["submit", "resume"]},
                                    **{key: {"type": "string"} for key in ("contract_path", "output_dir", "project_dir", "reservation_id")},
-                                   "approval_ref": {"const": APPROVAL}}}
+                                   "approval_ref": {"enum": list(TRIALS)}}}
 
     def get_info(self) -> dict:
         info = super().get_info()
@@ -192,18 +201,23 @@ class VaceCaptionCandidate(BaseTool):
             if not isinstance(inputs, dict) or inputs.get("action") not in {"submit", "resume"}:
                 raise ValueError("action must be submit or resume")
             project = _project_path(inputs.get("project_dir"))
-            _approval(project, inputs.get("approval_ref"))
+            approval_ref = inputs.get("approval_ref")
+            _approval(project, approval_ref)
+            profile = TRIALS[approval_ref]
+            operation = profile["operation"]
             contract_path = _file_path(inputs.get("contract_path"), "contract_path")
             contract = validate_contract(contract_path)
-            claim_path = project / CLAIM_NAME
+            if contract["version"] != profile["version"]:
+                raise ValueError("contract preprocessing version differs from trial approval")
+            claim_path = project / profile["claim_name"]
             if inputs["action"] == "resume":
                 return self._resume(inputs, project, contract_path, claim_path, started)
             self.check_dependencies()
             tracker = CostTracker(cost_log_path=project / "cost_log.json")
             reservation = inputs.get("reservation_id")
-            tracker.assert_reserved(reservation, self.name, OPERATION, 0.5)
+            tracker.assert_reserved(reservation, self.name, operation, 0.5)
             output = _output_path(inputs.get("output_dir"), Path(contract["source"]["path"]), Path(contract["mask"]["path"]))
-            claim = {"approval_ref": APPROVAL, "operation": OPERATION, "endpoint": ENDPOINT,
+            claim = {"approval_ref": approval_ref, "operation": operation, "endpoint": ENDPOINT,
                      "reservation_id": reservation, "output_dir": str(output),
                      "contract_path": str(contract_path), "contract_sha256": _source_hash(contract_path)}
             # O_EXCL makes different output directories and different reservations
@@ -225,9 +239,9 @@ class VaceCaptionCandidate(BaseTool):
             # Only the SDK upload response supplies payload URLs. Never log them.
             _media_url(video_url)
             _media_url(mask_url)
-            tracker.bind_submission(reservation, tool=self.name, attempt_id=APPROVAL + ":s01:" + ENDPOINT,
-                                    idempotency_key=APPROVAL + ":s01:" + ENDPOINT,
-                                    operation=OPERATION, minimum_usd=0.5)
+            tracker.bind_submission(reservation, tool=self.name, attempt_id=approval_ref + ":s01:" + ENDPOINT,
+                                    idempotency_key=approval_ref + ":s01:" + ENDPOINT,
+                                    operation=operation, minimum_usd=0.5)
             state["status"] = "submission_intent"
             _write_state(state_path, state)
             payload = {**PAYLOAD, "video_url": video_url, "mask_video_url": mask_url}
@@ -251,8 +265,8 @@ class VaceCaptionCandidate(BaseTool):
             state.update(claim, status="submitted")
             _write_state(state_path, state)
             tracker.bind_submission(reservation, tool=self.name, attempt_id=claim["approval_ref"] + ":s01:" + ENDPOINT,
-                                    idempotency_key=APPROVAL + ":s01:" + ENDPOINT, task_id=request_id,
-                                    operation=OPERATION, minimum_usd=0.5)
+                                    idempotency_key=approval_ref + ":s01:" + ENDPOINT, task_id=request_id,
+                                    operation=operation, minimum_usd=0.5)
             return self._result(state, started)
         except Exception as exc:
             if state_path is not None and state is not None:
@@ -278,7 +292,8 @@ class VaceCaptionCandidate(BaseTool):
         if (str(output) != claim.get("output_dir") or str(contract_path) != claim.get("contract_path")
                 or _source_hash(contract_path) != claim.get("contract_sha256")
                 or inputs.get("reservation_id") != claim.get("reservation_id")
-                or claim.get("approval_ref") != APPROVAL or claim.get("endpoint") != ENDPOINT):
+                or claim.get("approval_ref") != inputs.get("approval_ref") or claim.get("endpoint") != ENDPOINT
+                or claim.get("operation") != TRIALS[inputs["approval_ref"]]["operation"]):
             raise ValueError("resume must reference the owned attempt and original contract")
         if any(p.is_symlink() for p in (output, *output.parents)):
             raise ValueError("attempt output must not have symlink ancestors")

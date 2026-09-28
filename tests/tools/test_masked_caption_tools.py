@@ -133,6 +133,94 @@ def provider_case(tmp_path, prepared_pilot, monkeypatch):
     return module, args, calls, tracker
 
 
+@pytest.fixture(scope="module")
+def gray_pilot(tmp_path_factory, prepared_pilot):
+    from tools.video.masked_caption_composite import MaskedCaptionComposite
+    original = json.loads(prepared_pilot.read_text())
+    result = MaskedCaptionComposite().execute({"action": "prepare",
+        "input_path": original["source"]["path"], "mask_path": original["mask"]["path"],
+        "output_dir": str(tmp_path_factory.mktemp("gray-caption-pilot") / "prepared"),
+        "single_shot_verified": True, "input_preprocessing": "vace_gray127"})
+    assert result.success, result.error
+    return Path(result.data["contract_path"])
+
+
+def test_gray_preparation_and_contract_verify_actual_pixels(gray_pilot, tmp_path):
+    import numpy as np
+    from lib.masked_caption_media import validate_contract, stream_rgb, encode_rgb
+    from tools.video.temporal_caption_repair import _pgm_mask, _source_hash
+    contract = json.loads(gray_pilot.read_text())
+    assert contract["version"] == 2
+    assert contract["input_preprocessing"] == "vace_gray127"
+    mask, _ = _pgm_mask(Path(contract["mask"]["path"]), 720, 1280)
+    for frame in stream_rgb(Path(contract["input_video"]["path"]), 720, 1280, expected_frames=81):
+        assert np.all(frame[mask] == 127)
+    assert validate_contract(gray_pilot)["version"] == 2
+    # Even an updated file hash cannot conceal a raw/text-bearing upload.
+    import shutil
+    bad = tmp_path / "bad"
+    shutil.copytree(gray_pilot.parent, bad)
+    upload = bad / "input-padded.mp4"
+    upload.unlink()
+    raw = np.zeros((1280, 720, 3), dtype=np.uint8)
+    encode_rgb(upload, (raw for _ in range(81)), 720, 1280, 30, codec="h264rgb")
+    contract["input_video"].update(path=str(upload), sha256=_source_hash(upload))
+    contract["mask_video"]["path"] = str(bad / "mask-padded.mp4")
+    altered = bad / "changed-contract.json"
+    altered.write_text(json.dumps(contract))
+    with pytest.raises(ValueError, match="prepared input frame"):
+        validate_contract(altered)
+
+
+def test_gray_trial_needs_new_exact_approval_and_own_claim(provider_case, gray_pilot, monkeypatch):
+    module, args, calls, tracker = provider_case
+    args.update(contract_path=str(gray_pilot), approval_ref="d032")
+    tool = module.VaceCaptionCandidate()
+    blocked = tool.execute(args)
+    assert not blocked.success and not calls["posts"]
+    checkpoint_path = Path(args["project_dir"]) / "checkpoint_assets.json"
+    cp = json.loads(checkpoint_path.read_text())
+    decision = cp["artifacts"]["decision_log"]["data"]["decisions"][0]
+    decision.update(decision_id="d032", selected="wan_vace14b_gray127_single_trial")
+    cp["metadata"]["capability_work"].update(approval_ref="d032", input_preprocessing="vace_gray127")
+    checkpoint_path.write_text(json.dumps(cp))
+    reservation = tracker.estimate(tool.name, "s01_wan_vace14b_gray127_once", 0.5)
+    tracker.reserve(reservation)
+    args["reservation_id"] = reservation
+    # A consumed old approval must remain untouched, and must not block a new one.
+    old_claim = Path(args["project_dir"]) / module.CLAIM_NAME
+    old_claim.write_text("historical d030 claim")
+    result = tool.execute(args)
+    assert result.success, result.error
+    assert old_claim.read_text() == "historical d030 claim"
+    assert len(calls["posts"]) == 1
+    assert calls["posts"][0][1]["json"]["preprocess"] is False
+    assert not tool.execute(args).success
+    assert len(calls["posts"]) == 1
+    class Pending:
+        status_code = 202
+        def json(self):
+            return {"status": "IN_QUEUE"}
+    monkeypatch.setattr(module.requests, "get", lambda *a, **k: Pending())
+    resumed = tool.execute({**args, "action": "resume"})
+    assert resumed.success and resumed.data["status"] == "pending"
+    assert len(calls["posts"]) == 1
+
+
+def test_gray_trial_rejects_legacy_contract_before_upload(provider_case):
+    module, args, calls, tracker = provider_case
+    args["approval_ref"] = "d032"
+    cp_path = Path(args["project_dir"]) / "checkpoint_assets.json"
+    cp = json.loads(cp_path.read_text())
+    cp["artifacts"]["decision_log"]["data"]["decisions"][0].update(
+        decision_id="d032", selected="wan_vace14b_gray127_single_trial")
+    cp["metadata"]["capability_work"].update(approval_ref="d032", input_preprocessing="vace_gray127")
+    cp_path.write_text(json.dumps(cp))
+    result = module.VaceCaptionCandidate().execute(args)
+    assert not result.success
+    assert not calls["uploads"] and not calls["posts"]
+
+
 def test_fixed_payload_lifecycle_and_permanent_duplicate_block(provider_case):
     module, args, calls, tracker = provider_case
     tool = module.VaceCaptionCandidate()

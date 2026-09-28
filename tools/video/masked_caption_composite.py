@@ -12,7 +12,7 @@ import numpy as np
 
 from lib.masked_caption_media import (
     FPS, HEIGHT, PADDED_FRAMES, SOURCE_FRAMES, WIDTH, composite_frame,
-    encode_rgb, padding_map, stream_rgb, validate_contract, verify_pilot_source,
+    encode_rgb, padding_map, precondition_frame, stream_rgb, validate_contract, verify_pilot_source,
     verify_video,
 )
 from tools.base_tool import BaseTool, ResourceProfile, ToolResult, ToolStability, ToolTier
@@ -21,7 +21,7 @@ from tools.video.temporal_caption_repair import _capture, _file_path, _output_pa
 
 class MaskedCaptionComposite(BaseTool):
     name = "masked_caption_composite"
-    version = "0.1.0"
+    version = "0.2.0"
     tier = ToolTier.CORE
     capability = "video_post"
     provider = "local"
@@ -38,6 +38,7 @@ class MaskedCaptionComposite(BaseTool):
                     "properties": {"action": {"enum": ["prepare", "composite"]},
                                    "input_path": {"type": "string"}, "mask_path": {"type": "string"},
                                    "single_shot_verified": {"const": True},
+                                   "input_preprocessing": {"enum": ["source_rgb", "vace_gray127"]},
                                    "contract_path": {"type": "string"},
                                    "candidate_path": {"type": "string"},
                                    "output_dir": {"type": "string"}}}
@@ -69,6 +70,9 @@ class MaskedCaptionComposite(BaseTool):
         mask_path = _file_path(inputs.get("mask_path"), "mask_path")
         output = _output_path(inputs.get("output_dir"), source, mask_path)
         mask = verify_pilot_source(source, mask_path)
+        mode = inputs.get("input_preprocessing", "source_rgb")
+        if mode not in {"source_rgb", "vace_gray127"}:
+            raise ValueError("unsupported input preprocessing")
         output.mkdir(exist_ok=False)
         padded_input = output / "input-padded.mp4"
         padded_mask = output / "mask-padded.mp4"
@@ -76,14 +80,14 @@ class MaskedCaptionComposite(BaseTool):
         def source_frames():
             original = stream_rgb(source, WIDTH, HEIGHT, expected_frames=SOURCE_FRAMES, limit_frames=SOURCE_FRAMES)
             try:
-                first = next(original)
+                first = precondition_frame(next(original), mask, mode)
                 for _ in range(21):
                     yield first
                 yield first
                 last = first
                 for frame in original:
-                    last = frame
-                    yield frame
+                    last = precondition_frame(frame, mask, mode)
+                    yield last
                 for _ in range(22):
                     yield last
             finally:
@@ -96,7 +100,7 @@ class MaskedCaptionComposite(BaseTool):
         verify_video(padded_input, WIDTH, HEIGHT, FPS, PADDED_FRAMES)
         verify_video(padded_mask, WIDTH, HEIGHT, FPS, PADDED_FRAMES)
         contract = {
-            "version": 1,
+            "version": 2 if mode == "vace_gray127" else 1,
             "pilot": "s01_wan_vace14b_once",
             "source": {"path": str(source), "sha256": _source_hash(source), "frame_interval": [0, 38]},
             "mask": {"path": str(mask_path), "sha256": _source_hash(mask_path), "polarity": "255=replace"},
@@ -106,6 +110,8 @@ class MaskedCaptionComposite(BaseTool):
             "mask_video": {"path": str(padded_mask), "sha256": _source_hash(padded_mask)},
             "encoding": "libx264rgb-crf0", "audio": "absent",
         }
+        if mode == "vace_gray127":
+            contract["input_preprocessing"] = mode
         contract_path = output / "repair_contract.json"
         with contract_path.open("x", encoding="utf-8") as handle:
             json.dump(contract, handle, indent=2)

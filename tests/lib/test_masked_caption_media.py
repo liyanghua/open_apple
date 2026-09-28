@@ -9,6 +9,23 @@ import pytest
 from lib.masked_caption_media import composite_frame, padding_map, stream_rgb, encode_rgb, verify_video
 
 
+def test_vace_conditioning_removes_glyph_content_without_changing_source():
+    from lib import masked_caption_media as module
+    condition = getattr(module, "precondition_frame", None)
+    assert callable(condition), "VACE input needs explicit masked gray conditioning"
+    source = np.arange(12 * 16 * 3, dtype=np.uint8).reshape(12, 16, 3)
+    before = source.copy()
+    mask = np.zeros((12, 16), dtype=bool)
+    mask[3:6, 4:10] = True
+    actual = condition(source, mask, "vace_gray127")
+    assert np.all(actual[mask] == 127)
+    assert np.array_equal(actual[~mask], source[~mask])
+    assert np.array_equal(source, before)
+    assert np.array_equal(condition(source, mask, "source_rgb"), source)
+    with pytest.raises(ValueError, match="preprocessing"):
+        condition(source, mask, "unknown")
+
+
 def test_padding_map_preserves_all_38_source_frames():
     mapping = padding_map()
     assert len(mapping) == 81

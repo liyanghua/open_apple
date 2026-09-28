@@ -26,6 +26,20 @@ def padding_map() -> list[int]:
     return [min(37, max(0, j - 21)) for j in range(PADDED_FRAMES)]
 
 
+def precondition_frame(source: np.ndarray, mask: np.ndarray, mode: str) -> np.ndarray:
+    """Prepare model conditioning without changing the immutable source frame."""
+    if mode not in {"source_rgb", "vace_gray127"}:
+        raise ValueError("unsupported input preprocessing")
+    if source.dtype != np.uint8 or source.ndim != 3 or source.shape[2] != 3:
+        raise ValueError("conditioning requires uint8 RGB source")
+    if mask.dtype != np.bool_ or mask.shape != source.shape[:2]:
+        raise ValueError("conditioning mask geometry/dtype differs from source")
+    result = source.copy()
+    if mode == "vace_gray127":
+        result[mask] = 127
+    return result
+
+
 def composite_frame(source: np.ndarray, candidate: np.ndarray, mask: np.ndarray) -> np.ndarray:
     if source.shape != candidate.shape or source.ndim != 3 or source.shape[2] != 3 or mask.shape != source.shape[:2]:
         raise ValueError("source, candidate, and mask geometry must match")
@@ -126,8 +140,11 @@ def verify_pilot_source(source: Path, mask_path: Path):
 def validate_contract(path: Path) -> dict:
     path = _file_path(path, "contract_path")
     contract = json.loads(path.read_text(encoding="utf-8"))
-    if contract.get("version") != 1 or contract.get("frame_map") != padding_map():
+    if contract.get("version") not in {1, 2} or contract.get("frame_map") != padding_map():
         raise ValueError("repair contract mapping differs from fixed pilot")
+    mode = contract.get("input_preprocessing", "source_rgb")
+    if (contract["version"] == 1 and mode != "source_rgb") or (contract["version"] == 2 and mode != "vace_gray127"):
+        raise ValueError("repair contract preprocessing differs from version")
     if contract.get("source", {}).get("sha256") != PILOT_SOURCE_SHA256 or contract.get("mask", {}).get("sha256") != PILOT_MASK_SHA256:
         raise ValueError("repair contract hashes differ from fixed pilot")
     if (contract.get("pilot") != "s01_wan_vace14b_once" or contract.get("geometry") != [WIDTH, HEIGHT]
@@ -159,7 +176,7 @@ def validate_contract(path: Path) -> dict:
                 last = expected
             else:
                 expected = last
-            if not np.array_equal(next(prepared), expected):
+            if not np.array_equal(next(prepared), precondition_frame(expected, approved_mask, mode)):
                 raise ValueError(f"prepared input frame {index} differs from approved source mapping")
             rendered_mask = next(mask_video)
             if any(not np.array_equal(rendered_mask[:, :, channel] >= 128, approved_mask) for channel in range(3)):

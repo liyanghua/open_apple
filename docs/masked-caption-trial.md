@@ -1,5 +1,8 @@
 # Fixed s01 masked-caption trial
 
+Current correction: see [gray-conditioned d032 trial](masked-caption-gray127-trial.md).
+The d030 invocation below is historical and consumed, not permission to resubmit.
+
 This is a bounded diagnostic for `table-mat-reuse-first-v1`, not a general
 caption remover or a production-acceptance tool. Run through the `hybrid` assets
 stage and registry. Existing `temporal_caption_repair` remains source-only.
