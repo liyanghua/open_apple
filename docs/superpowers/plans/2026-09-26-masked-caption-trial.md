@@ -65,5 +65,13 @@ Submit returns request ID promptly (no 10min blocking call). Each resume polls o
 - [x] Design reviewed/committed adc30b5 and user approval d030 recorded.
 - [x] Existing baseline81 tests pass4.76s.
 - [x] Plan review passed after cross-reservation single-approval claim and three-column/half-speed review corrections.
-- [ ] Task1 implementation and two-stage review.
-- [ ] Task2 one live trial, honest QA and user handoff.
+- [x] Task1 implementation and two-stage review: b56122e plus crash-recovery fix 0a47a9d; independent 109 tests passed in 74.92s, spec and quality approved for one controlled pilot.
+- [x] Task2 one live trial and honest QA: real candidate and playable diagnostic produced; visual result REJECTED because the original caption remains readable in all 38 frames. User handoff is diagnostic only, not production acceptance.
+
+### 2026-09-28 execution evidence
+
+- Registry local prepare succeeded in 4.95s; all 38 source/mask crops inspected with no visible uncovered caption; original/mask/five TTS hashes unchanged.
+- Exactly one inference submitted under d030: request `01a0e5c4-ebfe-7742-8a99-383d0de83bf3`, reservation `f6080cc31438`, $0.50 held. Upload plus submission took 16.097s. Actual billing unknown.
+- The live status endpoint returned HTTP202. Adapter initially classified it as a query error while retaining the request. Compatibility fix 611c363 accepts valid pending statuses without resubmission; independent five status regressions passed in 32s, spec re-review approved. Final quality re-review precedes use.
+- The elapsed observation window includes local adapter correction; it is not a measurement of provider inference time. At the original ten-minute boundary, end repeated polling. One final recovery check may retain a completed result; otherwise keep the same request pending, never create a replacement request or release its budget as free.
+- HTTP202 fix611c363 passed independent spec/quality re-review. Final same-ID recovery completed in6.853s; local composite7.511s. All38master frames preserve outside-maskRGB exactly; oldcaptionremainsinside. No normal-speed temporal-pass claim. Actual billing unknown; estimate0.405, commitment0.50retained. Output/report: original project `analysis/masked-temporal-caption-v1/trial-review.md`. No secondPOST, no batch, no main-branch merge.
