@@ -1,0 +1,363 @@
+"""Safety gates for the single s01 masked-caption provider trial."""
+
+import json
+from pathlib import Path
+
+import pytest
+
+from tools.tool_registry import ToolRegistry
+
+
+def test_registry_exposes_bounded_tools_outside_video_selector():
+    registry = ToolRegistry()
+    registry.discover()
+    local = registry.get("masked_caption_composite")
+    provider = registry.get("vace_caption_candidate")
+    assert local.capability == provider.capability == "video_post"
+    assert local.provider == "local"
+    assert provider.provider == "fal"
+    assert "python:fal_client" in provider.dependencies
+    assert "env:FAL_KEY" in provider.dependencies
+
+
+def test_prepare_rejects_unapproved_source_without_output(tmp_path):
+    from tools.video.masked_caption_composite import MaskedCaptionComposite
+    source = tmp_path / "source.mp4"
+    mask = tmp_path / "mask.pgm"
+    source.write_bytes(b"wrong source")
+    mask.write_bytes(b"wrong mask")
+    output = tmp_path / "prepared"
+    result = MaskedCaptionComposite().execute({"action": "prepare", "input_path": str(source),
+        "mask_path": str(mask), "output_dir": str(output), "single_shot_verified": True})
+    assert not result.success
+    assert not output.exists()
+
+
+def test_provider_rejects_before_network_without_approved_checkpoint(tmp_path, monkeypatch):
+    from tools.video.vace_caption_candidate import VaceCaptionCandidate
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "checkpoint_assets.json").write_text(json.dumps({"data": {"decision_log": {"decisions": []}}, "metadata": {}}))
+    contract = tmp_path / "contract.json"
+    contract.write_text("{}")
+    output = tmp_path / "attempt"
+    monkeypatch.setenv("FAL_KEY", "test-secret")
+    result = VaceCaptionCandidate().execute({"action": "submit", "contract_path": str(contract),
+        "output_dir": str(output), "project_dir": str(project), "reservation_id": "no-budget",
+        "approval_ref": "d030"})
+    assert not result.success
+    assert not output.exists()
+    assert "test-secret" not in (result.error or "")
+
+
+def test_alias_configuration_and_actual_sdk_lifecycle(monkeypatch):
+    from fal_client import StorageSettings
+    from fal_client.client import _normalize_upload_lifecycle
+    from tools.video.vace_caption_candidate import VaceCaptionCandidate
+    monkeypatch.delenv("FAL_KEY", raising=False)
+    monkeypatch.setenv("FAL_AI_API_KEY", "alias-secret")
+    tool = VaceCaptionCandidate()
+    tool.check_dependencies()
+    assert tool._headers()["Authorization"] == "Key alias-secret"
+    assert _normalize_upload_lifecycle(StorageSettings(expires_in=86400)) == {"expiration_duration_seconds": 86400}
+
+
+@pytest.fixture(scope="module")
+def prepared_pilot(tmp_path_factory):
+    """Use the approved immutable local pilot; never call a provider."""
+    from tools.video.masked_caption_composite import MaskedCaptionComposite
+    root = Path(__file__).resolve().parents[2].parents[1]
+    project = root / "projects/table-mat-reuse-first-v1"
+    source = project / "inputs/reference/douyin-7670014963255151913.mp4"
+    mask = project / "analysis/assets-correction-v3/s01-caption-glyph-mask-v2.pgm"
+    if not source.is_file() or not mask.is_file():
+        pytest.skip("approved pilot media is not installed in this checkout")
+    base = tmp_path_factory.mktemp("masked-caption-pilot")
+    result = MaskedCaptionComposite().execute({"action": "prepare", "input_path": str(source),
+        "mask_path": str(mask), "output_dir": str(base / "prepared"), "single_shot_verified": True})
+    assert result.success, result.error
+    assert len(result.data["mask_coverage_evidence"]) == 4
+    assert result.data["evidence_frames"] == 38
+    return Path(result.data["contract_path"])
+
+
+@pytest.fixture
+def provider_case(tmp_path, prepared_pilot, monkeypatch):
+    from tools.cost_tracker import CostTracker
+    from tools.video import vace_caption_candidate as module
+    import fal_client
+
+    project = tmp_path / "project"
+    project.mkdir()
+    checkpoint = {"artifacts": {"decision_log": {"data": {"decisions": [{
+        "decision_id": "d030", "category": "provider_selection", "subject": "Caption reconstruction model",
+        "selected": "wan_vace14b_single_trial", "user_approved": True}]}}},
+        "metadata": {"capability_work": {"approval_ref": "d030", "model_call_approved": True,
+        "proposed_endpoint": module.ENDPOINT, "proposed_trial_ceiling_usd": 0.5,
+        "proposed_upload_scope": "s01 silent padded frames and glyph mask only"}}}
+    (project / "checkpoint_assets.json").write_text(json.dumps(checkpoint))
+    tracker = CostTracker(cost_log_path=project / "cost_log.json")
+    tracker.approve_tool("vace_caption_candidate")
+    reservation = tracker.estimate("vace_caption_candidate", module.OPERATION, 0.5)
+    tracker.reserve(reservation)
+    args = {"action": "submit", "contract_path": str(prepared_pilot), "output_dir": str(tmp_path / "attempt"),
+            "project_dir": str(project), "reservation_id": reservation, "approval_ref": "d030"}
+    calls = {"uploads": [], "posts": [], "gets": []}
+    monkeypatch.setenv("FAL_KEY", "test-secret")
+
+    class Client:
+        def __init__(self, *, key, default_timeout):
+            assert key == "test-secret" and default_timeout == 120
+
+        def upload_file(self, path, *, lifecycle):
+            from fal_client import StorageSettings
+            assert isinstance(lifecycle, StorageSettings)
+            calls["uploads"].append(path)
+            return "https://v3.fal.media/files/" + Path(path).name
+
+    class Response:
+        status_code = 202
+        def json(self):
+            return {"request_id": "request-123", "status": "IN_QUEUE",
+                "status_url": "https://queue.fal.run/fal-ai/wan-vace-14b/requests/request-123/status",
+                "response_url": "https://queue.fal.run/fal-ai/wan-vace-14b/requests/request-123",
+                "cancel_url": "https://queue.fal.run/fal-ai/wan-vace-14b/requests/request-123/cancel"}
+
+    def post(url, **kwargs):
+        calls["posts"].append((url, kwargs))
+        return Response()
+
+    monkeypatch.setattr(fal_client, "SyncClient", Client)
+    monkeypatch.setattr(module.requests, "post", post)
+    monkeypatch.setattr(module.requests, "get", lambda *a, **k: pytest.fail("unexpected network GET"))
+    return module, args, calls, tracker
+
+
+def test_fixed_payload_lifecycle_and_permanent_duplicate_block(provider_case):
+    module, args, calls, tracker = provider_case
+    tool = module.VaceCaptionCandidate()
+    result = tool.execute(args)
+    assert result.success, result.error
+    assert result.data["request_id"] == "request-123"
+    assert result.cost_usd is None
+    assert len(calls["uploads"]) == 2 and len(calls["posts"]) == 1
+    url, options = calls["posts"][0]
+    assert url == module.QUEUE
+    expected = {"video_url": "https://v3.fal.media/files/input-padded.mp4",
+                "mask_video_url": "https://v3.fal.media/files/mask-padded.mp4",
+                "match_input_num_frames": True, "num_frames": 81,
+                "match_input_frames_per_second": True, "frames_per_second": 30,
+                "resolution": "720p", "aspect_ratio": "9:16", "seed": 20260926,
+                "num_inference_steps": 30, "guidance_scale": 5, "sampler": "unipc",
+                "shift": 5, "acceleration": "none", "video_quality": "maximum",
+                "enable_safety_checker": True, "enable_prompt_expansion": False,
+                "preprocess": False, "num_interpolated_frames": 0,
+                "temporal_downsample_factor": 0, "enable_auto_downsample": False}
+    assert {key: options["json"][key] for key in expected} == expected
+    assert set(options["json"]) == set(expected) | {"prompt", "negative_prompt"}
+    assert "caption and its shadow only" in options["json"]["prompt"]
+    assert options["headers"]["X-Fal-Store-IO"] == "0"
+    assert json.loads(options["headers"]["X-Fal-Object-Lifecycle-Preference"]) == {"expiration_duration_seconds": 86400}
+    assert options["allow_redirects"] is False
+    new_reservation = tracker.estimate(tool.name, module.OPERATION, 0.5)
+    tracker.reserve(new_reservation)
+    duplicate = tool.execute({**args, "reservation_id": new_reservation,
+                              "output_dir": str(Path(args["output_dir"]).with_name("new-attempt"))})
+    assert not duplicate.success
+    assert len(calls["uploads"]) == 2 and len(calls["posts"]) == 1
+    state = json.loads((Path(args["output_dir"]) / "attempt_state.json").read_text())
+    assert "test-secret" not in json.dumps(state)
+    assert "fal.media" not in json.dumps(state)
+
+
+def test_missing_budget_or_tampered_contract_has_zero_paid_side_effects(provider_case):
+    module, args, calls, _ = provider_case
+    tool = module.VaceCaptionCandidate()
+    assert not tool.execute({**args, "reservation_id": "missing"}).success
+    tampered = Path(args["output_dir"]).parent / "tampered.json"
+    contract = json.loads(Path(args["contract_path"]).read_text())
+    contract["frame_map"][21] = 1
+    tampered.write_text(json.dumps(contract))
+    assert not tool.execute({**args, "contract_path": str(tampered)}).success
+    assert calls["uploads"] == calls["posts"] == []
+
+
+def test_uncertain_post_never_retries_and_resume_has_no_arbitrary_id(provider_case, monkeypatch):
+    module, args, calls, _ = provider_case
+    def uncertain(url, **kwargs):
+        calls["posts"].append((url, kwargs))
+        raise module.requests.Timeout("signed-url-and-secret-must-not-leak")
+    monkeypatch.setattr(module.requests, "post", uncertain)
+    tool = module.VaceCaptionCandidate()
+    result = tool.execute(args)
+    assert not result.success and result.data["status"] == "submission_unknown"
+    assert "signed-url" not in result.error
+    assert not tool.execute(args).success
+    resumed = tool.execute({**args, "action": "resume", "request_id": "caller-made-up"})
+    assert not resumed.success
+    assert len(calls["posts"]) == 1
+
+
+def test_resume_polls_owned_request_once(provider_case, monkeypatch):
+    module, args, calls, _ = provider_case
+    tool = module.VaceCaptionCandidate()
+    assert tool.execute(args).success
+    class Pending:
+        status_code = 200
+        def json(self):
+            return {"status": "IN_PROGRESS", "request_id": "request-123", "logs": None}
+    def get(url, **kwargs):
+        calls["gets"].append((url, kwargs))
+        return Pending()
+    monkeypatch.setattr(module.requests, "get", get)
+    resumed = tool.execute({**args, "action": "resume"})
+    assert resumed.success and resumed.data["status"] == "pending"
+    assert len(calls["posts"]) == 1 and len(calls["gets"]) == 1
+    assert calls["gets"][0][0].endswith("/requests/request-123/status")
+    assert calls["gets"][0][1]["allow_redirects"] is False
+
+
+def test_provider_rejection_keeps_bounded_sanitized_diagnostic(provider_case, monkeypatch):
+    module, args, calls, _ = provider_case
+    class Rejection:
+        status_code = 422
+        def json(self):
+            return {"error": {"code": "policy_violation", "message": "Rejected test-secret https://v3.fal.media/file?signature=secret " + "x" * 2000}}
+    monkeypatch.setattr(module.requests, "post", lambda *a, **k: Rejection())
+    result = module.VaceCaptionCandidate().execute(args)
+    assert not result.success and result.data["http_status"] == 422
+    assert result.data["provider_error_code"] == "policy_violation"
+    assert len(result.data["provider_error_message"]) <= 500
+    assert "test-secret" not in json.dumps(result.data)
+    assert "https://" not in json.dumps(result.data)
+
+
+@pytest.mark.parametrize("url", ["http://fal.media/x", "https://fal.media.evil.test/x",
+    "https://evil.test/x", "https://user:secret@fal.media/x", "https://fal.media:443/x"])
+def test_media_urls_reject_arbitrary_hosts_and_credentials(url):
+    from tools.video.vace_caption_candidate import _media_url
+    with pytest.raises(ValueError):
+        _media_url(url)
+
+
+def test_queue_url_requires_owned_request_id():
+    from tools.video.vace_caption_candidate import _queue_url
+    with pytest.raises(ValueError):
+        _queue_url("https://queue.fal.run/fal-ai/wan-vace-14b/requests/other/status", "request-123", status=True)
+
+
+def test_concurrent_callers_share_one_permanent_claim(provider_case):
+    from concurrent.futures import ThreadPoolExecutor
+    module, args, calls, tracker = provider_case
+    second = tracker.estimate("vace_caption_candidate", module.OPERATION, 0.5)
+    tracker.reserve(second)
+    other = {**args, "reservation_id": second, "output_dir": str(Path(args["output_dir"]).with_name("concurrent"))}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(module.VaceCaptionCandidate().execute, [args, other]))
+    assert sum(result.success for result in results) == 1
+    assert len(calls["posts"]) == 1 and len(calls["uploads"]) == 2
+
+
+def test_download_limits_and_no_auth_or_redirects(tmp_path, monkeypatch):
+    from tools.video import vace_caption_candidate as module
+    observed = []
+    class Response:
+        status_code = 200
+        headers = {"Content-Length": str(module.MAX_CANDIDATE_BYTES + 1)}
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def iter_content(self, size):
+            yield b"candidate"
+    def get(url, **kwargs):
+        observed.append(kwargs)
+        return Response()
+    monkeypatch.setattr(module.requests, "get", get)
+    with pytest.raises(ValueError, match="100 MiB"):
+        module.VaceCaptionCandidate._download("https://v3.fal.media/x", tmp_path / "large.mp4")
+    assert not (tmp_path / "large.mp4").exists()
+    assert "headers" not in observed[0]
+    assert observed[0]["allow_redirects"] is False
+    Response.headers = {}
+    clock = iter([0, 121])
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(clock))
+    with pytest.raises(ValueError, match="120 seconds"):
+        module.VaceCaptionCandidate._download("https://v3.fal.media/x", tmp_path / "slow.mp4")
+
+
+def test_interrupted_download_keeps_final_path_free_for_same_request_resume(tmp_path, monkeypatch):
+    from tools.video import vace_caption_candidate as module
+    class Response:
+        status_code = 200
+        headers = {}
+        broken = True
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def iter_content(self, size):
+            yield b"first"
+            if self.broken:
+                raise module.requests.ConnectionError("interrupted")
+            yield b"second"
+    monkeypatch.setattr(module.requests, "get", lambda *a, **k: Response())
+    destination = tmp_path / "candidate.mp4"
+    with pytest.raises(module.requests.ConnectionError):
+        module.VaceCaptionCandidate._download("https://v3.fal.media/x", destination)
+    assert not destination.exists()
+    Response.broken = False
+    module.VaceCaptionCandidate._download("https://v3.fal.media/x", destination)
+    assert destination.read_bytes() == b"firstsecond"
+
+
+def test_completed_download_has_no_media_auth_and_local_composite_stays_unapproved(provider_case, monkeypatch):
+    from tools.video.masked_caption_composite import MaskedCaptionComposite
+    from lib.masked_caption_media import verify_video
+    module, args, calls, _ = provider_case
+    tool = module.VaceCaptionCandidate()
+    assert tool.execute(args).success
+    prepared = json.loads(Path(args["contract_path"]).read_text())
+    candidate_bytes = Path(prepared["input_video"]["path"]).read_bytes()
+    class Response:
+        status_code = 200
+        headers = {"Content-Length": str(len(candidate_bytes))}
+        def __init__(self, body):
+            self.body = body
+        def json(self):
+            return self.body
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def iter_content(self, size):
+            for start in range(0, len(candidate_bytes), size):
+                yield candidate_bytes[start:start + size]
+    def get(url, **kwargs):
+        calls["gets"].append((url, kwargs))
+        if url.endswith("/status"):
+            return Response({"status": "COMPLETED", "request_id": "request-123", "logs": None})
+        if url.startswith("https://queue.fal.run/"):
+            return Response({"video": {"url": "https://v3.fal.media/candidate.mp4", "content_type": "video/mp4", "file_name": "candidate.mp4", "file_size": len(candidate_bytes)}})
+        assert "headers" not in kwargs and kwargs["allow_redirects"] is False
+        return Response({})
+    monkeypatch.setattr(module.requests, "get", get)
+    result = tool.execute({**args, "action": "resume"})
+    assert result.success and result.data["status"] == "completed"
+    candidate = Path(result.data["candidate_path"])
+    assert verify_video(candidate, 720, 1280, 30, 81) == 81
+    composite_dir = Path(args["output_dir"]).with_name("composite")
+    composite = MaskedCaptionComposite().execute({"action": "composite", "contract_path": args["contract_path"],
+        "candidate_path": str(candidate), "output_dir": str(composite_dir)})
+    assert composite.success, composite.error
+    report = composite.data["report"]
+    assert report["outside_mask_exact"] is True and report["frames_verified"] == 38
+    assert report["alignment_status"] == "unverified" and report["visual_review_status"] == "pending"
+    assert report["accepted_for_production"] is False
+    assert report["endpoint"] == module.ENDPOINT and report["request_id"] == "request-123"
+    assert report["generation_settings"]["seed"] == 20260926
+    assert report["code_commit"] and report["timestamp"]
+    assert verify_video(composite_dir / "master.mkv", 720, 1280, 30, 38) == 38
+    assert len(list(composite_dir.glob("contact-sheet-*.png"))) == 4
+    again = tool.execute({**args, "action": "resume"})
+    assert again.success and len(calls["gets"]) == 3 and len(calls["posts"]) == 1
