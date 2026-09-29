@@ -169,7 +169,11 @@ def quality_summary(root: Path, record: Mapping[str, Any]) -> dict:
         entries[name] = {"status": "error", "evidence_refs": [], "issues": ["duplicate_check_id"]}
     extra = report.get("required_checks")
     extra = [name for name in extra if isinstance(name, str) and name] if isinstance(extra, list) else []
-    required = list(dict.fromkeys(REQUIRED_CHECKS + tuple(extra)))
+    # Opening requirements derive from the record, never a report-controlled list.
+    from lib.opening_contracts import OPENING_CHECKS
+
+    opening_required = OPENING_CHECKS if "opening" in record else ()
+    required = list(dict.fromkeys(REQUIRED_CHECKS + opening_required + tuple(extra)))
     checks, blockers = {}, []
     for name in list(dict.fromkeys(required + list(entries))):
         item = entries.get(name, {})

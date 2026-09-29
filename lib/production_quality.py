@@ -85,6 +85,11 @@ def collect_production_quality(root: Path, record: Mapping, evidence_refs: Mappi
                 status = "error"
             issues = check.get("issues")
             put(name, status, data.get("method", source), [evidence_refs[source]], issues if isinstance(issues, list) else [])
-    return {"version": "1.0", "render_sha256": actual_sha, "required_checks": list(REQUIRED_CHECKS),
-            "checks": list(checks.values()), "certification_eligible": all(checks[name]["status"] == "pass" for name in REQUIRED_CHECKS),
+    from lib.opening_contracts import evaluate_opening_checks
+
+    opening_checks = evaluate_opening_checks(root, record)
+    checks.update(opening_checks)
+    required = list(REQUIRED_CHECKS) + list(opening_checks)
+    return {"version": "1.0", "render_sha256": actual_sha, "required_checks": required,
+            "checks": list(checks.values()), "certification_eligible": all(checks[name]["status"] == "pass" for name in required),
             "provenance": record.get("provenance", "canonical"), "source_refs": dict(evidence_refs)}

@@ -1,67 +1,624 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "openmontage/artifacts/hook_plan",
-  "title": "Hook Plan",
-  "description": "Per-candidate hook plan written into the creative contract (Design_Review_2026-08-22.md P1-1). Records what happens in the first 1-1.5s, the first audible information, the promise, the real evidence that backs it, and how this candidate differs from sibling candidates. Everything is natural language for the review board.",
-  "type": "object",
-  "required": [
-    "version",
-    "project_id",
-    "created_at",
-    "hook_window_seconds",
-    "first_frame_visual",
-    "first_audio",
-    "promise",
-    "proof_evidence",
-    "hook_pattern",
-    "candidate_variants"
+  "title": "Hook plan v1 or explicit three-second v2",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "version",
+        "project_id",
+        "created_at",
+        "hook_window_seconds",
+        "first_frame_visual",
+        "first_audio",
+        "promise",
+        "proof_evidence",
+        "hook_pattern",
+        "candidate_variants"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "hook_window_seconds": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "number",
+            "minimum": 0
+          },
+          "description": "[start, end] of the hook window, e.g. [0, 1.5]"
+        },
+        "first_frame_visual": {
+          "type": "string",
+          "description": "前 1-1.5 秒画面发生什么（自然语言）"
+        },
+        "first_audio": {
+          "type": "string",
+          "description": "第一听觉信息：口播第一句 / 音效 / 音乐起势"
+        },
+        "promise": {
+          "type": "string",
+          "description": "钩子承诺解决什么问题"
+        },
+        "proof_evidence": {
+          "type": "string",
+          "description": "用哪条真实证据兑现承诺（引用研究矩阵行/自有素材）"
+        },
+        "hook_pattern": {
+          "type": "string",
+          "enum": [
+            "problem_first",
+            "result_first",
+            "contrast",
+            "contradiction",
+            "scene_pain",
+            "other"
+          ]
+        },
+        "candidate_variants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "candidate_id",
+              "difference"
+            ],
+            "properties": {
+              "candidate_id": {
+                "type": "string"
+              },
+              "difference": {
+                "type": "string",
+                "description": "本候选钩子与其他候选的差异（自然语言）"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "revision_round": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "semantic_sha256": {
+          "type": "string"
+        },
+        "artifact_sha256": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "version",
+        "project_id",
+        "created_at",
+        "hook_window_seconds",
+        "first_frame_visual",
+        "first_audio",
+        "promise",
+        "proof_evidence",
+        "hook_pattern",
+        "candidate_variants",
+        "sku",
+        "source",
+        "purchase_question",
+        "promise_fulfillment",
+        "beats",
+        "voice_keywords",
+        "shots"
+      ],
+      "properties": {
+        "version": {
+          "const": "2.0"
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "hook_window_seconds": {
+          "const": [
+            0,
+            3
+          ]
+        },
+        "first_frame_visual": {
+          "type": "string",
+          "description": "前 1-1.5 秒画面发生什么（自然语言）"
+        },
+        "first_audio": {
+          "type": "string",
+          "description": "第一听觉信息：口播第一句 / 音效 / 音乐起势"
+        },
+        "promise": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "proof_evidence": {
+          "type": "string",
+          "description": "用哪条真实证据兑现承诺（引用研究矩阵行/自有素材）"
+        },
+        "hook_pattern": {
+          "type": "string",
+          "enum": [
+            "problem_first",
+            "result_first",
+            "contrast",
+            "contradiction",
+            "scene_pain",
+            "other"
+          ]
+        },
+        "candidate_variants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "candidate_id",
+              "difference"
+            ],
+            "properties": {
+              "candidate_id": {
+                "type": "string"
+              },
+              "difference": {
+                "type": "string",
+                "description": "本候选钩子与其他候选的差异（自然语言）"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "revision_round": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "semantic_sha256": {
+          "type": "string"
+        },
+        "artifact_sha256": {
+          "type": "string"
+        },
+        "sku": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "source": {
+          "type": "object",
+          "required": [
+            "kind",
+            "verification_status"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "document_excerpt",
+                "problem_rewrite",
+                "creative_hypothesis"
+              ]
+            },
+            "verification_status": {
+              "enum": [
+                "pending",
+                "verified"
+              ]
+            },
+            "ref": {
+              "type": "object",
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "additionalProperties": false
+            },
+            "parent_ref": {
+              "type": "object",
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "additionalProperties": false
+            },
+            "gap": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "excerpt": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            }
+          },
+          "additionalProperties": false
+        },
+        "purchase_question": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "promise_fulfillment": {
+          "type": "object",
+          "required": [
+            "section_id",
+            "interval_seconds",
+            "evidence_ref"
+          ],
+          "properties": {
+            "section_id": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "interval_seconds": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "evidence_ref": {
+              "type": "object",
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "beats": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "interval_seconds",
+              "visual",
+              "audio"
+            ],
+            "properties": {
+              "interval_seconds": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "visual": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "audio": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "voice_keywords": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "text",
+              "interval_seconds",
+              "sound"
+            ],
+            "properties": {
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "interval_seconds": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "sound": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "shots": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "shot_id",
+              "interval_seconds",
+              "asset_identity",
+              "motion",
+              "framing"
+            ],
+            "properties": {
+              "shot_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "interval_seconds": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "asset_identity": {
+                "type": "object",
+                "required": [
+                  "sku",
+                  "source",
+                  "reference_images",
+                  "model_task"
+                ],
+                "properties": {
+                  "sku": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "\\S"
+                  },
+                  "source": {
+                    "type": "object",
+                    "required": [
+                      "path",
+                      "sha256"
+                    ],
+                    "properties": {
+                      "path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "\\S"
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "reference_images": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "path",
+                        "sha256"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "\\S"
+                        },
+                        "sha256": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{64}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "model_task": {
+                    "type": "object",
+                    "required": [
+                      "provider",
+                      "model",
+                      "task_id"
+                    ],
+                    "properties": {
+                      "provider": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "\\S"
+                      },
+                      "model": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "\\S"
+                      },
+                      "task_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "\\S"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              "motion": {
+                "type": "object",
+                "required": [
+                  "subject",
+                  "verb",
+                  "start_state",
+                  "end_state",
+                  "visible_result",
+                  "interval_seconds",
+                  "forbidden_changes"
+                ],
+                "properties": {
+                  "subject": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "\\S"
+                  },
+                  "verb": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "\\S"
+                  },
+                  "start_state": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "\\S"
+                  },
+                  "end_state": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "\\S"
+                  },
+                  "visible_result": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "\\S"
+                  },
+                  "interval_seconds": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "forbidden_changes": {
+                    "type": "array",
+                    "minItems": 0,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "framing": {
+                "type": "object",
+                "required": [
+                  "source_aspect_ratio",
+                  "output_aspect_ratio",
+                  "fit",
+                  "action_safe_box",
+                  "critical_parts"
+                ],
+                "properties": {
+                  "source_aspect_ratio": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]*:[1-9][0-9]*$"
+                  },
+                  "output_aspect_ratio": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]*:[1-9][0-9]*$"
+                  },
+                  "fit": {
+                    "enum": [
+                      "contain",
+                      "crop"
+                    ]
+                  },
+                  "action_safe_box": {
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "critical_parts": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
   ],
   "properties": {
-    "version": { "type": "string", "const": "1.0" },
-    "project_id": { "type": "string", "minLength": 1 },
-    "created_at": { "type": "string", "format": "date-time" },
-    "hook_window_seconds": {
-      "type": "array",
-      "minItems": 2,
-      "maxItems": 2,
-      "items": { "type": "number", "minimum": 0 },
-      "description": "[start, end] of the hook window, e.g. [0, 1.5]"
+    "semantic_sha256": {
+      "type": "string"
     },
-    "first_frame_visual": {
-      "type": "string",
-      "description": "前 1-1.5 秒画面发生什么（自然语言）"
-    },
-    "first_audio": {
-      "type": "string",
-      "description": "第一听觉信息：口播第一句 / 音效 / 音乐起势"
-    },
-    "promise": {
-      "type": "string",
-      "description": "钩子承诺解决什么问题"
-    },
-    "proof_evidence": {
-      "type": "string",
-      "description": "用哪条真实证据兑现承诺（引用研究矩阵行/自有素材）"
-    },
-    "hook_pattern": {
-      "type": "string",
-      "enum": ["problem_first", "result_first", "contrast", "contradiction", "scene_pain", "other"]
-    },
-    "candidate_variants": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["candidate_id", "difference"],
-        "properties": {
-          "candidate_id": { "type": "string" },
-          "difference": { "type": "string", "description": "本候选钩子与其他候选的差异（自然语言）" }
-        },
-        "additionalProperties": false
-      }
-    },
-    "revision_round": { "type": "integer", "minimum": 0 },
-    "semantic_sha256": { "type": "string" },
-    "artifact_sha256": { "type": "string" }
-  },
-  "additionalProperties": false
+    "artifact_sha256": {
+      "type": "string"
+    }
+  }
 }

@@ -17,6 +17,90 @@
     "brand_version": {"type": ["string", "null"]},
     "quality_report_ref": {"type": "string", "minLength": 1},
     "canonical_artifacts": {"type": "object", "additionalProperties": {"type": "string"}},
+    "opening": {
+      "type": "object",
+      "required": [
+        "scope",
+        "candidate_id",
+        "experiment_ref",
+        "hook_plan_ref"
+      ],
+      "properties": {
+        "scope": {
+          "enum": [
+            "preview",
+            "full_variant"
+          ]
+        },
+        "candidate_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "experiment_ref": {
+          "type": "object",
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "hook_plan_ref": {
+          "type": "object",
+          "required": [
+            "path",
+            "sha256",
+            "version"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "version": {
+              "const": "2.0"
+            }
+          },
+          "additionalProperties": false
+        },
+        "validation_report_ref": {
+          "type": "object",
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "render": {"type": "object", "required": ["path", "sha256"], "properties": {
       "path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
       "seconds": {"type": "number", "exclusiveMinimum": 0}}},

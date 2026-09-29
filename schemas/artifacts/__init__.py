@@ -85,6 +85,8 @@ ARTIFACT_NAMES = [
     "campaign_content_link",
     "campaign_content_links",
     "motion_generation_task",
+    "opening_experiment",
+    "opening_validation_report",
 ]
 
 
@@ -114,6 +116,11 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
             if key not in {"semantic_sha256", "artifact_sha256"}
         }
     jsonschema.validate(instance=instance, schema=schema)
+    if (name in {"opening_experiment", "opening_validation_report"}
+            or (name == "hook_plan" and data.get("version") == "2.0")
+            or (name == "production_record" and "opening" in data)):
+        from lib.opening_contracts import validate_opening_semantics
+        validate_opening_semantics(name, data)
     if name == "media_index":
         ranges = (
             item

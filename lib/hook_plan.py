@@ -4,6 +4,7 @@ Writes the per-candidate hook plan into the creative contract: what the first
 1-1.5s shows, the first audible information, the promise, the real evidence
 that backs it, the hook pattern and how this candidate differs from siblings.
 Derives from the creative control plan and script; explicit overrides win.
+Version 1 remains the default. Explicit v2 requires a complete [0, 3) package.
 """
 
 from __future__ import annotations
@@ -23,10 +24,13 @@ def _section_summary(section: Mapping[str, Any] | None) -> str:
 def build_hook_plan(
     project_id: str,
     *,
+    version: str = "1.0",
     creative_control_plan: Mapping[str, Any] | None = None,
     script: Mapping[str, Any] | None = None,
     overrides: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if version not in {"1.0", "2.0"}:
+        raise ValueError("Unsupported hook plan version")
     sections = creative_control_plan.get("sections") if isinstance(creative_control_plan, Mapping) and isinstance(creative_control_plan.get("sections"), Mapping) else {}
     content = sections.get("content_direction") if isinstance(sections.get("content_direction"), Mapping) else {}
     script_sections = [s for s in (script.get("sections") or []) if isinstance(s, Mapping)] if isinstance(script, Mapping) else []
@@ -39,10 +43,10 @@ def build_hook_plan(
     proof_evidence = "；".join(str(item) for item in evidence_refs)
 
     base: dict[str, Any] = {
-        "version": "1.0",
+        "version": version,
         "project_id": project_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "hook_window_seconds": [0.0, 1.5],
+        "hook_window_seconds": [0.0, 3.0 if version == "2.0" else 1.5],
         "first_frame_visual": first_frame_visual,
         "first_audio": first_audio,
         "promise": promise,
@@ -57,4 +61,7 @@ def build_hook_plan(
                 raise ValueError(f"hook_pattern must be one of {HOOK_PATTERNS}")
             if value is not None:
                 base[key] = value
+    if base["version"] == "2.0":
+        from schemas.artifacts import validate_artifact
+        validate_artifact("hook_plan", base)
     return base
