@@ -134,7 +134,10 @@ def dom_checks(props, frames, run_id):
     layout, fonts = [], []
     files = props['profile']['font'].get('files', [])
     strict = props['profile']['production']['font_mode'] == 'strict'
-    family = 'ProductionBrand-' + re.sub(r'[^a-zA-Z0-9_-]', '-', props['profile'].get('profile_id', ''))
+    # Match the renderer's JS regex, which replaces each UTF-16 code unit.
+    family = 'ProductionBrand-' + re.sub(r'[^a-zA-Z0-9_-]',
+        lambda match: '_' * (len(match.group().encode('utf-16-le', 'surrogatepass')) // 2),
+        props['profile'].get('profile_id', ''))
     for row in frames:
         if row.get('run_id') != run_id or row.get('scope') != props['opening']['scope']:
             raise ValueError('DOM evidence run/scope mismatch')

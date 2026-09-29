@@ -131,3 +131,30 @@ def test_historical_renderer_snapshot_without_input_pins_cannot_certify(tmp_path
     check = next(c for c in report['checks'] if c['id'] == 'dependency_integrity')
     assert check['status'] == 'error'
     assert 'render_input_pins_missing' in check['issues']
+
+
+@pytest.mark.parametrize('profile_id,renderer_family', [
+    ('brand.v1', 'ProductionBrand-brand_v1'),
+    ('品牌.v1', 'ProductionBrand-___v1'),
+    ('𠀀.v1', 'ProductionBrand-___v1'),
+])
+def test_strict_font_family_matches_renderer_profile_id_normalization(tmp_path, profile_id, renderer_family):
+    from lib.production_measurements import dom_checks
+    from lib.production_brand import make_towel_brand_profile
+    from schemas.artifacts import validate_artifact
+    validate_artifact('brand_profile', make_towel_brand_profile(profile_id=profile_id))
+    props, _, _, _, directory = dom_fixture(tmp_path)
+    props['profile'].update(profile_id=profile_id, font={'files': [
+        {'weight': 400, 'sha256': 'a' * 64}, {'weight': 700, 'sha256': 'b' * 64}]})
+    props['profile']['production']['font_mode'] = 'strict'
+    frames = [json.loads(path.read_text()) for path in sorted(directory.glob('*.json'))]
+    for row in frames:
+        evidence = row['measurement']['evidence']
+        evidence.update(font_loading_status='pass', font_faces_ready=True, font_sha256=['a' * 64, 'b' * 64])
+        for box in evidence['boxes']:
+            box['fontFamily'] = renderer_family
+    checks = {item['id']: item for item in dom_checks(props, frames, 'actual-run')}
+    assert checks['font_identity']['status'] == 'pass'
+    frames[0]['measurement']['evidence']['boxes'][1]['fontFamily'] = 'unrelated-font'
+    checks = {item['id']: item for item in dom_checks(props, frames, 'actual-run')}
+    assert checks['font_identity']['status'] == 'fail'
