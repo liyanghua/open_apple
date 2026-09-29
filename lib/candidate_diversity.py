@@ -253,8 +253,33 @@ def build_variant_plan(
     }
 
 
+def _opening_claim(plan, context):
+    provenance = plan.get("provenance", {}) if isinstance(plan, Mapping) else {}
+    return (provenance.get("preregistered_variable") == "opening_package" and context
+            and provenance.get("registration_ref") == context.get("experiment_ref", {}).get("path"))
+
+
+def _verified_opening_pair(a, b, context):
+    if not _opening_claim(a, context) or not _opening_claim(b, context):
+        return False
+    for plan in (a, b):
+        computed = compute_difference_fingerprint(plan.get("dimensions", {}), plan.get("shot_differences", []))
+        actual = plan.get("difference_fingerprint", {})
+        if any(actual.get(key) != value for key, value in computed.items()):
+            return False
+    from lib.opening_experiment_evidence import verify_controlled_opening
+    return verify_controlled_opening(context, a.get("candidate_id"), b.get("candidate_id"))["status"] == "pass"
+
+
+def _verified_opening_candidate(plan, context):
+    if not _opening_claim(plan, context) or plan.get("candidate_id") == "B0":
+        return False
+    from lib.opening_experiment_evidence import verify_controlled_opening
+    return verify_controlled_opening(context, "B0", plan.get("candidate_id"))["status"] == "pass"
+
+
 def compare_candidate_pair(
-    plan_a: Mapping[str, Any], plan_b: Mapping[str, Any]
+    plan_a: Mapping[str, Any], plan_b: Mapping[str, Any], *, opening_context: Mapping[str, Any] | None = None
 ) -> dict[str, Any]:
     """Pairwise diversity result (the authoritative gate for selection).
 
@@ -293,6 +318,8 @@ def compare_candidate_pair(
         and not bool(plan_a.get("opening_only_change"))
         and not bool(plan_b.get("opening_only_change"))
     )
+    if _verified_opening_pair(plan_a, plan_b, opening_context):
+        passes = True
     return {
         "candidate_a": str(plan_a.get("candidate_id") or ""),
         "candidate_b": str(plan_b.get("candidate_id") or ""),
@@ -303,7 +330,7 @@ def compare_candidate_pair(
     }
 
 
-def assert_candidate_variant_ready(plan: Mapping[str, Any] | None) -> list[str]:
+def assert_candidate_variant_ready(plan: Mapping[str, Any] | None, *, opening_context: Mapping[str, Any] | None = None) -> list[str]:
     """Structural diversity precondition (empty result = ready).
 
     Returns the blocking structural failures for a candidate variant plan.
@@ -313,11 +340,11 @@ def assert_candidate_variant_ready(plan: Mapping[str, Any] | None) -> list[str]:
     """
     if not isinstance(plan, Mapping):
         return ["缺少候选差异计划（candidate_variant_plan）"]
-    return selection_diversity_failures(plan, [])["structural_failures"]
+    return selection_diversity_failures(plan, [], opening_context=opening_context)["structural_failures"]
 
 
 def selection_diversity_failures(
-    plan: Mapping[str, Any], sibling_plans: Sequence[Mapping[str, Any]]
+    plan: Mapping[str, Any], sibling_plans: Sequence[Mapping[str, Any]], *, opening_context: Mapping[str, Any] | None = None
 ) -> dict[str, list[str]]:
     """Hard diversity checks for selection, split by class.
 
@@ -328,9 +355,13 @@ def selection_diversity_failures(
     structural_failures: list[str] = []
     visual_similarity_warnings: list[str] = []
 
-    if changed_dimension_count(plan.get("dimensions")) < MIN_CHANGED_DIMENSIONS:
+    baseline = next((p for p in sibling_plans if p.get("candidate_id") == "B0"), None)
+    controlled = _verified_opening_pair(plan, baseline, opening_context) if baseline else _verified_opening_candidate(plan, opening_context)
+    if controlled:
+        visual_similarity_warnings.append("opening_package: 需人工独立作品复核，不自动计入新作品数量")
+    if not controlled and changed_dimension_count(plan.get("dimensions")) < MIN_CHANGED_DIMENSIONS:
         structural_failures.append("至少需变更三个差异维度")
-    if bool(plan.get("opening_only_change")):
+    if not controlled and bool(plan.get("opening_only_change")):
         structural_failures.append("仅改变前三秒（opening_only_change），不构成候选差异")
     rows = plan.get("shot_differences") if isinstance(plan.get("shot_differences"), list) else []
     computed_fp = compute_difference_fingerprint(
@@ -340,7 +371,7 @@ def selection_diversity_failures(
     fp = plan.get("difference_fingerprint") if isinstance(plan.get("difference_fingerprint"), Mapping) else {}
     if any(fp.get(key) != computed_fp[key] for key in computed_fp):
         structural_failures.append("差异指纹与维度/镜头证据不一致")
-    if computed_fp["structural_shot_count"] < MIN_STRUCTURAL_SHOTS:
+    if not controlled and computed_fp["structural_shot_count"] < MIN_STRUCTURAL_SHOTS:
         structural_failures.append("结构镜头差异少于三个")
 
     visual_hash = fp.get("visual_hash")

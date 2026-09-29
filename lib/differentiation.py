@@ -178,7 +178,7 @@ def _axes(a: CandidateSignature, b: CandidateSignature, *, cross_product: bool =
 
 def _experiment_key(item: CandidateSignature) -> tuple[str, ...] | None:
     values = (item.experiment_family_id, item.baseline_candidate_id, item.preregistered_variable, item.registration_ref)
-    valid_axes = {"hook_pattern", "scene_context", "action_sequence", "narrative_structure", "evidence_keys"}
+    valid_axes = {"opening_package", "hook_pattern", "scene_context", "action_sequence", "narrative_structure", "evidence_keys"}
     return values if all(values) and item.preregistered_variable in valid_axes else None
 
 
@@ -240,6 +240,7 @@ def compare_candidates(
     b: CandidateSignature | Mapping[str, Any],
     *,
     scope: str | None = None,
+    opening_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compare substantive axes, preserving existing metric thresholds as advice."""
     left, right = _coerce_signature(a), _coerce_signature(b)
@@ -264,7 +265,18 @@ def compare_candidates(
     controlled = bool(experiment and experiment == _experiment_key(right))
     direct_baseline = controlled and left.baseline_candidate_id in {left.candidate_id, right.candidate_id}
     unregistered_changes = _experiment_control_changes(left, right) if controlled else []
-    if controlled:
+    opening_package = controlled and left.preregistered_variable == "opening_package"
+    if opening_package:
+        from lib.opening_experiment_evidence import verify_controlled_opening
+        proof = verify_controlled_opening(opening_context, left.candidate_id, right.candidate_id)
+        verified = (proof["status"] == "pass" and proof["experiment_id"] == left.experiment_family_id
+                    and proof["sku"] == left.product_id == right.product_id
+                    and proof["registration_ref"] == left.registration_ref
+                    and left.baseline_candidate_id == "B0")
+        status = "controlled_experiment" if verified and direct_baseline else "needs_redesign"
+        unregistered_changes = [] if verified else ["opening_package_file_bound_proof_required"]
+        differing_axes = ["opening_package"] if verified else differing_axes
+    elif controlled:
         raw_left, raw_right = _axis_values(left), _axis_values(right)
         all_changed = [key for key in raw_left if raw_left[key] != raw_right[key]]
         primary_fixed = left.primary_action_keys == right.primary_action_keys or left.preregistered_variable in {"action_sequence", "evidence_keys"}
@@ -287,6 +299,8 @@ def compare_candidates(
         warnings.append("first_three_seconds_repeated")
     if keyframe_overlap is not None and keyframe_overlap > 0:
         warnings.append("keyframe_overlap")
+    if opening_package:
+        warnings.append("human_independent_work_review_required_no_automatic_work_count")
     if controlled and not direct_baseline:
         warnings.append("baseline_comparison_required")
     result: dict[str, Any] = {
@@ -303,7 +317,7 @@ def compare_candidates(
         "sibling_similarity_budget": similarity_budget,
         "status": status,
         "effective_differing_axes": differing_axes,
-        "minimum_effective_axes": 1 if controlled else 3,
+        "minimum_effective_axes": 1 if controlled and (not opening_package or verified) else 3,
         "baseline_candidate_id": left.baseline_candidate_id if controlled else None,
         "experiment_family_id": left.experiment_family_id if controlled else None,
         "media_segment_overlap": segment_overlap,
@@ -323,6 +337,7 @@ def build_differentiation_plan(
     *,
     research_refs: Sequence[Mapping[str, Any]] | None = None,
     created_at: str | None = None,
+    opening_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     signatures = [_coerce_signature(item) for item in candidates]
     if not signatures:
@@ -346,10 +361,10 @@ def build_differentiation_plan(
                     # never to a sibling that already accumulated a change.
                     continue
                 if baseline is right:
-                    comparisons.append(compare_candidates(right, left))
+                    comparisons.append(compare_candidates(right, left, opening_context=opening_context))
                     continue
             same = left.product_id == right.product_id
-            comparisons.append(compare_candidates(left, right, scope="same_product" if same else "cross_product"))
+            comparisons.append(compare_candidates(left, right, scope="same_product" if same else "cross_product", opening_context=opening_context))
     plan = {
         "version": "1.0",
         "batch_id": str(batch_id),

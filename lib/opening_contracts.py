@@ -324,3 +324,19 @@ def evaluate_opening_checks(root: Path, record: Mapping) -> dict[str, dict]:
         return output
     except (ValidationError, ValueError, OSError, KeyError, TypeError) as exc:
         return results("error", issues=[str(exc).splitlines()[0]])
+
+
+def verify_opening_experiment_files(root: Path, experiment_ref: Mapping) -> tuple[dict, list[str]]:
+    """Revalidate preregistration and every declared file dependency."""
+    from schemas.artifacts import validate_artifact
+    refs = [_verify_ref(root, experiment_ref)]
+    experiment = read_object(root, experiment_ref["path"])
+    validate_artifact("opening_experiment", experiment)
+    refs += _verify_refs(root, experiment)
+    plans = {row["candidate_id"]: read_object(root, row["hook_plan_ref"]["path"]) for row in experiment["candidates"]}
+    validate_opening_experiment(experiment, hook_plans=plans, baseline=read_object(root, experiment["baseline_ref"]["path"]))
+    for key in ("master_ref", "facts_ref", "baseline_ref"):
+        _require(read_object(root, experiment[key]["path"]).get("sku") == experiment["sku"], f"Actual {key} SKU mismatch")
+    for plan in plans.values():
+        refs += _verify_refs(root, plan)
+    return experiment, sorted(set(refs))
