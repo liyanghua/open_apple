@@ -37,6 +37,39 @@ const props: ProductionBrandProps = {
 };
 
 describe("production brand", () => {
+  test("opening join pre-rolls the body without changing its source state at frame 90", () => {
+    const opening = {...props, opening: {scope: "full_variant", endFrameExclusive: 90, transitionFrames: 5}, scenes: [
+      {...props.scenes[0], fromFrame: 0, durationInFrames: 90, role: "hook", sourceFps: 24},
+      {...props.scenes[1], fromFrame: 90, durationInFrames: 150, sourceInSeconds: .51, sourceFps: 24},
+    ]} as ProductionBrandProps;
+    const [hook, body] = buildBrandShotSchedule(opening);
+    expect(hook.renderDurationInFrames).toBe(90);
+    expect(body.fromFrame).toBe(85);
+    expect(body.renderDurationInFrames).toBe(155);
+    expect(body.sourceStartFrame + 5 * body.playbackRate).toBe(Math.round(.51 * 30));
+    expect(body.quantization).toMatchObject({requestedSeconds: .51, renderFrame: 15, resolvedSeconds: .5, errorSeconds: -.01, sourceFps: 24});
+    expect(incomingOpacity(5, body.first, 5)).toBe(1);
+  });
+  test("opening join refuses a body without five frames of prehandle", () => {
+    expect(() => buildBrandShotSchedule({...props, opening: {scope: "full_variant", endFrameExclusive: 90, transitionFrames: 5}, scenes: [
+      {...props.scenes[0], fromFrame: 0, durationInFrames: 90},
+      {...props.scenes[1], fromFrame: 90, durationInFrames: 150},
+    ]} as ProductionBrandProps)).toThrow("prehandle");
+  });
+  test("opening join rejects fractional playback-rate prehandles", () => {
+    expect(() => buildBrandShotSchedule({...props, opening: {scope: "full_variant", endFrameExclusive: 90, transitionFrames: 5}, scenes: [
+      {...props.scenes[0], durationInFrames: 90},
+      {...props.scenes[1], fromFrame: 90, durationInFrames: 150, sourceInSeconds: 1, playbackRate: 1.1},
+    ]})).toThrow("integer-frame prehandle");
+  });
+  test("the join affects only the boundary and leaves later cuts with their existing handles", () => {
+    const schedule = buildBrandShotSchedule({...props, opening: {scope: "full_variant", endFrameExclusive: 90, transitionFrames: 5}, scenes: [
+      {...props.scenes[0], durationInFrames: 90},
+      {...props.scenes[1], fromFrame: 90, durationInFrames: 60, sourceInSeconds: 1},
+      {...props.scenes[1], id: "c", fromFrame: 150, durationInFrames: 90},
+    ]});
+    expect(schedule.map(s => [s.fromFrame, s.renderDurationInFrames, s.sourceStartFrame])).toEqual([[0, 90, 30], [85, 70, 25], [150, 90, 0]]);
+  });
   test("only incoming footage fades for exactly five frames and outgoing has source handles", () => {
     expect([0, 1, 2, 3, 4, 5].map(f => incomingOpacity(f, false, 5))).toEqual([0, .25, .5, .75, 1, 1]);
     expect(incomingOpacity(0, true, 5)).toBe(1);
@@ -124,6 +157,11 @@ describe("production brand", () => {
     vi.stubGlobal("getComputedStyle", () => ({fontFamily: "ProductionBrand-test", fontWeight: "700"}));
     try {
       expect(collectBrandDomEvidence(root).status).toBe("pass");
+      nodes[2].width = 100;
+      const mismatch = collectBrandDomEvidence(root);
+      expect(mismatch.status).toBe("fail");
+      expect(mismatch.evidence).toMatchObject({issues: ["underline width differs from title"]});
+      nodes[2].width = 128;
       nodes[3].x = 72; nodes[3].y = 220;
       expect(collectBrandDomEvidence(root).status).toBe("fail");
       nodes[3].y = 1470;

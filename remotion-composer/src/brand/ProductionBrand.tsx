@@ -1,6 +1,7 @@
 import React, {useEffect, useState} from "react";
 import {AbsoluteFill, Audio, cancelRender, Composition, continueRender, delayRender, Img, OffthreadVideo, Sequence, staticFile, useCurrentFrame} from "remotion";
 import type {ProductionBrandProfile, ProductionBrandProps} from "./types";
+import {MotionFootage} from "./MotionFootage";
 
 const asset = (src: string) => /^(https?:|data:|blob:)/.test(src) ? src : staticFile(src);
 
@@ -8,13 +9,20 @@ export const incomingOpacity = (localFrame: number, first: boolean, transitionFr
   first ? 1 : Math.max(0, Math.min(1, localFrame / Math.max(1, transitionFrames - 1)));
 
 /** Input intervals are contiguous. Extend only the outgoing source under the next fade. */
-export const buildBrandShotSchedule = (props: ProductionBrandProps) => props.scenes.map((shot, i) => ({
-  ...shot,
-  src: props.footage[shot.footageKey],
-  sourceStartFrame: Math.round(shot.sourceInSeconds * props.fps),
-  renderDurationInFrames: shot.durationInFrames + (i < props.scenes.length - 1 ? props.profile.production.transition.frames : 0),
-  first: i === 0,
-}));
+export const buildBrandShotSchedule = (props: ProductionBrandProps) => props.scenes.map((shot, i) => {
+  const transition = props.profile.production.transition.frames;
+  const join = props.opening?.scope === "full_variant" && shot.fromFrame === props.opening.endFrameExclusive;
+  const beforeJoin = props.opening?.scope === "full_variant" && shot.fromFrame + shot.durationInFrames === props.opening.endFrameExclusive;
+  const renderFrame = Math.round(shot.sourceInSeconds * props.fps);
+  const prehandle = join ? transition * shot.playbackRate : 0;
+  if (join && (!Number.isInteger(prehandle) || renderFrame < prehandle)) throw new Error("Opening body requires a compatible integer-frame prehandle");
+  return {...shot, fromFrame: shot.fromFrame - (join ? transition : 0), src: props.footage[shot.footageKey],
+    sourceStartFrame: renderFrame - prehandle,
+    renderDurationInFrames: shot.durationInFrames + (join ? transition : 0) + (i < props.scenes.length - 1 && !beforeJoin ? transition : 0), first: i === 0,
+    quantization: {requestedSeconds: shot.sourceInSeconds, renderFrame, resolvedSeconds: renderFrame / props.fps,
+      errorSeconds: Number((renderFrame / props.fps - shot.sourceInSeconds).toPrecision(12)), sourceFps: shot.sourceFps,
+      sourceFramePosition: shot.sourceFps ? renderFrame / props.fps * shot.sourceFps : undefined, rule: "round_seconds_at_composition_fps"}};
+});
 
 export const getBrandFrameState = (props: ProductionBrandProps, frame: number) => ({
   title: [...props.titles].reverse().find(t => frame >= t.fromFrame)?.text ?? "",
@@ -52,8 +60,9 @@ const Footage: React.FC<{shot: ReturnType<typeof buildBrandShotSchedule>[number]
   const localFrame = useCurrentFrame();
   if (!shot.src) throw new Error(`Missing footage for ${shot.id}`);
   return <AbsoluteFill style={{opacity: incomingOpacity(localFrame, shot.first, transitionFrames), overflow: "hidden"}}>
-    <OffthreadVideo muted src={asset(shot.src)} startFrom={shot.sourceStartFrame} playbackRate={shot.playbackRate}
+    {shot.framing ? <MotionFootage src={shot.src} sourceStartFrame={shot.sourceStartFrame} playbackRate={shot.playbackRate} framing={shot.framing} /> : <OffthreadVideo muted src={asset(shot.src)} startFrom={shot.sourceStartFrame} playbackRate={shot.playbackRate}
       style={{width: "100%", height: "100%", objectFit: "cover", transform: `scale(${shot.cropScale})`}} />
+    }
   </AbsoluteFill>;
 };
 
@@ -76,6 +85,7 @@ export const ProductionBrandOverlay: React.FC<{props: ProductionBrandProps; fram
 };
 
 export const ProductionBrandFilm: React.FC<ProductionBrandProps> = props => {
+  if (props.opening && props.audio) throw new Error("Opening uses one external final mix; internal audio is forbidden");
   const frame = useCurrentFrame();
   const [handle] = useState(() => delayRender("Load hash-pinned production brand fonts"));
   const [fonts, setFonts] = useState<LoadedFonts | null>(null);

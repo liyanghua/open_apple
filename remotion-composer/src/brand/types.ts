@@ -21,7 +21,18 @@ export type ProductionShot = {
   id: string; footageKey: string; fromFrame: number; durationInFrames: number;
   sourceInSeconds: number; sourceDurationSeconds: number; playbackRate: number;
   cropScale: number; role: "hook" | "body" | "tail";
+  sourceFps?: number;
+  framing?: MotionFraming;
 };
+export type MotionRect = {x: number; y: number; width: number; height: number};
+/** Caller supplied envelope over the whole action, never a semantic QA result. */
+export type MotionFraming = {
+  source: {width: number; height: number}; viewport: MotionRect;
+  fit: "contain" | "crop"; position: {x: number; y: number};
+  actionCoverage: "whole_shot_envelope"; actionRegions: MotionRect[];
+  background?: {blurPx: number; opacity: number; scale: number};
+};
+export type ProductionOpening = {scope: "preview" | "full_variant"; endFrameExclusive: 90; transitionFrames: 5};
 export type ProductionTimedText = {text: string; startMs: number; endMs: number};
 export type ProductionBrandProps = {
   profile: ProductionBrandProfile;
@@ -32,4 +43,7 @@ export type ProductionBrandProps = {
   timingSource: "measured_word_timestamps";
   recipe?: ProductionRecipe;
   audio?: {narrationSrc: string; bgmSrc?: string; bgmVolume?: number};
+  opening?: ProductionOpening;
+  /** Formal renderer muxes this once after the silent video render. */
+  finalMix?: {path: string; sha256: string; mode: "external_mux"};
 };

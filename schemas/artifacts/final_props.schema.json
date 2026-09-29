@@ -3,7 +3,7 @@
   "$id": "https://openmontage.local/schemas/artifacts/final_props.schema.json",
   "title": "Final render properties",
   "type": "object",
-  "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "compositionId", "fps", "width", "height", "durationInFrames", "footage", "scenes", "captions", "audio"],
+  "required": ["version", "project_id", "created_at", "producer", "input_hashes", "semantic_sha256", "artifact_sha256", "compositionId", "fps", "width", "height", "durationInFrames", "footage", "scenes", "captions"],
   "properties": {
     "version": {"type": "string", "minLength": 1},
     "caption_policy_version": {"type": "string", "const": "1.0"},
@@ -22,9 +22,28 @@
     "footage": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string", "minLength": 1}},
     "scenes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/scene"}},
     "captions": {"type": "array", "items": {"type": "object", "required": ["text", "startMs", "endMs"], "properties": {"text": {"type": "string"}, "startMs": {"type": "number", "minimum": 0}, "endMs": {"type": "number", "exclusiveMinimum": 0}}, "additionalProperties": true}},
+    "opening": {"type": "object", "required": ["scope", "endFrameExclusive", "transitionFrames"], "properties": {"scope": {"enum": ["preview", "full_variant"]}, "endFrameExclusive": {"const": 90}, "transitionFrames": {"const": 5}}, "additionalProperties": false},
+    "finalMix": {"type": "object", "required": ["path", "sha256", "mode"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "mode": {"const": "external_mux"}}, "additionalProperties": false},
     "audio": {"type": "object", "required": ["mix"], "properties": {"mix": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "object", "additionalProperties": true}]}}, "additionalProperties": true}
   },
+  "allOf": [{"if": {"required": ["opening"]}, "then": {"required": ["finalMix"], "not": {"required": ["audio"]}, "allOf": [{"if": {"properties": {"opening": {"properties": {"scope": {"const": "preview"}}}}}, "then": {"properties": {"durationInFrames": {"const": 90}}}, "else": {"properties": {"durationInFrames": {"exclusiveMinimum": 90}}}}]}, "else": {"required": ["audio"]}}],
   "$defs": {
+    "motion_rect": {
+      "type": "object", "required": ["x", "y", "width", "height"], "additionalProperties": false,
+      "properties": {"x": {"type": "number", "minimum": 0}, "y": {"type": "number", "minimum": 0}, "width": {"type": "number", "exclusiveMinimum": 0}, "height": {"type": "number", "exclusiveMinimum": 0}}
+    },
+    "motion_framing": {
+      "type": "object", "required": ["source", "viewport", "fit", "position", "actionCoverage", "actionRegions"], "additionalProperties": false,
+      "properties": {
+        "source": {"type": "object", "required": ["width", "height"], "additionalProperties": false, "properties": {"width": {"type": "integer", "exclusiveMinimum": 0}, "height": {"type": "integer", "exclusiveMinimum": 0}}},
+        "viewport": {"$ref": "#/$defs/motion_rect"},
+        "fit": {"enum": ["contain", "crop"]},
+        "position": {"type": "object", "required": ["x", "y"], "additionalProperties": false, "properties": {"x": {"type": "number", "minimum": 0, "maximum": 1}, "y": {"type": "number", "minimum": 0, "maximum": 1}}},
+        "actionCoverage": {"const": "whole_shot_envelope"},
+        "actionRegions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/motion_rect"}},
+        "background": {"type": "object", "required": ["blurPx", "opacity", "scale"], "additionalProperties": false, "properties": {"blurPx": {"type": "number", "minimum": 0}, "opacity": {"type": "number", "minimum": 0, "maximum": 1}, "scale": {"type": "number", "minimum": 1}}}
+      }
+    },
     "revision_ref": {"type": "object", "required": ["name", "path", "semantic_sha256", "artifact_sha256"], "additionalProperties": false, "properties": {"name": {"const": "caption_policy_revision"}, "path": {"type": "string", "minLength": 1}, "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}},
     "scene": {
       "type": "object",
@@ -38,6 +57,8 @@
         "durationInFrames": {"type": "integer", "exclusiveMinimum": 0},
         "sourceInSeconds": {"type": "number", "minimum": 0},
         "sourceOutSeconds": {"type": "number", "exclusiveMinimum": 0},
+        "sourceFps": {"type": "number", "exclusiveMinimum": 0},
+        "framing": {"$ref": "#/$defs/motion_framing"},
         "playbackRate": {"type": "number", "exclusiveMinimum": 0},
         "playbackMode": {"enum": ["normal", "loop", "hold"]},
         "segments": {"type": "array", "items": {"$ref": "#/$defs/scene"}}

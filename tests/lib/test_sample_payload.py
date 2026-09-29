@@ -5,6 +5,14 @@ import pytest
 from lib.sample_payload import build_sample_render_payload
 
 
+def test_opening_cannot_silently_lose_external_mix_in_generic_sample_adapter():
+    with pytest.raises(ValueError, match="formal full render"):
+        build_sample_render_payload({"final_props": {"fps": 30, "opening": {"scope": "preview"},
+            "finalMix": {"path": "mix.wav", "sha256": "a" * 64, "mode": "external_mux"},
+            "scenes": [{"id": "hook", "assetId": "v", "footageKey": "v", "fromFrame": 0, "toFrameExclusive": 90}],
+            "footage": {"v": "v.mp4"}}, "asset_manifest": {"assets": [{"id": "v", "path": "v.mp4"}]}})
+
+
 def test_sample_payload_derives_sequential_cuts_without_losing_source_trim() -> None:
     result = build_sample_render_payload({
         "final_props": {

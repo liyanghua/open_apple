@@ -174,6 +174,13 @@ def _matches_plan(planned: Mapping[str, Any], actual: Mapping[str, Any]) -> bool
 
 def _audio_diff(script: Mapping[str, Any], final_props: Mapping[str, Any], research_breakdown: Mapping[str, Any] | None) -> dict[str, Any] | None:
     """Plan-vs-actual audio diff (narration / BGM / original sound)."""
+    if "opening" in final_props:
+        mix = final_props.get("finalMix")
+        reason = "最终混音声明保留；轨道角色和实际出片音轨须另行核验，不能从文件声明推断口播/BGM存在"
+        return {"status": "partial" if isinstance(mix, Mapping) else "missing",
+            "summary": "开场绑定单一外部最终混音，轨道内容尚未独立核验", "plan": {},
+            "actual": {"source": "external_final_mix", "final_mix": dict(mix) if isinstance(mix, Mapping) else None,
+                       "reason": reason}, "reason": reason}
     audio = final_props.get("audio") if isinstance(final_props.get("audio"), Mapping) else {}
     mix = audio.get("mix") if isinstance(audio.get("mix"), Mapping) else {}
     narration_planned = bool(

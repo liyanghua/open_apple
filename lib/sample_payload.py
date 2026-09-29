@@ -33,6 +33,8 @@ def build_sample_render_payload(sample_payload: Mapping[str, Any]) -> dict[str, 
     asset_manifest = sample_payload.get("asset_manifest")
     if not isinstance(final_props, Mapping):
         raise ValueError("sample payload requires final_props")
+    if "opening" in final_props:
+        raise ValueError("opening requires the formal full render; generic sample adaptation cannot preserve its external mix and boundary schedule")
     if not isinstance(asset_manifest, Mapping):
         raise ValueError("sample payload requires asset_manifest")
     fps = _number(final_props.get("fps"), field="final_props.fps")

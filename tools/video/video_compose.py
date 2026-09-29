@@ -58,6 +58,9 @@ from tools.base_tool import (
 
 
 class VideoCompose(BaseTool):
+    # In-process capability: JSON callers cannot authorize a silent opening
+    # intermediate. Only the formal render path owns the subsequent mux.
+    _production_brand_mux_token = object()
     name = "video_compose"
     version = "0.1.0"
     tier = ToolTier.CORE
@@ -2184,6 +2187,20 @@ class VideoCompose(BaseTool):
 
             props = json.loads(json.dumps(edit_decisions))
             props["footage"] = {key: resolve_media(ref) for key, ref in props["footage"].items()}
+            motion_source_probes = []
+            if "opening" in props:
+                from lib.production_brand import validate_motion_source_metadata
+                from lib.render_plan import probe_media
+                probes = {}
+                for shot in props["scenes"]:
+                    source_path = props["footage"][shot["footageKey"]]
+                    if source_path not in probes:
+                        try:
+                            probes[source_path] = probe_media(Path(source_path))
+                        except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+                            raise ValueError(f"opening motion source probe failed: {exc}") from exc
+                    measured = validate_motion_source_metadata(shot, probes[source_path])
+                    motion_source_probes.append({"shot_id": shot["id"], "path": source_path, **measured})
             props["logoSrc"] = resolve_media(props["logoSrc"])
             for font in props.get("profile", {}).get("font", {}).get("files") or []:
                 font["path"] = resolve_media(font["path"])
@@ -2192,6 +2209,13 @@ class VideoCompose(BaseTool):
                 if (props.get("audio") or {}).get(key):
                     props["audio"][key] = resolve_media(props["audio"][key])
             external_audio = inputs.get("audio_path") or (plan.get("audio") or {}).get("path")
+            if "opening" in props:
+                planned_audio = plan.get("audio") or {}
+                expected_mix_hash = planned_audio.get("sha256")
+                if ("audio" in props or not external_audio or not planned_audio.get("path")
+                        or not isinstance(expected_mix_hash, str) or len(expected_mix_hash) != 64
+                        or any(c not in "0123456789abcdef" for c in expected_mix_hash)):
+                    raise ValueError("opening requires one external final mix bound by render_plan.audio.path and sha256; internal audio is forbidden")
             if external_audio:
                 if props.get("audio"):
                     raise ValueError("production-brand cannot combine internal audio props with an external approved mix; supply one audio path")
@@ -2201,6 +2225,13 @@ class VideoCompose(BaseTool):
                     raise ValueError("audio_path conflicts with approved render_plan.audio")
                 if planned_audio.get("sha256") and hashlib.sha256(Path(external_audio).read_bytes()).hexdigest() != planned_audio["sha256"]:
                     raise ValueError("approved render_plan audio hash mismatch")
+                if "opening" in props:
+                    binding = {"path": external_audio, "sha256": planned_audio["sha256"], "mode": "external_mux"}
+                    if "finalMix" in props and (props["finalMix"].get("sha256") != binding["sha256"]
+                            or props["finalMix"].get("mode") != "external_mux"
+                            or resolve_media(props["finalMix"].get("path")) != external_audio):
+                        raise ValueError("finalMix conflicts with approved render_plan.audio")
+                    props["finalMix"] = binding
             raw_output = inputs.get("output_path") or plan.get("output_path")
             if not raw_output:
                 raise ValueError("production-brand requires an explicit output_path")
@@ -2224,7 +2255,8 @@ class VideoCompose(BaseTool):
             return validation
         output_path.parent.mkdir(parents=True, exist_ok=True)
         result = self._remotion_render({**inputs, "edit_decisions": props, "project_dir": str(project_dir),
-                                       "profile": profile_name, "output_path": str(output_path)})
+                                       "profile": profile_name, "output_path": str(output_path),
+                                       "_production_brand_mux_token": self._production_brand_mux_token})
         if not result.success:
             return result  # Preserve structured brand_preflight failure evidence.
         if not output_path.is_file():
@@ -2233,10 +2265,15 @@ class VideoCompose(BaseTool):
         if self._normalize_render_to_profile(output_path, profile_name):
             result.data["post_encode"] = True
         if external_audio:
+            if "opening" in props and hashlib.sha256(Path(external_audio).read_bytes()).hexdigest() != props["finalMix"]["sha256"]:
+                return ToolResult(success=False, data=result.data, error="opening final mix changed during render; refusing mux")
             mux = self._mux_external_audio(output_path, external_audio)
             if not mux.success:
                 return mux
             result.data["has_mixed_audio"] = True
+            if "opening" in props:
+                result.data["final_mix"] = dict(props["finalMix"])
+                result.data["motion_source_probe"] = motion_source_probes
         review = self._run_final_review(output_path, review_decisions, inputs.get("proposal_packet"),
             narration_transcript_path=inputs.get("narration_transcript_path"),
             script_text=inputs.get("script_text") or self._read_text_file(inputs.get("script_path")))
@@ -3076,6 +3113,9 @@ class VideoCompose(BaseTool):
                 success=False,
                 error="edit_decisions or composition_data required for remotion_render",
             )
+        if (composition_data.get("renderer_family") == "production-brand" and "opening" in composition_data
+                and inputs.get("_production_brand_mux_token") is not self._production_brand_mux_token):
+            return ToolResult(success=False, error="opening requires the formal render operation with one hash-bound external mix")
 
         output_path = Path(inputs.get("output_path", "renders/remotion_output.mp4"))
         output_path.parent.mkdir(parents=True, exist_ok=True)

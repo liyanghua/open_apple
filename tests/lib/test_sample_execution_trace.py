@@ -4,6 +4,17 @@ from lib.sample_execution_trace import build_sample_execution_trace, write_sampl
 from schemas.artifacts import validate_artifact
 
 
+def test_opening_trace_keeps_mix_binding_without_inventing_track_roles():
+    from lib.sample_execution_trace import _audio_diff
+    mix = {"path": "mix.wav", "sha256": "a" * 64, "mode": "external_mux"}
+    audio = _audio_diff({"sections": [{"narration": "spoken"}]}, {"opening": {"scope": "preview"}, "finalMix": mix}, None)
+    assert audio["actual"]["final_mix"] == mix
+    assert audio["actual"]["source"] == "external_final_mix"
+    assert "narration_present" not in audio["actual"]
+    assert "music_present" not in audio["actual"]
+    assert audio["status"] == "partial"
+
+
 def _artifacts() -> dict:
     return {
         "reference_fingerprint": {

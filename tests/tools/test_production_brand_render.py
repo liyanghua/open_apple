@@ -1,9 +1,86 @@
 import json
+import hashlib
 
 import pytest
 
 from tools.video.video_compose import VideoCompose
 from tools.base_tool import ToolResult
+
+
+@pytest.mark.parametrize("problem", ["silent", "unbound_hash", "internal", "wrong_hash", "double"])
+def test_opening_requires_single_hash_bound_external_mix(mainline, problem):
+    inputs, seen = mainline
+    inputs["edit_decisions"]["opening"] = {"scope": "preview", "endFrameExclusive": 90, "transitionFrames": 5}
+    inputs["edit_decisions"].pop("audio")
+    inputs["render_plan"]["audio"] = {"path": "voice.wav", "sha256": hashlib.sha256(b"fixture").hexdigest()}
+    if problem == "silent": inputs["render_plan"].pop("audio")
+    elif problem == "unbound_hash": inputs["render_plan"]["audio"].pop("sha256")
+    elif problem == "wrong_hash": inputs["render_plan"]["audio"]["sha256"] = "0" * 64
+    elif problem == "internal":
+        inputs["render_plan"].pop("audio")
+        inputs["edit_decisions"]["audio"] = {"narrationSrc": "voice"}
+    else: inputs["edit_decisions"]["audio"] = {"narrationSrc": "voice"}
+    result = VideoCompose().execute(inputs)
+    assert not result.success
+    assert not seen["rendered"]
+
+
+@pytest.mark.parametrize("via_override", [False, True])
+def test_opening_external_mix_is_bound_and_muxed_once(mainline, monkeypatch, via_override):
+    inputs, seen = mainline
+    inputs["edit_decisions"]["opening"] = {"scope": "preview", "endFrameExclusive": 90, "transitionFrames": 5}
+    inputs["edit_decisions"].pop("audio")
+    mix = {"path": "voice.wav", "sha256": hashlib.sha256(b"fixture").hexdigest()}
+    inputs["render_plan"]["audio"] = mix
+    if via_override: inputs["audio_path"] = "voice"
+    calls = []
+    monkeypatch.setattr(VideoCompose, "_mux_external_audio", lambda self, output, audio: calls.append(audio) or ToolResult(success=True))
+    result = VideoCompose().execute(inputs)
+    assert result.success, result.error
+    assert len(calls) == 1
+    assert "audio" not in seen["props"]
+    assert seen["props"]["finalMix"] == {"path": calls[0], "sha256": mix["sha256"], "mode": "external_mux"}
+    assert result.data["final_mix"]["sha256"] == mix["sha256"]
+
+
+def test_opening_cannot_use_direct_remotion_render_as_silent_delivery(mainline):
+    inputs, seen = mainline
+    inputs["edit_decisions"]["opening"] = {"scope": "preview", "endFrameExclusive": 90, "transitionFrames": 5}
+    result = VideoCompose().execute({"operation": "remotion_render", "project_dir": inputs["project_dir"],
+        "output_path": inputs["output_path"], "composition_data": inputs["edit_decisions"]})
+    assert not result.success
+    assert "formal render" in result.error
+    assert not seen["rendered"]
+
+
+def test_opening_mix_drift_during_render_prevents_mux(mainline, monkeypatch):
+    from pathlib import Path
+    inputs, seen = mainline
+    inputs["edit_decisions"].update(opening={"scope": "preview", "endFrameExclusive": 90, "transitionFrames": 5})
+    inputs["edit_decisions"].pop("audio")
+    inputs["render_plan"]["audio"] = {"path": "voice.wav", "sha256": hashlib.sha256(b"fixture").hexdigest()}
+    original = VideoCompose._run_remotion_command
+    def render(self, cmd, **kwargs):
+        original(self, cmd, **kwargs)
+        (Path(inputs["project_dir"]) / "voice.wav").write_bytes(b"changed mix")
+    monkeypatch.setattr(VideoCompose, "_run_remotion_command", render)
+    monkeypatch.setattr(VideoCompose, "_mux_external_audio", lambda *a: pytest.fail("changed mix must not be muxed"))
+    result = VideoCompose().execute(inputs)
+    assert not result.success
+    assert "changed during render" in result.error
+    assert seen["rendered"] and not seen["reviewed"]
+
+
+@pytest.mark.parametrize("declaration", [{}, {"path": "voice", "sha256": "0" * 64, "mode": "external_mux"}])
+def test_opening_cannot_silently_replace_conflicting_final_mix_declaration(mainline, monkeypatch, declaration):
+    inputs, seen = mainline
+    inputs["edit_decisions"].update(opening={"scope": "preview", "endFrameExclusive": 90, "transitionFrames": 5}, finalMix=declaration)
+    inputs["edit_decisions"].pop("audio")
+    inputs["render_plan"]["audio"] = {"path": "voice.wav", "sha256": hashlib.sha256(b"fixture").hexdigest()}
+    monkeypatch.setattr(VideoCompose, "_mux_external_audio", lambda *a: ToolResult(success=True))
+    result = VideoCompose().execute(inputs)
+    assert not result.success
+    assert not seen["rendered"]
 
 
 def test_production_brand_uses_real_entry_props_and_stages_named_media(tmp_path, monkeypatch):
@@ -45,6 +122,9 @@ def test_brand_preflight_failure_prevents_renderer_start(tmp_path, monkeypatch):
 def mainline(tmp_path, monkeypatch):
     from lib import production_brand
     monkeypatch.setattr(production_brand, "preflight_production_brand", lambda *a, **k: {"status": "passed", "strict_ready": True, "checks": []})
+    from lib import render_plan
+    monkeypatch.setattr(render_plan, "probe_media", lambda path: {"streams": [{"codec_type": "video", "width": 960, "height": 960,
+        "avg_frame_rate": "24/1", "r_frame_rate": "24/1", "duration": "9.000000", "nb_frames": "216"}]})
     seen = {"rendered": False, "reviewed": False, "normalized": False}
     for name in ("footage.mp4", "logo.png", "voice.wav"):
         (tmp_path / name).write_bytes(b"fixture")
@@ -71,6 +151,7 @@ def mainline(tmp_path, monkeypatch):
         "captions": [{"text": "完整口播", "startMs": 0, "endMs": 7000}],
         "scenes": [{"id": "one", "footageKey": "one", "fromFrame": 0, "durationInFrames": 240,
                     "sourceInSeconds": 0, "sourceDurationSeconds": 9, "playbackRate": 1, "cropScale": 1, "role": "body"}]}
+    payload["scenes"][0].update(sourceFps=24, framing={"source": {"width": 960, "height": 960}})
     inputs = {"operation": "render", "project_dir": str(tmp_path), "output_path": str(output), "edit_decisions": payload,
         "render_plan": {"mode": "full", "profile": "social_vertical_1080p30"},
         "proposal_packet": {"production_plan": {"render_runtime": "remotion"}},
@@ -79,6 +160,28 @@ def mainline(tmp_path, monkeypatch):
             for name, path, kind in [("footage", "footage.mp4", "video"), ("logo", "logo.png", "image"), ("voice", "voice.wav", "audio")]
         ]}}
     return inputs, seen
+
+
+@pytest.mark.parametrize("field", ["width", "height", "fps", "duration", "rotation", "probe_error"])
+def test_opening_rejects_declared_source_metadata_drift_before_render(mainline, monkeypatch, field):
+    inputs, seen = mainline
+    monkeypatch.setattr(VideoCompose, "_mux_external_audio", lambda *a: ToolResult(success=True))
+    inputs["edit_decisions"]["opening"] = {"scope": "preview", "endFrameExclusive": 90, "transitionFrames": 5}
+    inputs["edit_decisions"].pop("audio")
+    inputs["render_plan"]["audio"] = {"path": "voice.wav", "sha256": hashlib.sha256(b"fixture").hexdigest()}
+    shot = inputs["edit_decisions"]["scenes"][0]
+    if field in ("width", "height"): shot["framing"]["source"][field] = 1080
+    elif field == "fps": shot["sourceFps"] = 30
+    elif field == "duration": shot["sourceDurationSeconds"] = 8.99
+    else:
+        from lib import render_plan
+        if field == "probe_error": monkeypatch.setattr(render_plan, "probe_media", lambda path: (_ for _ in ()).throw(RuntimeError("fixture probe failure")))
+        else: monkeypatch.setattr(render_plan, "probe_media", lambda path: {"streams": [{"codec_type": "video", "width": 960, "height": 960,
+            "avg_frame_rate": "24/1", "duration": "9", "side_data_list": [{"rotation": 90}]}]})
+    result = VideoCompose().execute(inputs)
+    assert not result.success
+    assert "source" in result.error
+    assert not seen["rendered"]
 
 
 def test_render_operation_routes_brand_payload_through_media_preflight_and_final_review(mainline):

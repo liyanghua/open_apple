@@ -21,6 +21,25 @@ def test_production_preflight_exposes_callable_contract():
     assert callable(module().preflight_production_brand)
 
 
+def test_motion_source_uses_actual_stream_metadata_and_exact_97_frame_duration():
+    shot = {"sourceFps": 24, "sourceDurationSeconds": 4.041667, "framing": {"source": {"width": 960, "height": 960}}}
+    probe = {"streams": [{"codec_type": "audio", "duration": "10"}, {"codec_type": "video", "width": 960, "height": 960,
+        "avg_frame_rate": "24/1", "r_frame_rate": "24/1", "duration": "4.041667", "nb_frames": "97"}], "format": {"duration": "10"}}
+    assert hasattr(module(), "validate_motion_source_metadata"), "actual source metadata validator is missing"
+    row = module().validate_motion_source_metadata(shot, probe)
+    assert row == {"width": 960, "height": 960, "fps": 24.0, "duration_seconds": 4.041667, "frame_count": 97}
+    shot["sourceDurationSeconds"] = 4
+    with pytest.raises(ValueError, match="duration"):
+        module().validate_motion_source_metadata(shot, probe)
+
+
+@pytest.mark.parametrize("probe", [{"streams": []}, {"streams": [{"codec_type": "video", "width": 960, "height": 960, "avg_frame_rate": "0/0", "duration": "4"}]}])
+def test_motion_source_rejects_missing_or_undecodable_stream_metadata(probe):
+    assert hasattr(module(), "validate_motion_source_metadata")
+    with pytest.raises(ValueError, match="source"):
+        module().validate_motion_source_metadata({"sourceFps": 24, "sourceDurationSeconds": 4, "framing": {"source": {"width": 960, "height": 960}}}, probe)
+
+
 @pytest.fixture
 def valid(tmp_path):
     candidates = [
@@ -66,6 +85,122 @@ def report(valid):
 
 def check(result, name):
     return next(c for c in result["checks"] if c["check_id"] == name)
+
+
+def opening_preview(valid):
+    _, props, directory = valid
+    props.update(opening={"scope": "preview", "endFrameExclusive": 90, "transitionFrames": 5}, durationInFrames=90,
+                 titles=[{"fromFrame": 0, "text": "Soft"}],
+                 words=[{"text": "Soft", "startMs": 0, "endMs": 2900}],
+                 captions=[{"text": "Soft", "startMs": 0, "endMs": 2900}])
+    props["scenes"] = [dict(props["scenes"][0], durationInFrames=90, role="hook", sourceFps=24,
+        framing={"source": {"width": 960, "height": 960}, "viewport": {"x": 0, "y": 350, "width": 1080, "height": 1080},
+                 "fit": "contain", "position": {"x": .5, "y": .5}, "actionCoverage": "whole_shot_envelope",
+                 "actionRegions": [{"x": 0, "y": 0, "width": 960, "height": 960}],
+                 "background": {"blurPx": 48, "opacity": .3, "scale": 1.1}})]
+    (directory / "mix.wav").write_bytes(b"final mix")
+    props["finalMix"] = {"path": "mix.wav", "sha256": hashlib.sha256(b"final mix").hexdigest(), "mode": "external_mux"}
+    return props
+
+
+def test_opening_preview_has_explicit_slogan_and_tail_non_applicability(valid):
+    opening_preview(valid)
+    result = report(valid)
+    assert result["status"] == "passed"
+    for name in ("slogan", "speech_tail"):
+        row = check(result, name)
+        assert row["status"] == "not_run"
+        assert row["evidence"]["applicability"] == "not_applicable"
+        assert row["evidence"]["reason"]
+    assert check(result, "motion_framing")["status"] == "pass"
+
+
+@pytest.mark.parametrize("change", ["fps", "duration", "scope", "end", "transition", "no_framing", "no_source_fps", "no_mix", "internal", "fractional_prehandle"])
+def test_opening_scope_and_transport_fail_closed(valid, change):
+    props = opening_preview(valid)
+    if change == "fps": props["fps"] = 24
+    elif change == "duration": props["durationInFrames"] = 120
+    elif change == "scope": props["opening"]["scope"] = "approved"
+    elif change == "end": props["opening"]["endFrameExclusive"] = 89
+    elif change == "transition": props["opening"]["transitionFrames"] = 4
+    elif change == "no_framing": props["scenes"][0].pop("framing")
+    elif change == "no_source_fps": props["scenes"][0].pop("sourceFps")
+    elif change == "no_mix": props.pop("finalMix")
+    elif change == "internal": props["audio"] = {"narrationSrc": "mix.wav"}
+    else:
+        props["opening"]["scope"] = "full_variant"
+        props["durationInFrames"] = 150
+        props["scenes"].append(dict(props["scenes"][0], id="body", role="body", fromFrame=90, durationInFrames=60, sourceInSeconds=1, playbackRate=1.1))
+    result = report(valid)
+    assert result["status"] == "blocked"
+    assert check(result, "opening_schedule" if change == "fractional_prehandle" else "input_contract")["status"] == "fail"
+
+
+@pytest.mark.parametrize("problem", ["cropped_action", "source_bounds", "caption_overlap", "logo_overlap", "title_overlap", "bad_position", "empty_regions", "legacy_scale"])
+def test_framing_rejects_action_crop_and_brand_obstruction(valid, problem):
+    props = opening_preview(valid)
+    shot = props["scenes"][0]
+    framing = shot["framing"]
+    if problem == "cropped_action":
+        framing.update(source={"width": 1920, "height": 1080}, fit="crop", actionRegions=[{"x": 0, "y": 0, "width": 1920, "height": 1080}])
+    elif problem == "source_bounds": framing["actionRegions"][0]["width"] = 961
+    elif problem == "caption_overlap": framing["viewport"]["y"] = 600
+    elif problem == "logo_overlap": framing["viewport"]["y"] = 80
+    elif problem == "title_overlap": framing["viewport"].update(x=72, y=220, width=200, height=200)
+    elif problem == "bad_position": framing["position"]["x"] = 2
+    elif problem == "empty_regions": framing["actionRegions"] = []
+    else: shot["cropScale"] = 1.2
+    result = report(valid)
+    assert result["status"] == "blocked"
+    assert check(result, "input_contract" if problem in ("bad_position", "empty_regions", "legacy_scale") else "motion_framing")["status"] == "fail"
+
+
+def test_safe_crop_maps_source_action_without_certifying_its_semantics(valid):
+    props = opening_preview(valid)
+    props["scenes"][0]["framing"].update(source={"width": 1920, "height": 1080}, fit="crop",
+        actionRegions=[{"x": 540, "y": 0, "width": 840, "height": 1080}])
+    result = report(valid)
+    row = check(result, "motion_framing")
+    assert row["status"] == "pass"
+    assert row["evidence"]["semantic_action_verified"] is False
+    assert row["evidence"]["shots"][0]["mapped_actions"] == [{"x": 120, "y": 350, "width": 840, "height": 1080}]
+
+
+def test_opening_full_variant_restores_slogan_tail_and_records_join_quantization(valid):
+    props = opening_preview(valid)
+    props["opening"]["scope"] = "full_variant"
+    props["durationInFrames"] = 150
+    props["scenes"].append(dict(props["scenes"][0], id="body", role="body", fromFrame=90, durationInFrames=60, sourceInSeconds=.51))
+    result = report(valid)
+    assert check(result, "slogan")["status"] == "fail"
+    row = check(result, "opening_schedule")
+    assert row["status"] == "pass"
+    body = row["evidence"]["shots"][1]
+    assert body["render_from_frame"] == 85
+    assert body["source_start_frame"] == 10
+    assert body["quantization"]["render_frame"] == 15
+    assert body["quantization"]["error_seconds"] == pytest.approx(-.01)
+
+
+def test_preview_still_rejects_missing_strict_fonts_and_drifting_mix(valid):
+    props = opening_preview(valid)
+    props["finalMix"]["sha256"] = "0" * 64
+    assert check(report(valid), "final_mix")["status"] == "fail"
+    props["finalMix"]["sha256"] = hashlib.sha256(b"final mix").hexdigest()
+    valid[0]["font"]["files"] = []
+    assert report(valid)["status"] == "blocked"
+
+
+def test_legacy_preview_keeps_unverified_font_status_and_conservative_brand_corridors(valid):
+    props = opening_preview(valid)
+    valid[0]["production"]["font_mode"] = "legacy_appearance"
+    result = report(valid)
+    assert result["status"] == "degraded"
+    assert result["strict_ready"] is False
+    assert check(result, "font_identity")["status"] == "not_run"
+    assert check(result, "motion_framing")["evidence"]["brand_occupancy"] == "conservative_profile_corridors"
+    props["scenes"][0]["framing"]["viewport"]["y"] = 500
+    assert check(report(valid), "motion_framing")["status"] == "fail"
 
 
 def test_profile_extends_existing_defaults_and_preserves_approved_geometry(valid):

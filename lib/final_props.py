@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import re
 from typing import Any, Mapping
 
 
@@ -124,7 +126,17 @@ def validate_final_props(
             raise FinalPropsError(f"captions[{index}] is outside the timeline")
 
     audio = props.get("audio")
-    if not isinstance(audio, dict) or not isinstance(audio.get("mix"), str) or not audio["mix"]:
+    if "opening" in props:
+        opening, mix = props["opening"], props.get("finalMix")
+        if (not isinstance(opening, dict) or opening.get("scope") not in ("preview", "full_variant")
+                or opening.get("endFrameExclusive") != 90 or opening.get("transitionFrames") != 5 or fps != 30
+                or (opening["scope"] == "preview" and total != 90) or (opening["scope"] == "full_variant" and total <= 90)):
+            raise FinalPropsError("opening must declare a 90-frame preview or a full_variant at 30fps")
+        if ("audio" in props or not isinstance(mix, dict) or not isinstance(mix.get("path"), str) or not mix["path"]
+                or mix.get("mode") != "external_mux" or not isinstance(mix.get("sha256"), str)
+                or not re.fullmatch(r"[a-f0-9]{64}", mix["sha256"])):
+            raise FinalPropsError("opening requires one external finalMix path and sha256, without audio")
+    elif not isinstance(audio, dict) or not isinstance(audio.get("mix"), str) or not audio["mix"]:
         raise FinalPropsError("audio.mix is required")
     if project_dir is not None:
         root = Path(project_dir).resolve()
@@ -136,7 +148,9 @@ def validate_final_props(
                 raise FinalPropsError(f"footage.{key} escapes project public directory")
             if not path.is_file():
                 raise FinalPropsError(f"footage.{key} does not exist: {relative}")
-        audio_path = (root / "public" / audio["mix"]).resolve()
+        audio_path = (root / mix["path"]).resolve() if "opening" in props else (root / "public" / audio["mix"]).resolve()
         if not audio_path.is_file():
-            raise FinalPropsError(f"audio.mix does not exist: {audio['mix']}")
+            raise FinalPropsError(f"audio mix does not exist: {audio_path}")
+        if "opening" in props and hashlib.sha256(audio_path.read_bytes()).hexdigest() != mix["sha256"]:
+            raise FinalPropsError("finalMix hash mismatch")
     return props
