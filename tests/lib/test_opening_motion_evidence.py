@@ -244,14 +244,10 @@ def test_source_and_output_action_must_follow_playback_mapping(tmp_path):
     assert collect(tmp_path, record)["opening_motion"]["status"] == "error"
 
 
-@pytest.mark.parametrize("kind", ["frame", "segment"])
-def test_nested_observation_evidence_hash_is_rechecked(tmp_path, kind):
+def test_supplementary_frame_evidence_hash_is_rechecked(tmp_path):
     record, report, observation = fixture(tmp_path)
     evidence = write(tmp_path, "proof.bin", b"evidence")
-    if kind == "frame":
-        observation["evidence"]["frames"] = [{"ref": evidence, "output_seconds": 1}]
-    else:
-        observation["evidence"]["segments"] = [{"ref": evidence, "output_interval_seconds": [0.5, 2.5]}]
+    observation["evidence"]["frames"] = [{"ref": evidence, "output_seconds": 1}]
     update_observation(tmp_path, record, report, observation)
     assert collect(tmp_path, record)["opening_motion"]["status"] == "pass"
     assert "proof.bin" in collect(tmp_path, record)["opening_motion"]["evidence_refs"]
@@ -265,7 +261,7 @@ def test_static_keyframe_is_not_motion_proof(tmp_path):
     update_observation(tmp_path, record, report, observation)
     checks = collect(tmp_path, record)
     assert checks["opening_motion"]["status"] == "not_run"
-    assert checks["opening_framing"]["status"] == "pass"
+    assert checks["opening_framing"]["status"] == "not_run"
 
 
 def test_segment_must_cover_whole_actual_action(tmp_path):
@@ -273,6 +269,7 @@ def test_segment_must_cover_whole_actual_action(tmp_path):
     observation["evidence"]["segments"][0]["output_interval_seconds"] = [1, 2]
     update_observation(tmp_path, record, report, observation)
     assert collect(tmp_path, record)["opening_motion"]["status"] != "pass"
+    assert collect(tmp_path, record)["opening_framing"]["status"] != "pass"
 
 
 @pytest.mark.parametrize("field", ["subject_box", "action_box"])
@@ -325,7 +322,7 @@ def test_static_plan_does_not_require_subject_motion_but_requires_framing(tmp_pa
     record, report, observation = fixture(tmp_path, plan=plan)
     observation.pop("actual_action")
     observation.pop("motion")
-    observation["evidence"] = {"frames": [{"ref": write(tmp_path, "frame.png", b"frame"), "output_seconds": 1}], "segments": []}
+    observation["evidence"]["frames"] = [{"ref": write(tmp_path, "frame.png", b"frame"), "output_seconds": 1}]
     report["checks"] = [row for row in report["checks"] if row["id"] == "opening_framing"]
     update_observation(tmp_path, record, report, observation)
     checks = collect(tmp_path, record)
@@ -371,3 +368,52 @@ def test_observed_real_source_can_pass_without_model_task(tmp_path, kind):
     del identity["model_task"]
     record, _, _ = fixture(tmp_path, plan=plan)
     assert collect(tmp_path, record)["opening_motion"]["status"] == "pass"
+
+
+@pytest.mark.parametrize("payload", [b"unrelated proof", b"render"])
+def test_segment_must_reference_current_render_not_arbitrary_file(tmp_path, payload):
+    record, report, observation = fixture(tmp_path)
+    observation["evidence"]["segments"] = [{"ref": write(tmp_path, "proof.bin", payload), "output_interval_seconds": [0.5, 2.5]}]
+    update_observation(tmp_path, record, report, observation)
+    checks = collect(tmp_path, record)
+    assert checks["opening_motion"]["status"] == "error"
+    assert checks["opening_framing"]["status"] == "error"
+
+
+def test_framing_first_frame_cannot_stand_for_whole_motion(tmp_path):
+    record, report, observation = fixture(tmp_path)
+    report["checks"] = [check for check in report["checks"] if check["id"] == "opening_framing"]
+    observation["evidence_interval_seconds"] = [0.5, 0.6]
+    observation["evidence"]["segments"][0]["output_interval_seconds"] = [0.5, 0.6]
+    for check in report["checks"]:
+        check["evidence_interval_seconds"] = [0.5, 0.6]
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_framing"]["status"] != "pass"
+
+
+def test_framing_also_requires_actual_action_timing(tmp_path):
+    record, report, observation = fixture(tmp_path)
+    del observation["actual_action"]
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_framing"]["status"] == "not_run"
+
+
+def test_render_segment_covers_entire_reviewed_interval(tmp_path):
+    record, report, observation = fixture(tmp_path)
+    observation["evidence_interval_seconds"] = [0, 3]
+    for check in report["checks"]:
+        check["evidence_interval_seconds"] = [0, 3]
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_framing"]["status"] == "not_run"
+
+
+def test_static_frame_alone_is_not_render_framing_evidence(tmp_path):
+    plan = hook_v2()
+    plan["motion_policy"] = {"mode": "optional", "rationale": "Static identity detail"}
+    plan["shots"][0]["motion"].update(motion_required=False, verb="none", end_state="closed", exemption_reason="Static logo detail")
+    record, report, observation = fixture(tmp_path, plan=plan)
+    observation.pop("actual_action")
+    observation.pop("motion")
+    observation["evidence"] = {"frames": [{"ref": write(tmp_path, "frame.png", b"unrelated frame"), "output_seconds": 1}], "segments": []}
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_framing"]["status"] == "not_run"

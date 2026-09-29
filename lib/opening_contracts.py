@@ -199,7 +199,28 @@ def _observe(root: Path, check: Mapping, shot: Mapping, report: Mapping, refs: l
         _require(interval[0] <= frame["output_seconds"] <= interval[1]
                  and frame["output_seconds"] < shot["interval_seconds"][1], "Frame evidence escapes half-open reviewed interval")
     for segment in segments:
+        _require(segment["ref"] == report["render"], "Continuous evidence must reference the current render")
         _interval(segment["output_interval_seconds"], interval)
+    # P0 accepts the original rendered video plus an exact reviewed interval.
+    # Supplemental frames do not establish provenance or temporal coverage.
+    if not any(segment["output_interval_seconds"][0] <= interval[0]
+               and segment["output_interval_seconds"][1] >= interval[1] for segment in segments):
+        return "not_run", ["current_render_segment_must_cover_reviewed_interval"]
+    if expected["motion_required"]:
+        actual = observed.get("actual_action")
+        if not actual:
+            return "not_run", ["actual_action_timing_required"]
+        mapping = shot["source_mapping"]
+        selected, output = mapping["source_interval_seconds"], mapping["output_interval_seconds"]
+        source_action, output_action = actual["source_interval_seconds"], actual["output_interval_seconds"]
+        _interval(source_action, selected)
+        _interval(output_action, output)
+        _interval(output_action, interval)
+        mapped = [output[0] + (point - selected[0]) / mapping["playback_rate"] for point in source_action]
+        _require(all(abs(left - right) <= 1e-6 for left, right in zip(mapped, output_action)),
+                 "Actual action source/output timing does not follow selection and playback rate")
+        _require(output_action[0] <= expected["interval_seconds"][0] and output_action[1] >= expected["interval_seconds"][1],
+                 "Actual action does not cover planned key interval")
     framing_keys = {"fit", "output_aspect_ratio", "visible_parts", "clipped_parts", "subject_within_safe_area", "subject_box", "action_box"}
     if not framing_keys <= framing.keys():
         return "not_run", ["framing_observation_incomplete"]
@@ -214,23 +235,6 @@ def _observe(root: Path, check: Mapping, shot: Mapping, report: Mapping, refs: l
         return "fail", ["required_action_or_product_parts_not_visible"]
     if check["id"] == "opening_framing":
         return "pass", []
-    actual = observed.get("actual_action")
-    if not actual:
-        return "not_run", ["actual_action_timing_required"]
-    mapping = shot["source_mapping"]
-    selected, output = mapping["source_interval_seconds"], mapping["output_interval_seconds"]
-    source_action, output_action = actual["source_interval_seconds"], actual["output_interval_seconds"]
-    _interval(source_action, selected)
-    _interval(output_action, output)
-    _interval(output_action, interval)
-    mapped = [output[0] + (point - selected[0]) / mapping["playback_rate"] for point in source_action]
-    _require(all(abs(left - right) <= 1e-6 for left, right in zip(mapped, output_action)),
-             "Actual action source/output timing does not follow selection and playback rate")
-    _require(output_action[0] <= expected["interval_seconds"][0] and output_action[1] >= expected["interval_seconds"][1],
-             "Actual action does not cover planned key interval")
-    if not any(segment["output_interval_seconds"][0] <= output_action[0]
-               and segment["output_interval_seconds"][1] >= output_action[1] for segment in segments):
-        return "not_run", ["continuous_evidence_of_whole_action_required"]
     motion = observed.get("motion", {})
     keys = {"subject", "verb", "start_state", "end_state", "visible_result", "subject_motion",
             "still_image_transform", "camera_only", "background_only", "forbidden_changes"}
