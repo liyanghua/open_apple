@@ -626,3 +626,80 @@ def test_opening_input_difference_does_not_claim_rendered_perceptual_difference(
     assert proof["opening_input_difference"] is True
     assert proof["rendered_difference_status"] == proof["perceptual_difference_status"] == "not_run"
     assert proof["counts_as_new_work"] is False
+
+
+def rebuild_approved_subject(root):
+    subject = build_production_subject(root, "record.json")
+    review = json.loads((root / "operator/reviews/B0-review.json").read_text())
+    review.update(production_subject=subject, subject_hash=production_subject_hash(subject))
+    return write(root, "operator/reviews/B0-review.json", review)
+
+
+def test_body_title_projection_preserves_actual_renderer_array_precedence(frozen):
+    root, _, candidate, mix = frozen
+    baseline = json.loads((root / "baseline_props.json").read_text())
+    baseline["titles"] = [{"fromFrame": 100, "text": "later"}, {"fromFrame": 0, "text": "common"}]
+    baseline_ref = write(root, "baseline_props.json", baseline)
+    approval_ref = rebuild_approved_subject(root)
+    old = json.loads((root / "freeze.json").read_text())
+    descriptor = opening_freeze.create_freeze_descriptor(root, baseline_props_ref=baseline_ref,
+        identity=old["identity"], dependencies=old["dependencies"], baseline_approval_ref=approval_ref)
+    candidate["titles"] = list(reversed(baseline["titles"]))
+    # ProductionBrand.getBrandFrameState uses reverse().find(fromFrame <= frame).
+    def rendered_title(titles, frame):
+        return next(row["text"] for row in reversed(titles) if row["fromFrame"] <= frame)
+    assert rendered_title(baseline["titles"], 90) == rendered_title(candidate["titles"], 90) == "common"
+    assert rendered_title(baseline["titles"], 100) == "common"
+    assert rendered_title(candidate["titles"], 100) == "later"
+    updated = root, write(root, "freeze.json", descriptor), candidate, mix
+    assert verify(updated)["status"] == "fail"
+
+
+def test_current_truncated_candidate_wav_returns_structured_failure(frozen):
+    root, _, props, mix = frozen
+    (root / "candidate.wav").write_bytes(b"RIFF")
+    current = ref(root, "candidate.wav")
+    props["finalMix"] = {**current, "mode": "external_mux"}
+    mix["output_ref"] = current
+    assert verify(frozen)["status"] in ("fail", "error")
+
+
+def test_current_truncated_baseline_wav_returns_structured_error(frozen):
+    root, _, candidate, mix = frozen
+    (root / "baseline.wav").write_bytes(b"RIFF")
+    current = ref(root, "baseline.wav")
+    baseline = json.loads((root / "baseline_props.json").read_text())
+    baseline["finalMix"] = {**current, "mode": "external_mux"}
+    descriptor = json.loads((root / "freeze.json").read_text())
+    descriptor["baseline_props_ref"] = write(root, "baseline_props.json", baseline)
+    baseline_mix = json.loads((root / "baseline_mix.json").read_text())
+    baseline_mix["output_ref"] = current
+    descriptor["dependencies"]["mix_plan"] = write(root, "baseline_mix.json", baseline_mix)
+    descriptor["baseline_approval_ref"] = rebuild_approved_subject(root)
+    assert verify((root, write(root, "freeze.json", descriptor), candidate, mix))["status"] == "error"
+
+
+def test_truncated_pcm_cannot_crash_read_adapter_or_diversity(registered):
+    from lib.candidate_diversity import build_variant_plan, selection_diversity_failures
+    from lib.differentiation import compare_candidates
+    root, context = registered
+    (root / "candidate.wav").write_bytes(b"RIFF")
+    current = ref(root, "candidate.wav")
+    props = json.loads((root / "H01_props.json").read_text())
+    props["finalMix"] = {**current, "mode": "external_mux"}
+    mix = json.loads((root / "H01_mix.json").read_text())
+    mix["output_ref"] = current
+    evidence = json.loads((root / "H01_evidence.json").read_text())
+    evidence["candidate_props_ref"] = write(root, "H01_props.json", props)
+    evidence["candidate_mix_plan_ref"] = write(root, "H01_mix.json", mix)
+    context["candidate_evidence_refs"]["H01"] = write(root, "H01_evidence.json", evidence)
+    assert compare_candidates(signature("B0"), signature("H01"), opening_context=context)["status"] != "controlled_experiment"
+    plan = build_variant_plan(batch_id="batch", candidate_id="H01", variant_revision=1, baseline_ref={"path": "record.json"},
+        dimensions={}, shot_differences=[], opening_only_change=True,
+        provenance={"preregistered_variable": "opening_package", "registration_ref": "experiment.json"})
+    assert selection_diversity_failures(plan, [], opening_context=context)["structural_failures"]
+    evidence.pop("production_record_ref")
+    record = json.loads((root / "H01_record.json").read_text())
+    report = {"scope": "full_variant", "render": record["render"], "dependencies": {"freeze_evidence": write(root, "manifest.json", evidence)}}
+    record["opening"]["validation_report_ref"] = write(root, "report.json", report)
+    assert opening_freeze.evaluate_freeze_checks(root, record)["frozen_body"]["status"] in ("fail", "error")

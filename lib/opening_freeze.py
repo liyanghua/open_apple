@@ -62,22 +62,24 @@ def _load(root, ref):
 def _pcm(root, ref, total):
     """Read actual uncompressed integer WAV; compare native samples without resampling."""
     path = _ref(root, ref)
-    with wave.open(str(path), "rb") as stream:
-        _require(stream.getcomptype() == "NONE", "Lossless preencode PCM required")
-        rate, count = stream.getframerate(), stream.getnframes()
-        _require(rate > 0 and count * 30 == total * rate, "PCM must cover the exact full film duration")
-        start = rate * 3
-        _require(count > start, "PCM must cover the body after 3 seconds")
-        stream.setpos(start)
-        digest = hashlib.sha256()
-        byte_count = 0
-        while chunk := stream.readframes(65536):
-            digest.update(chunk)
-            byte_count += len(chunk)
-        _require(byte_count == (count - start) * stream.getnchannels() * stream.getsampwidth(), "Truncated PCM")
-        return {"channels": stream.getnchannels(), "sample_width": stream.getsampwidth(),
-                "sample_rate": rate, "body_samples": count - start, "body_sha256": digest.hexdigest()}
-
+    try:
+        with wave.open(str(path), "rb") as stream:
+            _require(stream.getcomptype() == "NONE", "Lossless preencode PCM required")
+            rate, count = stream.getframerate(), stream.getnframes()
+            _require(rate > 0 and count * 30 == total * rate, "PCM must cover the exact full film duration")
+            start = rate * 3
+            _require(count > start, "PCM must cover the body after 3 seconds")
+            stream.setpos(start)
+            digest = hashlib.sha256()
+            byte_count = 0
+            while chunk := stream.readframes(65536):
+                digest.update(chunk)
+                byte_count += len(chunk)
+            _require(byte_count == (count - start) * stream.getnchannels() * stream.getsampwidth(), "Truncated PCM")
+            return {"channels": stream.getnchannels(), "sample_width": stream.getsampwidth(),
+                    "sample_rate": rate, "body_samples": count - start, "body_sha256": digest.hexdigest()}
+    except EOFError as exc:
+        raise ValueError("Truncated preencode PCM WAV") from exc
 
 def _timed_body(rows, start_key="startMs", end_key="endMs"):
     # Preserve the start as well: a cross-boundary overlay/word cannot be
@@ -149,8 +151,10 @@ def _body(root, props):
     for scene in scenes:
         sources(scene)
     titles = props.get("titles", [])
-    active = [row for row in titles if row["fromFrame"] <= 90]
-    body_titles = ([copy.deepcopy(active[-1])] if active else []) + [copy.deepcopy(row) for row in titles if row["fromFrame"] > 90]
+    active_index = max((index for index, row in enumerate(titles) if row["fromFrame"] <= 90), default=-1)
+    # Renderer precedence follows array order, even for unsorted timestamps.
+    body_titles = [copy.deepcopy(row) for index, row in enumerate(titles)
+                   if index == active_index or row["fromFrame"] > 90]
     excluded = METADATA | {"scenes", "footage", "titles", "captions", "words", "opening", "finalMix"}
     # Unknown render globals are frozen conservatively, not silently ignored.
     return {"globals": {k: v for k, v in props.items() if k not in excluded}, "scenes": scenes,
