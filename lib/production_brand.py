@@ -79,8 +79,10 @@ def validate_motion_source_metadata(shot: dict, probe: dict) -> dict:
             raise ValueError("source fps differs from declared sourceFps")
         if abs(duration - shot["sourceDurationSeconds"]) > 1e-6:
             raise ValueError("source duration differs from declared sourceDurationSeconds")
-        frame_count = int(video["nb_frames"]) if video.get("nb_frames") not in (None, "N/A", "") else None
-        if frame_count is not None and abs(frame_count - duration * fps) > 1e-3:
+        if video.get("nb_frames") in (None, "N/A", ""):
+            raise ValueError("source frame count is unavailable; require independently counted nb_frames before rendering")
+        frame_count = int(video["nb_frames"])
+        if frame_count <= 0 or abs(frame_count - duration * fps) > 1e-3:
             raise ValueError("source frame count disagrees with its duration/fps baseline")
         return {"width": width, "height": height, "fps": fps, "duration_seconds": duration, "frame_count": frame_count}
     except (KeyError, TypeError, ValueError, ZeroDivisionError, OverflowError) as exc:
@@ -145,6 +147,8 @@ def _input_issues(profile: dict, props: dict) -> list[str]:
                 issues.append("opening preview must be exactly 90 frames; exemptions cannot apply to a full film")
             if opening["scope"] == "full_variant" and not _number(props.get("durationInFrames"), 90, positive=True):
                 issues.append("opening full_variant must extend past frame 90")
+            if opening["scope"] == "full_variant" and profile.get("production", {}).get("font_mode") != "strict":
+                issues.append("opening full_variant requires strict fonts; legacy appearance is permitted only for opening preview")
             scenes = props.get("scenes")
             if isinstance(scenes, list):
                 for shot in scenes:

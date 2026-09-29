@@ -33,6 +33,16 @@ def test_motion_source_uses_actual_stream_metadata_and_exact_97_frame_duration()
         module().validate_motion_source_metadata(shot, probe)
 
 
+@pytest.mark.parametrize("count", [None, "N/A"])
+def test_motion_source_requires_independent_frame_count(count):
+    shot = {"sourceFps": 24, "sourceDurationSeconds": 4.041667, "framing": {"source": {"width": 960, "height": 960}}}
+    video = {"codec_type": "video", "width": 960, "height": 960, "avg_frame_rate": "24/1", "duration": "4.041667"}
+    if count is not None:
+        video["nb_frames"] = count
+    with pytest.raises(ValueError, match="frame count"):
+        module().validate_motion_source_metadata(shot, {"streams": [video]})
+
+
 @pytest.mark.parametrize("probe", [{"streams": []}, {"streams": [{"codec_type": "video", "width": 960, "height": 960, "avg_frame_rate": "0/0", "duration": "4"}]}])
 def test_motion_source_rejects_missing_or_undecodable_stream_metadata(probe):
     assert hasattr(module(), "validate_motion_source_metadata")
@@ -201,6 +211,22 @@ def test_legacy_preview_keeps_unverified_font_status_and_conservative_brand_corr
     assert check(result, "motion_framing")["evidence"]["brand_occupancy"] == "conservative_profile_corridors"
     props["scenes"][0]["framing"]["viewport"]["y"] = 500
     assert check(report(valid), "motion_framing")["status"] == "fail"
+
+
+def test_full_variant_requires_strict_fonts_even_when_all_other_checks_pass(valid):
+    props = opening_preview(valid)
+    props["opening"]["scope"] = "full_variant"
+    props["durationInFrames"] = 150
+    props["scenes"].append(dict(props["scenes"][0], id="body", role="body", fromFrame=90,
+                                durationInFrames=60, sourceInSeconds=.5))
+    text = valid[0]["production"]["slogan"]
+    props["captions"] = [{"text": text, "startMs": 3000, "endMs": 4500}]
+    props["words"] = [{"text": text, "startMs": 3000, "endMs": 4500}]
+    assert report(valid)["status"] == "passed", "fixture must satisfy strict full-film timing and framing"
+    valid[0]["production"]["font_mode"] = "legacy_appearance"
+    result = report(valid)
+    assert result["status"] == "blocked"
+    assert "strict" in " ".join(check(result, "input_contract")["evidence"]["issues"])
 
 
 def test_profile_extends_existing_defaults_and_preserves_approved_geometry(valid):

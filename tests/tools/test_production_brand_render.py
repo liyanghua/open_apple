@@ -118,6 +118,52 @@ def test_brand_preflight_failure_prevents_renderer_start(tmp_path, monkeypatch):
     assert result.data["brand_preflight"]["status"] == "blocked"
 
 
+@pytest.mark.parametrize("font_mode", ["legacy_appearance", "strict"])
+def test_formal_full_variant_runs_real_preflight_and_blocks_unverified_fonts(tmp_path, monkeypatch, font_mode):
+    from PIL import Image
+    from lib.production_brand import make_towel_brand_profile
+    from lib import render_plan
+    profile = make_towel_brand_profile(strict=font_mode == "strict")
+    profile["production"]["slogan"] = "PLAYBOY, Better everyday."
+    Image.new("RGBA", (240, 120), "black").save(tmp_path / "logo.png")
+    (tmp_path / "clip.mp4").write_bytes(b"source bytes")
+    (tmp_path / "mix.wav").write_bytes(b"mix bytes")
+    monkeypatch.setattr(render_plan, "probe_media", lambda path: {"streams": [{"codec_type": "video", "width": 960,
+        "height": 960, "avg_frame_rate": "24/1", "r_frame_rate": "24/1", "duration": "4.000000", "nb_frames": "96"}]})
+    framing = {"source": {"width": 960, "height": 960}, "viewport": {"x": 0, "y": 350, "width": 1080, "height": 1080},
+        "fit": "contain", "position": {"x": .5, "y": .5}, "actionCoverage": "whole_shot_envelope",
+        "actionRegions": [{"x": 0, "y": 0, "width": 960, "height": 960}]}
+    base_shot = {"footageKey": "clip", "sourceDurationSeconds": 4, "sourceFps": 24, "playbackRate": 1,
+                 "cropScale": 1, "framing": framing}
+    text = profile["production"]["slogan"]
+    props = {"renderer_family": "production-brand", "render_runtime": "remotion", "profile": profile,
+        "opening": {"scope": "full_variant", "endFrameExclusive": 90, "transitionFrames": 5},
+        "width": 1080, "height": 1920, "fps": 30, "durationInFrames": 150, "logoSrc": "logo", "footage": {"clip": "clip"},
+        "scenes": [dict(base_shot, id="hook", role="hook", fromFrame=0, durationInFrames=90, sourceInSeconds=0),
+                   dict(base_shot, id="body", role="body", fromFrame=90, durationInFrames=60, sourceInSeconds=.5)],
+        "titles": [{"fromFrame": 0, "text": "Soft"}], "timingSource": "measured_word_timestamps",
+        "captions": [{"text": text, "startMs": 3000, "endMs": 4500}],
+        "words": [{"text": text, "startMs": 3000, "endMs": 4500}]}
+    rendered = []
+    output = tmp_path / "final.mp4"
+    def render(self, cmd, **kwargs):
+        rendered.append(cmd)
+        output.write_bytes(b"render")
+    monkeypatch.setattr(VideoCompose, "_run_remotion_command", render)
+    monkeypatch.setattr(VideoCompose, "_normalize_render_to_profile", lambda *a: False)
+    monkeypatch.setattr(VideoCompose, "_mux_external_audio", lambda *a: ToolResult(success=True))
+    monkeypatch.setattr(VideoCompose, "_run_final_review", lambda *a, **k: {"status": "pass", "checks": {}, "issues_found": []})
+    result = VideoCompose().execute({"operation": "render", "project_dir": str(tmp_path), "edit_decisions": props,
+        "output_path": str(output), "render_plan": {"mode": "full", "profile": "social_vertical_1080p30",
+            "audio": {"path": "mix", "sha256": hashlib.sha256(b"mix bytes").hexdigest()}},
+        "proposal_packet": {"production_plan": {"render_runtime": "remotion"}},
+        "asset_manifest": {"assets": [{"id": asset_id, "path": path, "type": kind} for asset_id, path, kind in
+            [("clip", "clip.mp4", "video"), ("logo", "logo.png", "image"), ("mix", "mix.wav", "audio")]]}})
+    assert not result.success
+    assert result.data["brand_preflight"]["status"] == "blocked"
+    assert not rendered
+
+
 @pytest.fixture
 def mainline(tmp_path, monkeypatch):
     from lib import production_brand
