@@ -350,12 +350,14 @@ def test_collected_checks_keep_named_human_method_and_raw_result(tmp_path):
     assert collected["observations"][0]["status"] == "not_run"
 
 
-def test_frame_at_half_open_window_end_is_outside(tmp_path):
+@pytest.mark.parametrize("end_seconds", [2.5, 3])
+def test_frame_at_half_open_window_end_is_outside(tmp_path, end_seconds):
     record, report, observation = fixture(tmp_path)
-    observation["evidence_interval_seconds"] = [0, 3]
-    observation["evidence"]["frames"] = [{"ref": write(tmp_path, "frame.png", b"frame"), "output_seconds": 3}]
+    observation["evidence_interval_seconds"] = [0, end_seconds]
+    observation["evidence"]["segments"][0]["output_interval_seconds"] = [0, end_seconds]
+    observation["evidence"]["frames"] = [{"ref": write(tmp_path, "frame.png", b"frame"), "output_seconds": end_seconds}]
     for check in report["checks"]:
-        check["evidence_interval_seconds"] = [0, 3]
+        check["evidence_interval_seconds"] = [0, end_seconds]
     update_observation(tmp_path, record, report, observation)
     assert collect(tmp_path, record)["opening_framing"]["status"] == "error"
 

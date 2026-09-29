@@ -196,7 +196,7 @@ def _observe(root: Path, check: Mapping, shot: Mapping, report: Mapping, refs: l
     if not frames and not segments:
         return "not_run", ["frame_or_continuous_segment_evidence_required"]
     for frame in frames:
-        _require(interval[0] <= frame["output_seconds"] <= interval[1]
+        _require(interval[0] <= frame["output_seconds"] < interval[1]
                  and frame["output_seconds"] < shot["interval_seconds"][1], "Frame evidence escapes half-open reviewed interval")
     for segment in segments:
         _require(segment["ref"] == report["render"], "Continuous evidence must reference the current render")
