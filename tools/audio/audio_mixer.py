@@ -47,6 +47,9 @@ class AudioMixer(BaseTool):
         "type": "object",
         "required": ["operation"],
         "properties": {
+            "project_dir": {"type": "string"},
+            "receipt_path": {"type": "string", "description": "Project-relative actual execution receipt; bypasses cache to observe the mix."},
+            "opening_scope": {"enum": ["preview", "full_variant"]},
             "operation": {
                 "type": "string",
                 "enum": ["mix", "duck", "extract", "full_mix", "segmented_music"],
@@ -297,7 +300,7 @@ class AudioMixer(BaseTool):
         operation = inputs["operation"]
         start = time.time()
 
-        cache_context = self._cache_context(inputs)
+        cache_context = None if inputs.get("receipt_path") else self._cache_context(inputs)
         if cache_context is not None:
             cache, key, name, output = cache_context
             lookup = cache.lookup(key, [name])
@@ -713,12 +716,32 @@ class AudioMixer(BaseTool):
             cmd.extend(["-t", str(target)])
         cmd.append(str(output_path))
 
-        self.run_command(cmd)
+        receipt = None
+        if inputs.get("receipt_path"):
+            from lib.production_evidence import file_sha256
+            receipt_root = Path(inputs["project_dir"]).resolve()
+            def media_ref(path):
+                resolved = Path(path).resolve()
+                return {"path": resolved.relative_to(receipt_root).as_posix(), "sha256": file_sha256(resolved)}
+            input_refs = [media_ref(track["path"]) for track in tracks]
+            (receipt_root / inputs["receipt_path"]).resolve().relative_to(receipt_root)
+        execution = self.run_command(cmd)
+        if inputs.get("receipt_path"):
+            from lib.production_measurements import save
+            if input_refs != [media_ref(track["path"]) for track in tracks]:
+                raise ValueError("Mix sources changed during actual execution")
+            receipt = {"version": "1.0", "tool": "audio_mixer", "operation": "full_mix",
+                "scope": inputs.get("opening_scope"), "input_refs": input_refs, "output_ref": media_ref(output_path),
+                "arguments": {k: v for k, v in inputs.items() if k not in {"project_dir", "receipt_path", "cache_dir"}},
+                "command": cmd, "returncode": execution.returncode, "stderr": execution.stderr,
+                "source_provenance_status": "not_run"}
+            save(receipt_root, inputs["receipt_path"], receipt)
 
         return ToolResult(
             success=True,
             data={
                 "operation": "full_mix",
+                **({"execution_receipt_ref": media_ref(receipt_root / inputs["receipt_path"])} if receipt else {}),
                 "speech_tracks": len(speech_tracks),
                 "music_tracks": len(music_tracks),
                 "sfx_tracks": len(sfx_tracks),

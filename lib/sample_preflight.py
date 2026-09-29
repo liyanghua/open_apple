@@ -12,12 +12,20 @@ def validate_sample_inputs(artifacts: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(artifacts.get(name), Mapping):
             issues.append(f"缺少{name}产物")
 
+    props = artifacts.get("final_props") if isinstance(artifacts.get("final_props"), Mapping) else {}
+    opening_scope = (props.get("opening") or {}).get("scope")
     report = artifacts.get("sample_report") if isinstance(artifacts.get("sample_report"), Mapping) else {}
     window = report.get("window") if isinstance(report.get("window"), Mapping) else {}
     start = window.get("startFrame")
     end = window.get("endFrameExclusive")
     if not isinstance(start, int) or not isinstance(end, int) or end <= start:
         issues.append("样片窗口无效")
+    elif "opening" in props:
+        duration = props.get("durationInFrames")
+        if opening_scope not in ("preview", "full_variant") or start != 0 or end != duration:
+            issues.append("开场检查必须覆盖声明的完整输出范围")
+        if opening_scope == "preview" and duration != 90 or opening_scope == "full_variant" and (not isinstance(duration, int) or duration <= 90):
+            issues.append("开场预览须为90帧，完整版本须包含90帧之后的主体")
     elif end - start < 300 or end - start > 450:
         issues.append("样片窗口应为 10-15 秒")
 
@@ -32,7 +40,10 @@ def validate_sample_inputs(artifacts: Mapping[str, Any]) -> dict[str, Any]:
     # When full final_props are present, reject the timeline failures before a
     # renderer is invoked. Legacy lightweight callers may omit frame/source
     # details and retain the basic checks above.
-    if isinstance(props.get("scenes"), list) and props.get("scenes"):
+    if "opening" in props:
+        from lib.production_brand import _input_issues
+        issues.extend(_input_issues(props.get("profile", {}), dict(props)))
+    elif isinstance(props.get("scenes"), list) and props.get("scenes"):
         first = props["scenes"][0]
         if isinstance(first, Mapping) and "fromFrame" in first:
             from lib.sample_payload import build_sample_render_payload

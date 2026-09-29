@@ -180,3 +180,50 @@ def test_judge_with_average_averages_runs(tmp_path: Path, monkeypatch):
     assert hook["score"] == 8.0  # (7+9+8)/3
     assert result.data["run_count"] == 3
     assert len(result.data["runs"]) == 3
+
+
+def test_invalid_result_repairs_once_retains_raw_usage_and_unknown_fee(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(VideoJudge, '_sample_frames', lambda *a: [])
+    def vlm(self, *args):
+        calls.append(args)
+        return {'raw_response': 'not json', 'usage': {'total_tokens': 14}, 'actual_cost_usd': None}
+    monkeypatch.setattr(VideoJudge, '_call_vlm', vlm)
+    path = tmp_path / 'film.mp4'
+    path.write_bytes(b'film')
+    result = VideoJudge().execute({'input_path': str(path), 'output_path': str(tmp_path / 'judge.json')})
+    assert not result.success
+    assert len(calls) == 2
+    assert result.cost_usd is None
+    assert len(result.data['attempts']) == 2
+    assert all(a['raw_response'] == 'not json' and a['usage']['total_tokens'] == 14 for a in result.data['attempts'])
+    assert result.data['status'] == 'error'
+    assert (tmp_path / 'judge.json').is_file()
+
+
+def test_format_repair_can_use_only_explicit_scores(tmp_path, monkeypatch):
+    monkeypatch.setattr(VideoJudge, '_sample_frames', lambda *a: [])
+    calls = []
+    good = {'dimensions': [{'id': d[0], 'score': 8, 'note': 'ok'} for d in L3_DIMENSIONS]}
+    def vlm(self, *args):
+        calls.append(args)
+        return {'raw_response': json.dumps(good) if len(calls) == 2 else json.dumps(good)[:-1], 'usage': {}, 'actual_cost_usd': None}
+    import json
+    monkeypatch.setattr(VideoJudge, '_call_vlm', vlm)
+    path = tmp_path / 'film.mp4'
+    path.write_bytes(b'film')
+    result = VideoJudge().execute({'input_path': str(path)})
+    assert result.success
+    assert len(calls) == 2
+    assert len(result.data['attempts']) == 2
+
+
+def test_json_array_error_is_persisted_without_crashing(tmp_path, monkeypatch):
+    monkeypatch.setattr(VideoJudge, '_sample_frames', lambda *a: [])
+    monkeypatch.setattr(VideoJudge, '_call_vlm', lambda *a: {'raw_response': '[]', 'usage': {'total_tokens': 2}})
+    path = tmp_path / 'film.mp4'
+    path.write_bytes(b'film')
+    result = VideoJudge().execute({'input_path': str(path), 'output_path': str(tmp_path / 'judge.json')})
+    assert not result.success
+    assert result.data['status'] == 'error'
+    assert len(result.data['attempts']) == 2

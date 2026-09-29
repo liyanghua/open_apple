@@ -157,6 +157,9 @@ describe("production brand", () => {
     vi.stubGlobal("getComputedStyle", () => ({fontFamily: "ProductionBrand-test", fontWeight: "700"}));
     try {
       expect(collectBrandDomEvidence(root).status).toBe("pass");
+      nodes[0].height = 0;
+      expect(collectBrandDomEvidence(root).status).toBe("fail");
+      nodes[0].height = 60;
       nodes[2].width = 100;
       const mismatch = collectBrandDomEvidence(root);
       expect(mismatch.status).toBe("fail");
@@ -169,4 +172,9 @@ describe("production brand", () => {
       expect(collectBrandDomEvidence(root).status).toBe("not_run");
     } finally {vi.unstubAllGlobals();}
   });
+});
+
+test("DOM evidence includes actual loaded FontFace readiness", () => {
+  const root = {querySelector: () => ({dataset: {brandFontStatus: "pass", brandFontHashes: '[]', brandFrame: "0", brandWidth: "1080", brandHeight: "1920", brandClearSpace: "0"}, getBoundingClientRect: () => ({width: 1080, height: 1920}), querySelectorAll: () => []})} as unknown as ParentNode;
+  expect(collectBrandDomEvidence(root).evidence).toHaveProperty("font_faces_ready");
 });

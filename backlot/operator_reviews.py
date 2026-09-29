@@ -220,6 +220,13 @@ class ReviewService:
                 or production_subject_hash(subject) != expected_hash
                 or not verify_production_subject(self.project_dir, subject)):
             raise OperatorError("review_stale", "成片或制作依据已变化，请重新提交最终审核", 409)
+        from lib.production_evidence import read_object, quality_summary
+        record = read_object(self.project_dir, subject["record_path"])
+        if "opening" in record:
+            summary = quality_summary(self.project_dir, record)
+            if not summary["eligible"]:
+                raise OperatorError.validation_failed("开场预览或必要检查未完成，不能最终审核：" + "、".join(summary["blocking_checks"]))
+
 
     def create_final_review(self, *, record_path: str, submitted_by: str) -> dict[str, Any]:
         """Register a concrete production, without filling historical checkpoints."""

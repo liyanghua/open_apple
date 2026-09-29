@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from "react";
-import {AbsoluteFill, Audio, cancelRender, Composition, continueRender, delayRender, Img, OffthreadVideo, Sequence, staticFile, useCurrentFrame} from "remotion";
+import {AbsoluteFill, Artifact, Audio, cancelRender, Composition, continueRender, delayRender, Img, OffthreadVideo, Sequence, staticFile, useCurrentFrame} from "remotion";
 import type {ProductionBrandProfile, ProductionBrandProps} from "./types";
 import {MotionFootage} from "./MotionFootage";
 
@@ -108,6 +108,8 @@ export const ProductionBrandFilm: React.FC<ProductionBrandProps> = props => {
       <Footage shot={shot} transitionFrames={props.profile.production.transition.frames} />
     </Sequence>)}
     <ProductionBrandOverlay props={props} frame={frame} fontFamily={family} />
+    {props._qualityMeasurement && fonts && <BrandMeasurement props={props} frame={frame} />}
+
     {props.audio && <Audio src={asset(props.audio.narrationSrc)} />}
     {props.audio?.bgmSrc && <Audio src={asset(props.audio.bgmSrc)} volume={props.audio.bgmVolume ?? 0.12} loop />}
   </AbsoluteFill>;
@@ -132,11 +134,15 @@ export function collectBrandDomEvidence(root: ParentNode = document) {
     const css = getComputedStyle(el);
     return {role: el.dataset.brandRole!, text: el.textContent ?? "", x: (rect.x - bounds.x) * width / bounds.width,
       y: (rect.y - bounds.y) * height / bounds.height, width: rect.width * width / bounds.width,
-      height: rect.height * height / bounds.height, fontFamily: css.fontFamily, fontWeight: css.fontWeight};
+      height: rect.height * height / bounds.height, imageReady: el.tagName === "IMG" ? (el as HTMLImageElement).complete && (el as HTMLImageElement).naturalWidth > 0 : undefined, fontFamily: css.fontFamily, fontWeight: css.fontWeight};
   });
   const issues: string[] = [];
   for (const role of ["logo", "title", "underline", "caption"]) {
     if (boxes.filter(box => box.role === role).length !== 1) issues.push(`${role}: expected exactly one mounted element`);
+  }
+  for (const box of boxes) {
+    if ((box.role === "logo" || box.role === "underline" || box.text) && (box.width <= 0 || box.height <= 0)) issues.push(`${box.role}: required element has zero bounds`);
+    if (box.imageReady === false) issues.push(`${box.role}: image not loaded`);
   }
   const margin = Number(container.dataset.brandClearSpace);
   const occupied = boxes.filter(b => b.width > 0).map(b => b.role === "logo" ? {...b, x: b.x - margin, y: b.y - margin, width: b.width + 2 * margin, height: b.height + 2 * margin} : b);
@@ -150,7 +156,34 @@ export function collectBrandDomEvidence(root: ParentNode = document) {
   if (title && line && Math.abs(title.width - line.width) > .5) issues.push("underline width differs from title");
   return {check_id: "brand_dom_layout", status: issues.length ? "fail" : "pass", evidence: {
     frame: Number(container.dataset.brandFrame), width, height, boxes, issues,
+    font_faces_ready: typeof document !== "undefined" && document.fonts.status === "loaded" && boxes.filter(b => b.role === "title" || b.role === "caption").every(b => document.fonts.check(`${b.fontWeight} 38px ${b.fontFamily}`, b.text || "测")),
     font_loading_status: container.dataset.brandFontStatus, font_sha256: JSON.parse(container.dataset.brandFontHashes ?? "[]"),
     scope: "actual browser bounds; scene-background logo contrast requires visual review",
   }};
 }
+
+/** Render artifacts are emitted by Remotion only after the measured DOM commit. */
+const BrandMeasurement: React.FC<{props: ProductionBrandProps; frame: number}> = ({props, frame}) => {
+  const runId = props._qualityMeasurement!.runId;
+  const [measurement, setMeasurement] = useState<{frame: number; value: ReturnType<typeof collectBrandDomEvidence>; handle: number} | null>(null);
+  useEffect(() => {
+    const handle = delayRender(`Measure production DOM frame ${frame}`);
+    let cancelled = false;
+    let request: number | undefined;
+    // Remotion's image delay and this measurement delay run independently.
+    // Await the decoded image and loaded fonts before sampling its actual box.
+    const images = [...document.querySelectorAll<HTMLImageElement>("[data-production-brand] img")];
+    Promise.allSettled([document.fonts.ready, ...images.map(image => image.decode())]).then(() => {
+      if (cancelled) return;
+      request = requestAnimationFrame(() => {
+        if (!cancelled) setMeasurement({frame, value: collectBrandDomEvidence(document), handle});
+      });
+    });
+    return () => {cancelled = true; if (request !== undefined) cancelAnimationFrame(request); continueRender(handle);};
+  }, [frame]);
+  useEffect(() => {if (measurement?.frame === frame) continueRender(measurement.handle);}, [measurement, frame]);
+  if (measurement?.frame !== frame) return null;
+  return <Artifact filename={`${runId}/frame-${String(frame).padStart(6, "0")}.json`} content={JSON.stringify({
+    run_id: runId, renderer_props_sha256: props._qualityMeasurement!.propsSha256, frame, scope: props.opening!.scope, measurement: measurement.value,
+  })} />;
+};

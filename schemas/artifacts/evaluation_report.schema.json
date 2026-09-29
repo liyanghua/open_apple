@@ -23,9 +23,12 @@
   "properties": {
     "version": { "type": "string", "const": "1.0" },
     "project_id": { "type": "string", "minLength": 1 },
+    "media_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "measurements": {"type": "object"},
+    "certification_eligible": {"type": "boolean"},
     "scope": {
       "type": "string",
-      "enum": ["sample", "final"],
+      "enum": ["sample", "final", "preview", "full_variant"],
       "description": "sample = evaluation of the 10-15s sample render; final = evaluation of the full deliverable render"
     },
     "created_at": { "type": "string", "format": "date-time" },
@@ -74,7 +77,7 @@
             "properties": {
               "id": { "type": "string" },
               "name": { "type": "string" },
-              "status": { "type": "string", "enum": ["pass", "fail", "skip"] },
+              "status": { "type": "string", "enum": ["pass", "fail", "skip", "not_run", "error"] },
               "severity": { "type": "string", "enum": ["fatal", "warning", "info"] },
               "message": { "type": "string", "description": "Business-readable failure description, never an internal JSON path" },
               "evidence": {
@@ -83,7 +86,8 @@
               },
               "affected_shots": { "type": "array", "items": { "type": "string" } },
               "fixable": { "type": "boolean" },
-              "fix_suggestion": { "type": "string" }
+              "fix_suggestion": { "type": "string" },
+              "applicability": {"type": "object", "required": ["applies", "required", "reason"], "properties": {"applies": {"type": "boolean"}, "required": {"type": "boolean"}, "reason": {"type": "string", "minLength": 1}}, "additionalProperties": false}
             },
             "additionalProperties": false
           }

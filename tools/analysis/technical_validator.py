@@ -120,7 +120,7 @@ class TechnicalValidator(BaseTool):
             "output_path": {"type": "string"},
             "project_dir": {"type": "string", "description": "项目目录；提供时，expected_facts 为空会从 artifacts/product_facts.json 自动加载"},
             "project_id": {"type": "string"},
-            "scope": {"enum": ["sample", "final"]},
+            "scope": {"enum": ["sample", "final", "preview", "full_variant"]},
             "judge_version": {"type": "string"},
             "rubric_version": {"type": "string"},
             "subject_ref": {"type": "object"},
@@ -413,17 +413,28 @@ class TechnicalValidator(BaseTool):
         else:
             checks.append(self._check("l1a_duration", "skip", "未提供预期时长", {"measured_duration_seconds": duration}))
 
+        scoped_missing = []
+        if inputs["scope"] in {"preview", "full_variant"}:
+            for item in checks:
+                applies, reason = True, "Required for opening technical validation."
+                if item["id"] == "l1a_price" and text_sources and not _scan_texts(text_sources, _PRICE_RE):
+                    applies, reason = False, "No price claim occurs in the declared text sources."
+                item["applicability"] = {"applies": applies, "required": applies, "reason": reason}
+                if item["status"] == "skip":
+                    item["status"] = "not_run"
+                if applies and item["status"] not in {"pass", "fail"}:
+                    scoped_missing.append(item["id"])
         fatal_failures = [c for c in checks if c["status"] == "fail" and c["severity"] == "fatal"]
         fixable_failures = [c for c in checks if c["status"] == "fail" and c["severity"] != "fatal"]
 
         # 评审 #5：覆盖率门。skip 不算执行；不足阈值时追加一个可修复的
         # 覆盖率检查项，报告进入 revise 而非 pass。
-        executed = [c for c in checks if c["status"] != "skip"]
+        executed = [c for c in checks if c["status"] in {"pass", "fail"}]
         coverage = {
             "executed": len(executed),
             "total": len(checks),
             "minimum": MIN_EXECUTED_CHECKS,
-            "sufficient": len(executed) >= MIN_EXECUTED_CHECKS,
+            "sufficient": len(executed) >= MIN_EXECUTED_CHECKS and not scoped_missing,
         }
         if not coverage["sufficient"]:
             checks.append({
@@ -486,6 +497,11 @@ class TechnicalValidator(BaseTool):
             "status": status,
             "recommended_action": recommended_action,
         }
+        if inputs["scope"] in {"preview", "full_variant"}:
+            from lib.production_evidence import file_sha256
+            report["media_sha256"] = file_sha256(path)
+            report["measurements"] = {"probe": probe, "decode_ok": decode_ok}
+            report["certification_eligible"] = False  # Technical subset never grants final QA.
         report = attach_hashes(report)
         validate_artifact("evaluation_report", report)
         output = inputs.get("output_path")

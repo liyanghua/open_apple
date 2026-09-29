@@ -35,6 +35,8 @@ export type MotionFraming = {
 export type ProductionOpening = {scope: "preview" | "full_variant"; endFrameExclusive: 90; transitionFrames: 5};
 export type ProductionTimedText = {text: string; startMs: number; endMs: number};
 export type ProductionBrandProps = {
+  /** Internal renderer nonce; rejected at the public Python entry point. */
+  _qualityMeasurement?: {runId: string; propsSha256: string};
   profile: ProductionBrandProfile;
   fps: number; width: number; height: number; durationInFrames: number;
   logoSrc: string; footage: Record<string, string>; scenes: ProductionShot[];

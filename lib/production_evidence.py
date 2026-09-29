@@ -16,7 +16,7 @@ CONTENT_CHECKS = (
     "fact_source", "product_identity", "narration_content", "caption_alignment", "visual_continuity",
 )
 REQUIRED_CHECKS = MACHINE_CHECKS + CONTENT_CHECKS
-MANUAL_ALLOWED = frozenset(CONTENT_CHECKS) - {"fact_source"}
+MANUAL_ALLOWED = (frozenset(CONTENT_CHECKS) - {"fact_source", "product_identity", "caption_alignment"}) | {"video_judge"}
 CHECK_STATUSES = frozenset({"pass", "fail", "not_run", "error"})
 
 
@@ -69,27 +69,10 @@ def build_production_subject(root: Path, record_path: str) -> dict:
     sha = file_sha256(path)
     if sha != render.get("sha256"):
         raise ValueError("Production render hash mismatch")
-    refs = {"production_record": record_path}
-    for namespace in ("canonical_artifacts", "review_dependencies"):
-        for key, ref in (record.get(namespace) or {}).items():
-            refs[f"{namespace}:{key}"] = ref
-    for key in ("baseline", "fact_snapshot_ref", "quality_report_ref", "manual_verifications_ref"):
-        if record.get(key):
-            refs[key] = record[key]
-    for role in ("quality_report_ref", "manual_verifications_ref"):
-        if record.get(role):
-            document = read_object(root, record[role])
-            checks = document.get("checks", document.get("items", []))
-            if isinstance(checks, list):
-                for check in checks:
-                    for ref in check.get("evidence_refs", []) if isinstance(check, dict) else []:
-                        refs[f"evidence:{ref}"] = ref
-    dependencies = {}
-    for key, ref in sorted(refs.items()):
-        if isinstance(ref, dict):
-            ref = ref.get("path")
-        dependency = project_file(root, ref)
-        dependencies[key] = {"path": ref, "sha256": file_sha256(dependency)}
+    from lib.production_dependency_graph import dependency_closure
+    closure = dependency_closure(root, record_path)
+    dependencies = {"file:" + name: ref for name, ref in closure.items()}
+    dependencies["production_record"] = closure[project_file(root, record_path).relative_to(root.resolve()).as_posix()]
     return {
         "version": "1.0", "content_slot_id": slot, "record_path": record_path,
         "render": {"path": render["path"], "sha256": sha},
@@ -147,6 +130,7 @@ def quality_summary(root: Path, record: Mapping[str, Any]) -> dict:
     # A cached pass and an existing evidence file are insufficient. Re-project
     # the identified tool sources against the actual media on every read.
     measured = {}
+    current = {}
     source_refs = report.get("source_refs")
     if report_bound and isinstance(source_refs, dict):
         from lib.production_quality import collect_production_quality
@@ -169,13 +153,13 @@ def quality_summary(root: Path, record: Mapping[str, Any]) -> dict:
         entries[name] = {"status": "error", "evidence_refs": [], "issues": ["duplicate_check_id"]}
     extra = report.get("required_checks")
     extra = [name for name in extra if isinstance(name, str) and name] if isinstance(extra, list) else []
-    # Opening requirements derive from the record, never a report-controlled list.
-    from lib.opening_contracts import OPENING_CHECKS
-
-    opening_required = OPENING_CHECKS if "opening" in record else ()
-    required = list(dict.fromkeys(REQUIRED_CHECKS + opening_required + tuple(extra)))
+    from lib.opening_quality_scope import quality_applicability
+    scope, applicability = quality_applicability(root, record)
+    if current:
+        applicability = current["applicability"]
+    required = list(dict.fromkeys([name for name, rule in applicability.items() if rule["required"]] + extra))
     checks, blockers = {}, []
-    for name in list(dict.fromkeys(required + list(entries))):
+    for name in list(dict.fromkeys(required + list(applicability) + list(entries))):
         item = entries.get(name, {})
         status = item.get("status", "not_run")
         if not isinstance(status, str) or status not in CHECK_STATUSES:
@@ -185,6 +169,8 @@ def quality_summary(root: Path, record: Mapping[str, Any]) -> dict:
                      and item.get("method") == measurement.get("method")
                      and _evidence_exists(root, item.get("evidence_refs"))
                      and sorted(item["evidence_refs"]) == sorted(measurement.get("evidence_refs", [])))
+        if "opening" in record:
+            status = "error" if name in duplicates else measurement.get("status", "not_run")
         effective = "pass" if status == "pass" and evidenced else (status if status != "pass" else "unverified")
         for verification in manual if isinstance(manual, list) else []:
             if (name in MANUAL_ALLOWED and name not in duplicates and isinstance(verification, dict)
@@ -192,13 +178,26 @@ def quality_summary(root: Path, record: Mapping[str, Any]) -> dict:
                     and _identified_verification(verification)
                     and verification.get("render_sha256") == render_sha
                     and verification.get("qa_report_sha256") == report_sha and report_bound
+                    and ("opening" not in record or current.get("dependency_fingerprint") is not None
+                         and current.get("dependency_fingerprint") == report.get("dependency_fingerprint"))
                     and _evidence_exists(root, verification.get("evidence_refs"))):
                 effective = "manual_verified"
                 break
-        checks[name] = {"machine_status": status, "effective_status": effective,
-                        "evidence_refs": item.get("evidence_refs", []), "issues": item.get("issues", [])}
-        if name in required and effective not in {"pass", "manual_verified"}:
+        rule = applicability.get(name, {"applies": True, "required": True, "reason": "Additional required check."})
+        if name not in duplicates and report_bound and measurement.get("effective_status") == "manual_verified" and name in {"opening_motion", "opening_framing"}:
+            effective = "manual_verified"
+        if rule.get("applies") is False and rule.get("reason"):
+            effective = "not_applicable"
+        checks[name] = {"machine_status": status, "applicability": rule,
+                        "method": measurement.get("method", item.get("method")),
+                        **{key: measurement[key] for key in ("execution_status", "source_provenance_status", "observations") if key in measurement}, "effective_status": effective,
+                        "evidence_refs": measurement.get("evidence_refs", item.get("evidence_refs", [])), "issues": measurement.get("issues", item.get("issues", []))}
+        if name in required and effective not in {"pass", "manual_verified", "not_applicable"}:
             blockers.append(name)
-    return {"eligible": not blockers, "status": "pass" if not blockers else "incomplete",
+    if scope in {"preview", "invalid"}:
+        blockers.append("opening_scope_not_final")
+    completed = not blockers
+    aggregate = "manual_verified" if completed and any(c["effective_status"] == "manual_verified" for c in checks.values()) else "pass"
+    return {"eligible": completed, "scope": scope, "applicability": applicability, "status": aggregate if completed else "incomplete",
             "checks": checks, "blocking_checks": blockers, "qa_report_sha256": report_sha,
             "report_bound": report_bound, "historical_import": record.get("provenance") == "legacy_import"}

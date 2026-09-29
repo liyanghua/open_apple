@@ -187,3 +187,14 @@ def test_render_path_forwards_sample_frames_and_pixel_format(monkeypatch):
     assert result.success
     assert forwarded.get("sample_frames") == "0-449"
     assert forwarded.get("pixel_format") == "yuv420p"
+
+
+def test_review_frames_are_unique_and_hash_bound_per_render(tmp_path):
+    output = tmp_path / 'render.mp4'
+    _tiny_video(output)
+    tool = VideoCompose()
+    first = tool._run_final_review(output, {})['checks']['visual_spotcheck']
+    second = tool._run_final_review(output, {})['checks']['visual_spotcheck']
+    assert set(first['frame_paths']).isdisjoint(second['frame_paths'])
+    assert len(first['frame_refs']) == 4
+    assert all(len(r['sha256']) == 64 for r in first['frame_refs'])

@@ -2120,6 +2120,8 @@ class VideoCompose(BaseTool):
         """Full branded rendering through the same media, preflight and QA gates."""
         if edit_decisions.get("render_runtime", "").strip().lower() != "remotion":
             return ToolResult(success=False, error="production-brand requires the approved render_runtime='remotion'; runtime substitution is forbidden")
+        if "_qualityMeasurement" in edit_decisions:
+            return ToolResult(success=False, error="_qualityMeasurement is reserved for the actual renderer")
         plan = inputs.get("render_plan")
         if not isinstance(plan, dict) or plan.get("mode") != "full":
             return ToolResult(success=False, error="production-brand currently supports only an approved render_plan.mode='full'; still/window/sample/range/mux_only are unsupported")
@@ -2257,7 +2259,16 @@ class VideoCompose(BaseTool):
         if validation is not None:
             return validation
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        renderer_snapshot = json.loads(json.dumps(edit_decisions))
+        if "opening" in props:
+            from lib.production_evidence import file_sha256
+            render_sources = list(props["footage"].values()) + [props["logoSrc"], external_audio]
+            render_sources += [f["path"] for f in props.get("profile", {}).get("font", {}).get("files", [])]
+            renderer_snapshot["render_input_refs"] = [{"path": str(Path(path).relative_to(project_dir)), "sha256": file_sha256(Path(path))}
+                                                      for path in sorted(set(render_sources))]
+            renderer_snapshot["finalMix"] = {**props["finalMix"], "path": str(Path(external_audio).relative_to(project_dir))}
         result = self._remotion_render({**inputs, "edit_decisions": props, "project_dir": str(project_dir),
+                                       "_production_brand_snapshot": renderer_snapshot,
                                        "profile": profile_name, "output_path": str(output_path),
                                        "_production_brand_mux_token": self._production_brand_mux_token})
         if not result.success:
@@ -2265,6 +2276,10 @@ class VideoCompose(BaseTool):
         if not output_path.is_file():
             return ToolResult(success=False, data=result.data, error="production-brand render output is missing")
         result.data = result.data or {}
+        if "opening" in props:
+            for ref in renderer_snapshot["render_input_refs"]:
+                if file_sha256(project_dir / ref["path"]) != ref["sha256"]:
+                    return ToolResult(success=False, data=result.data, error="Opening input bytes changed during render")
         if self._normalize_render_to_profile(output_path, profile_name):
             result.data["post_encode"] = True
         if external_audio:
@@ -2277,6 +2292,25 @@ class VideoCompose(BaseTool):
             if "opening" in props:
                 result.data["final_mix"] = dict(props["finalMix"])
                 result.data["motion_source_probe"] = motion_source_probes
+        if "opening" in props:
+            from lib.production_measurements import produce_brand_dom_evidence
+            from lib.production_evidence import file_sha256
+            artifact = result.data.get("dom_artifacts") or {}
+            if artifact:
+                evidence_dir = "artifacts/render-quality/" + artifact["run_id"]
+                snapshot_ref = artifact["renderer_props_ref"]
+                record = {"opening": props["opening"], "render": {"path": str(output_path.relative_to(project_dir)), "sha256": file_sha256(output_path)},
+                          "canonical_artifacts": {"final_props": snapshot_ref["path"]}}
+                result.data["renderer_props_ref"] = snapshot_ref
+                try:
+                    dom_path = evidence_dir + "/brand-dom.json"
+                    produce_brand_dom_evidence(project_dir, record=record, artifact_dir=artifact["directory"], run_id=artifact["run_id"], output_path=dom_path)
+                    result.data["brand_dom_ref"] = {"path": dom_path, "sha256": file_sha256(project_dir / dom_path)}
+
+                except (ValueError, OSError, KeyError, TypeError) as exc:
+                    result.data["brand_dom_error"] = str(exc)
+            else:
+                result.data["brand_dom_error"] = "Actual renderer DOM artifacts missing"
         review = self._run_final_review(output_path, review_decisions, inputs.get("proposal_packet"),
             narration_transcript_path=inputs.get("narration_transcript_path"),
             script_text=inputs.get("script_text") or self._read_text_file(inputs.get("script_path")))
@@ -3219,6 +3253,20 @@ class VideoCompose(BaseTool):
         if not staged_count and cleanup_public_dir:
             public_dir = None
 
+        measurement_run = None
+        if composition_id == "ProductionBrand" and "opening" in props:
+            import uuid
+            measurement_run = uuid.uuid4().hex
+            from lib.production_measurements import save
+            from lib.production_evidence import file_sha256
+            snapshot_path = "artifacts/render-quality/" + measurement_run + "/renderer-props.json"
+            snapshot = inputs.get("_production_brand_snapshot")
+            if inputs.get("_production_brand_mux_token") is not self._production_brand_mux_token or not isinstance(snapshot, dict):
+                return ToolResult(success=False, error="Opening measurement requires the formal renderer snapshot")
+            save(media_project_dir, snapshot_path, snapshot)
+            snapshot_ref = {"path": snapshot_path, "sha256": file_sha256(media_project_dir / snapshot_path)}
+            props["_qualityMeasurement"] = {"runId": measurement_run, "propsSha256": snapshot_ref["sha256"]}
+
         # Write the fully adapted/staged props, never the original cut payload.
         props_path = output_path.parent / f".remotion_props-{output_path.stem}-{time.time_ns()}.json"
         with open(props_path, "w", encoding="utf-8") as f:
@@ -3333,6 +3381,7 @@ class VideoCompose(BaseTool):
                 "output": str(output_path),
                 "profile": profile_name,
                 "staged_media_count": staged_count,
+                **({"dom_artifacts": {"run_id": measurement_run, "directory": str(composer_dir / "out" / "ProductionBrand" / measurement_run), "renderer_props_ref": snapshot_ref}} if measurement_run else {}),
                 **({"brand_preflight": brand_preflight} if brand_preflight is not None else {}),
             },
             artifacts=[str(output_path)],
@@ -3605,7 +3654,10 @@ class VideoCompose(BaseTool):
         duration = technical_probe.get("duration_seconds", 0)
         if duration > 0 and technical_probe.get("valid_container"):
             try:
-                frame_dir = output_path.parent / ".final_review_frames"
+                import uuid
+                from lib.production_evidence import file_sha256
+                media_sha = file_sha256(output_path)
+                frame_dir = output_path.parent / ".final_review_frames" / (media_sha[:16] + "-" + uuid.uuid4().hex)
                 frame_dir.mkdir(parents=True, exist_ok=True)
                 # Sample at 10%, 35%, 65%, 90% of duration
                 sample_points = [0.10, 0.35, 0.65, 0.90]
@@ -3619,8 +3671,8 @@ class VideoCompose(BaseTool):
                         "-frames:v", "1", "-q:v", "2",
                         str(frame_path),
                     ]
-                    subprocess.run(cmd, capture_output=True, timeout=15)
-                    if frame_path.exists():
+                    extracted = subprocess.run(cmd, capture_output=True, timeout=15)
+                    if extracted.returncode == 0 and frame_path.is_file():
                         frame_paths.append(str(frame_path))
 
                         # Check for black frames (file size heuristic:
@@ -3630,6 +3682,9 @@ class VideoCompose(BaseTool):
 
                 visual_spotcheck["frames_sampled"] = len(frame_paths)
                 visual_spotcheck["frame_paths"] = frame_paths
+                visual_spotcheck["media_sha256"] = media_sha
+                evidence_root = self._infer_project_dir({"output_path": str(output_path)}) or output_path.parent
+                visual_spotcheck["frame_refs"] = [{"path": str(Path(path).relative_to(evidence_root)), "sha256": file_sha256(Path(path))} for path in frame_paths]
 
                 if len(frame_paths) < 4:
                     visual_spotcheck["issues"].append(

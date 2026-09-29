@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import re
 import subprocess
 import tempfile
@@ -85,7 +86,7 @@ def _parse_dimensions(parsed: Any, rubric: list[tuple[str, str, str]]) -> list[d
                 f"维度 {dim_id} 分数非法（{raw!r}），拒绝该次评分（fail-closed）"
             )
         score = float(raw)
-        if score < 0.0 or score > 10.0:
+        if not math.isfinite(score) or score < 0.0 or score > 10.0:
             raise RuntimeError(
                 f"维度 {dim_id} 分数 {score} 超出 [0, 10]，拒绝该次评分（fail-closed）"
             )
@@ -134,7 +135,8 @@ class VideoJudge(BaseTool):
             "input_path": {"type": "string"},
             "output_path": {"type": "string"},
             "project_id": {"type": "string"},
-            "scope": {"enum": ["sample", "final"]},
+            "scope": {"enum": ["sample", "final", "preview", "full_variant"]},
+            "policy_ref": {"type": "object"},
             "rubric_version": {"type": "string", "default": "l3-v1.0",
                                "description": "l3-v1.0（advisory）/ ecommerce-remix-v1.0（Autoresearch 门禁）"},
             "frame_count": {"type": "integer", "default": 8, "minimum": 2, "maximum": 16},
@@ -204,12 +206,14 @@ class VideoJudge(BaseTool):
             timeout=120,
         )
         resp.raise_for_status()
-        body = resp.json()
-        text = body["choices"][0]["message"]["content"]
-        match = re.search(r"\{[\s\S]*\}", text)
-        if not match:
-            raise RuntimeError(f"VLM 未返回 JSON: {text[:200]}")
-        return json.loads(match.group(0))
+        try:
+            body = resp.json()
+            text = body["choices"][0]["message"]["content"]
+        except (ValueError, KeyError, IndexError, TypeError):
+            return {"raw_response": resp.text, "usage": None, "actual_cost_usd": None}
+
+        return {"raw_response": text, "usage": body.get("usage"),
+                "request_id": body.get("id"), "provider_response": body, "actual_cost_usd": None}
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         path = Path(inputs["input_path"])
@@ -220,35 +224,63 @@ class VideoJudge(BaseTool):
             return ToolResult(success=False, error=f"未知 rubric_version: {rubric_version}")
         model = str(inputs.get("model") or default_model())
         seed = inputs.get("seed")
+        attempts, dimensions, parsed = [], [], {}
+        error = None
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 frames = self._sample_frames(path, int(inputs.get("frame_count", 8)), Path(tmp))
-                parsed = self._call_vlm(
-                    frames, inputs.get("audio_facts") or "", model, rubric_version,
-                    int(seed) if seed is not None else None,
-                )
-                dimensions = _parse_dimensions(parsed, RUBRICS[rubric_version])
+                repair = ""
+                for index in range(2):
+                    attempt = {"kind": "initial" if index == 0 else "format_repair", "actual_cost_usd": None}
+                    attempts.append(attempt)
+                    try:
+                        response = self._call_vlm(frames, (inputs.get("audio_facts") or "") + repair,
+                                                  model, rubric_version, int(seed) if seed is not None else None)
+                        # Parsed dictionaries remain supported for local adapters/tests.
+                        raw = response.get("raw_response", json.dumps(response, ensure_ascii=False))
+                        attempt.update(raw_response=raw, usage=response.get("usage"), provider_response=response.get("provider_response"), request_id=response.get("request_id"),
+                                       actual_cost_usd=response.get("actual_cost_usd"))
+                    except Exception as exc:
+                        attempt["error"] = str(exc)
+                        raise  # Transport/provider errors are not format-repair requests.
+                    try:
+                        match = re.search(r"\{[\s\S]*\}", raw)
+                        parsed = json.loads(match.group(0) if match else raw)
+                        dimensions = _parse_dimensions(parsed, RUBRICS[rubric_version])
+                        if index:
+                            original = attempts[0]["raw_response"]
+                            explicit = dict((m[0], float(m[1])) for m in re.findall(
+                                r'"id"\s*:\s*"([^"\n]+)"[^{}]*?"score"\s*:\s*(-?\d+(?:\.\d+)?)', original))
+                            if any(explicit.get(d["id"]) != d["score"] for d in dimensions):
+                                raise RuntimeError("Format repair invented or changed explicit scores")
+                        attempt["valid"] = True
+                        error = None
+                        break
+                    except (ValueError, RuntimeError, TypeError) as exc:
+                        attempt.update(valid=False, error=str(exc))
+                        error = str(exc)
+                        repair = ("\n仅修复以下原始响应的 JSON 格式或字段结构，保留所有明确给出的分数，禁止补造缺失分数。"
+                                  "无法恢复时返回错误，不重新评分。原始响应：\n" + raw + "\n校验错误：" + error)
         except Exception as exc:
-            return ToolResult(success=False, error=f"video_judge failed: {exc}")
-
-        advisory = {
-            "scored": True,
-            "summary": str(parsed.get("summary") or ""),
-            "dimensions": dimensions,
-        }
+            error = str(exc)
+        from lib.production_evidence import file_sha256
+        data = {"scored": error is None and bool(dimensions), "status": "error" if error else "pass",
+                "summary": str(parsed.get("summary") or "") if isinstance(parsed, dict) else "", "dimensions": dimensions if not error else [],
+                "rubric_version": rubric_version, "model": model, "judge_version": "video_judge-0.2.0",
+                "attempts": attempts, "render_sha256": file_sha256(path), "scope": inputs.get("scope", "final"),
+                "method": "independent_video_judge", "error": error}
+        if inputs.get("policy_ref"):
+            data["policy_ref"] = inputs["policy_ref"]
+        if seed is not None:
+            data["seed"] = int(seed)
         output = inputs.get("output_path")
         if output:
             Path(output).parent.mkdir(parents=True, exist_ok=True)
-            Path(output).write_text(json.dumps(advisory, ensure_ascii=False, indent=2))
-        data: dict[str, Any] = {
-            **advisory,
-            "rubric_version": rubric_version,
-            "model": model,
-            "judge_version": "video_judge-0.2.0",
-        }
-        if seed is not None:
-            data["seed"] = int(seed)
-        return ToolResult(success=True, data=data, artifacts=[str(output)] if output else [])
+            Path(output).write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        fees = [a.get("actual_cost_usd") for a in attempts]
+        cost = sum(fees) if fees and all(isinstance(f, (int, float)) for f in fees) else None
+        return ToolResult(success=error is None, data=data, artifacts=[str(output)] if output else [],
+                          cost_usd=cost, error=f"video_judge failed: {error}" if error else None)
 
 
 def judge_with_average(
@@ -273,6 +305,7 @@ def judge_with_average(
             return ToolResult(
                 success=False,
                 error=f"video_judge run {index + 1}/{runs} failed: {result.error}",
+                data={"status": "error", "runs": runs_data + [result.data]}, cost_usd=None,
             )
         runs_data.append(result.data)
 
@@ -303,7 +336,7 @@ def judge_with_average(
         })
 
     first = runs_data[0]
-    return ToolResult(success=True, data={
+    return ToolResult(success=True, cost_usd=None, data={
         "scored": True,
         "summary": str(first.get("summary") or ""),
         "dimensions": dimensions,

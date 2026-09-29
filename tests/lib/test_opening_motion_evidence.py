@@ -192,9 +192,10 @@ def test_named_human_observation_is_evidence_without_approval(tmp_path):
     for check in report["checks"]:
         check["reviewer"] = observation["reviewer"]
     update_observation(tmp_path, record, report, observation)
-    assert collect(tmp_path, record)["opening_motion"]["status"] == "pass"
+    assert collect(tmp_path, record)["opening_motion"]["status"] == "not_run"
     assert not any("approv" in key for key in collect(tmp_path, record)["opening_motion"])
 
+    assert collect(tmp_path, record)["opening_motion"]["effective_status"] == "manual_verified"
 
 def test_empty_reviewer_stays_not_run(tmp_path):
     record, report, observation = fixture(tmp_path, method="human_review")
@@ -326,7 +327,7 @@ def test_static_plan_does_not_require_subject_motion_but_requires_framing(tmp_pa
     report["checks"] = [row for row in report["checks"] if row["id"] == "opening_framing"]
     update_observation(tmp_path, record, report, observation)
     checks = collect(tmp_path, record)
-    assert checks["opening_motion"]["status"] == "pass"
+    assert checks["opening_motion"]["status"] == "not_run"
     assert checks["opening_motion"]["observations"][0]["basis"] == "motion_not_required"
     assert checks["opening_framing"]["status"] == "pass"
     observation["framing"]["action_box"] = [0, 0, 1, 1]

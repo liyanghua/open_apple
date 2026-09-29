@@ -429,3 +429,26 @@ def test_canonical_artifacts_accept_the_production_brand_renderer(artifact, path
     for key in path:
         schema = schema[key]
     jsonschema.validate("production-brand", schema)
+
+
+def test_opening_renderer_reserves_measurement_props(mainline):
+    inputs, _ = mainline
+    inputs['edit_decisions']['_qualityMeasurement'] = {'runId': 'forged'}
+    result = VideoCompose().execute(inputs)
+    assert not result.success
+    assert 'reserved' in result.error
+
+
+def test_opening_snapshot_pins_actual_media_input_bytes(mainline, monkeypatch):
+    inputs, _ = mainline
+    inputs['edit_decisions']['opening'] = {'scope': 'preview', 'endFrameExclusive': 90, 'transitionFrames': 5}
+    inputs['edit_decisions'].pop('audio')
+    inputs['render_plan']['audio'] = {'path': 'voice.wav', 'sha256': hashlib.sha256(b'fixture').hexdigest()}
+    monkeypatch.setattr(VideoCompose, '_mux_external_audio', lambda *a: ToolResult(success=True))
+    result = VideoCompose().execute(inputs)
+    assert result.success, result.error
+    from pathlib import Path
+    snapshot = json.loads((Path(inputs['project_dir']) / result.data['renderer_props_ref']['path']).read_text())
+    assert snapshot['render_input_refs']
+    assert all(ref['sha256'] == hashlib.sha256((Path(inputs['project_dir']) / ref['path']).read_bytes()).hexdigest()
+               for ref in snapshot['render_input_refs'])

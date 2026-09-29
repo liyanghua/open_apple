@@ -271,3 +271,19 @@ def test_subtitle_bounds_respect_declared_bottom_offset(tmp_path: Path, monkeypa
     report2 = TechnicalValidator().execute(without_offset).data
     check2 = next(c for c in report2["hard_gate"]["checks"] if c["id"] == "l1a_subtitle_bounds")
     assert check2["status"] == "fail"
+
+
+def test_opening_requires_subtitle_evidence_even_when_coverage_high(tmp_path, monkeypatch):
+    _patch_media(monkeypatch)
+    result = TechnicalValidator().execute(_base_inputs(tmp_path, scope='full_variant', caption_declaration={}))
+    assert not result.data['hard_gate']['pass']
+    check = next(c for c in result.data['hard_gate']['checks'] if c['id'] == 'l1a_subtitle_bounds')
+    assert check['status'] == 'not_run'
+    assert check['applicability']['required']
+
+
+def test_opening_technical_report_preserves_actual_probe_and_decode(tmp_path, monkeypatch):
+    _patch_media(monkeypatch)
+    result = TechnicalValidator().execute(_base_inputs(tmp_path, scope='full_variant'))
+    assert result.data['measurements']['decode_ok'] is True
+    assert result.data['measurements']['probe']['streams'][0]['codec_name'] == 'h264'

@@ -4,6 +4,7 @@ import hashlib
 import json
 import struct
 import wave
+from pathlib import Path
 
 import pytest
 
@@ -66,6 +67,23 @@ def frozen(tmp_path):
     mix = {"scope": "full_variant", "source_kind": "raw_plus_common_body", "raw_refs": [raw], "output_ref": baseline_pcm,
         "narration_segments": props["words"],
         "bgm": {"track_ref": raw, "position_seconds": 0, "mix_rules": {"volume": .1, "duck": []}}}
+    # B5 fixture supplies all canonical/raw evidence contracts. These small bytes
+    # remain synthetic; this exercises gates without claiming real media QA.
+    from lib.artifact_hashing import attach_hashes
+    font_files = []
+    for weight in (400, 700):
+        name = f"font-{weight}.ttf"
+        (tmp_path / 'public' / name).write_bytes(f"fixture-font-{weight}".encode())
+        font_files.append({'path': 'public/' + name, 'src': name, 'weight': weight, 'sha256': ref(tmp_path, 'public/' + name)['sha256']})
+    props['profile'].update(profile_id='fixture', font={'files': font_files})
+    props['profile']['production'].update(slogan='common', min_tail_seconds=.4)
+    props.update(version='1.0', project_id='fixture', created_at='2026-09-29T00:00:00Z', producer='fixture', input_hashes={}, compositionId='ProductionBrand')
+    props['render_input_refs'] = [ref(tmp_path, name) for name in ('public/body.mp4', 'public/hook.mp4', 'public/font-400.ttf', 'public/font-700.ttf', 'baseline.wav')]
+    props = attach_hashes(props)
+    receipt = write(tmp_path, 'mix-receipt.json', {'version': '1.0', 'tool': 'audio_mixer', 'operation': 'full_mix', 'scope': 'full_variant',
+        'input_refs': [raw], 'output_ref': baseline_pcm, 'returncode': 0, 'command': ['ffmpeg', '-filter_complex', 'fixture'],
+        'arguments': {'operation': 'full_mix', 'opening_scope': 'full_variant', 'target_duration': 4, 'tracks': [{'path': str(tmp_path / 'raw.wav'), 'role': 'speech'}]}})
+    mix['execution_receipt_ref'] = receipt
     props_ref = write(tmp_path, "baseline_props.json", props)
     mix_ref = write(tmp_path, "baseline_mix.json", mix)
     deps = {key: ref(tmp_path, key + ".json") for key in ("facts", "reference", "brand", "renderer")}
@@ -111,9 +129,9 @@ def frozen(tmp_path):
         "hook_plan_ref": {**hook_ref, "version": "2.0"}, "validation_report_ref": opening_report_ref}
     record["canonical_artifacts"].update(preparation_identity="prep_identity.json", preparation_experiment="preparation_experiment.json",
         preparation_hook="preparation_hook.json", pending_freeze="pending.json", preparation_report="preparation_report.json", preparation_observation="preparation_observation.json")
-    from tests.production_evidence_fixture import create_bound_quality
+    from tests.production_evidence_fixture import create_bound_opening_quality
     record["quality_report_ref"] = "quality.json"
-    write(tmp_path, "quality.json", create_bound_quality(tmp_path, record))
+    write(tmp_path, "quality.json", create_bound_opening_quality(tmp_path, record))
     write(tmp_path, "record.json", record)
     subject = build_production_subject(tmp_path, "record.json")
     approval = write(tmp_path, "operator/reviews/B0-review.json", {"schema_version": "1.0", "review_id": "B0-review", "project_id": tmp_path.name,
@@ -476,8 +494,8 @@ def scoped_registered_group(root, group):
     report = json.loads((group_root / "preparation_report.json").read_text())
     report["dependencies"]["experiment"] = prep_ref
     record["opening"]["validation_report_ref"] = write(group_root, "preparation_report.json", report)
-    from tests.production_evidence_fixture import create_bound_quality
-    write(group_root, "quality.json", create_bound_quality(group_root, record))
+    from tests.production_evidence_fixture import create_bound_opening_quality
+    write(group_root, "quality.json", create_bound_opening_quality(group_root, record))
     write(group_root, "record.json", record)
     subject = build_production_subject(group_root, "record.json")
     review = json.loads((group_root / "operator/reviews/B0-review.json").read_text())
@@ -526,6 +544,15 @@ def publish_group_in_shared_project(project, group, context):
                 result["sha256"] = rewrite(value["path"]) if value["path"] in snapshots else ref(project, result["path"])["sha256"]
             if "footage" in value:
                 result["footage"] = {key: group + "/" + name for key, name in value["footage"].items()}
+            if 'footage' in value and 'profile' in value:
+                for font in result.get('profile', {}).get('font', {}).get('files', []):
+                    font['src'] = group + '/' + font['src']
+            if 'artifact_sha256' in value and 'compositionId' in value:
+                from lib.artifact_hashing import attach_hashes
+                result = attach_hashes(result)
+            if 'baseline_props_ref' in result and 'body' in result:
+                baseline = json.loads((project / result['baseline_props_ref']['path']).read_text())
+                result['body'] = opening_freeze._body(project, baseline)
             if value.get("kind") == "final_review":
                 result["review_id"] = group + "-review"
                 result["project_id"] = project.name
@@ -533,7 +560,9 @@ def publish_group_in_shared_project(project, group, context):
                 result["subject_hash"] = production_subject_hash(result["production_subject"])
             return result
         if isinstance(value, str):
-            if value in snapshots or (root / value).is_file():
+            if Path(value).is_absolute():
+                return value
+            if value in snapshots or (len(value) < 240 and "\n" not in value and (root / value).is_file()):
                 if value in snapshots:
                     rewrite(value)
                 return target(value)
@@ -600,7 +629,8 @@ def test_actual_renderer_implementation_must_be_in_approval_graph(frozen):
     approval_ref = write(root, "operator/reviews/B0-review.json", review)
     descriptor = json.loads((root / "freeze.json").read_text())
     descriptor["baseline_approval_ref"] = approval_ref
-    assert verify((root, write(root, "freeze.json", descriptor), props, mix))["status"] != "pass"
+    assert ref(root, 'renderer-source.bin') in subject['dependencies'].values()
+    assert verify((root, write(root, "freeze.json", descriptor), props, mix))["status"] == "pass"
 
 
 @pytest.mark.parametrize("copied_path", [False, True])
@@ -639,11 +669,6 @@ def test_body_title_projection_preserves_actual_renderer_array_precedence(frozen
     root, _, candidate, mix = frozen
     baseline = json.loads((root / "baseline_props.json").read_text())
     baseline["titles"] = [{"fromFrame": 100, "text": "later"}, {"fromFrame": 0, "text": "common"}]
-    baseline_ref = write(root, "baseline_props.json", baseline)
-    approval_ref = rebuild_approved_subject(root)
-    old = json.loads((root / "freeze.json").read_text())
-    descriptor = opening_freeze.create_freeze_descriptor(root, baseline_props_ref=baseline_ref,
-        identity=old["identity"], dependencies=old["dependencies"], baseline_approval_ref=approval_ref)
     candidate["titles"] = list(reversed(baseline["titles"]))
     # ProductionBrand.getBrandFrameState uses reverse().find(fromFrame <= frame).
     def rendered_title(titles, frame):
@@ -651,7 +676,7 @@ def test_body_title_projection_preserves_actual_renderer_array_precedence(frozen
     assert rendered_title(baseline["titles"], 90) == rendered_title(candidate["titles"], 90) == "common"
     assert rendered_title(baseline["titles"], 100) == "common"
     assert rendered_title(candidate["titles"], 100) == "later"
-    updated = root, write(root, "freeze.json", descriptor), candidate, mix
+    updated = root, frozen[1], candidate, mix
     assert verify(updated)["status"] == "fail"
 
 
@@ -675,7 +700,8 @@ def test_current_truncated_baseline_wav_returns_structured_error(frozen):
     baseline_mix = json.loads((root / "baseline_mix.json").read_text())
     baseline_mix["output_ref"] = current
     descriptor["dependencies"]["mix_plan"] = write(root, "baseline_mix.json", baseline_mix)
-    descriptor["baseline_approval_ref"] = rebuild_approved_subject(root)
+    with pytest.raises(ValueError, match='hash mismatch'):
+        rebuild_approved_subject(root)
     assert verify((root, write(root, "freeze.json", descriptor), candidate, mix))["status"] == "error"
 
 
