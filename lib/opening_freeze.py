@@ -35,15 +35,23 @@ def _ref(root, ref):
     return path
 
 
-def _walk_refs(root, value):
+def _walk_refs(root, value, _visited=None):
+    """Recheck declared references transitively, including dependency manifests."""
+    visited = set() if _visited is None else _visited
     if isinstance(value, Mapping):
         if "path" in value and "sha256" in value:
-            _ref(root, value)
+            path = _ref(root, value)
+            key = (value["path"], value["sha256"])
+            if key not in visited:
+                visited.add(key)
+                if path.suffix.lower() == ".json":
+                    _walk_refs(root, read_object(root, value["path"]), visited)
         for child in value.values():
-            _walk_refs(root, child)
+            _walk_refs(root, child, visited)
     elif isinstance(value, list):
         for child in value:
-            _walk_refs(root, child)
+            _walk_refs(root, child, visited)
+    return visited
 
 
 def _load(root, ref):
@@ -77,11 +85,37 @@ def _timed_body(rows, start_key="startMs", end_key="endMs"):
     return [copy.deepcopy(row) for row in rows if row[end_key] > 3000]
 
 
-def _mix_body(root, mix):
+def _reference_pool(root, descriptor):
+    pool = _load(root, descriptor["dependencies"]["reference"])
+    _require(pool.get("version") == "1.0" and pool.get("sku") == descriptor["identity"]["sku"], "Approved reference pool SKU mismatch")
+    _require(pool.get("reference_boundaries") == descriptor["identity"]["reference_boundaries"], "Approved reference boundaries mismatch")
+    images = pool.get("reference_images")
+    _require(isinstance(images, list) and images, "Explicit approved reference pool required")
+    for image in images:
+        _require(isinstance(image, Mapping) and set(image) == {"path", "sha256"}, "Typed approved image reference required")
+        _ref(root, image)
+    return images
+
+
+def _mix_body(root, mix, output_ref):
     _require(mix.get("scope") == "full_variant" and mix.get("source_kind") == "raw_plus_common_body",
              "Full film mix must be built from raw sources and common body, never a faded preview")
     _require(isinstance(mix.get("raw_refs"), list) and mix["raw_refs"], "Raw mix dependencies required")
+    for ref in mix["raw_refs"]:
+        _require(isinstance(ref, Mapping) and set(ref) == {"path", "sha256"}, "Raw source must be a typed current file reference")
+        path = _ref(root, ref)
+        if path.suffix.lower() == ".json":
+            source = read_object(root, ref["path"])
+            _require(source.get("scope") not in ("preview", "full_variant") and source.get("source_kind") not in ("preview_tail_fade", "raw_plus_common_body"),
+                     "Derived preview/full mix cannot be a raw source")
     _walk_refs(root, mix)
+    _require(mix.get("output_ref") == {k: output_ref[k] for k in ("path", "sha256")}, "Mix provenance output must bind current preencode PCM")
+    if mix.get("source_provenance_ref"):
+        provenance = _load(root, mix["source_provenance_ref"])
+        _walk_refs(root, provenance)
+        _require(provenance.get("scope") == "source" and provenance.get("source_kind") == "raw_audio", "Preview/derived or unsupported source provenance")
+        media = provenance.get("media_ref")
+        _require(isinstance(media, Mapping) and set(media) == {"path", "sha256"} and media in mix["raw_refs"], "Source provenance media binding mismatch")
     _require(isinstance(mix.get("bgm"), Mapping) and all(k in mix["bgm"] for k in ("track_ref", "position_seconds", "mix_rules")), "BGM track, fixed position and mix rules required")
     return {"narration_segments": _timed_body(mix["narration_segments"]), "bgm": mix["bgm"]}
 
@@ -133,11 +167,12 @@ def _approval(root, descriptor):
     _require(approval.get("decided_at") and datetime.fromisoformat(approval["decided_at"].replace("Z", "+00:00")).tzinfo is not None,
              "Identified timestamped B0 approval required")
     # A later rejection/supersession must invalidate an older approved review.
+    slot = approval.get("production_subject", {}).get("content_slot_id")
     reviews = []
     for path in (Path(root) / "operator/reviews").glob("*.json"):
         try:
             item = json.loads(path.read_text())
-            if item.get("kind") == "final_review" and item.get("subject_id") == "B0":
+            if item.get("kind") == "final_review" and item.get("subject_id") == slot:
                 reviews.append(item)
         except (ValueError, OSError, AttributeError):
             continue
@@ -146,12 +181,38 @@ def _approval(root, descriptor):
     subject = approval.get("production_subject", {})
     _require(approval.get("kind") == "final_review" and approval.get("status") == "approved"
              and isinstance(approval.get("decided_by"), str) and approval["decided_by"].strip(), "Approved operator final review required")
-    _require(approval.get("subject_id") == subject.get("content_slot_id") == "B0", "Only a newly approved B0 establishes this freeze")
+    _require(approval.get("subject_id") == subject.get("content_slot_id") == descriptor.get("baseline_slot_id")
+             and descriptor.get("baseline_candidate_id") == "B0", "Approved B0 slot mapping mismatch")
     _require(approval.get("subject_hash") == production_subject_hash(subject) and verify_production_subject(root, subject), "Stale B0 approval")
     record = read_object(root, subject["record_path"])
+    opening = record.get("opening", {})
+    _require(opening.get("scope") == "full_variant" and opening.get("candidate_id") == "B0", "Actual B0 full preparation record required")
+    from lib.opening_contracts import verify_opening_experiment_files
+    preparation, _ = verify_opening_experiment_files(root, opening["experiment_ref"])
+    registered = next((row for row in preparation["candidates"] if row["candidate_id"] == "B0"), None)
+    _require(registered and registered["hook_plan_ref"] == opening["hook_plan_ref"], "Actual B0 preparation registration mismatch")
+    identity = _load(root, preparation["baseline_ref"])
+    _require(set(identity) == {"version", "role", "sku", "candidate_id", "content_slot_id"}
+             and identity.get("version") == "1.0" and identity.get("role") == "baseline_preparation"
+             and identity.get("sku") == record.get("sku") == preparation["sku"]
+             and identity.get("candidate_id") == "B0" and identity.get("content_slot_id") == slot == record.get("content_slot_id"),
+             "File-bound B0 preparation identity mismatch")
     _require(quality_summary(root, record)["eligible"], "B0 quality checks incomplete")
     bound = {(v["path"], v["sha256"]) for v in subject["dependencies"].values()}
-    for ref in [descriptor["baseline_props_ref"], *descriptor["dependencies"].values()]:
+    preparation_inputs = [opening["experiment_ref"], opening["hook_plan_ref"]]
+    def add_refs(value):
+        if isinstance(value, Mapping):
+            if "path" in value and "sha256" in value:
+                preparation_inputs.append(value)
+            for child in value.values():
+                add_refs(child)
+        elif isinstance(value, list):
+            for child in value:
+                add_refs(child)
+    add_refs(preparation)
+    add_refs(_load(root, opening["hook_plan_ref"]))
+    transitive = [{"path": path, "sha256": sha} for path, sha in _walk_refs(root, descriptor["dependencies"])]
+    for ref in [descriptor["baseline_props_ref"], *descriptor["dependencies"].values(), *preparation_inputs, *transitive]:
         _require((ref["path"], ref["sha256"]) in bound, "B0 approval missing freeze dependency")
     _require(record.get("sku") == descriptor["identity"]["sku"], "B0 SKU mismatch")
     facts = _load(root, descriptor["dependencies"]["facts"])
@@ -163,7 +224,7 @@ def _approval(root, descriptor):
         _require(brand["profile_id"] == descriptor["identity"]["brand_profile"], "Frozen brand profile mismatch")
     props = _load(root, descriptor["baseline_props_ref"])
     # Every concrete render input must occur in the approved production graph.
-    sources = [props["finalMix"]]
+    sources = [props["finalMix"], *_reference_pool(root, descriptor)]
     sources += [{"path": "public/" + name, "sha256": file_sha256(project_file(root, "public/" + name))}
                 for name in props["footage"].values()]
     if props.get("logoSrc"):
@@ -181,6 +242,7 @@ def create_pending_freeze_descriptor(root, *, identity, dependencies):
     _require({"facts", "reference", "brand", "renderer"} <= dependencies.keys(), "Missing pending identity dependencies")
     _require(set(identity) == {"sku", "fact_version", "reference_boundaries", "brand_profile"}, "Complete frozen identity required")
     _walk_refs(root, dependencies)
+    _reference_pool(root, {"identity": identity, "dependencies": dependencies})
     return {"version": "1.0", "state": "pending", "identity": copy.deepcopy(identity), "dependencies": copy.deepcopy(dependencies)}
 
 
@@ -193,14 +255,18 @@ def create_freeze_descriptor(root, *, baseline_props_ref, identity, dependencies
     _require(REQUIRED_DEPENDENCIES <= dependencies.keys(), "Missing freeze dependencies")
     _require(set(identity) == {"sku", "fact_version", "reference_boundaries", "brand_profile"}, "Complete frozen identity required")
     props = _load(root, baseline_props_ref)
+    _reference_pool(root, {"identity": identity, "dependencies": dependencies})
     _walk_refs(root, dependencies)
     descriptor = {"version": "1.0", "state": "approved" if baseline_approval_ref else "pending",
         "identity": copy.deepcopy(identity), "baseline_props_ref": dict(baseline_props_ref),
         "dependencies": copy.deepcopy(dependencies), "body": _body(root, props),
-        "mix_body": _mix_body(root, _load(root, dependencies["mix_plan"])),
+        "mix_body": _mix_body(root, _load(root, dependencies["mix_plan"]), props["finalMix"]),
         "pcm": _pcm(root, props["finalMix"], props["durationInFrames"])}
     if baseline_approval_ref:
         descriptor["baseline_approval_ref"] = dict(baseline_approval_ref)
+        approved = _load(root, baseline_approval_ref)
+        descriptor["baseline_candidate_id"] = "B0"
+        descriptor["baseline_slot_id"] = approved.get("production_subject", {}).get("content_slot_id")
         _approval(root, descriptor)
     return descriptor
 
@@ -219,13 +285,13 @@ def verify_frozen_body(root, *, descriptor_ref, candidate_props_ref, candidate_m
         baseline = _load(root, descriptor["baseline_props_ref"])
         actual_body = _body(root, baseline)
         actual_pcm = _pcm(root, baseline["finalMix"], baseline["durationInFrames"])
-        actual_mix = _mix_body(root, _load(root, descriptor["dependencies"]["mix_plan"]))
+        actual_mix = _mix_body(root, _load(root, descriptor["dependencies"]["mix_plan"]), baseline["finalMix"])
         _require(descriptor["body"] == actual_body and descriptor["pcm"] == actual_pcm and descriptor["mix_body"] == actual_mix,
                  "Freeze descriptor does not match approved B0")
         candidate = _load(root, candidate_props_ref)
         try:
             body = _body(root, candidate)
-            mix = _mix_body(root, _load(root, candidate_mix_plan_ref))
+            mix = _mix_body(root, _load(root, candidate_mix_plan_ref), candidate["finalMix"])
             pcm = _pcm(root, candidate["finalMix"], candidate["durationInFrames"])
         except (ValueError, wave.Error) as exc:
             return {"status": "fail", "issues": [str(exc)], "evidence_refs": evidence}
@@ -235,7 +301,7 @@ def verify_frozen_body(root, *, descriptor_ref, candidate_props_ref, candidate_m
         if pcm != actual_pcm: issues.append("frozen_body_PCM_changed")
         return {"status": "fail" if issues else "pass", "issues": issues, "evidence_refs": sorted(set(evidence)),
             "method": "deterministic_body_inputs_and_preencode_PCM", "body_interval_frames": [90, candidate["durationInFrames"]],
-            "pcm": pcm, "semantic_continuity_verified": False}
+            "pcm": pcm, "semantic_continuity_verified": False, "source_provenance_status": "not_run"}
     except (ValidationError, ValueError, OSError, KeyError, TypeError, wave.Error) as exc:
         return {"status": "error", "issues": [exc.message if isinstance(exc, ValidationError) else str(exc)], "evidence_refs": evidence}
 

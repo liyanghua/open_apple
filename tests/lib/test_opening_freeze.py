@@ -43,6 +43,12 @@ def frozen(tmp_path):
     (tmp_path / "render.mp4").write_bytes(b"render")
     for name in ("facts", "reference", "brand", "renderer"):
         write(tmp_path, name + ".json", {"sku": "sku", "version": "1"})
+    (tmp_path / "approved-one.png").write_bytes(b"approved-reference-one")
+    (tmp_path / "approved-two.png").write_bytes(b"approved-reference-two")
+    write(tmp_path, "reference.json", {"version": "1.0", "sku": "sku", "reference_boundaries": [0, 4],
+        "reference_images": [ref(tmp_path, "approved-one.png"), ref(tmp_path, "approved-two.png")]})
+    (tmp_path / "renderer-source.bin").write_bytes(b"original renderer implementation")
+    write(tmp_path, "renderer.json", {"implementation_ref": ref(tmp_path, "renderer-source.bin")})
     baseline_pcm = wav(tmp_path, "baseline.wav")
     props = {"fps": 30, "width": 64, "height": 64, "durationInFrames": 120,
         "opening": {"scope": "full_variant", "endFrameExclusive": 90, "transitionFrames": 5},
@@ -57,16 +63,54 @@ def frozen(tmp_path):
         "profile": {"production": {"font_mode": "strict", "transition": {"frames": 5, "rule": "incoming_only"}}},
         "finalMix": {**baseline_pcm, "mode": "external_mux"}}
     raw = wav(tmp_path, "raw.wav")
-    mix = {"scope": "full_variant", "source_kind": "raw_plus_common_body", "raw_refs": [raw],
+    mix = {"scope": "full_variant", "source_kind": "raw_plus_common_body", "raw_refs": [raw], "output_ref": baseline_pcm,
         "narration_segments": props["words"],
         "bgm": {"track_ref": raw, "position_seconds": 0, "mix_rules": {"volume": .1, "duck": []}}}
     props_ref = write(tmp_path, "baseline_props.json", props)
     mix_ref = write(tmp_path, "baseline_mix.json", mix)
     deps = {key: ref(tmp_path, key + ".json") for key in ("facts", "reference", "brand", "renderer")}
     deps["mix_plan"] = mix_ref
+    from tests.contracts.test_opening_contracts import hook_v2
+    plan = hook_v2()
+    plan["sku"] = "sku"
+    plan["promise_fulfillment"]["evidence_ref"] = deps["facts"]
+    shot = plan["shots"][0]
+    shot["asset_identity"].update(sku="sku", source=ref(tmp_path, "public/hook.mp4"), reference_images=[ref(tmp_path, "approved-one.png")])
+    shot["source_mapping"]["source_interval_seconds"] = [0, 3]
+    hook_ref = write(tmp_path, "preparation_hook.json", plan)
+    identity_ref = write(tmp_path, "prep_identity.json", {"version": "1.0", "role": "baseline_preparation", "sku": "sku", "candidate_id": "B0", "content_slot_id": "B0"})
+    pending = opening_freeze.create_pending_freeze_descriptor(tmp_path,
+        identity={"sku": "sku", "fact_version": "1", "reference_boundaries": [0, 4], "brand_profile": "brand"},
+        dependencies={k: v for k, v in deps.items() if k != "mix_plan"})
+    pending_ref = write(tmp_path, "pending.json", pending)
+    prep_experiment = {"version": "2.0", "experiment_id": "prep", "sku": "sku", "window_seconds": [0, 3],
+        "master_ref": {**deps["facts"], "sku": "sku"}, "baseline_ref": {**identity_ref, "sku": "sku"},
+        "facts_ref": {**deps["facts"], "sku": "sku"}, "brand_ref": deps["brand"], "budget_ref": deps["facts"],
+        "frozen_body_ref": pending_ref, "candidates": [{"candidate_id": "B0", "hook_plan_ref": {**hook_ref, "version": "2.0"}}]}
+    prep_ref = write(tmp_path, "preparation_experiment.json", prep_experiment)
+    render_ref = ref(tmp_path, "render.mp4")
+    reviewer = {"kind": "semantic_verifier", "id": "independent-fixture", "reviewed_at": "2026-09-29T10:00:00Z"}
+    observation = {"version": "1.0", "scope": "full_variant", "shot_id": "s1", "method": "independent_semantic_review",
+        "render_sha256": render_ref["sha256"], "hook_plan_sha256": hook_ref["sha256"], "reviewer": reviewer,
+        "evidence_interval_seconds": [.5, 2.5], "actual_action": {"source_interval_seconds": [.5, 2.5], "output_interval_seconds": [.5, 2.5]},
+        "evidence": {"frames": [], "segments": [{"ref": render_ref, "output_interval_seconds": [.5, 2.5]}]},
+        "motion": {"subject": "bag lid", "verb": "opens", "start_state": "closed", "end_state": "open", "visible_result": "contents visible",
+            "subject_motion": True, "still_image_transform": False, "camera_only": False, "background_only": False, "forbidden_changes": []},
+        "framing": {"fit": "contain", "output_aspect_ratio": "9:16", "visible_parts": ["lid", "bag edge"], "clipped_parts": [],
+            "subject_within_safe_area": True, "subject_box": [.2, .2, .6, .6], "action_box": [.25, .25, .5, .5]}}
+    observation_ref = write(tmp_path, "preparation_observation.json", observation)
+    opening_report = {"version": "2.0", "scope": "full_variant", "render": render_ref,
+        "dependencies": {"hook_plan": hook_ref, "experiment": prep_ref, "source:s1": shot["asset_identity"]["source"], "reference:s1:0": shot["asset_identity"]["reference_images"][0]},
+        "checks": [{"id": name, "shot_id": "s1", "status": "pass", "method": "independent_semantic_review", "evidence_interval_seconds": [.5, 2.5],
+                    "reviewer": reviewer, "observation_ref": observation_ref} for name in ("opening_motion", "opening_framing")]}
+    opening_report_ref = write(tmp_path, "preparation_report.json", opening_report)
     record = {"content_slot_id": "B0", "sku": "sku", "render": ref(tmp_path, "render.mp4"),
         "canonical_artifacts": {"final_props": props_ref["path"], **{k: v["path"] for k, v in deps.items()}},
-        "review_dependencies": {"pcm": "baseline.wav", "raw": "raw.wav", "body_source": "public/body.mp4", "hook_source": "public/hook.mp4"}}
+        "review_dependencies": {"pcm": "baseline.wav", "raw": "raw.wav", "body_source": "public/body.mp4", "hook_source": "public/hook.mp4", "reference_one": "approved-one.png", "reference_two": "approved-two.png", "renderer_implementation": "renderer-source.bin"}}
+    record["opening"] = {"scope": "full_variant", "candidate_id": "B0", "experiment_ref": prep_ref,
+        "hook_plan_ref": {**hook_ref, "version": "2.0"}, "validation_report_ref": opening_report_ref}
+    record["canonical_artifacts"].update(preparation_identity="prep_identity.json", preparation_experiment="preparation_experiment.json",
+        preparation_hook="preparation_hook.json", pending_freeze="pending.json", preparation_report="preparation_report.json", preparation_observation="preparation_observation.json")
     from tests.production_evidence_fixture import create_bound_quality
     record["quality_report_ref"] = "quality.json"
     write(tmp_path, "quality.json", create_bound_quality(tmp_path, record))
@@ -82,7 +126,9 @@ def frozen(tmp_path):
     descriptor_ref = write(tmp_path, "freeze.json", descriptor)
     candidate = copy.deepcopy(props)
     candidate["finalMix"] = {**wav(tmp_path, "candidate.wav", opening=9), "mode": "external_mux"}
-    return tmp_path, descriptor_ref, candidate, mix
+    candidate_mix = copy.deepcopy(mix)
+    candidate_mix["output_ref"] = {k: candidate["finalMix"][k] for k in ("path", "sha256")}
+    return tmp_path, descriptor_ref, candidate, candidate_mix
 
 
 def verify(frozen, candidate=None, mix=None):
@@ -165,7 +211,7 @@ def registered(frozen):
         plan["promise_fulfillment"]["evidence_ref"] = ref(root, "facts.json")
         plan["shots"][0]["asset_identity"]["source"] = ref(root, "public/hook.mp4" if candidate_id == "B0" else "public/other.mp4")
         plan["shots"][0]["source_mapping"]["source_interval_seconds"] = [0, 3]
-        plan["shots"][0]["asset_identity"]["reference_images"] = [ref(root, "public/hook.mp4")]
+        plan["shots"][0]["asset_identity"]["reference_images"] = [ref(root, "approved-one.png")]
         refs.append({"candidate_id": candidate_id, "hook_plan_ref": {**write(root, candidate_id + "_hook.json", plan), "version": "2.0"}})
     write(root, "master.json", {"sku": "sku"})
     write(root, "budget.json", {"sku": "sku"})
@@ -186,7 +232,8 @@ def registered(frozen):
             props["footage"]["hook"] = "other.mp4"
             props_ref = write(root, "H01_props.json", props)
             mix_ref = write(root, "H01_mix.json", mix)
-            media_ref = ref(root, "render.mp4")
+            (root / "H01_render.mp4").write_bytes(b"distinct-candidate-render-bytes")
+            media_ref = ref(root, "H01_render.mp4")
             record_ref = write(root, "H01_record.json", {"content_slot_id": "H01", "sku": "sku", "render": media_ref,
                 "canonical_artifacts": {"final_props": props_ref["path"]},
                 "opening": {"scope": "full_variant", "candidate_id": "H01", "experiment_ref": experiment_ref, "hook_plan_ref": refs[index]["hook_plan_ref"]}})
@@ -272,6 +319,7 @@ def test_pcm_container_metadata_only_difference_preserves_freeze(frozen):
     data[4:8] = struct.pack("<I", len(data) + len(chunk) - 8)
     path.write_bytes(data + chunk)
     props["finalMix"] = {**ref(root, "candidate.wav"), "mode": "external_mux"}
+    frozen[3]["output_ref"] = ref(root, "candidate.wav")
     assert verify(frozen)["status"] == "pass"
 
 
@@ -339,3 +387,242 @@ def test_controlled_pair_cannot_bypass_forged_difference_fingerprint(registered)
         provenance={"preregistered_variable": "opening_package", "registration_ref": "experiment.json"}) for name in ("B0", "H01")]
     plans[1]["difference_fingerprint"]["structural_shot_count"] = 8
     assert not compare_candidate_pair(*plans, opening_context=context)["passes"]
+
+
+def rebind_registered_hook(root, context, references):
+    hook = json.loads((root / "H01_hook.json").read_text())
+    hook["shots"][0]["asset_identity"]["reference_images"] = references
+    hook_ref = {**write(root, "H01_hook.json", hook), "version": "2.0"}
+    experiment = json.loads((root / "experiment.json").read_text())
+    next(row for row in experiment["candidates"] if row["candidate_id"] == "H01")["hook_plan_ref"] = hook_ref
+    context["experiment_ref"] = write(root, "experiment.json", experiment)
+    for candidate_id in ("B0", "H01"):
+        evidence = json.loads((root / (candidate_id + "_evidence.json")).read_text())
+        evidence["experiment_ref"] = context["experiment_ref"]
+        if candidate_id == "H01":
+            evidence["hook_plan_ref"] = hook_ref
+            record = json.loads((root / "H01_record.json").read_text())
+            record["opening"]["experiment_ref"] = context["experiment_ref"]
+            record["opening"]["hook_plan_ref"] = hook_ref
+            evidence["production_record_ref"] = write(root, "H01_record.json", record)
+        context["candidate_evidence_refs"][candidate_id] = write(root, candidate_id + "_evidence.json", evidence)
+
+
+def test_other_product_reference_cannot_enter_approved_pool(registered):
+    from lib.opening_experiment_evidence import verify_controlled_opening
+    root, context = registered
+    (root / "OTHER_PRODUCT.png").write_bytes(b"other-product-reference")
+    rebind_registered_hook(root, context, [ref(root, "OTHER_PRODUCT.png")])
+    assert verify_controlled_opening(context, "B0", "H01")["status"] != "pass"
+
+
+def test_multiple_explicitly_approved_references_are_supported(registered):
+    from lib.opening_experiment_evidence import verify_controlled_opening
+    root, context = registered
+    rebind_registered_hook(root, context, [ref(root, "approved-two.png"), ref(root, "approved-one.png")])
+    assert verify_controlled_opening(context, "B0", "H01")["status"] == "pass"
+
+
+def test_forged_reference_boundaries_cannot_replace_approved_identity(frozen):
+    root, _, props, mix = frozen
+    descriptor = json.loads((root / "freeze.json").read_text())
+    descriptor["identity"]["reference_boundaries"] = [1, 2]
+    changed = root, write(root, "freeze.json", descriptor), props, mix
+    assert verify(changed)["status"] != "pass"
+
+
+@pytest.mark.parametrize("bad_refs", [[True], [{"path": "raw.wav"}], [{"path": "raw.wav", "sha256": "a" * 64, "scope": "preview"}]])
+def test_raw_mix_inputs_must_be_typed_current_refs(frozen, bad_refs):
+    frozen[3]["raw_refs"] = bad_refs
+    assert verify(frozen)["status"] != "pass"
+
+
+def test_mix_output_must_bind_measured_full_pcm(frozen):
+    root, _, _, mix = frozen
+    mix["output_ref"] = ref(root, "baseline.wav")
+    assert verify(frozen)["status"] != "pass"
+
+
+def test_preview_source_provenance_is_rejected(frozen):
+    root, _, _, mix = frozen
+    mix["source_provenance_ref"] = write(root, "preview_provenance.json", {"scope": "preview", "source_kind": "preview_tail_fade"})
+    assert verify(frozen)["status"] != "pass"
+
+
+def test_changed_raw_source_is_not_hidden_by_unchanged_pcm(frozen):
+    root, _, _, _ = frozen
+    (root / "raw.wav").write_bytes(b"changed raw input")
+    assert verify(frozen)["status"] != "pass"
+
+
+def test_raw_file_refs_do_not_claim_measured_source_provenance(frozen):
+    assert verify(frozen)["source_provenance_status"] == "not_run"
+
+
+def scoped_registered_group(root, group):
+    group_root = root / group
+    group_root.mkdir()
+    fixture = frozen.__wrapped__(group_root)
+    _, descriptor_ref, props, mix = fixture
+    record = json.loads((group_root / "record.json").read_text())
+    record["content_slot_id"] = group + "-B0"
+    identity = json.loads((group_root / "prep_identity.json").read_text())
+    identity["content_slot_id"] = record["content_slot_id"]
+    identity_ref = write(group_root, "prep_identity.json", identity)
+    prep = json.loads((group_root / "preparation_experiment.json").read_text())
+    prep["baseline_ref"] = {**identity_ref, "sku": "sku"}
+    prep_ref = write(group_root, "preparation_experiment.json", prep)
+    record["opening"]["experiment_ref"] = prep_ref
+    report = json.loads((group_root / "preparation_report.json").read_text())
+    report["dependencies"]["experiment"] = prep_ref
+    record["opening"]["validation_report_ref"] = write(group_root, "preparation_report.json", report)
+    from tests.production_evidence_fixture import create_bound_quality
+    write(group_root, "quality.json", create_bound_quality(group_root, record))
+    write(group_root, "record.json", record)
+    subject = build_production_subject(group_root, "record.json")
+    review = json.loads((group_root / "operator/reviews/B0-review.json").read_text())
+    review.update(subject_id=record["content_slot_id"], production_subject=subject, subject_hash=production_subject_hash(subject))
+    approval_ref = write(group_root, "operator/reviews/B0-review.json", review)
+    descriptor = json.loads((group_root / "freeze.json").read_text())
+    descriptor.update(baseline_approval_ref=approval_ref, baseline_candidate_id="B0", baseline_slot_id=record["content_slot_id"])
+    descriptor_ref = write(group_root, "freeze.json", descriptor)
+    fixture = group_root, descriptor_ref, props, mix
+    _, context = registered.__wrapped__(fixture)
+    candidate = json.loads((group_root / "H01_record.json").read_text())
+    candidate["content_slot_id"] = group + "-H1"
+    candidate_ref = write(group_root, "H01_record.json", candidate)
+    evidence = json.loads((group_root / "H01_evidence.json").read_text())
+    evidence["production_record_ref"] = candidate_ref
+    context["candidate_evidence_refs"]["H01"] = write(group_root, "H01_evidence.json", evidence)
+    return context
+
+
+def publish_group_in_shared_project(project, group, context):
+    """Namespace synthetic fixtures into one actual project and review directory."""
+    import shutil
+    root = project / group
+    snapshots = {path.relative_to(root).as_posix(): json.loads(path.read_text()) for path in root.rglob("*.json")}
+    hashes = {hashlib.sha256((root / name).read_bytes()).hexdigest(): name for name in snapshots}
+    completed, active = {}, set()
+    public = project / "public" / group
+    public.mkdir(parents=True)
+    for path in (root / "public").iterdir():
+        shutil.copyfile(path, public / path.name)
+
+    def target(name):
+        if name == "operator/reviews/B0-review.json":
+            return f"operator/reviews/{group}-review.json"
+        if name.startswith("public/"):
+            return f"public/{group}/" + name[len("public/"):]
+        return group + "/" + name
+
+    def update(value):
+        if isinstance(value, list):
+            return [update(item) for item in value]
+        if isinstance(value, dict):
+            result = {key: update(item) for key, item in value.items()}
+            if "path" in value and "sha256" in value:
+                result["path"] = target(value["path"])
+                result["sha256"] = rewrite(value["path"]) if value["path"] in snapshots else ref(project, result["path"])["sha256"]
+            if "footage" in value:
+                result["footage"] = {key: group + "/" + name for key, name in value["footage"].items()}
+            if value.get("kind") == "final_review":
+                result["review_id"] = group + "-review"
+                result["project_id"] = project.name
+                result["production_subject"] = build_production_subject(project, result["production_subject"]["record_path"])
+                result["subject_hash"] = production_subject_hash(result["production_subject"])
+            return result
+        if isinstance(value, str):
+            if value in snapshots or (root / value).is_file():
+                if value in snapshots:
+                    rewrite(value)
+                return target(value)
+            if value in hashes:
+                return rewrite(hashes[value])
+        return value
+
+    def rewrite(name):
+        if name in completed:
+            return completed[name]
+        assert name not in active, "Synthetic fixture must remain acyclic"
+        active.add(name)
+        data = update(snapshots[name])
+        completed[name] = write(project, target(name), data)["sha256"]
+        active.remove(name)
+        return completed[name]
+
+    for name in snapshots:
+        rewrite(name)
+    return {"root": project, "experiment_ref": ref(project, target("experiment.json")),
+        "candidate_evidence_refs": {candidate: ref(project, target(candidate + "_evidence.json")) for candidate in ("B0", "H01")}}
+
+
+def test_product_groups_map_local_candidate_labels_to_unique_slots(tmp_path):
+    from lib.opening_experiment_evidence import verify_controlled_opening
+    first = publish_group_in_shared_project(tmp_path, "A01", scoped_registered_group(tmp_path, "A01"))
+    second = publish_group_in_shared_project(tmp_path, "A03", scoped_registered_group(tmp_path, "A03"))
+    assert first["root"] == second["root"] == tmp_path
+    from lib.production_evidence import quality_summary
+    for group in ("A01", "A03"):
+        record = json.loads((tmp_path / group / "record.json").read_text())
+        assert quality_summary(tmp_path, record)["eligible"]
+    assert verify_controlled_opening(first, "B0", "H01")["status"] == "pass"
+    assert verify_controlled_opening(second, "B0", "H01")["status"] == "pass"
+    later = json.loads((tmp_path / "operator/reviews/A03-review.json").read_text())
+    later.update(review_id="A03-review-v2", subject_version=99, status="rejected")
+    write(tmp_path, "operator/reviews/A03-review-v2.json", later)
+    assert verify_controlled_opening(first, "B0", "H01")["status"] == "pass"
+    assert verify_controlled_opening(second, "B0", "H01")["status"] != "pass"
+
+
+def test_baseline_preparation_role_is_bound_to_actual_approved_slot(frozen):
+    root, _, _, _ = frozen
+    identity = json.loads((root / "prep_identity.json").read_text())
+    identity["content_slot_id"] = "OTHER-B0"
+    write(root, "prep_identity.json", identity)
+    assert verify(frozen)["status"] == "error"
+
+
+def test_nested_renderer_dependencies_are_rechecked(frozen):
+    root, _, _, _ = frozen
+    (root / "renderer-source.bin").write_bytes(b"changed renderer implementation")
+    assert verify(frozen)["status"] != "pass"
+
+
+def test_actual_renderer_implementation_must_be_in_approval_graph(frozen):
+    root, _, props, mix = frozen
+    record = json.loads((root / "record.json").read_text())
+    record["review_dependencies"].pop("renderer_implementation")
+    write(root, "record.json", record)
+    subject = build_production_subject(root, "record.json")
+    review = json.loads((root / "operator/reviews/B0-review.json").read_text())
+    review.update(production_subject=subject, subject_hash=production_subject_hash(subject))
+    approval_ref = write(root, "operator/reviews/B0-review.json", review)
+    descriptor = json.loads((root / "freeze.json").read_text())
+    descriptor["baseline_approval_ref"] = approval_ref
+    assert verify((root, write(root, "freeze.json", descriptor), props, mix))["status"] != "pass"
+
+
+@pytest.mark.parametrize("copied_path", [False, True])
+def test_exact_render_duplicate_cannot_use_exception(registered, copied_path):
+    from lib.opening_experiment_evidence import verify_controlled_opening
+    root, context = registered
+    if copied_path:
+        (root / "duplicate.mp4").write_bytes((root / "render.mp4").read_bytes())
+    media = ref(root, "duplicate.mp4" if copied_path else "render.mp4")
+    record = json.loads((root / "H01_record.json").read_text())
+    record["render"] = media
+    record_ref = write(root, "H01_record.json", record)
+    evidence = json.loads((root / "H01_evidence.json").read_text())
+    evidence.update(media_ref=media, production_record_ref=record_ref)
+    context["candidate_evidence_refs"]["H01"] = write(root, "H01_evidence.json", evidence)
+    assert verify_controlled_opening(context, "B0", "H01")["status"] != "pass"
+
+
+def test_opening_input_difference_does_not_claim_rendered_perceptual_difference(registered):
+    from lib.opening_experiment_evidence import verify_controlled_opening
+    _, context = registered
+    proof = verify_controlled_opening(context, "B0", "H01")
+    assert proof["opening_input_difference"] is True
+    assert proof["rendered_difference_status"] == proof["perceptual_difference_status"] == "not_run"
+    assert proof["counts_as_new_work"] is False
