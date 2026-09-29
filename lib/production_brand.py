@@ -16,6 +16,7 @@ from typing import Any
 from PIL import Image, ImageFont
 
 from schemas.artifacts import validate_artifact
+from lib.motion_source_probe import probe_motion_source_cadence
 
 
 def make_towel_brand_profile(*, profile_id: str = "playboy-production-v1", strict: bool = True,

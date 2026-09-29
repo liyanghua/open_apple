@@ -123,6 +123,8 @@ def test_formal_full_variant_runs_real_preflight_and_blocks_unverified_fonts(tmp
     from PIL import Image
     from lib.production_brand import make_towel_brand_profile
     from lib import render_plan
+    from lib import production_brand
+    monkeypatch.setattr(production_brand, "probe_motion_source_cadence", lambda *a, **k: {"frame_count": 96}, raising=False)
     profile = make_towel_brand_profile(strict=font_mode == "strict")
     profile["production"]["slogan"] = "PLAYBOY, Better everyday."
     Image.new("RGBA", (240, 120), "black").save(tmp_path / "logo.png")
@@ -168,6 +170,7 @@ def test_formal_full_variant_runs_real_preflight_and_blocks_unverified_fonts(tmp
 def mainline(tmp_path, monkeypatch):
     from lib import production_brand
     monkeypatch.setattr(production_brand, "preflight_production_brand", lambda *a, **k: {"status": "passed", "strict_ready": True, "checks": []})
+    monkeypatch.setattr(production_brand, "probe_motion_source_cadence", lambda *a, **k: {"frame_count": 216}, raising=False)
     from lib import render_plan
     monkeypatch.setattr(render_plan, "probe_media", lambda path: {"streams": [{"codec_type": "video", "width": 960, "height": 960,
         "avg_frame_rate": "24/1", "r_frame_rate": "24/1", "duration": "9.000000", "nb_frames": "216"}]})
@@ -206,6 +209,41 @@ def mainline(tmp_path, monkeypatch):
             for name, path, kind in [("footage", "footage.mp4", "video"), ("logo", "logo.png", "image"), ("voice", "voice.wav", "audio")]
         ]}}
     return inputs, seen
+
+
+def test_formal_opening_checks_decoded_pts_once_per_unique_source(mainline, monkeypatch):
+    from lib import production_brand
+    inputs, seen = mainline
+    props = inputs["edit_decisions"]
+    props["opening"] = {"scope": "full_variant", "endFrameExclusive": 90, "transitionFrames": 5}
+    props.pop("audio")
+    props["scenes"].append(dict(props["scenes"][0], id="same-source-again"))
+    inputs["render_plan"]["audio"] = {"path": "voice.wav", "sha256": hashlib.sha256(b"fixture").hexdigest()}
+    calls = []
+    def check_pts(path, probe):
+        calls.append(path)
+        return {"frame_count": 216, "min_delta_ticks": 512, "max_delta_ticks": 512}
+    monkeypatch.setattr(production_brand, "probe_motion_source_cadence", check_pts, raising=False)
+    monkeypatch.setattr(VideoCompose, "_mux_external_audio", lambda *a: ToolResult(success=True))
+    result = VideoCompose().execute(inputs)
+    assert result.success, result.error
+    assert len(calls) == 1
+    assert all(row["cadence"]["frame_count"] == 216 for row in result.data["motion_source_probe"])
+
+
+def test_formal_opening_cadence_failure_stops_renderer(mainline, monkeypatch):
+    from lib import production_brand
+    inputs, seen = mainline
+    props = inputs["edit_decisions"]
+    props["opening"] = {"scope": "preview", "endFrameExclusive": 90, "transitionFrames": 5}
+    props.pop("audio")
+    inputs["render_plan"]["audio"] = {"path": "voice.wav", "sha256": hashlib.sha256(b"fixture").hexdigest()}
+    monkeypatch.setattr(production_brand, "probe_motion_source_cadence", lambda *a: (_ for _ in ()).throw(ValueError("PTS cadence varies")), raising=False)
+    monkeypatch.setattr(VideoCompose, "_mux_external_audio", lambda *a: ToolResult(success=True))
+    result = VideoCompose().execute(inputs)
+    assert not result.success
+    assert "PTS cadence" in result.error
+    assert not seen["rendered"]
 
 
 @pytest.mark.parametrize("field", ["width", "height", "fps", "duration", "rotation", "probe_error"])

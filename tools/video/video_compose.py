@@ -2189,9 +2189,9 @@ class VideoCompose(BaseTool):
             props["footage"] = {key: resolve_media(ref) for key, ref in props["footage"].items()}
             motion_source_probes = []
             if "opening" in props:
-                from lib.production_brand import validate_motion_source_metadata
+                from lib.production_brand import validate_motion_source_metadata, probe_motion_source_cadence
                 from lib.render_plan import probe_media
-                probes = {}
+                probes, cadences = {}, {}
                 for shot in props["scenes"]:
                     source_path = props["footage"][shot["footageKey"]]
                     if source_path not in probes:
@@ -2200,7 +2200,10 @@ class VideoCompose(BaseTool):
                         except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
                             raise ValueError(f"opening motion source probe failed: {exc}") from exc
                     measured = validate_motion_source_metadata(shot, probes[source_path])
-                    motion_source_probes.append({"shot_id": shot["id"], "path": source_path, **measured})
+                    if source_path not in cadences:
+                        cadences[source_path] = probe_motion_source_cadence(Path(source_path), probes[source_path])
+                    motion_source_probes.append({"shot_id": shot["id"], "path": source_path, **measured,
+                                                 "cadence": cadences[source_path]})
             props["logoSrc"] = resolve_media(props["logoSrc"])
             for font in props.get("profile", {}).get("font", {}).get("files") or []:
                 font["path"] = resolve_media(font["path"])
