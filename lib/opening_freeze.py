@@ -140,8 +140,8 @@ def _body(root, props):
     if props.get("logoSrc"):
         static_assets["logo"] = file_sha256(project_file(root, "public/" + props["logoSrc"]))
     for font in props.get("profile", {}).get("font", {}).get("files", []):
-        static_assets[font["src"]] = file_sha256(project_file(root, "public/" + font["src"]))
-        _require(static_assets[font["src"]] == font["sha256"], "Public font bytes mismatch")
+        static_assets[font["src"]] = file_sha256(project_file(root, font["path"]))
+        _require(static_assets[font["src"]] == font["sha256"], "Pinned font bytes mismatch")
     def sources(scene):
         key = scene["footageKey"]
         relative = props["footage"][key]
@@ -235,7 +235,7 @@ def _approval(root, descriptor):
         name = "public/" + props["logoSrc"]
         sources.append({"path": name, "sha256": file_sha256(project_file(root, name))})
     for font in props.get("profile", {}).get("font", {}).get("files", []):
-        sources.append({"path": "public/" + font["src"], "sha256": font["sha256"]})
+        sources.append({"path": font["path"], "sha256": font["sha256"]})
     for source in sources:
         _require((source["path"], source["sha256"]) in bound, "B0 approval missing actual render input")
     return record

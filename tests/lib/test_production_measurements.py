@@ -158,3 +158,52 @@ def test_strict_font_family_matches_renderer_profile_id_normalization(tmp_path, 
     frames[0]['measurement']['evidence']['boxes'][1]['fontFamily'] = 'unrelated-font'
     checks = {item['id']: item for item in dom_checks(props, frames, 'actual-run')}
     assert checks['font_identity']['status'] == 'fail'
+
+
+@pytest.mark.parametrize('source,shape,check_id', [
+    ('narration', 'data_list', 'narration_content'),
+    ('narration', 'null_word', 'caption_alignment'),
+    ('narration', 'null_segment', 'narration_content'),
+    ('brand_dom', 'null_frame', 'text_layout'),
+    ('brand_dom', 'evidence_list', 'text_layout'),
+    ('brand_dom', 'null_box', 'text_layout'),
+    ('technical', 'measurements_list', 'decode'),
+    ('technical', 'probe_list', 'decode'),
+    ('technical', 'null_stream', 'video_profile'),
+    ('video_judge', 'null_attempt', 'video_judge'),
+])
+def test_malformed_bound_raw_evidence_is_error_in_collection_and_summary(tmp_path, source, shape, check_id):
+    from lib.production_measurements import binding
+    from lib.production_evidence import quality_summary
+    _, pref, media, record, directory = dom_fixture(tmp_path)
+    _, doc = binding(tmp_path, record)
+    if source == 'narration':
+        raw = {'method': 'independent_asr', 'success': True, 'render_sha256': media['sha256'],
+               'data': {'segments': [{'text': '真实口播'}], 'word_timestamps': [{'word': '真实口播', 'start': 0, 'end': 2.3}]}}
+        if shape == 'data_list': raw['data'] = []
+        if shape == 'null_word': raw['data']['word_timestamps'] = [None]
+        if shape == 'null_segment': raw['data']['segments'] = [None]
+        doc.update(method='independent_asr', raw_ref=write(tmp_path, 'raw.json', raw))
+    elif source == 'brand_dom':
+        frames = [json.loads(path.read_text()) for path in sorted(directory.glob('*.json'))]
+        if shape == 'null_frame': frames[0] = None
+        if shape == 'evidence_list': frames[0]['measurement']['evidence'] = []
+        if shape == 'null_box': frames[0]['measurement']['evidence']['boxes'] = [None]
+        doc.update(method='rendered_browser_measurement', renderer_props_ref=pref, run_id='actual-run',
+                   raw_ref=write(tmp_path, 'raw.json', {'frames': frames}))
+    elif source == 'technical':
+        doc.update(media_sha256=media['sha256'], measurements={'probe': {'streams': [None]}})
+        if shape == 'measurements_list': doc['measurements'] = []
+        if shape == 'probe_list': doc['measurements']['probe'] = []
+    else:
+        doc.update(method='independent_video_judge', status='pass', scored=True, rubric_version='l3-v1.0', attempts=[None])
+    write(tmp_path, 'source.json', doc)
+    report = production_quality.collect_production_quality(tmp_path, record, {source: 'source.json'})
+    projected = next(item for item in report['checks'] if item['id'] == check_id)
+    assert projected['status'] == 'error'
+    assert projected['issues']
+    write(tmp_path, 'qa.json', report)
+    record['quality_report_ref'] = 'qa.json'
+    summary = quality_summary(tmp_path, record)
+    assert summary['checks'][check_id]['machine_status'] == 'error'
+    assert not summary['eligible']

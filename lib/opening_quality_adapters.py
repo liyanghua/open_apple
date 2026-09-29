@@ -19,9 +19,12 @@ def judge_check(root, record, document, report_path):
         from tools.analysis.video_judge import RUBRICS, _parse_dimensions
         rubric = RUBRICS[document['rubric_version']]
         attempts = document['attempts']
-        if not 1 <= len(attempts) <= 2 or attempts[-1].get('valid') is not True:
+        if (not isinstance(attempts, list) or not 1 <= len(attempts) <= 2
+                or any(not isinstance(attempt, dict) for attempt in attempts) or attempts[-1].get('valid') is not True):
             raise ValueError('Invalid judge attempts')
         raw = attempts[-1]['raw_response']
+        if not isinstance(raw, str):
+            raise ValueError('Invalid judge raw response text')
         match = re.search(r'\{[\s\S]*\}', raw)
         dims = _parse_dimensions(json.loads(match.group(0) if match else raw), rubric)
         if dims != _parse_dimensions(document, rubric):
@@ -34,7 +37,7 @@ def judge_check(root, record, document, report_path):
         if policy.get('version') != '1.0' or policy.get('rubric_version') != document['rubric_version']:
             raise ValueError('Judge policy rubric mismatch')
         minimum = policy['minimum_scores']
-        if set(minimum) != {d[0] for d in rubric} or not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and 0 <= v <= 10 for v in minimum.values()):
+        if not isinstance(minimum, dict) or set(minimum) != {d[0] for d in rubric} or not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and 0 <= v <= 10 for v in minimum.values()):
             raise ValueError('Judge policy must cover every rubric dimension')
         check['evidence_refs'].append(policy_ref['path'])
         failures = [d['id'] for d in dims if d['score'] < minimum[d['id']]]

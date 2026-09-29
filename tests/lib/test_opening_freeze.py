@@ -35,7 +35,7 @@ def wav(root, name, *, opening=1, body=2, frames=4000):
 
 
 @pytest.fixture
-def frozen(tmp_path):
+def frozen(tmp_path, request):
     global opening_freeze
     from lib import opening_freeze
     (tmp_path / "public").mkdir()
@@ -71,14 +71,15 @@ def frozen(tmp_path):
     # remain synthetic; this exercises gates without claiming real media QA.
     from lib.artifact_hashing import attach_hashes
     font_files = []
+    font_dir = '' if getattr(request, 'param', None) == 'root_fonts' else 'public/'
     for weight in (400, 700):
         name = f"font-{weight}.ttf"
-        (tmp_path / 'public' / name).write_bytes(f"fixture-font-{weight}".encode())
-        font_files.append({'path': 'public/' + name, 'src': name, 'weight': weight, 'sha256': ref(tmp_path, 'public/' + name)['sha256']})
+        (tmp_path / (font_dir + name)).write_bytes(f"fixture-font-{weight}".encode())
+        font_files.append({'path': font_dir + name, 'src': 'browser/' + name, 'weight': weight, 'sha256': ref(tmp_path, font_dir + name)['sha256']})
     props['profile'].update(profile_id='fixture', font={'files': font_files})
     props['profile']['production'].update(slogan='common', min_tail_seconds=.4)
     props.update(version='1.0', project_id='fixture', created_at='2026-09-29T00:00:00Z', producer='fixture', input_hashes={}, compositionId='ProductionBrand')
-    props['render_input_refs'] = [ref(tmp_path, name) for name in ('public/body.mp4', 'public/hook.mp4', 'public/font-400.ttf', 'public/font-700.ttf', 'baseline.wav')]
+    props['render_input_refs'] = [ref(tmp_path, name) for name in ('public/body.mp4', 'public/hook.mp4', font_dir + 'font-400.ttf', font_dir + 'font-700.ttf', 'baseline.wav')]
     props = attach_hashes(props)
     receipt = write(tmp_path, 'mix-receipt.json', {'version': '1.0', 'tool': 'audio_mixer', 'operation': 'full_mix', 'scope': 'full_variant',
         'input_refs': [raw], 'output_ref': baseline_pcm, 'returncode': 0, 'command': ['ffmpeg', '-filter_complex', 'fixture'],
@@ -480,7 +481,7 @@ def test_raw_file_refs_do_not_claim_measured_source_provenance(frozen):
 def scoped_registered_group(root, group):
     group_root = root / group
     group_root.mkdir()
-    fixture = frozen.__wrapped__(group_root)
+    fixture = frozen.__wrapped__(group_root, None)
     _, descriptor_ref, props, mix = fixture
     record = json.loads((group_root / "record.json").read_text())
     record["content_slot_id"] = group + "-B0"
@@ -729,3 +730,15 @@ def test_truncated_pcm_cannot_crash_read_adapter_or_diversity(registered):
     report = {"scope": "full_variant", "render": record["render"], "dependencies": {"freeze_evidence": write(root, "manifest.json", evidence)}}
     record["opening"]["validation_report_ref"] = write(root, "report.json", report)
     assert opening_freeze.evaluate_freeze_checks(root, record)["frozen_body"]["status"] in ("fail", "error")
+
+
+@pytest.mark.parametrize('frozen', ['root_fonts'], indirect=True)
+def test_approved_baseline_accepts_actual_root_font_paths(frozen):
+    from lib.production_evidence import quality_summary
+    root, _, _, _ = frozen
+    record = json.loads((root / 'record.json').read_text())
+    assert quality_summary(root, record)['eligible']
+    subject = build_production_subject(root, 'record.json')
+    assert any(item['path'] == 'font-400.ttf' for item in subject['dependencies'].values())
+    assert not (root / 'public/font-400.ttf').exists()
+    assert verify(frozen)['status'] == 'pass'

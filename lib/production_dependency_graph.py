@@ -42,8 +42,8 @@ def dependency_closure(root, record_path=None, *, document=None):
                 if doc.get('logoSrc'):
                     local = 'public/' + doc['logoSrc'] if (root / 'public' / doc['logoSrc']).is_file() else doc['logoSrc']
                     visit(local, depth + 1)
-                for font in doc.get('profile', {}).get('font', {}).get('files', []):
-                    visit({'path': 'public/' + font['src'], 'sha256': font['sha256']}, depth + 1)
+                # Fonts are already visited as typed path+sha256 references by
+                # walk(doc). Their browser src is a staged URL, not a source path.
         visiting.remove(name)
         visited.add(name)
 

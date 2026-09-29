@@ -33,20 +33,28 @@ def collect_production_quality(root: Path, record: Mapping, evidence_refs: Mappi
         return value if isinstance(value, Mapping) else {}
 
     if "opening" in record and technical.get("media_sha256") == actual_sha and technical.get("scope") == opening_scope:
-        raw = technical.get("measurements", {})
-        probe = raw.get("probe", {})
-        streams = probe.get("streams", [])
-        video = next((s for s in streams if s.get("codec_type") == "video"), {})
-        audio = next((s for s in streams if s.get("codec_type") == "audio"), {})
         from fractions import Fraction
         try:
+            raw = technical.get("measurements", {})
+            if not isinstance(raw, Mapping) or not isinstance(raw.get("probe"), Mapping):
+                raise ValueError("Invalid technical measurements/probe object")
+            probe = raw["probe"]
+            streams = probe.get("streams", [])
+            if not isinstance(streams, list) or any(not isinstance(stream, Mapping) for stream in streams):
+                raise ValueError("Invalid technical stream rows")
+            if not isinstance(probe.get("format"), Mapping):
+                raise ValueError("Invalid technical format object")
+            video = next((s for s in streams if s.get("codec_type") == "video"), {})
+            audio = next((s for s in streams if s.get("codec_type") == "audio"), {})
             profile_ok = (video.get("width") == 1080 and video.get("height") == 1920 and video.get("codec_name") == "h264"
                 and video.get("pix_fmt") == "yuv420p" and float(Fraction(video.get("avg_frame_rate", "0"))) == 30
                 and audio.get("codec_name") == "aac")
             technical = {"scope": technical["scope"], "metadata": {"media_sha256": actual_sha}, "checks": {
                 "media_integrity": {"decode_ok": raw.get("decode_ok"), "profile_ok": profile_ok},
                 "technical_probe": {"has_audio": bool(audio), "duration_seconds": float(probe["format"]["duration"])}}}
-        except (ValueError, KeyError, TypeError, ZeroDivisionError):
+        except (ValueError, KeyError, TypeError, ZeroDivisionError) as exc:
+            for name in ("decode", "video_profile", "duration", "audio_track"):
+                put(name, "error", "technical_validator", [evidence_refs["technical"]], [str(exc)])
             technical = {}
     current_bound = mapping(technical.get("metadata")).get("media_sha256") == actual_sha
     if "opening" in record:

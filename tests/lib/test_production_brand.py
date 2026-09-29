@@ -380,3 +380,19 @@ def test_italic_font_cannot_masquerade_as_regular_normal_face(valid):
 def test_render_metadata_requires_integer_pixel_and_frame_dimensions(valid, field):
     valid[1][field] += 0.5
     assert check(report(valid), "input_contract")["status"] == "fail"
+
+
+def test_font_dependency_closure_uses_preflight_path_not_browser_src(valid):
+    import json
+    from lib.production_dependency_graph import dependency_closure
+    profile, props, root = valid
+    assert check(report(valid), 'font_files')['status'] == 'pass'
+    (root / 'clip.mp4').write_bytes(b'fixture source')
+    for font in profile['font']['files']:
+        font['src'] = 'staged-browser/' + font['src']
+    props['profile'] = profile
+    (root / 'props.json').write_text(json.dumps(props))
+    dependencies = dependency_closure(root, 'props.json')
+    for font in profile['font']['files']:
+        assert dependencies[font['path']]['sha256'] == font['sha256']
+        assert not (root / 'public' / font['src']).exists()

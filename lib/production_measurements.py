@@ -53,7 +53,13 @@ def speech_checks(props, raw):
     data = raw.get('data', {})
     if raw.get('method') != 'independent_asr' or raw.get('success') is not True:
         return [check(n, 'not_run', ['independent_asr_required']) for n in names]
+    if not isinstance(data, dict):
+        return [check(n, 'error', ['invalid_asr_data_object']) for n in names]
     segments, words = data.get('segments', []), data.get('word_timestamps', [])
+    if (not isinstance(segments, list) or not isinstance(words, list)
+            or any(not isinstance(row, dict) or not isinstance(row.get('text'), str) for row in segments)
+            or any(not isinstance(row, dict) or not isinstance(row.get('word'), str) for row in words)):
+        return [check(n, 'error', ['invalid_asr_segments_or_words']) for n in names]
     if not words or not segments:
         return [check(n, 'not_run', ['independent_word_boundaries_missing']) for n in names]
     duration = props['durationInFrames'] / props['fps']
@@ -129,6 +135,8 @@ def run_narration_evidence(root, *, record, output_path, model_size='small', lan
 
 
 def dom_checks(props, frames, run_id):
+    if not isinstance(frames, list) or any(not isinstance(row, dict) for row in frames):
+        raise ValueError('Invalid DOM frames: expected object rows')
     if len(frames) != props['durationInFrames'] or {f.get('frame') for f in frames} != set(range(props['durationInFrames'])):
         raise ValueError('DOM evidence must cover the complete rendered frame range')
     layout, fonts = [], []
@@ -141,21 +149,25 @@ def dom_checks(props, frames, run_id):
     for row in frames:
         if row.get('run_id') != run_id or row.get('scope') != props['opening']['scope']:
             raise ValueError('DOM evidence run/scope mismatch')
-        evidence = row['measurement']['evidence']
+        measurement = row.get('measurement')
+        if not isinstance(measurement, dict) or not isinstance(measurement.get('evidence'), dict):
+            raise ValueError('Invalid DOM measurement evidence object')
+        evidence = measurement['evidence']
         if evidence['frame'] != row['frame'] or (evidence['width'], evidence['height']) != (props['width'], props['height']):
             raise ValueError('DOM evidence frame geometry mismatch')
         if strict and (evidence.get('font_loading_status') != 'pass' or evidence.get('font_sha256') != [f['sha256'] for f in files]
                        or {f['weight'] for f in files} != {400, 700} or evidence.get('font_faces_ready') is not True):
             fonts.append('actual_render_font_not_ready_or_wrong_hash')
         boxes = evidence['boxes']
+        if not isinstance(boxes, list) or any(not isinstance(box, dict) for box in boxes):
+            raise ValueError('Invalid DOM boxes: expected object rows')
         for role in ('logo', 'title', 'underline', 'caption'):
             if sum(b.get('role') == role for b in boxes) != 1:
                 layout.append('missing_or_duplicate_' + role)
         for box in boxes:
             values = [box.get(k) for k in ('x', 'y', 'width', 'height')]
             if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in values):
-                layout.append('invalid_dom_bounds')
-                continue
+                raise ValueError('Invalid DOM bounds: expected finite numbers')
             x, y, w, h = values
             if (box['role'] in ('logo', 'underline') or box.get('text')) and (w <= 0 or h <= 0):
                 layout.append('required_brand_element_has_zero_bounds')
@@ -215,9 +227,10 @@ def evaluate_measurement(root, record, doc):
     if doc['method'] == 'rendered_browser_measurement':
         rendered = strict_load(root, doc['renderer_props_ref'])
         _same_render_inputs(props, rendered)
+        checks = dom_checks(props, raw['frames'], doc['run_id'])
         if any(f.get('renderer_props_sha256') != doc['renderer_props_ref']['sha256'] for f in raw['frames']):
             raise ValueError('DOM actual renderer props hash mismatch')
-        return dom_checks(props, raw['frames'], doc['run_id'])
+        return checks
     raise ValueError('Unsupported measurement producer')
 
 
