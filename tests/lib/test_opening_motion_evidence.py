@@ -16,14 +16,17 @@ def write(root, path, data):
     return {"path": path, "sha256": hashlib.sha256(raw).hexdigest()}
 
 
-def fixture(root, *, method="independent_semantic_review", scope="preview"):
-    plan = hook_v2()
+def fixture(root, *, method="independent_semantic_review", scope="preview", plan=None):
+    plan = copy.deepcopy(plan) if plan is not None else hook_v2()
     plan["shots"][0]["asset_identity"]["source"] = write(root, "asset.mp4", b"source")
+    if plan["shots"][0]["asset_identity"]["kind"] != "generated":
+        plan["shots"][0]["asset_identity"]["origin"]["ref"] = plan["shots"][0]["asset_identity"]["source"]
     plan["shots"][0]["asset_identity"]["reference_images"] = [write(root, "reference.png", b"reference")]
     facts = write(root, "facts.json", {"sku": "bag-01"})
     plan["promise_fulfillment"]["evidence_ref"] = facts
     plan_ref = write(root, "hook.json", plan)
     exp = experiment()
+    exp["motion_requirement"] = plan["motion_policy"]["mode"]
     for name in ("master", "baseline", "brand", "body", "budget"):
         item = write(root, f"{name}.json", {"sku": "bag-01"})
         exp[{"body": "frozen_body_ref"}.get(name, f"{name}_ref")] = {**item, **({"sku": "bag-01"} if name in {"master", "baseline"} else {})}
@@ -35,11 +38,14 @@ def fixture(root, *, method="independent_semantic_review", scope="preview"):
         "render_sha256": render["sha256"], "hook_plan_sha256": plan_ref["sha256"],
         "reviewer": {"kind": "semantic_verifier", "id": "independent-model-run-7", "reviewed_at": "2026-09-29T10:00:00Z"},
         "evidence_interval_seconds": [0.5, 2.5],
+        "actual_action": {"source_interval_seconds": [0.75, 2.75], "output_interval_seconds": [0.5, 2.5]},
+        "evidence": {"frames": [], "segments": [{"ref": render, "output_interval_seconds": [0.5, 2.5]}]},
         "motion": {"subject": "bag lid", "verb": "opens", "start_state": "closed", "end_state": "open",
             "visible_result": "contents visible", "subject_motion": True, "still_image_transform": False,
             "camera_only": False, "background_only": False, "forbidden_changes": []},
         "framing": {"fit": "contain", "output_aspect_ratio": "9:16", "visible_parts": ["lid", "bag edge"],
-            "clipped_parts": [], "subject_within_safe_area": True}}
+            "clipped_parts": [], "subject_within_safe_area": True,
+            "subject_box": [0.2, 0.2, 0.6, 0.6], "action_box": [0.25, 0.25, 0.5, 0.5]}}
     observation_ref = write(root, "observation.json", observation)
     report = {"version": "2.0", "scope": scope, "render": render,
         "dependencies": {"hook_plan": plan_ref, "experiment": exp_ref, "source:s1": plan["shots"][0]["asset_identity"]["source"],
@@ -215,3 +221,153 @@ def test_legacy_record_has_no_opening_checks(tmp_path):
     record, _, _ = fixture(tmp_path)
     record.pop("opening")
     assert "opening_motion" not in collect(tmp_path, record)
+
+
+def test_missing_actual_action_observation_is_not_run(tmp_path):
+    record, report, observation = fixture(tmp_path)
+    del observation["actual_action"]
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_motion"]["status"] == "not_run"
+
+
+def test_actual_action_outside_selected_source_cannot_pass(tmp_path):
+    record, report, observation = fixture(tmp_path)
+    observation["actual_action"] = {"source_interval_seconds": [3.3, 3.9], "output_interval_seconds": [0.5, 2.5]}
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_motion"]["status"] != "pass"
+
+
+def test_source_and_output_action_must_follow_playback_mapping(tmp_path):
+    record, report, observation = fixture(tmp_path)
+    observation["actual_action"]["source_interval_seconds"] = [1, 2]
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_motion"]["status"] == "error"
+
+
+@pytest.mark.parametrize("kind", ["frame", "segment"])
+def test_nested_observation_evidence_hash_is_rechecked(tmp_path, kind):
+    record, report, observation = fixture(tmp_path)
+    evidence = write(tmp_path, "proof.bin", b"evidence")
+    if kind == "frame":
+        observation["evidence"]["frames"] = [{"ref": evidence, "output_seconds": 1}]
+    else:
+        observation["evidence"]["segments"] = [{"ref": evidence, "output_interval_seconds": [0.5, 2.5]}]
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_motion"]["status"] == "pass"
+    assert "proof.bin" in collect(tmp_path, record)["opening_motion"]["evidence_refs"]
+    (tmp_path / "proof.bin").write_bytes(b"tampered")
+    assert collect(tmp_path, record)["opening_motion"]["status"] == "error"
+
+
+def test_static_keyframe_is_not_motion_proof(tmp_path):
+    record, report, observation = fixture(tmp_path)
+    observation["evidence"] = {"frames": [{"ref": write(tmp_path, "frame.png", b"frame"), "output_seconds": 1}], "segments": []}
+    update_observation(tmp_path, record, report, observation)
+    checks = collect(tmp_path, record)
+    assert checks["opening_motion"]["status"] == "not_run"
+    assert checks["opening_framing"]["status"] == "pass"
+
+
+def test_segment_must_cover_whole_actual_action(tmp_path):
+    record, report, observation = fixture(tmp_path)
+    observation["evidence"]["segments"][0]["output_interval_seconds"] = [1, 2]
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_motion"]["status"] != "pass"
+
+
+@pytest.mark.parametrize("field", ["subject_box", "action_box"])
+def test_observed_boxes_must_fit_safe_area_even_when_boolean_says_true(tmp_path, field):
+    record, report, observation = fixture(tmp_path)
+    observation["framing"][field] = [0, 0, 1, 1]
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_framing"]["status"] == "fail"
+    assert collect(tmp_path, record)["opening_motion"]["status"] != "pass"
+
+
+@pytest.mark.parametrize("box", [[0, 0, float("nan"), 1], [0.8, 0, 0.5, 1], [0, 0, 0, 1]])
+def test_observed_boxes_reject_invalid_coordinates(tmp_path, box):
+    record, report, observation = fixture(tmp_path)
+    observation["framing"]["action_box"] = box
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_framing"]["status"] == "error"
+
+
+@pytest.mark.parametrize("field", ["interval_seconds", "segment_ref", "frame_refs"])
+def test_undefined_observation_fields_cannot_hide_conflicting_evidence(tmp_path, field):
+    record, report, observation = fixture(tmp_path)
+    observation["motion"][field] = [3.25, 4]
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_motion"]["status"] == "error"
+
+
+def test_four_second_source_selects_only_point25_to_3point25(tmp_path):
+    record, _, _ = fixture(tmp_path)
+    plan = json.loads((tmp_path / "hook.json").read_text())
+    assert plan["shots"][0]["source_mapping"] == {
+        "source_interval_seconds": [0.25, 3.25], "source_duration_seconds": 4,
+        "playback_rate": 1, "output_interval_seconds": [0, 3]}
+    assert collect(tmp_path, record)["opening_motion"]["status"] == "pass"
+
+
+def test_playback_rate_maps_actual_action_to_output(tmp_path):
+    plan = hook_v2()
+    plan["shots"][0]["source_mapping"].update(source_interval_seconds=[0.25, 6.25], source_duration_seconds=7, playback_rate=2)
+    record, report, observation = fixture(tmp_path, plan=plan)
+    observation["actual_action"]["source_interval_seconds"] = [1.25, 5.25]
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_motion"]["status"] == "pass"
+
+
+def test_static_plan_does_not_require_subject_motion_but_requires_framing(tmp_path):
+    plan = hook_v2()
+    plan["motion_policy"] = {"mode": "optional", "rationale": "Static identity detail"}
+    plan["shots"][0]["motion"].update(motion_required=False, verb="none", end_state="closed", exemption_reason="Static logo detail")
+    record, report, observation = fixture(tmp_path, plan=plan)
+    observation.pop("actual_action")
+    observation.pop("motion")
+    observation["evidence"] = {"frames": [{"ref": write(tmp_path, "frame.png", b"frame"), "output_seconds": 1}], "segments": []}
+    report["checks"] = [row for row in report["checks"] if row["id"] == "opening_framing"]
+    update_observation(tmp_path, record, report, observation)
+    checks = collect(tmp_path, record)
+    assert checks["opening_motion"]["status"] == "pass"
+    assert checks["opening_motion"]["observations"][0]["basis"] == "motion_not_required"
+    assert checks["opening_framing"]["status"] == "pass"
+    observation["framing"]["action_box"] = [0, 0, 1, 1]
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_framing"]["status"] == "fail"
+
+
+def test_collected_checks_keep_named_human_method_and_raw_result(tmp_path):
+    record, report, observation = fixture(tmp_path, method="human_review")
+    observation["reviewer"].update(kind="human", id="reviewer-chen")
+    for check in report["checks"]:
+        check["reviewer"] = observation["reviewer"]
+    update_observation(tmp_path, record, report, observation)
+    collected = collect(tmp_path, record)["opening_motion"]
+    assert collected["observations"][0]["method"] == "human_review"
+    assert collected["observations"][0]["reviewer"]["id"] == "reviewer-chen"
+    report["checks"][0]["status"] = "not_run"
+    update_observation(tmp_path, record, report, observation)
+    collected = collect(tmp_path, record)["opening_motion"]
+    assert collected["status"] == "not_run"
+    assert collected["observations"][0]["status"] == "not_run"
+
+
+def test_frame_at_half_open_window_end_is_outside(tmp_path):
+    record, report, observation = fixture(tmp_path)
+    observation["evidence_interval_seconds"] = [0, 3]
+    observation["evidence"]["frames"] = [{"ref": write(tmp_path, "frame.png", b"frame"), "output_seconds": 3}]
+    for check in report["checks"]:
+        check["evidence_interval_seconds"] = [0, 3]
+    update_observation(tmp_path, record, report, observation)
+    assert collect(tmp_path, record)["opening_framing"]["status"] == "error"
+
+
+@pytest.mark.parametrize("kind", ["real", "imported"])
+def test_observed_real_source_can_pass_without_model_task(tmp_path, kind):
+    plan = hook_v2()
+    identity = plan["shots"][0]["asset_identity"]
+    identity.update(kind=kind, origin={"description": "Customer supplied filmed demonstration", "ref": identity["source"]})
+    del identity["model_task"]
+    record, _, _ = fixture(tmp_path, plan=plan)
+    assert collect(tmp_path, record)["opening_motion"]["status"] == "pass"

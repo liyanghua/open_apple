@@ -17,15 +17,17 @@ def hook_v2():
     plan.update(version="2.0", hook_window_seconds=[0, 3], sku="bag-01", promise="Visible access to contents",
         source={"kind": "creative_hypothesis", "verification_status": "pending", "gap": "No original customer audio supplied"},
         purchase_question="Can I reach the contents?",
+        motion_policy={"mode": "subject_motion_required", "rationale": "Opening promises visible access"},
         promise_fulfillment={"section_id": "proof", "interval_seconds": [4, 6], "evidence_ref": ref("facts.json")},
         beats=[{"interval_seconds": [0, 1], "visual": "closed", "audio": "Easy"},
                {"interval_seconds": [1, 2], "visual": "opens", "audio": "access"},
                {"interval_seconds": [2, 3], "visual": "contents visible", "audio": "sound"}],
         voice_keywords=[{"text": "access", "interval_seconds": [1, 2], "sound": "spoken emphasis"}],
         shots=[{"shot_id": "s1", "interval_seconds": [0, 3],
-            "asset_identity": {"sku": "bag-01", "source": ref(), "reference_images": [ref("reference.png")],
+            "source_mapping": {"source_interval_seconds": [0.25, 3.25], "source_duration_seconds": 4, "playback_rate": 1, "output_interval_seconds": [0, 3]},
+            "asset_identity": {"kind": "generated", "sku": "bag-01", "source": ref(), "reference_images": [ref("reference.png")],
                 "model_task": {"provider": "test", "model": "test-model", "task_id": "task-1"}},
-            "motion": {"subject": "bag lid", "verb": "opens", "start_state": "closed", "end_state": "open",
+            "motion": {"motion_required": True, "subject": "bag lid", "verb": "opens", "start_state": "closed", "end_state": "open",
                 "interval_seconds": [0.5, 2.5], "visible_result": "contents visible", "forbidden_changes": ["logo"]},
             "framing": {"source_aspect_ratio": "16:9", "output_aspect_ratio": "9:16", "fit": "contain",
                 "action_safe_box": [0.1, 0.1, 0.8, 0.8], "critical_parts": ["lid", "bag edge"]}}])
@@ -33,7 +35,7 @@ def hook_v2():
 
 
 def experiment():
-    return {"version": "2.0", "experiment_id": "exp-1", "sku": "bag-01", "window_seconds": [0, 3],
+    return {"version": "2.0", "experiment_id": "exp-1", "motion_requirement": "subject_motion_required", "sku": "bag-01", "window_seconds": [0, 3],
         "master_ref": {**ref("master.json"), "sku": "bag-01"},
         "baseline_ref": {**ref("baseline.json"), "sku": "bag-01"},
         "facts_ref": {**ref("facts.json"), "sku": "bag-01"}, "brand_ref": ref("brand.json"),
@@ -175,5 +177,73 @@ def test_plan_rejects_inconsistent_structure(mutation):
 def test_v1_integrity_envelope_keeps_existing_type_validation():
     data = build_hook_plan("old", overrides={"first_frame_visual": "visual", "first_audio": "audio"})
     data["semantic_sha256"] = 17
+    with pytest.raises(ValidationError):
+        validate_artifact("hook_plan", data)
+
+
+@pytest.mark.parametrize("mutation", ["missing_mapping", "missing_motion_required", "duration", "rate", "output", "source_range", "nan"])
+def test_strict_source_to_output_mapping(mutation):
+    data = hook_v2()
+    shot = data["shots"][0]
+    if mutation == "missing_mapping":
+        del shot["source_mapping"]
+    elif mutation == "missing_motion_required":
+        del shot["motion"]["motion_required"]
+    elif mutation == "duration":
+        shot["source_mapping"]["source_duration_seconds"] = 3
+    elif mutation == "rate":
+        shot["source_mapping"]["playback_rate"] = 0.5
+    elif mutation == "output":
+        shot["source_mapping"]["output_interval_seconds"] = [0, 2]
+    elif mutation == "source_range":
+        shot["source_mapping"]["source_interval_seconds"] = [0, 4]
+    else:
+        shot["source_mapping"]["playback_rate"] = float("nan")
+    with pytest.raises(ValidationError):
+        validate_artifact("hook_plan", data)
+
+
+@pytest.mark.parametrize("kind", ["real", "imported"])
+def test_real_source_has_origin_without_fake_model_task(kind):
+    data = hook_v2()
+    identity = data["shots"][0]["asset_identity"]
+    identity.update(kind=kind, origin={"description": "Customer supplied filmed product demonstration", "ref": ref("source-record.json")})
+    del identity["model_task"]
+    validate_artifact("hook_plan", data)
+    del identity["origin"]
+    with pytest.raises(ValidationError):
+        validate_artifact("hook_plan", data)
+
+
+def test_generated_source_requires_actual_model_task():
+    data = hook_v2()
+    del data["shots"][0]["asset_identity"]["model_task"]
+    with pytest.raises(ValidationError):
+        validate_artifact("hook_plan", data)
+
+
+def test_motion_optional_needs_explicit_creative_purpose():
+    data = hook_v2()
+    data["motion_policy"] = {"mode": "optional", "rationale": "Static detail shot supports the question"}
+    data["shots"][0]["motion"].update(motion_required=False, verb="none", end_state="closed", exemption_reason="Static logo detail provides identity")
+    validate_artifact("hook_plan", data)
+    del data["shots"][0]["motion"]["exemption_reason"]
+    with pytest.raises(ValidationError):
+        validate_artifact("hook_plan", data)
+
+
+def test_declared_motion_experiment_cannot_downgrade_to_all_static():
+    from lib.opening_contracts import validate_opening_experiment
+    data = hook_v2()
+    data["motion_policy"] = {"mode": "optional", "rationale": "Static alternate"}
+    data["shots"][0]["motion"].update(motion_required=False, exemption_reason="Still detail")
+    with pytest.raises(ValidationError):
+        validate_opening_experiment(experiment(), hook_plans={"A": data})
+
+
+def test_motion_exemption_cannot_still_declare_an_opening_action():
+    data = hook_v2()
+    data["motion_policy"] = {"mode": "optional", "rationale": "Static shot"}
+    data["shots"][0]["motion"].update(motion_required=False, exemption_reason="Static shot")
     with pytest.raises(ValidationError):
         validate_artifact("hook_plan", data)

@@ -38,6 +38,18 @@ def _interval(value: list, outer=None) -> None:
         _require(outer[0] <= value[0] < value[1] <= outer[1], "Interval escapes its containing window")
 
 
+def _box(value: list) -> None:
+    x, y, width, height = value
+    _require(width > 0 and height > 0 and x + width <= 1 and y + height <= 1,
+             "Invalid normalized subject/action box")
+
+
+def _inside_box(value: list, safe: list) -> bool:
+    x, y, width, height = value
+    sx, sy, sw, sh = safe
+    return x >= sx and y >= sy and x + width <= sx + sw + 1e-6 and y + height <= sy + sh + 1e-6
+
+
 def validate_opening_semantics(name: str, data: Mapping) -> None:
     """Semantic supplement to registered JSON schemas; does not touch files."""
     for value in _walk(data):
@@ -49,9 +61,12 @@ def validate_opening_semantics(name: str, data: Mapping) -> None:
                 _require(isinstance(path, str) and bool(path) and not PurePosixPath(path).is_absolute()
                          and ".." not in PurePosixPath(path).parts and "\\" not in path and ":" not in path,
                          "Reference must be a project-relative path without traversal")
-            for key in ("interval_seconds", "evidence_interval_seconds"):
+            for key in ("interval_seconds", "evidence_interval_seconds", "source_interval_seconds", "output_interval_seconds"):
                 if key in value:
                     _interval(value[key])
+            for key in ("action_safe_box", "subject_box", "action_box"):
+                if key in value:
+                    _box(value[key])
     if name == "hook_plan":
         source = data["source"]
         kind, status = source["kind"], source["verification_status"]
@@ -76,12 +91,23 @@ def validate_opening_semantics(name: str, data: Mapping) -> None:
             _interval(keyword["interval_seconds"], window)
         ids = [shot["shot_id"] for shot in data["shots"]]
         _require(len(ids) == len(set(ids)), "Duplicate shot identity")
+        if data["motion_policy"]["mode"] == "subject_motion_required":
+            _require(any(shot["motion"]["motion_required"] for shot in data["shots"]),
+                     "Subject-motion policy requires at least one required action")
         for shot in data["shots"]:
             _require(shot["asset_identity"]["sku"] == data["sku"], "Shot SKU mismatch")
             _interval(shot["interval_seconds"], window)
             _interval(shot["motion"]["interval_seconds"], shot["interval_seconds"])
-            x, y, width, height = shot["framing"]["action_safe_box"]
-            _require(width > 0 and height > 0 and x + width <= 1 and y + height <= 1, "Invalid action safe box")
+            if not shot["motion"]["motion_required"]:
+                _require(shot["motion"]["verb"] == "none"
+                         and shot["motion"]["start_state"] == shot["motion"]["end_state"],
+                         "Motion exemption cannot declare a subject action or state change")
+            mapping = shot["source_mapping"]
+            selected, output = mapping["source_interval_seconds"], mapping["output_interval_seconds"]
+            _interval(selected, [0, mapping["source_duration_seconds"]])
+            _require(output == shot["interval_seconds"], "Mapping output must equal the shot interval")
+            _require(abs((selected[1] - selected[0]) / mapping["playback_rate"] - (output[1] - output[0])) <= 1e-6,
+                     "Source selection and playback rate do not match output duration")
     elif name == "opening_experiment":
         for key in ("master_ref", "baseline_ref", "facts_ref"):
             _require(data[key]["sku"] == data["sku"], f"{key} SKU mismatch")
@@ -107,6 +133,9 @@ def validate_opening_experiment(data: Mapping, *, hook_plans: Mapping[str, Mappi
         validate_artifact("hook_plan", plan)
         _require(plan["sku"] == data["sku"], "Candidate SKU mismatch")
         _require(plan["hook_window_seconds"] == data["window_seconds"], "Candidate window mismatch")
+        if data.get("motion_requirement") == "subject_motion_required":
+            _require(plan["motion_policy"]["mode"] == "subject_motion_required",
+                     "Declared motion experiment cannot silently become static")
 
 
 def validate_opening_validation_report(data: Mapping, *, expected_scope: str | None = None) -> None:
@@ -139,13 +168,18 @@ def _identified_observer(check: Mapping) -> bool:
         return False
 
 
-def _observe(root: Path, check: Mapping, shot: Mapping, report: Mapping) -> tuple[str, list[str]]:
+def _observe(root: Path, check: Mapping, shot: Mapping, report: Mapping, refs: list[str]) -> tuple[str, list[str]]:
     """Interpret explicit independent observations, never caller pass dictionaries."""
     if check["status"] != "pass":
         return check["status"], list(check.get("issues", []))
     if not _identified_observer(check) or not check.get("observation_ref"):
         return "not_run", ["independent_observation_required"]
+    from jsonschema import validate
+    from schemas.artifacts import load_schema
+
     observed = read_object(root, _verify_ref(root, check["observation_ref"]))
+    validate(observed, load_schema("opening_validation_report")["$defs"]["observation"])
+    refs.extend(_verify_refs(root, observed))
     for key in ("method", "reviewer", "shot_id", "evidence_interval_seconds"):
         _require(observed.get(key) == check[key], f"Observation {key} mismatch")
     _require(observed.get("scope") == report["scope"], "Observation scope mismatch")
@@ -155,22 +189,48 @@ def _observe(root: Path, check: Mapping, shot: Mapping, report: Mapping) -> tupl
     interval = observed["evidence_interval_seconds"]
     _interval(interval, shot["interval_seconds"])
     expected = shot["motion"]
-    _require(interval[0] <= expected["interval_seconds"][0] and interval[1] >= expected["interval_seconds"][1],
-             "Observation does not cover required action interval")
     framing = observed.get("framing", {})
     constraint = shot["framing"]
-    framing_keys = {"fit", "output_aspect_ratio", "visible_parts", "clipped_parts", "subject_within_safe_area"}
+    evidence = observed.get("evidence", {})
+    frames, segments = evidence.get("frames", []), evidence.get("segments", [])
+    if not frames and not segments:
+        return "not_run", ["frame_or_continuous_segment_evidence_required"]
+    for frame in frames:
+        _require(interval[0] <= frame["output_seconds"] <= interval[1]
+                 and frame["output_seconds"] < shot["interval_seconds"][1], "Frame evidence escapes half-open reviewed interval")
+    for segment in segments:
+        _interval(segment["output_interval_seconds"], interval)
+    framing_keys = {"fit", "output_aspect_ratio", "visible_parts", "clipped_parts", "subject_within_safe_area", "subject_box", "action_box"}
     if not framing_keys <= framing.keys():
         return "not_run", ["framing_observation_incomplete"]
     visible, clipped = framing["visible_parts"], framing["clipped_parts"]
     _require(isinstance(visible, list) and isinstance(clipped, list), "Invalid observed parts")
     frame_ok = (framing["fit"] == constraint["fit"] and framing["output_aspect_ratio"] == constraint["output_aspect_ratio"]
-                and framing["subject_within_safe_area"] is True and set(constraint["critical_parts"]) <= set(visible)
+                and framing["subject_within_safe_area"] is True
+                and all(_inside_box(framing[key], constraint["action_safe_box"]) for key in ("subject_box", "action_box"))
+                and set(constraint["critical_parts"]) <= set(visible)
                 and not set(constraint["critical_parts"]) & set(clipped))
     if not frame_ok:
         return "fail", ["required_action_or_product_parts_not_visible"]
     if check["id"] == "opening_framing":
         return "pass", []
+    actual = observed.get("actual_action")
+    if not actual:
+        return "not_run", ["actual_action_timing_required"]
+    mapping = shot["source_mapping"]
+    selected, output = mapping["source_interval_seconds"], mapping["output_interval_seconds"]
+    source_action, output_action = actual["source_interval_seconds"], actual["output_interval_seconds"]
+    _interval(source_action, selected)
+    _interval(output_action, output)
+    _interval(output_action, interval)
+    mapped = [output[0] + (point - selected[0]) / mapping["playback_rate"] for point in source_action]
+    _require(all(abs(left - right) <= 1e-6 for left, right in zip(mapped, output_action)),
+             "Actual action source/output timing does not follow selection and playback rate")
+    _require(output_action[0] <= expected["interval_seconds"][0] and output_action[1] >= expected["interval_seconds"][1],
+             "Actual action does not cover planned key interval")
+    if not any(segment["output_interval_seconds"][0] <= output_action[0]
+               and segment["output_interval_seconds"][1] >= output_action[1] for segment in segments):
+        return "not_run", ["continuous_evidence_of_whole_action_required"]
     motion = observed.get("motion", {})
     keys = {"subject", "verb", "start_state", "end_state", "visible_result", "subject_motion",
             "still_image_transform", "camera_only", "background_only", "forbidden_changes"}
@@ -238,17 +298,25 @@ def evaluate_opening_checks(root: Path, record: Mapping) -> dict[str, dict]:
         output = results("not_run", refs)
         for name in OPENING_CHECKS:
             rows = {check["shot_id"]: check for check in report["checks"] if check["id"] == name}
-            states, issues = [], []
+            states, issues, observations = [], [], []
             for shot_id, shot in shots.items():
+                if name == "opening_motion" and not shot["motion"]["motion_required"]:
+                    observations.append({**rows.get(shot_id, {}), "shot_id": shot_id, "evaluated_status": "pass",
+                                         "basis": "motion_not_required", "reason": shot["motion"]["exemption_reason"]})
+                    continue
                 if shot_id not in rows:
                     states.append("not_run")
                     issues.append("shot_observation_missing")
                     continue
-                status, row_issues = _observe(root, rows[shot_id], shot, report)
+                status, row_issues = _observe(root, rows[shot_id], shot, report, refs)
+                observations.append({**rows[shot_id], "evaluated_status": status})
                 states.append(status)
                 issues.extend(row_issues)
-            output[name]["status"] = next(value for value in ("error", "fail", "not_run", "pass") if value in states)
+            output[name]["status"] = next((value for value in ("error", "fail", "not_run", "pass") if value in states), "pass")
             output[name]["issues"] = sorted(set(issues))
+            output[name]["observations"] = observations
+        for check in output.values():
+            check["evidence_refs"] = sorted(set(refs))
         return output
     except (ValidationError, ValueError, OSError, KeyError, TypeError) as exc:
         return results("error", issues=[str(exc).splitlines()[0]])

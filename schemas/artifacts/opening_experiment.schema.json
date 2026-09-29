@@ -208,6 +208,12 @@
         },
         "additionalProperties": false
       }
+    },
+    "motion_requirement": {
+      "enum": [
+        "subject_motion_required",
+        "optional"
+      ]
     }
   },
   "additionalProperties": false

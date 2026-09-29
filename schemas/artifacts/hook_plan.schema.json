@@ -118,7 +118,8 @@
         "promise_fulfillment",
         "beats",
         "voice_keywords",
-        "shots"
+        "shots",
+        "motion_policy"
       ],
       "properties": {
         "version": {
@@ -399,7 +400,8 @@
               "interval_seconds",
               "asset_identity",
               "motion",
-              "framing"
+              "framing",
+              "source_mapping"
             ],
             "properties": {
               "shot_id": {
@@ -422,7 +424,7 @@
                   "sku",
                   "source",
                   "reference_images",
-                  "model_task"
+                  "kind"
                 ],
                 "properties": {
                   "sku": {
@@ -451,7 +453,7 @@
                   },
                   "reference_images": {
                     "type": "array",
-                    "minItems": 1,
+                    "minItems": 0,
                     "items": {
                       "type": "object",
                       "required": [
@@ -497,9 +499,81 @@
                       }
                     },
                     "additionalProperties": false
+                  },
+                  "kind": {
+                    "enum": [
+                      "generated",
+                      "real",
+                      "imported"
+                    ]
+                  },
+                  "origin": {
+                    "type": "object",
+                    "properties": {
+                      "description": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "\\S"
+                      },
+                      "ref": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "\\S"
+                          },
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "sha256"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "description",
+                      "ref"
+                    ],
+                    "additionalProperties": false
                   }
                 },
-                "additionalProperties": false
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "kind": {
+                          "const": "generated"
+                        }
+                      }
+                    },
+                    "then": {
+                      "required": [
+                        "model_task"
+                      ],
+                      "properties": {
+                        "reference_images": {
+                          "minItems": 1
+                        }
+                      }
+                    },
+                    "else": {
+                      "required": [
+                        "origin"
+                      ],
+                      "not": {
+                        "required": [
+                          "model_task"
+                        ]
+                      }
+                    }
+                  }
+                ]
               },
               "motion": {
                 "type": "object",
@@ -510,7 +584,8 @@
                   "end_state",
                   "visible_result",
                   "interval_seconds",
-                  "forbidden_changes"
+                  "forbidden_changes",
+                  "motion_required"
                 ],
                 "properties": {
                   "subject": {
@@ -555,9 +630,33 @@
                       "minLength": 1,
                       "pattern": "\\S"
                     }
+                  },
+                  "motion_required": {
+                    "type": "boolean"
+                  },
+                  "exemption_reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "\\S"
                   }
                 },
-                "additionalProperties": false
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "motion_required": {
+                          "const": false
+                        }
+                      }
+                    },
+                    "then": {
+                      "required": [
+                        "exemption_reason"
+                      ]
+                    }
+                  }
+                ]
               },
               "framing": {
                 "type": "object",
@@ -604,10 +703,69 @@
                   }
                 },
                 "additionalProperties": false
+              },
+              "source_mapping": {
+                "type": "object",
+                "properties": {
+                  "source_interval_seconds": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "source_duration_seconds": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "playback_rate": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "output_interval_seconds": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  }
+                },
+                "required": [
+                  "source_interval_seconds",
+                  "source_duration_seconds",
+                  "playback_rate",
+                  "output_interval_seconds"
+                ],
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
           }
+        },
+        "motion_policy": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "enum": [
+                "subject_motion_required",
+                "optional"
+              ]
+            },
+            "rationale": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            }
+          },
+          "required": [
+            "mode",
+            "rationale"
+          ],
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
