@@ -532,15 +532,22 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
     # 差异度矩阵：从每个候选的 candidate_variant_plan 计算 pairwise 差异（eligible 集由此派生）。
     from lib.candidate_diversity import compare_candidate_pair
     variant_plans: dict[str, dict[str, Any]] = {}
+    candidate_ids = [str(c.get("candidate_id") or "") for c in candidates]
+    project_ids = [str(c.get("project_id") or c.get("candidate_id") or "") for c in candidates]
     for candidate in candidates:
         candidate_id = str(candidate.get("candidate_id") or "")
+        if (not candidate_id or candidate_ids.count(candidate_id) != 1
+                or project_ids.count(str(candidate.get("project_id") or candidate_id)) != 1):
+            continue
         candidate_dir = _safe_child_dir(child_root, str(candidate.get("project_id") or candidate_id))
         if candidate_dir is None:
             continue
         plan_path = candidate_dir / "artifacts" / "candidate_variant_plan.json"
         if plan_path.exists():
             try:
-                variant_plans[candidate_id] = json.loads(plan_path.read_text(encoding="utf-8"))
+                plan = json.loads(plan_path.read_text(encoding="utf-8"))
+                if isinstance(plan, dict) and str(plan.get("candidate_id") or "") == candidate_id:
+                    variant_plans[candidate_id] = plan
             except (OSError, json.JSONDecodeError):
                 pass
     from lib.opening_batch_context import resolve_opening_context, compare_batch_pairs

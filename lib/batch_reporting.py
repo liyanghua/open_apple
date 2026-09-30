@@ -208,10 +208,15 @@ def _collect_source_refs(batch_dir: Path, candidates: list[dict[str, Any]]) -> t
 
 def _load_variant_plans(batch_dir: Path, candidates: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     plans: dict[str, dict[str, Any]] = {}
+    candidate_ids = [str(c.get("candidate_id") or "") for c in candidates]
+    project_ids = [str(c.get("project_id") or c.get("candidate_id") or "") for c in candidates]
     for candidate in candidates:
         candidate_id = str(candidate.get("candidate_id") or "")
+        if (not candidate_id or candidate_ids.count(candidate_id) != 1
+                or project_ids.count(str(candidate.get("project_id") or candidate_id)) != 1):
+            continue
         plan = _read_json(_child_dir(batch_dir, candidate) / "artifacts" / "candidate_variant_plan.json")
-        if isinstance(plan, dict):
+        if isinstance(plan, dict) and str(plan.get("candidate_id") or "") == candidate_id:
             plans[candidate_id] = plan
     return plans
 
@@ -361,6 +366,16 @@ def build_batch_quality_report(
     warnings: list[dict[str, Any]] = []
     if differentiation_error:
         warnings.append({"code": "dedup_untrusted", "message": differentiation_error})
+    candidate_ids = [str(c.get("candidate_id") or "") for c in candidates]
+    project_ids = [str(c.get("project_id") or c.get("candidate_id") or "") for c in candidates]
+    for candidate in candidates:
+        candidate_id = str(candidate.get("candidate_id") or "")
+        plan = _read_json(_child_dir(batch_dir, candidate) / "artifacts" / "candidate_variant_plan.json")
+        if (isinstance(plan, dict) and candidate_id not in variant_plans
+                or candidate_ids.count(candidate_id) > 1
+                or project_ids.count(str(candidate.get("project_id") or candidate_id)) > 1):
+            warnings.append({"code": "variant_plan_identity_mismatch",
+                             "message": "候选差异计划身份与批次登记不一致", "candidate_id": candidate_id})
     quality_candidates: list[dict[str, Any]] = []
     for candidate in candidates:
         candidate_id = str(candidate.get("candidate_id") or "")

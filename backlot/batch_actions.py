@@ -187,38 +187,69 @@ def selection_quality_failures(
     diversity_mode = str(batch.get("diversity_mode") or "legacy_read_only")
     if diversity_mode == "legacy_read_only":
         return failures
+    members = [c for c in (batch.get("candidates") or []) if isinstance(c, Mapping)]
+    member_ids = [str(c.get("candidate_id") or "") for c in members]
+    project_ids = [str(c.get("project_id") or c.get("candidate_id") or "") for c in members]
+    if (not member_ids or any(not value for value in member_ids + project_ids)
+            or len(set(member_ids)) != len(member_ids)
+            or len(set(project_ids)) != len(project_ids)):
+        failures.append("批次候选身份重复或缺失，不可选入终稿")
+        return failures
+    candidate_id = str(candidate.get("candidate_id") or "")
+    by_id = {str(member["candidate_id"]): member for member in members}
+    trusted = by_id.get(candidate_id)
+    if trusted is None or str(candidate.get("project_id") or candidate_id) != str(trusted.get("project_id") or candidate_id):
+        failures.append("候选身份与批次登记不匹配")
+        return failures
+    child_root = batch_dir.parent if batch_dir is not None else child_dir.parent
+    trusted_dir = child_root / str(trusted.get("project_id") or candidate_id)
+    try:
+        trusted_dir = trusted_dir.resolve()
+        trusted_dir.relative_to(child_root.resolve())
+        if child_dir.resolve() != trusted_dir:
+            failures.append("候选目录身份与批次登记不匹配")
+            return failures
+    except (OSError, ValueError):
+        failures.append("候选目录身份与批次登记不匹配")
+        return failures
     variant_plan = _read("candidate_variant_plan")
     if isinstance(variant_plan, dict):
         from lib.candidate_diversity import compare_candidate_pair, selection_diversity_failures
+        if str(variant_plan.get("candidate_id") or "") != candidate_id:
+            failures.append("候选差异计划身份不匹配")
+            return failures
         siblings = []
-        for other in (batch.get("candidates") or []):
-            if not isinstance(other, Mapping) or other.get("candidate_id") == candidate.get("candidate_id"):
+        plans = {candidate_id: variant_plan}
+        for other in members:
+            other_candidate_id = str(other["candidate_id"])
+            if other_candidate_id == candidate_id:
                 continue
             other_id = str(other.get("project_id") or other.get("candidate_id") or "")
             other_plan = None
             try:
-                other_dir = (child_dir.parent / other_id).resolve()
-                other_dir.relative_to(child_dir.parent.resolve())
+                other_dir = (child_root / other_id).resolve()
+                other_dir.relative_to(child_root.resolve())
                 other_path = other_dir / "artifacts" / "candidate_variant_plan.json"
             except (ValueError, OSError):
-                other_path = child_dir.parent / "__invalid_candidate__" / "artifacts" / "candidate_variant_plan.json"
+                other_path = child_root / "__invalid_candidate__" / "artifacts" / "candidate_variant_plan.json"
             try:
                 other_plan = json.loads(other_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 pass
             if isinstance(other_plan, dict):
+                if str(other_plan.get("candidate_id") or "") != other_candidate_id:
+                    failures.append(f"候选 {other_candidate_id} 差异计划身份不匹配")
+                    return failures
                 siblings.append(other_plan)
+                plans[other_candidate_id] = other_plan
         from lib.opening_batch_context import resolve_opening_context, compare_batch_pairs
-        candidate_id = str(variant_plan.get("candidate_id") or "")
-        plans = {str(p.get("candidate_id")): p for p in [variant_plan, *siblings]}
-        by_id = {str(c.get("candidate_id")): c for c in batch.get("candidates", []) if isinstance(c, Mapping)}
         contexts = {}
         for cid in plans:
             member = by_id.get(cid, {})
-            other_dir = child_dir.parent / str(member.get("project_id") or cid)
+            other_dir = child_dir if cid == candidate_id else child_root / str(member.get("project_id") or cid)
             try:
                 other_dir = other_dir.resolve()
-                other_dir.relative_to(child_dir.parent.resolve())
+                other_dir.relative_to(child_root.resolve())
             except ValueError:
                 continue
             contexts[cid] = ((resolve_opening_context(batch_dir, cid, selected_child_dir=other_dir) if batch_dir else None)

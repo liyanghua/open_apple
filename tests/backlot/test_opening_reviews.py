@@ -345,6 +345,38 @@ def test_actual_batch_callers_propagate_verified_opening_context(tmp_path):
     assert report["pairwise_diversity"][0]["passes"]
     state = build_batch_review_data({"_project_dir":batch_root}, batch)
     assert state["diversity"]["pairwise"][0]["passes"]
+    assert any("目录身份" in f for f in selection_quality_failures(
+        batch, candidates[1], tmp_path / "B0", batch_dir=batch_root))
+    duplicate = {**candidates[1], "project_id":"H01"}
+    duplicated_batch = {**batch, "candidates":[*candidates, duplicate]}
+    assert any("重复" in f for f in selection_quality_failures(
+        duplicated_batch, candidates[1], tmp_path / "H01", batch_dir=batch_root))
+    _write(batch_root / "artifacts/candidate_batch.json", duplicated_batch)
+    duplicate_report = build_batch_quality_report(batch_root)
+    assert not duplicate_report["pairwise_diversity"]
+    assert any(w["code"] == "variant_plan_identity_mismatch" for w in duplicate_report["data_quality"]["warnings"])
+    duplicate_state = build_batch_review_data({"_project_dir":batch_root}, duplicated_batch)
+    assert "H01" in duplicate_state["diversity"]["plans_missing"]
+
+    # H02 cannot borrow H01's plan ID and the registered H01 media subject.
+    h02 = _child_with_review(tmp_path, "H02")
+    shutil.copyfile(tmp_path / "H01/artifacts/candidate_variant_plan.json",
+                    h02 / "artifacts/candidate_variant_plan.json")
+    aliased = {"candidate_id":"H02", "project_id":"H02", "status":"evaluated"}
+    aliased_batch = {**batch, "candidates":[*candidates, aliased]}
+    _write(batch_root / "artifacts/candidate_batch.json", aliased_batch)
+    assert any("身份不匹配" in f for f in selection_quality_failures(
+        aliased_batch, aliased, h02, batch_dir=batch_root))
+    assert any("身份不匹配" in f for f in selection_quality_failures(
+        aliased_batch, candidates[0], tmp_path / "B0", batch_dir=batch_root))
+    alias_report = build_batch_quality_report(batch_root)
+    assert not any(pair.get("passes") for pair in alias_report["pairwise_diversity"]
+                   if "H02" in (pair.get("candidate_a"), pair.get("candidate_b")))
+    assert any(w["candidate_id"] == "H02" and w["code"] == "variant_plan_identity_mismatch"
+               for w in alias_report["data_quality"]["warnings"])
+    alias_state = build_batch_review_data({"_project_dir":batch_root}, aliased_batch)
+    assert "H02" in alias_state["diversity"]["plans_missing"]
+    _write(batch_root / "artifacts/candidate_batch.json", batch)
 
     # Stale current props close the exception again even though the batch
     # registration and all canonical evidence remain untouched.
