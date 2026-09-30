@@ -241,7 +241,9 @@ class DeliveryVersionService:
         subject = review.get("production_subject") or {}
         if subject.get("record_path") != record_path:
             raise OperatorError.validation_failed("最终审核与单条生产记录不匹配")
-        service._validate_final_subject(subject, review["subject_hash"], review["subject_id"])
+        service._validate_production_subject(
+            subject, review["subject_hash"], review["subject_id"], kind="final_review"
+        )
         render = subject.get("render") or {}
         if (render.get("sha256") != manifest.get("video_master_sha256")
                 or render.get("path") != (manifest.get("video") or {}).get("path")):
