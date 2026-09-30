@@ -1274,7 +1274,9 @@ export function renderProductionReviews(container, payload, options = {}) {
   for (const {group, items} of groups.values()) {
     const section = node("section", "approval-detail-group");
     section.append(node("h3", "approval-detail-group-title", `${group.sku} · 同源开头比较 · ${group.experiment_id}`));
-    section.append(node("p", "approval-muted", "B0 基线与已登记候选；预览反馈另行保存，不计入独立合格作品。"));
+    section.append(node("p", "approval-muted", group.baseline_record_path === null
+      ? "正式基线尚未建立；当前仅登记开场预览，反馈不计入独立合格作品。"
+      : "B0 基线与已登记候选；预览反馈另行保存，不计入独立合格作品。"));
     for (const item of items) {
       const button = node("button", "quiet-button", `${item.opening_group.candidate_id} · ${item.opening_group.role === 'baseline' ? '基线' : '候选'} · ${item.review_status || '待反馈'}`);
       button.type = "button";
