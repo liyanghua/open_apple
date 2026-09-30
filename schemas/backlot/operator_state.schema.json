@@ -4140,7 +4140,7 @@
                   "additionalProperties": false
                 },
                 "baseline_record_path": {
-                  "type": "string",
+                  "type": ["string", "null"],
                   "minLength": 1
                 },
                 "shots": {
