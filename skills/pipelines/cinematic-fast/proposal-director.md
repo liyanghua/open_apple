@@ -32,7 +32,7 @@ for the next Agent run, not a silent edit to the contract.
 
 ## hook_plan (P1-1)
 
-Produce `hook_plan` (schema `schemas/artifacts/hook_plan.schema.json`, builder `lib/hook_plan.py`) and reference it from `creative_control_plan.hook_plan_ref`. It records the first 1-1.5s visual, first audible information, the promise, the real evidence backing it, the hook pattern and the differences from sibling candidate directions — in natural language, no internal JSON paths.
+Produce `hook_plan` (schema `schemas/artifacts/hook_plan.schema.json`, builder `lib/hook_plan.py`) and reference it from `creative_control_plan.hook_plan_ref`. The normal fastline contract records the first 1–1.5 seconds. An explicitly approved opening experiment uses v2: exactly three seconds, with source status, purchase question, timed visual/audio beats, planned subject action, framing and later promise fulfillment. The source reference points to immutable `voice_source_register` evidence when it is a document excerpt; keep verification gaps pending. The agent chooses the question and actions, while schema and later QA bind identities, hashes and actual observations. An opening package is audiovisual, not copy alone or a static-image pan. Do not promote planning candidates to approved works or assign old approvals to new render hashes.
 
 ## product_fact_card (产品事实卡)
 

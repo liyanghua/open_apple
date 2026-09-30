@@ -108,8 +108,17 @@ def validate_opening_semantics(name: str, data: Mapping) -> None:
             _require(output == shot["interval_seconds"], "Mapping output must equal the shot interval")
             _require(abs((selected[1] - selected[0]) / mapping["playback_rate"] - (output[1] - output[0])) <= 1e-6,
                      "Source selection and playback rate do not match output duration")
+    elif name == "voice_source_register":
+        ids = [record["source_id"] for record in data["records"]]
+        _require(len(ids) == len(set(ids)), "Duplicate voice source identity")
+        for record in data["records"]:
+            _require(record["document_sha256"] == data["source_document_sha256"], "Voice source document hash mismatch")
+            _require(record["platform_url"] is None and record["platform_record_id"] is None and record["collected_at"] is None,
+                     "Unverified excerpt cannot claim platform identity or capture")
     elif name == "opening_experiment":
         for key in ("master_ref", "baseline_ref", "facts_ref"):
+            if key not in data:
+                continue
             _require(data[key]["sku"] == data["sku"], f"{key} SKU mismatch")
         ids = [candidate["candidate_id"] for candidate in data["candidates"]]
         _require(len(ids) == len(set(ids)), "Duplicate candidate identity")
@@ -155,6 +164,24 @@ def _verify_ref(root: Path, ref: Mapping) -> str:
 def _verify_refs(root: Path, value: Mapping) -> list[str]:
     return [_verify_ref(root, item) for item in _walk(value)
             if isinstance(item, Mapping) and "path" in item and "sha256" in item]
+
+
+def _verify_source_row(root: Path, plan: Mapping) -> None:
+    source = plan.get("source") or {}
+    row_id = source.get("record_id")
+    if not row_id:
+        return
+    from schemas.artifacts import validate_artifact
+    key = "parent_ref" if source.get("kind") == "problem_rewrite" else "ref"
+    source_ref = source.get(key)
+    _require(isinstance(source_ref, Mapping), "Registered source row needs immutable evidence ref")
+    register = read_object(root, _verify_ref(root, source_ref))
+    validate_artifact("voice_source_register", register)
+    row = next((item for item in register["records"] if item["source_id"] == row_id), None)
+    _require(row is not None, "Registered source row missing")
+    _require(row["verification_status"] == source["verification_status"], "Hook source verification differs from register")
+    if source.get("kind") == "document_excerpt":
+        _require(source.get("excerpt") == row["excerpt"], "Hook excerpt differs from registered row")
 
 
 def _identified_observer(check: Mapping) -> bool:
@@ -270,6 +297,7 @@ def evaluate_opening_checks(root: Path, record: Mapping) -> dict[str, dict]:
         refs = _verify_refs(root, opening)
         plan = read_object(root, opening["hook_plan_ref"]["path"])
         validate_artifact("hook_plan", plan)
+        _verify_source_row(root, plan)
         _require(plan.get("version") == "2.0", "Opening record requires v2 plan")
         experiment = read_object(root, opening["experiment_ref"]["path"])
         validate_artifact("opening_experiment", experiment)
@@ -278,7 +306,9 @@ def evaluate_opening_checks(root: Path, record: Mapping) -> dict[str, dict]:
         _require(candidates.get(opening["candidate_id"]) == opening["hook_plan_ref"], "Candidate plan lock mismatch")
         plans = {key: read_object(root, ref["path"]) for key, ref in candidates.items()}
         validate_opening_experiment(experiment, hook_plans=plans,
-                                    baseline=read_object(root, experiment["baseline_ref"]["path"]))
+                                    baseline=read_object(root, experiment["baseline_ref"]["path"]) if experiment.get("baseline_ref") else None)
+        if experiment.get("status") == "planning":
+            return results("not_run", refs, ["baseline_and_body_freeze_pending"])
         for key in ("master_ref", "facts_ref"):
             _require(read_object(root, experiment[key]["path"]).get("sku") == experiment["sku"], f"Actual {key} SKU mismatch")
         _require(record.get("sku") == plan["sku"] == experiment["sku"], "Record SKU mismatch")
@@ -326,17 +356,21 @@ def evaluate_opening_checks(root: Path, record: Mapping) -> dict[str, dict]:
         return results("error", issues=[str(exc).splitlines()[0]])
 
 
-def verify_opening_experiment_files(root: Path, experiment_ref: Mapping) -> tuple[dict, list[str]]:
+def verify_opening_experiment_files(root: Path, experiment_ref: Mapping, *, allow_planning: bool = False) -> tuple[dict, list[str]]:
     """Revalidate preregistration and every declared file dependency."""
     from schemas.artifacts import validate_artifact
     refs = [_verify_ref(root, experiment_ref)]
     experiment = read_object(root, experiment_ref["path"])
     validate_artifact("opening_experiment", experiment)
+    _require(allow_planning or experiment.get("status") != "planning", "Planning experiment has no frozen body or baseline")
     refs += _verify_refs(root, experiment)
     plans = {row["candidate_id"]: read_object(root, row["hook_plan_ref"]["path"]) for row in experiment["candidates"]}
-    validate_opening_experiment(experiment, hook_plans=plans, baseline=read_object(root, experiment["baseline_ref"]["path"]))
+    validate_opening_experiment(experiment, hook_plans=plans, baseline=read_object(root, experiment["baseline_ref"]["path"]) if experiment.get("baseline_ref") else None)
     for key in ("master_ref", "facts_ref", "baseline_ref"):
+        if key not in experiment:
+            continue
         _require(read_object(root, experiment[key]["path"]).get("sku") == experiment["sku"], f"Actual {key} SKU mismatch")
     for plan in plans.values():
+        _verify_source_row(root, plan)
         refs += _verify_refs(root, plan)
     return experiment, sorted(set(refs))

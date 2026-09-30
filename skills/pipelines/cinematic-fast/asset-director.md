@@ -33,7 +33,8 @@ a product identity, specification, or functional result.
 - 参考 `overlay_text`/`dialogue` 仅 `analysis_only`，绝不进入最终字幕/台词。
 
 When `generate` is viable, read `.agents/skills/ai-video-gen/SKILL.md` and
-`.agents/skills/seedance-2-0/SKILL.md` before writing the proposal. Lock the
+the Layer 3 skill referenced by the selected tool (`seedance-2-5` for approved
+Ark 2.5, `seedance-2-0` for 2.0) before writing the proposal. Lock the
 operation, prompt, duration, aspect ratio, owned reference paths, identity and
 continuity constraints, prohibitions, Fast/Standard estimates, and evidence
 risk in `generation_proposals`. Never put `inputs/reference` media in those
@@ -59,7 +60,15 @@ Use these type-specific checks before proposing a generated motion asset:
 When a Seedance or other video-generation provider is proposed, create a
 `motion_generation_task` record before dispatch. The task must carry the
 approved reference asset, fact snapshot, prompt version, 3–5 second duration,
-provider/model and attempt number. A failed or unknown remote result must be
+provider/model and attempt number. The 3–5-second general motion-task range
+does not set the three-second opening output: the Ark 2.5 opening source is
+requested at four seconds and formally composed into a three-second preview.
+Explicitly pin both model ID and variant, `generate_audio=false` when separate
+TTS/SUNO is approved, and call the registered tool's `dry_run(inputs)` before
+payment. Bind reference hashes, task ID, actual parameters, reservation and
+existing ledger entry. Reuse requires matching task/model/reference/source
+identity. A known task ID is queried first; uncertain POST outcome is never
+blindly resubmitted. A failed or unknown remote result must be
 classified (`identity_drift`, `incomplete_action`, `provider_error`, etc.) and
 enter `reconcile_required` before retry. An asset cannot enter the approved
 pool without identity and action scores.

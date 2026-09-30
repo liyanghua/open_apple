@@ -54,6 +54,14 @@ cannot close every section to accepted evidence must fail closed.
 
 ## beat map（结构硬规则，禁止卖点清单）
 
+For a v2 three-second opening, write the chain **source → purchase question →
+visible action/result → later body payoff**. The source may be a pending
+document excerpt or a labeled creative hypothesis, never an invented original
+quote. Map spoken words and captions against actual TTS timing. If a word
+crosses the three-second boundary, repair its phrasing or timing before B0
+freeze; do not cut the word. The full slogan and a measured speech tail of at
+least 0.4 seconds belong to the full variant, not the three-second preview.
+
 Read `skills/meta/reference-critic.md` + the `creative_control_plan`'s
 `reference_critique`. Do NOT write a selling-point list (铺开→贴合→防刮→防油→结果).
 Build a beat map instead, and tag every section with `beat_role` (one of

@@ -255,6 +255,14 @@ class ReviewService:
     def _create_production_review(self, *, record_path: str, submitted_by: str, kind: str) -> dict[str, Any]:
         """Register a concrete production, without filling historical checkpoints."""
         from lib.production_evidence import build_production_subject, production_subject_hash
+        from lib.opening_review_scope import opening_review_scope
+        from lib.production_evidence import read_object
+        from jsonschema import ValidationError
+
+        try:
+            opening_review_scope(self.project_dir, read_object(self.project_dir, record_path))
+        except (ValueError, OSError, KeyError, TypeError, ValidationError) as exc:
+            raise OperatorError.validation_failed("开场制作记录或登记不符合要求") from exc
 
         try:
             subject = build_production_subject(self.project_dir, record_path)

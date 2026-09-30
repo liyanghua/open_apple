@@ -91,6 +91,29 @@ QA; run the normal `final_qa` and specified human final review on the resulting
 file and bind their evidence to its dependencies. A legacy font appearance
 does not certify Microsoft YaHei and cannot unlock strict batch production.
 
+For a three-second opening preview set explicit `scope=preview`; a finished
+body variant uses `scope=full_variant` and a fresh exact render/hash QA chain.
+Use one external mixed audio track bound by hash and omit component audio props.
+The preview mix's fade at three seconds cannot be concatenated into the full
+film: rebuild from original raw TTS/BGM/body and preserve continuous body PCM
+across the boundary. Run independent ASR on the actual final audio. Prepare and
+review an actual B0 full film before declaring the body frozen; candidate
+variants inherit only a valid frozen body, never preview approval. A body
+change starts a new baseline/experiment/approval. Keep unsupported sample or
+range adapters blocked rather than bypassing the formal route.
+
+Use `lib.opening_freeze.create_pending_freeze_descriptor` only for prepared B0
+and `create_freeze_descriptor`/`verify_frozen_body` after a bound B0 full-film
+review; `verify_opening_join` checks the actual encoded boundary. A planning
+experiment without `frozen_body_ref` and `budget_ref` cannot authorize a full
+variant or result comparison. The existing `opening_experiment` registration
+must bind each new candidate to the body/approval hashes; changing the body
+starts a new group. For later measured outcomes use the canonical
+`experiment_result` import at `/projects/{project_id}/opening-results` and
+`lib.opening_results.comparison_reasons` to check group, scope, duration and
+window compatibility before drawing a comparison. An imported result is not
+itself a winner decision.
+
 ## Remotion Render Payload Contract (templated / Explainer)
 
 The canonical `edit_decisions` artifact is schema-strict and must NOT be

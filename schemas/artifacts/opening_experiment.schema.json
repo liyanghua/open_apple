@@ -7,15 +7,19 @@
     "experiment_id",
     "sku",
     "window_seconds",
-    "master_ref",
-    "baseline_ref",
     "facts_ref",
     "brand_ref",
-    "frozen_body_ref",
-    "budget_ref",
     "candidates"
   ],
+  "allOf": [{
+    "if": {"properties": {"status": {"const": "planning"}}, "required": ["status"]},
+    "then": {
+      "not": {"anyOf": [{"required": ["frozen_body_ref"]}, {"required": ["budget_ref"]}]}
+    },
+    "else": {"required": ["master_ref", "baseline_ref", "frozen_body_ref", "budget_ref"]}
+  }],
   "properties": {
+    "status": {"const": "planning"},
     "version": {
       "const": "2.0"
     },

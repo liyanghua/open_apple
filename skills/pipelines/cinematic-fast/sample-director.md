@@ -6,15 +6,48 @@ There is no same-named base director. Before acting, read the complete
 `skills/meta/fastline.md`. After the creative bundle is approved, materialize
 or generate approved TTS/BGM/subtitle/proxy assets, compile `final_props` and
 `render_plan`, render a 10-15 second sample through `video_compose`, and run
-quick `final_qa`. Also build `sample_execution_trace` from the approved
+quick `final_qa`. For a separately approved v2 opening experiment, the sample
+scope is a formal three-second ProductionBrand preview (90 frames at 30 fps),
+not this general 10–15-second sample. The four-second generated source is an
+input, not the preview duration. Also build `sample_execution_trace` from the approved
 `shot_execution_plan` and realized `final_props`, showing which locked shots
 are included, partial, new, or outside the sample window. Pause for sample
-approval; approval covers both the sample video and this execution trace. Do
+approval; approval covers only that sample video hash and this execution trace. Do
 not advance to edit or final compose before that approval. The operator must
 also complete the five effect checks: creative direction, hook, proof clarity,
 pacing/cuts, and caption/visual readability. Only five ``pass`` decisions may
 advance the pipeline; ``adjust`` routes to edit and ``redirect`` reopens the
 creative direction gate.
+
+Opening QA records raw pass/fail/not_run/error and predetermined scoped N/A,
+actual DOM geometry, independent final-audio ASR, source/mix/render hashes and
+cost status. An agent contact sheet or optical-flow observation is not a
+semantic pass. A valid judge execution and an approved rubric decision are
+separate; retain invalid/failed paid usage and allow at most one format repair
+for malformed JSON. Creative retries remain within the existing two-extra
+attempt limit. Missing cost is unknown, never zero. A preview approval does
+not approve a full variant or an original-300 work.
+
+Keep the generic `technical_validator` stage scope (`sample` or `final`) apart
+from the opening production-record scope (`preview` or `full_variant`). The
+opening quality projector in `lib.production_quality.collect_production_quality`
+requires a current render-bound technical measurement with the matching
+opening scope; a generic sample report cannot be relabeled. Preview-only
+checks such as full slogan/tail and frozen body get the predetermined N/A rule
+from `lib.opening_quality_scope.quality_applicability`, while decode, font,
+source and product checks remain applicable. A historical engineering probe
+with a different scope is retained as raw evidence, not promoted to current
+technical pass.
+
+Use `lib.production_measurements.produce_narration_evidence` to compare
+independent ASR from the actual media against canonical words/captions. Keep
+the raw transcript and runtime warnings. Traditional/Simplified output such as
+“買/买” is an unresolved mismatch until reviewed; never silently transliterate
+it into an automatic pass. Eligible narration-content manual verification
+requires an identified reviewer, time, exact render hash, QA report hash and
+evidence refs through the existing `manual_verifications_ref` contract.
+`caption_alignment`, `fact_source` and `product_identity` are not waived by
+that path; repair or obtain their required independent evidence.
 
 ## evaluation_report (sample scope) — L1a contract
 

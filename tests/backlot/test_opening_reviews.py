@@ -67,6 +67,76 @@ def test_opening_review_requires_complete_production_record_schema(tmp_path):
     assert card["review"] is None
 
 
+def test_preview_props_cannot_be_downgraded_by_omitting_record_opening(tmp_path):
+    from lib.artifact_hashing import attach_hashes
+    from lib.opening_quality_scope import quality_applicability
+    from schemas.artifacts import validate_artifact
+
+    record, _ = preview_project(tmp_path)
+    props = attach_hashes({
+        "version": "1.0", "project_id": tmp_path.name, "created_at": "2026-09-30T00:00:00Z",
+        "producer": "synthetic_fixture", "input_hashes": {}, "compositionId": "ProductionBrand",
+        "fps": 30, "width": 1080, "height": 1920, "durationInFrames": 90,
+        "footage": {"hook": "source.mp4"},
+        "scenes": [{"id": "hook", "assetId": "source", "footageKey": "hook",
+                    "fromFrame": 0, "toFrameExclusive": 90, "durationInFrames": 90,
+                    "sourceInSeconds": 0, "sourceOutSeconds": 3}],
+        "captions": [], "opening": {"scope": "preview", "endFrameExclusive": 90, "transitionFrames": 5},
+        "finalMix": {"path": "mix.wav", "sha256": "a" * 64, "mode": "external_mux"},
+    })
+    validate_artifact("final_props", props)
+    write(tmp_path, "artifacts/final_props.json", props)
+    record["canonical_artifacts"]["final_props"] = "artifacts/final_props.json"
+    record.pop("opening")
+    validate_artifact("production_record", record)
+    write(tmp_path, "record.json", record)
+
+    assert quality_applicability(tmp_path, record)[0] == "invalid"
+    with pytest.raises(OperatorError):
+        ReviewService(tmp_path).create_production_review(record_path="record.json", submitted_by="pipeline")
+    with pytest.raises(OperatorError):
+        ReviewService(tmp_path).create_final_review(record_path="record.json", submitted_by="pipeline")
+
+
+def test_malformed_canonical_opening_scope_is_invalid(tmp_path):
+    from lib.opening_quality_scope import quality_applicability
+
+    record, _ = preview_project(tmp_path)
+    write(tmp_path, "artifacts/final_props.json", {"opening": "preview"})
+    record["canonical_artifacts"]["final_props"] = "artifacts/final_props.json"
+    assert quality_applicability(tmp_path, record)[0] == "invalid"
+    write(tmp_path, "record.json", record)
+    with pytest.raises(OperatorError):
+        ReviewService(tmp_path).create_production_review(record_path="record.json", submitted_by="pipeline")
+
+
+@pytest.mark.parametrize("change", ["wrong_source", "wrong_interval"])
+def test_registered_opening_rejects_props_source_or_interval_drift(tmp_path, change):
+    from lib.opening_review_scope import opening_review_scope
+    from tests.lib.test_opening_freeze import scoped_registered_group
+
+    scoped_registered_group(tmp_path, "A01")
+    root = tmp_path / "A01"
+    record = json.loads((root / "record.json").read_text())
+    props_path = root / record["canonical_artifacts"]["final_props"]
+    props = json.loads(props_path.read_text())
+    assert opening_review_scope(root, record)["scope"] == "full_variant"
+    if change == "wrong_source":
+        (root / "public/wrong-source.mp4").write_bytes(b"different opening source")
+        props["footage"]["hook"] = "wrong-source.mp4"
+    else:
+        props["scenes"][0]["sourceInSeconds"] = 0.25
+        props["scenes"][0]["sourceOutSeconds"] = 3.25
+    from lib.artifact_hashing import attach_hashes
+    write(root, record["canonical_artifacts"]["final_props"], attach_hashes(props))
+    with pytest.raises(ValueError, match="registered hook plan"):
+        opening_review_scope(root, record)
+    from lib.opening_quality_scope import quality_applicability
+    assert quality_applicability(root, record)[0] == "invalid"
+    with pytest.raises(OperatorError):
+        ReviewService(root).create_final_review(record_path="record.json", submitted_by="pipeline")
+
+
 def test_final_opening_review_rejects_invalid_production_record_metadata(tmp_path):
     from tests.lib.test_opening_freeze import scoped_registered_group
     scoped_registered_group(tmp_path, "A01")

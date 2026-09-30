@@ -1,0 +1,20 @@
+---
+name: seedance-2-5
+description: Use when an approved production uses Seedance 2.5 through the Ark seedance_ark tool, especially for short product motion or recovery of a known task.
+---
+
+# Seedance 2.5 through Ark
+
+Read the selected pipeline stage director and the `seedance_ark` registry contract before preparing a paid call. Pin **both** `model: "doubao-seedance-2-5-260628"` and `model_variant: "2.5"`; environment model overrides can otherwise select 2.0. Announce the exact model, provider, operation, and whether the call is a sample or batch. A provider or model change needs the production decision process, never an implicit fallback.
+
+For a three-second opening preview, request a **4-second** source from Ark (`duration: 4`), then inspect the actual returned file and select a grounded three-second action interval for the formal ProductionBrand render. The adapter accepts integer durations 4–30 seconds or `-1`; the physical file may contain extra frames (for example 97 frames at 24 fps = 4.041667 seconds). Do not infer the source frame rate or dimensions from the request. Do not use the general 10–15-second sample rule for this specific preview.
+
+Set `generate_audio: false` when the approved path uses separately generated Doubao TTS and SUNO music. Probe and record source duration, frame rate, dimensions, reference image hash, and selected interval. A square 960×960 source remains square: plan visible containment or crop into the 9:16 composition, and preserve the product and action region. Background or camera movement alone does not establish product motion. The full variant uses a newly built continuous audio mix and its own final review; a faded three-second preview mix is not a full-film audio source.
+
+Check operation and media support before payment. `image_to_video` takes exactly one first-frame image and optional last frame. `reference_to_video` accepts up to 30 images and up to 10 remote video references; local video paths are unsupported. Seedance 2.5 is limited by this adapter to 480p or 720p; verify the requested ratio, resolution, and resolved model using the registered tool's `dry_run(inputs)` before execution. Record the actual reference file hashes and task/model identity for reuse. These adapter limits are local validation rules, not a creative recommendation.
+
+For a known task ID after timeout or session loss, query it first with `{"task_action":"query","task_id":"<known-id>"}` through the registered `seedance_ark` tool. Query is GET-only and returns task/usage status; it does not download output or create a new task. Match returned model, task ID, source reference hashes, and prior attempt before adopting the media or accounting. Never blindly resubmit a POST. If a submitted task has no known ID, resolve that uncertainty from the existing journal/provider account before any retry.
+
+If the succeeded task's media is missing locally, do not treat `query` as a download. The adapter downloads only on its completed `generate` path, which is safe for an existing task **only after** the persisted original journal/account, idempotency key, complete original request payload and output identity are matched; `generate` with merely a `task_id` can create a new paid task. If those original bindings are unavailable, keep the GET receipt and stop for recovery of the original attempt. When reconciling usage, pass the task's original bound `cost_log_path` and `reservation_id` through the adapter; `reconcile_task` records provider usage plus a catalog estimate while actual settled CNY remains unknown. A read-only recovery query with an isolated journal is evidence of remote status, not a new ledger entry or proof of local reference-image hashes.
+
+Quality evidence remains scoped to the actual rendered bytes. Record observations and semantic review separately from generated prompt intent; a successful Ark task is not proof that the requested physical action happened. Keep paid failed tasks and unknown costs visible in the existing ledger.

@@ -32,12 +32,33 @@ def baseline_preparation(root, record):
 
 def quality_applicability(root, record):
     scope = 'legacy'
+    artifacts = record.get('canonical_artifacts') or {}
+    props_path = artifacts.get('final_props') if isinstance(artifacts, Mapping) else None
+    try:
+        props = read_object(root, props_path) if props_path else {}
+    except (ValueError, OSError, TypeError):
+        props = {}
+    props_opening = props.get('opening') if isinstance(props, Mapping) else None
+    declared = record.get('opening') if isinstance(record.get('opening'), Mapping) else None
+    scope_mismatch = ((props_opening is not None and
+                       (not isinstance(props_opening, Mapping) or declared is None
+                        or declared.get('scope') != props_opening.get('scope')))
+                      or (declared is not None and props_opening is None and props_path is not None))
     if 'opening' in record:
         scope = record['opening'].get('scope') if isinstance(record.get('opening'), Mapping) else None
         if scope not in ('preview', 'full_variant'):
             scope = 'invalid'
         elif baseline_preparation(root, record):
             scope = 'baseline_preparation'
+    if scope_mismatch:
+        scope = 'invalid'
+    if scope in ('preview', 'full_variant', 'baseline_preparation') and props_path is not None:
+        try:
+            from lib.opening_experiment_evidence import _plan_sources_match
+            plan = read_object(root, record['opening']['hook_plan_ref']['path'])
+            _plan_sources_match(root, props, plan)
+        except (ValueError, OSError, KeyError, TypeError):
+            scope = 'invalid'
     names = REQUIRED_CHECKS + (OPENING_EXTRA if scope != 'legacy' else ())
     rules = {name: {'applies': True, 'required': True, 'reason': 'Required for the declared production scope.'} for name in names}
     if scope == 'preview':

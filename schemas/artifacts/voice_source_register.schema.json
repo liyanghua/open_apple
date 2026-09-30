@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Desensitized source excerpts for opening questions",
+  "type": "object",
+  "required": ["version", "source_document_sha256", "status", "records"],
+  "properties": {
+    "version": {"const": "1.0"},
+    "source_document_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "status": {"const": "platform_verification_pending"},
+    "records": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["source_id", "document_row", "excerpt", "source_kind", "verification_status", "document_sha256", "platform_label_in_document", "platform_url", "platform_record_id", "collected_at", "original_product_id", "deduplication_status", "source_gap", "deidentification", "public_testimonial_use", "can_support"],
+        "properties": {
+          "source_id": {"type": "string", "minLength": 1},
+          "document_row": {"type": "integer", "minimum": 1},
+          "excerpt": {"type": "string", "minLength": 1},
+          "source_kind": {"const": "document_excerpt"},
+          "verification_status": {"const": "pending"},
+          "document_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "platform_label_in_document": {"type": "string", "minLength": 1},
+          "platform_url": {"type": "null"},
+          "platform_record_id": {"type": "null"},
+          "collected_at": {"type": "null"},
+          "original_product_id": {"type": "null"},
+          "deduplication_status": {"const": "pending"},
+          "source_gap": {"type": "string", "minLength": 1},
+          "deidentification": {"type": "string", "minLength": 1},
+          "public_testimonial_use": {"const": "not_authorized"},
+          "can_support": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "additionalProperties": false
+}

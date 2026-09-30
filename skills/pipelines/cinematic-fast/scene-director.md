@@ -6,6 +6,15 @@ half-open in/out frames, safe caption zones, crop and speed decisions. Keep
 the scene plan deterministic and do not create an independent approval stop;
 the `creative_lock` bundle covers it at `assets`.
 
+For a v2 opening, map the complete [0, 3) window with half-open timed beats,
+the selected source interval and actual source probe. A requested 4-second Ark
+source can decode as 4.041667 seconds/97 frames at 24 fps; use observed cadence,
+not a claimed three-second source. A 960×960 source inside 1080×1920 output
+needs explicit contain/crop geometry and visible action-region evidence. Define
+the subject's start state, action and visible end state; camera/background
+motion does not fulfill product-motion intent. Plan the boundary transition in
+frames 85–89 so it is complete at frame 90, with continuous brand layers.
+
 Before mapping shots, require the canonical `script` artifact to have
 `status: approved`. Use each section's goal, pacing, visual intent, evidence
 requirements, and control-rule references as constraints. A draft or partially

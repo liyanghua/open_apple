@@ -23,10 +23,16 @@ def _content(root, props):
 
 
 def _plan_sources_match(root, props, plan):
+    def source_path(relative):
+        public = Path(root, "public", relative).resolve()
+        if public.is_file():
+            return project_file(root, "public/" + relative)
+        return project_file(root, relative)
+
     opening = [s for s in props["scenes"] if s["fromFrame"] < 90]
     _require(len(opening) == len(plan["shots"]), "Opening props and registered shots disagree")
     for scene, shot in zip(opening, plan["shots"]):
-        actual = file_sha256(project_file(root, "public/" + props["footage"][scene["footageKey"]]))
+        actual = file_sha256(source_path(props["footage"][scene["footageKey"]]))
         _require(actual == shot["asset_identity"]["source"]["sha256"], "Opening source differs from registered hook plan")
         mapping = shot["source_mapping"]
         _require(mapping["source_interval_seconds"] == [scene["sourceInSeconds"], scene["sourceOutSeconds"]]

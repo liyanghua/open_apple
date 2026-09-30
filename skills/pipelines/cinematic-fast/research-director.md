@@ -10,6 +10,17 @@ analysis template, and write the canonical `research_brief`,
 analysis-only and stop after the evidence checkpoint; no creative approval is
 needed here.
 
+For an opening experiment, register the source of each purchase question before
+turning it into copy. A desensitized `voice_source_register` entry binds the
+document hash, row ID, excerpt, original subject if known, platform URL/record
+ID if known, deduplication, privacy and verification gaps. A document excerpt
+without a checked platform identity stays `pending`; it may inspire a question
+but is not an authenticated buyer quote or product-performance proof. Keep a
+creative hypothesis explicitly distinct from source testimony.
+For a cited excerpt, carry the exact register `record_id` as well as its
+immutable artifact reference so another row in the same document cannot be
+substituted silently.
+
 The user-facing summary must use "分镜拆解", "参考片的拍法和节奏",
 "参考镜头 × 我的素材", "可选方向" and "研究检查结果". Keep raw
 observation separate from industry reminders and project decisions. Every

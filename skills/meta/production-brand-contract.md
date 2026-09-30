@@ -20,7 +20,7 @@ strict 默认 family=`Microsoft YaHei`。必须提供400与700各一份真实字
 
 ## 实际入口与 props
 
-实际可调用入口：`remotion-composer/src/brand/entry.tsx`，composition id `ProductionBrand`。既有 `Root.tsx` 无需修改。主线 atelier entry 也可直接导入 `ProductionBrandFilm` 或 `ProductionBrandComposition`，将真实 JSON props 传入；不得只复制写死的示例。
+实际组件入口：`remotion-composer/src/brand/entry.tsx`，composition id `ProductionBrand`。既有 `Root.tsx` 无需修改。主线 atelier entry 也可直接导入 `ProductionBrandFilm` 或 `ProductionBrandComposition`，将真实 JSON props 传入；不得只复制写死的示例。下方直接 CLI 只用于组件诊断；可审核的预览/正式片须走已批准的 `video_compose(operation="render")` 与真实 `render_plan`、输入哈希、QA、final review，不把诊断输出登记为正式交付。
 
 ```bash
 cd remotion-composer
@@ -39,6 +39,8 @@ JSON包含：
 - `recipe` 可选：当前叙事结构的明确节奏覆盖，不限制总时长。
 
 最后一句必须完整包含“PLAYBOY，让日常更有质感。”；最后测量词的 endMs 到片尾至少0.4秒。增加片尾与素材覆盖以满足尾音，不能裁掉句尾去追目标秒数。独立ASR/人工听审仍验证音频确实说了这句话；输入时间轴预检不等同于独立内容识别。
+
+三秒 opening preview 的 scope 明确为 `preview`，90帧/30fps；其来源可为实际请求4秒的Seedance 2.5素材，但须记录实际探针（例如24fps、97帧、4.041667秒）和960方图在竖屏中的 contain/crop/action-region。只要使用外部混音，绑定一条最终音轨的文件hash，组件 `audio` 留空。预览3秒淡出混音不能接到正式片；`full_variant` 从原始TTS/BGM/正文重建连续音轨，在3秒边界保留正文PCM。独立ASR对实际最终音轨运行；跨边界词须先修复，不能硬切。完整slogan和0.4秒尾音是正式片门槛，预览报告写预定的 scope N/A。
 
 每段字幕除文字拼接一致，还必须覆盖它对应的实测词时间区间，允许一帧的显示量化误差。字幕已消失而句尾仍在发音时不能通过；粗粒度词时间戳不足以支持更细的字幕分段时，先补充实测词边界，不按字数插值。输出 width、height、durationInFrames 必须为正整数。
 
