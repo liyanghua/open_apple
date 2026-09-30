@@ -107,6 +107,7 @@ def selection_quality_failures(
     batch: Mapping[str, Any],
     candidate: Mapping[str, Any],
     child_dir: Path,
+    *, batch_dir: Path | None = None,
 ) -> list[str]:
     """P1 质量门：候选可被选入终稿编辑室前的硬门槛。
 
@@ -207,14 +208,17 @@ def selection_quality_failures(
                 pass
             if isinstance(other_plan, dict):
                 siblings.append(other_plan)
-        diversity = selection_diversity_failures(variant_plan, siblings)
+        from lib.opening_batch_context import resolve_opening_context, compare_batch_pairs
+        candidate_id = str(variant_plan.get("candidate_id") or "")
+        context = (resolve_opening_context(batch_dir, candidate_id) if batch_dir else None) or resolve_opening_context(child_dir, candidate_id)
+        diversity = selection_diversity_failures(variant_plan, siblings, opening_context=context)
         if diversity_mode == "hard_gate":
             for item in diversity["structural_failures"]:
                 failures.append(f"差异度不足：{item}")
-            for sibling in siblings:
-                pair = compare_candidate_pair(variant_plan, sibling)
-                if not pair["passes"]:
-                    failures.append(f"与候选 {sibling.get('candidate_id')} 的批级差异不足")
+            plans = {str(p.get("candidate_id")): p for p in [variant_plan, *siblings]}
+            for pair in compare_batch_pairs(plans, {candidate_id: context}):
+                if candidate_id in (pair["candidate_a"], pair["candidate_b"]) and not pair["passes"]:
+                    failures.append(f"与候选 {pair['candidate_a']} / {pair['candidate_b']} 的批级差异不足")
     else:
         if diversity_mode == "hard_gate":
             failures.append("缺少候选差异计划（candidate_variant_plan），不可选入终稿")
@@ -417,7 +421,7 @@ class BatchActionService:
                     f"候选 {candidate_id} 当前不可选（必须 evaluated 且带评价引用）"
                 )
             child_dir = self.batch_dir.parent / str(item.get("project_id") or candidate_id)
-            q_failures = selection_quality_failures(batch, item, child_dir)
+            q_failures = selection_quality_failures(batch, item, child_dir, batch_dir=self.batch_dir)
             if q_failures:
                 raise OperatorError.validation_failed(
                     f"候选 {candidate_id} 未通过质量门：" + "；".join(q_failures)

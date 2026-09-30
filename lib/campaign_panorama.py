@@ -236,15 +236,15 @@ def build_campaign_panorama(
     excluded = []
     for record in records:
         sid = record.get("content_slot_id")
-        if sid not in slot_ids or record.get("pilot") is True:
-            excluded.append({"run_id": record.get("run_id"), "reasons": ["original_slot_unresolved" if sid not in slot_ids else "pilot_not_original_plan"]})
+        if sid not in slot_ids or record.get("pilot") is True or record.get("campaign_role") == "pilot" or (record.get("opening") or {}).get("scope") == "preview":
+            excluded.append({"run_id": record.get("run_id"), "reasons": ["original_slot_unresolved" if sid not in slot_ids else "opening_preview_not_full_work" if (record.get("opening") or {}).get("scope") == "preview" else "pilot_not_original_plan"]})
         elif record.get("superseded") is not True:
             by_slot[sid].append(record)
     slots, seen_media, seen_work = [], {}, {}
     # Verified historical/reference media remains occupied even though it does
     # not contribute to the 300. Renaming it into a new slot cannot create work.
     for row in records:
-        if row.get("reference_only") is True or row.get("pilot") is True or row.get("content_slot_id") not in slot_ids:
+        if row.get("reference_only") is True or row.get("pilot") is True or row.get("campaign_role") == "pilot" or (row.get("opening") or {}).get("scope") == "preview" or row.get("content_slot_id") not in slot_ids:
             report = proofs.get(row.get("run_id")) or {}
             if report.get("media_verified") is True and _identity_matches(row, report):
                 seen_media[row["media_sha256"]] = row.get("content_slot_id")

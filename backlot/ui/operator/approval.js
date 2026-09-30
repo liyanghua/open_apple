@@ -1257,16 +1257,96 @@ function renderMediaObjectDetail(container, payload) {
   return true;
 }
 
-function renderProductionReviews(container, payload) {
+export function renderProductionReviews(container, payload, options = {}) {
+  const canReview = options.canReview ?? currentApprovalCanReview;
+  const projectId = options.projectId ?? currentApprovalProjectId;
+  const groups = new Map();
+  for (const item of payload.items || []) {
+    if (item.opening_group) {
+      const group = item.opening_group;
+      if (!groups.has(group.id)) groups.set(group.id, {group, items: []});
+      groups.get(group.id).items.push(item);
+    }
+  }
+  const navigation = node("div", "opening-group-navigation");
+  for (const {group, items} of groups.values()) {
+    const section = node("section", "approval-detail-group");
+    section.append(node("h3", "approval-detail-group-title", `${group.sku} · 同源开头比较 · ${group.experiment_id}`));
+    section.append(node("p", "approval-muted", "B0 基线与已登记候选；预览反馈另行保存，不计入独立合格作品。"));
+    for (const item of items) {
+      const button = node("button", "quiet-button", `${item.opening_group.candidate_id} · ${item.opening_group.role === 'baseline' ? '基线' : '候选'} · ${item.review_status || '待反馈'}`);
+      button.type = "button";
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".production-review-list video").forEach(video => video.pause());
+        document.getElementById(`production-card-${item.id}`)?.scrollIntoView({behavior:"smooth", block:"start"});
+      });
+      section.append(button);
+    }
+    navigation.append(section);
+  }
+  container.append(navigation);
   container.append(node("p", "approval-detail-copy", "逐条播放并确认当前版本。正式验收、审核意见和自动检查分别保存；人工通过不会补造缺失的检查证据。"));
   const list = node("div", "production-review-list");
   (payload.items || []).forEach((item) => {
     const card = node("section", "approval-detail-group");
     card.dataset.productionId = item.id;
+    card.id = `production-card-${item.id}`;
+    const previewOnly = item.review_kind === "opening_preview" || item.opening_group?.scope === "preview";
     card.append(node("h3", "approval-detail-group-title", `${item.id} · ${item.title}`));
-    if (item.video_url) card.append(mediaVideo(item.video_url, null, `${item.id} 成片预览`));
+    if (item.opening_group) {
+      const group = item.opening_group;
+      card.append(detailRow("同源分组", `${group.sku} · ${group.experiment_id} · ${group.candidate_id} · ${group.role === 'baseline' ? 'B0 基线' : '登记候选'}`));
+      card.append(detailRow("审核范围", previewOnly ? "仅开头预览；反馈通过不代表成片验收" : "完整成片；前三秒比较与最终验收分别判断"));
+      for (const shot of group.shots || []) {
+        card.append(detailRow(`镜头 ${shot.shot_id || shot.id || ''} 来源`, `${shot.asset_identity?.kind || '待确认'} · ${shot.asset_identity?.source?.path || '未提供'} · ${shot.source_mapping?.source_interval_seconds?.join('–') || '区间待确认'} 秒`));
+      }
+    }
+    if (item.video_url) {
+      const video = mediaVideo(item.video_url, null, `${item.id} ${previewOnly ? '开头预览' : '成片预览'}`);
+      let openingLoop = Boolean(item.opening_group);
+      video.addEventListener("play", () => {
+        document.querySelectorAll(".production-review-list video").forEach(other => {if(other !== video) other.pause();});
+      });
+      video.addEventListener("timeupdate", () => {
+        if (openingLoop && video.currentTime >= 3) video.currentTime = 0;
+      });
+      video.addEventListener("ended", () => {
+        if (openingLoop) {video.currentTime = 0;video.play().catch(() => {});}
+      });
+      card.append(video);
+      if (item.opening_group) {
+        const mode = node("button", "quiet-button", previewOnly ? "循环前三秒预览" : "观看完整成片");
+        mode.type = "button";
+        mode.disabled = previewOnly;
+        mode.addEventListener("click", () => {
+          video.pause();video.currentTime = 0;openingLoop = !openingLoop;
+          mode.textContent = openingLoop ? "观看完整成片" : "循环前三秒比较";
+        });
+        card.append(mode);
+      }
+    }
     card.append(detailRow("时长", `${item.duration_seconds ?? "—"} 秒`));
     card.append(detailRow("人工审核", item.review_status));
+    if (item.scope_error) card.append(detailRow("登记状态", item.scope_error));
+    for (const [name, check] of Object.entries(item.checks || {})) {
+      card.append(detailRow(`检查 ${name}`, `自动 ${check.machine_status || check.status || 'not_run'}；有效 ${check.effective_status || check.machine_status || check.status || 'not_run'}；人工 ${check.manual_status || (check.effective_status === 'manual_verified' ? 'manual_verified' : '未提供')}；适用 ${item.applicability?.[name]?.applies === false ? 'N/A' : '是'}`));
+      if (name === "opening_motion" || name === "opening_framing") {
+        for (const observation of check.observations || []) {
+          const action = observation.actual_action || {};
+          const motion = observation.motion || {};
+          const detail = [observation.shot_id, observation.method, motion.verb,
+            motion.visible_result, action.source_interval_seconds?.join("–"),
+            action.output_interval_seconds?.join("–"), observation.reason].filter(Boolean).join(" · ");
+          if (detail) card.append(detailRow("实际动作与依据", detail));
+        }
+      }
+    }
+    if (item.review_history?.length) {
+      const history = node("details", "approval-detail-group");
+      history.append(node("summary", "", "查看原始人工审核历史"));
+      for (const review of item.review_history) history.append(detailRow(`v${review.subject_version} · ${review.kind}`, `${review.status} · ${review.decided_by || '待确认'} · ${review.reason || ''}`));
+      card.append(history);
+    }
     card.append(detailRow("技术检查记录", item.technical_label));
     card.append(detailRow("历史 alignment 记录", item.alignment_label));
     card.append(detailRow("历史视觉评分记录", item.judge_label));
@@ -1281,7 +1361,7 @@ function renderProductionReviews(container, payload) {
     const notes = node("div", "approval-detail-list");
     (item.notes || []).forEach((note) => notes.append(node("p", "approval-detail-copy", note.note)));
     card.append(notes);
-    if (item.video_url && currentApprovalCanReview) {
+    if (item.video_url && canReview) {
       const input = node("textarea", "review-note-input");
       input.rows = 3;
       input.maxLength = 4000;
@@ -1291,7 +1371,6 @@ function renderProductionReviews(container, payload) {
       submit.type = "button";
       const status = node("p", "approval-muted");
       status.setAttribute("role", "status");
-      const projectId = currentApprovalProjectId;
       let submission = null;
       submit.addEventListener("click", async () => {
         const note = input.value.trim();
@@ -1308,8 +1387,8 @@ function renderProductionReviews(container, payload) {
         finally { submit.disabled = false; }
       });
       card.append(input, submit, status);
-      if (item.final_review?.status !== "approved") {
-        const approve = node("button", "primary-button", "验收当前成片");
+      if ((item.review || item.final_review)?.status !== "approved" && item.review_kind !== null) {
+        const approve = node("button", "primary-button", previewOnly ? "确认开头预览反馈" : "验收当前成片");
         const reject = node("button", "quiet-button", "退回修改");
         approve.type = reject.type = "button";
         const reasonChoice = node("select", "production-review-reason");
@@ -1321,10 +1400,11 @@ function renderProductionReviews(container, payload) {
           if (decision === "rejected" && !input.value.trim()) {status.textContent="请填写具体修改要求";return;}
           approve.disabled = reject.disabled = true;
           try {
-            const review = item.final_review?.status === "awaiting_human" ? item.final_review : await prepareProductionReview(projectId, item.id);
-            await decideReview(projectId, review.review_id, decision, input.value.trim() || "验收当前成片通过", null,
+            const currentReview = item.review || item.final_review;
+            const review = currentReview?.status === "awaiting_human" ? currentReview : await prepareProductionReview(projectId, item.id);
+            await decideReview(projectId, review.review_id, decision, input.value.trim() || (previewOnly ? "开头预览反馈通过" : "验收当前成片通过"), null,
               review.subject_version, review.subject_hash, decision === "rejected" ? [reasonChoice.value] : null);
-            status.textContent = decision === "approved" ? "当前版本已验收；检查证据仍按实际完成情况显示" : "已退回修改";
+            status.textContent = decision === "approved" ? (previewOnly ? "开头预览反馈已保存；未验收成片" : "当前版本已验收；检查证据仍按实际完成情况显示") : "已退回修改";
             window.location.reload();
           } catch (error) {status.textContent=error.message || "验收未保存，请刷新后重试";approve.disabled=reject.disabled=false;}
         };

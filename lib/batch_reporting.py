@@ -411,11 +411,9 @@ def build_batch_quality_report(
             "next_action": next_action,
         })
 
-    pairwise = []
-    ids = sorted(variant_plans)
-    for i in range(len(ids)):
-        for j in range(i + 1, len(ids)):
-            pairwise.append(compare_candidate_pair(variant_plans[ids[i]], variant_plans[ids[j]]))
+    from lib.opening_batch_context import resolve_opening_context, compare_batch_pairs
+    contexts = {str(c["candidate_id"]): resolve_opening_context(batch_dir, str(c["candidate_id"])) or resolve_opening_context(_child_dir(batch_dir, c), str(c["candidate_id"])) for c in candidates if str(c["candidate_id"]) in variant_plans}
+    pairwise = compare_batch_pairs(variant_plans, contexts)
 
     recommendations = []
     for qc in quality_candidates:

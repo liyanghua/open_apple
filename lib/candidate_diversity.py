@@ -357,6 +357,8 @@ def selection_diversity_failures(
 
     baseline = next((p for p in sibling_plans if p.get("candidate_id") == "B0"), None)
     controlled = _verified_opening_pair(plan, baseline, opening_context) if baseline else _verified_opening_candidate(plan, opening_context)
+    if plan.get("candidate_id") == "B0":
+        controlled = any(_verified_opening_pair(plan, sibling, opening_context) for sibling in sibling_plans)
     if controlled:
         visual_similarity_warnings.append("opening_package: 需人工独立作品复核，不自动计入新作品数量")
     if not controlled and changed_dimension_count(plan.get("dimensions")) < MIN_CHANGED_DIMENSIONS:

@@ -527,7 +527,7 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
     for view, candidate in zip(views, candidates):
         candidate_dir = _safe_child_dir(child_root, view["project_id"]) or (child_root / "__invalid_candidate__")
         view["selection_quality_failures"] = selection_quality_failures(
-            batch, candidate, candidate_dir
+            batch, candidate, candidate_dir, batch_dir=project_dir
         )
     # 差异度矩阵：从每个候选的 candidate_variant_plan 计算 pairwise 差异（eligible 集由此派生）。
     from lib.candidate_diversity import compare_candidate_pair
@@ -543,11 +543,11 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
                 variant_plans[candidate_id] = json.loads(plan_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 pass
-    pairwise = []
-    ids = sorted(variant_plans)
-    for i in range(len(ids)):
-        for j in range(i + 1, len(ids)):
-            pairwise.append(compare_candidate_pair(variant_plans[ids[i]], variant_plans[ids[j]]))
+    from lib.opening_batch_context import resolve_opening_context, compare_batch_pairs
+    contexts = {cid: resolve_opening_context(project_dir, cid) or resolve_opening_context(
+        _safe_child_dir(child_root, str(next((c.get("project_id") or cid for c in candidates if str(c.get("candidate_id")) == cid), cid))) or (child_root / "__invalid_candidate__"), cid)
+        for cid in variant_plans}
+    pairwise = compare_batch_pairs(variant_plans, contexts)
     diversity = {
         "mode": batch.get("diversity_mode") or "legacy_read_only",
         "plans_present": len(variant_plans),

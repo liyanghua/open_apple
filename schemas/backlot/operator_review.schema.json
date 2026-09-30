@@ -9,7 +9,7 @@
     "schema_version": {"const": "1.0"},
     "review_id": {"type": "string", "minLength": 1},
     "project_id": {"type": "string", "minLength": 1},
-    "kind": {"enum": ["creative_lock", "sample", "script_lock", "final_review"]},
+    "kind": {"enum": ["creative_lock", "sample", "script_lock", "final_review", "opening_preview"]},
     "production_subject": {
       "type": "object",
       "required": ["version", "content_slot_id", "record_path", "render", "dependencies"],

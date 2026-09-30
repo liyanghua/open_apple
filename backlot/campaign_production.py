@@ -36,10 +36,11 @@ def campaign_production_panorama(project_dir: Path, index: dict) -> dict | None:
             digest = production_subject_hash(subject)
             row["dependency_sha256"] = digest
             matching = [r for r in reviews if r.get("kind") == "final_review"
-                        and r.get("subject_hash") == digest and r.get("subject_id") == record.get("content_slot_id")]
+                        and r.get("subject_id") == record.get("content_slot_id")
+                        and (r.get("production_subject") or {}).get("record_path") == ref]
             review = max(matching, key=lambda r: r.get("subject_version", 0), default={})
             quality = quality_summary(root, record)
-            approved = review.get("status") == "approved" and verify_production_subject(root, review.get("production_subject", {}))
+            approved = review.get("status") == "approved" and review.get("subject_hash") == digest and verify_production_subject(root, review.get("production_subject", {}))
             row["approval"] = {"status": review.get("status"), "review_id": review.get("review_id")}
             row["quality_status"] = "pass" if quality["eligible"] else "incomplete"
             proofs[run_id] = {"run_id": run_id, "content_version_id": row["content_version_id"],
@@ -63,10 +64,15 @@ def campaign_production_panorama(project_dir: Path, index: dict) -> dict | None:
     result = build_campaign_panorama(plan, records, verification_reports=proofs, release_context=context,
                                      cost_entries=_json(root, index.get("path_cost_entries_ref")).get("entries", []))
     pilot_slots = {r.get("content_slot_id") for r in records if r.get("campaign_role") == "pilot"}
-    result["pilot_review_count"] = len({r.get("subject_id") for r in reviews
-                                      if r.get("kind") == "final_review" and r.get("status") == "approved"
-                                      and r.get("subject_id") in pilot_slots
-                                      and verify_production_subject(root, r.get("production_subject", {}))})
+    pilot_current = {}
+    for review in reviews:
+        slot = review.get("subject_id")
+        if review.get("kind") == "final_review" and slot in pilot_slots:
+            if slot not in pilot_current or review.get("subject_version", 0) > pilot_current[slot].get("subject_version", 0):
+                pilot_current[slot] = review
+    result["pilot_review_count"] = len({(r.get("production_subject") or {}).get("render", {}).get("sha256")
+        for r in pilot_current.values() if r.get("status") == "approved"
+        and verify_production_subject(root, r.get("production_subject", {}))})
     comparison = _json(root, index.get("pilot_media_comparison_ref"))
     verified_media = {proof.get("media_sha256") for proof in proofs.values() if proof.get("media_verified")}
     if comparison.get("left_sha256") in verified_media and comparison.get("right_sha256") in verified_media:

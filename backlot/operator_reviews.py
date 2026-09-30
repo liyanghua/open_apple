@@ -128,13 +128,13 @@ class ReviewService:
         if approval_scope:
             review["approval_scope"] = approval_scope
             review["approval_subject_hashes"] = sorted(set(approval_subject_hashes or []))
-        if kind == "final_review":
-            self._validate_final_subject(production_subject, subject_hash, subject_id)
+        if kind in {"final_review", "opening_preview"}:
+            self._validate_production_subject(production_subject, subject_hash, subject_id, kind=kind)
             review["production_subject"] = production_subject
         self._validate(review)
         for current in self.list():
             if (current.get("kind") == kind and current.get("status") == "awaiting_human"
-                    and (kind != "final_review" or current.get("subject_id") == subject_id)):
+                    and (kind not in {"final_review", "opening_preview"} or current.get("subject_id") == subject_id)):
                 superseded = dict(current)
                 superseded.update(
                     status="superseded",
@@ -213,7 +213,7 @@ class ReviewService:
             )
         return review
 
-    def _validate_final_subject(self, subject: Any, expected_hash: str, subject_id: str) -> None:
+    def _validate_production_subject(self, subject: Any, expected_hash: str, subject_id: str, *, kind: str) -> None:
         from lib.production_evidence import production_subject_hash, verify_production_subject
 
         if (not isinstance(subject, dict) or subject.get("content_slot_id") != subject_id
@@ -222,13 +222,37 @@ class ReviewService:
             raise OperatorError("review_stale", "成片或制作依据已变化，请重新提交最终审核", 409)
         from lib.production_evidence import read_object, quality_summary
         record = read_object(self.project_dir, subject["record_path"])
+        from lib.opening_review_scope import opening_review_scope
+        from jsonschema import ValidationError
+        try:
+            opening = opening_review_scope(self.project_dir, record)
+        except (ValueError, OSError, KeyError, TypeError, ValidationError) as exc:
+            raise OperatorError.validation_failed(f"开场登记无效：{exc}") from exc
+        if kind == "opening_preview":
+            if not opening or opening["scope"] != "preview":
+                raise OperatorError.validation_failed("预览反馈只适用于已登记的开头预览")
+            return
         if "opening" in record:
             summary = quality_summary(self.project_dir, record)
             if not summary["eligible"]:
                 raise OperatorError.validation_failed("开场预览或必要检查未完成，不能最终审核：" + "、".join(summary["blocking_checks"]))
 
 
+    def create_production_review(self, *, record_path: str, submitted_by: str) -> dict[str, Any]:
+        from lib.production_evidence import read_object
+        from lib.opening_review_scope import opening_review_scope
+        from jsonschema import ValidationError
+        try:
+            opening = opening_review_scope(self.project_dir, read_object(self.project_dir, record_path))
+        except (ValueError, OSError, KeyError, TypeError, ValidationError) as exc:
+            raise OperatorError.validation_failed(f"开场登记无效：{exc}") from exc
+        kind = "opening_preview" if opening and opening["scope"] == "preview" else "final_review"
+        return self._create_production_review(record_path=record_path, submitted_by=submitted_by, kind=kind)
+
     def create_final_review(self, *, record_path: str, submitted_by: str) -> dict[str, Any]:
+        return self._create_production_review(record_path=record_path, submitted_by=submitted_by, kind="final_review")
+
+    def _create_production_review(self, *, record_path: str, submitted_by: str, kind: str) -> dict[str, Any]:
         """Register a concrete production, without filling historical checkpoints."""
         from lib.production_evidence import build_production_subject, production_subject_hash
 
@@ -237,12 +261,13 @@ class ReviewService:
         except (ValueError, OSError, KeyError, TypeError) as exc:
             raise OperatorError.validation_failed(f"无法提交成片审核：{exc}") from exc
         digest = production_subject_hash(subject)
-        previous = [r for r in self.list() if r.get("kind") == "final_review"
+        previous = [r for r in self.list() if r.get("kind") == kind
                     and r.get("subject_id") == subject["content_slot_id"]]
-        for review in reversed(previous):
+        latest = max(previous, key=lambda r: (r.get("subject_version", 0), r.get("created_at", "")), default=None)
+        for review in ([latest] if latest else []):
             if review.get("subject_hash") == digest and review.get("status") in {"approved", "awaiting_human"}:
                 return review
-        return self.create(kind="final_review", subject_id=subject["content_slot_id"],
+        return self.create(kind=kind, subject_id=subject["content_slot_id"],
                            subject_version=max((r["subject_version"] for r in previous), default=0) + 1,
                            subject_hash=digest, submitted_by=submitted_by, production_subject=subject)
 
@@ -418,11 +443,11 @@ class ReviewService:
         batch_decision: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         initial = self._find(review_id)
-        if initial.get("kind") == "final_review":
+        if initial.get("kind") in {"final_review", "opening_preview"}:
             if initial.get("subject_version") != expected_version or initial.get("subject_hash") != expected_hash:
                 raise OperatorError("review_stale", "待确认成片版本已变化", 409)
             if decision == "approved":
-                self._validate_final_subject(initial.get("production_subject"), expected_hash, initial["subject_id"])
+                self._validate_production_subject(initial.get("production_subject"), expected_hash, initial["subject_id"], kind=initial["kind"])
         if decision not in {"approved", "rejected"}:
             raise OperatorError.validation_failed("确认结果无效")
         if decision == "rejected":
@@ -451,8 +476,8 @@ class ReviewService:
                 audit={"event_type": f"review_{decision}", "actor_id": actor_id},
             ) as sink:
                 review = self._find(review_id)
-                if review.get("kind") == "final_review" and decision == "approved":
-                    self._validate_final_subject(review.get("production_subject"), expected_hash, review["subject_id"])
+                if review.get("kind") in {"final_review", "opening_preview"} and decision == "approved":
+                    self._validate_production_subject(review.get("production_subject"), expected_hash, review["subject_id"], kind=review["kind"])
                 if review.get("status") == decision:
                     raise _Replay(review)
                 if review.get("status") != "awaiting_human":
@@ -499,14 +524,14 @@ class ReviewService:
                             sink=sink,
                         )
                 stage = (
-                    "compose" if review["kind"] == "final_review"
+                    "compose" if review["kind"] in {"final_review", "opening_preview"}
                     else "assets" if review["kind"] == "creative_lock"
                     else "sample" if review["kind"] == "sample"
                     else "script"
                 )
                 checkpoint_path = self.project_dir / f"checkpoint_{stage}.json"
                 checkpoint = None
-                if checkpoint_path.exists() and review["kind"] != "final_review":
+                if checkpoint_path.exists() and review["kind"] not in {"final_review", "opening_preview"}:
                     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
                 cleanup_only = (
                     review.get("kind") == "creative_lock"
@@ -752,7 +777,7 @@ class ReviewService:
         # Final reviews belong to individual production cards, never to the
         # project's single stage gate (which may still be a historical sample).
         active = [item for item in self.list() if item.get("status") == "awaiting_human"
-                  and item.get("kind") != "final_review"]
+                  and item.get("kind") not in {"final_review", "opening_preview"}]
         return active[-1] if active else None
 
     def subject_hash_for_gate(self, kind: str) -> str | None:
