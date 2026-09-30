@@ -69,6 +69,14 @@ def _verify_reconstruction(root: Path, preview: Mapping) -> None:
     pins = snapshot.get("render_input_refs")
     if not isinstance(pins, list) or not pins:
         raise ValueError("Renderer snapshot has no pinned input refs")
+    required_paths = set(snapshot.get("footage", {}).values())
+    if snapshot.get("logoSrc"):
+        required_paths.add(snapshot["logoSrc"])
+    if snapshot.get("finalMix", {}).get("path"):
+        required_paths.add(snapshot["finalMix"]["path"])
+    pinned_paths = {pin["path"] for pin in pins}
+    if not required_paths <= pinned_paths:
+        raise ValueError("Renderer input pins do not cover actual footage/logo/mix")
     for pin in pins:
         _ref(root, pin["path"], pin["sha256"])
     result_data = result.get("data") or {}

@@ -209,6 +209,29 @@ def test_import_rejects_stale_renderer_input_pin_after_source_mutation(tmp_path)
     assert not (tmp_path / "artifacts/production_review_index.json").exists()
 
 
+def test_import_requires_pins_for_actual_footage_logo_and_mix(tmp_path):
+    packet = _packet(tmp_path)
+    preview = packet["previews"]["A01"]
+    snapshot_path = preview["renderer_snapshot_ref"]["path"]
+    snapshot = read_object(tmp_path, snapshot_path)
+    snapshot["render_input_refs"] = [snapshot["render_input_refs"][1]]  # mix only
+    preview["renderer_snapshot_ref"] = _put(tmp_path, snapshot_path, snapshot)
+    result_path = preview["render_result_ref"]["path"]
+    result = read_object(tmp_path, result_path)
+    result["data"]["renderer_props_ref"] = preview["renderer_snapshot_ref"]
+    preview["render_result_ref"] = _put(tmp_path, result_path, result)
+    source = _put(tmp_path, preview["source_ref"]["path"], b"replaced source")
+    preview["source_ref"] = source
+    packet["hooks"]["A01"]["shots"][0]["asset_identity"]["source"] = source
+    manifest_path = packet["imported_inputs_ref"]["path"]
+    manifest = read_object(tmp_path, manifest_path)
+    manifest["files"][0].update(sha256=source["sha256"], bytes=len(b"replaced source"))
+    packet["imported_inputs_ref"] = _put(tmp_path, manifest_path, manifest)
+    with pytest.raises(ValueError, match="Renderer input pins do not cover"):
+        import_prepared_previews(tmp_path, packet)
+    assert not (tmp_path / "artifacts/production_review_index.json").exists()
+
+
 @pytest.mark.parametrize("change,issue", [
     (lambda p: p["hooks"]["A01"]["source"].update(excerpt="different question"), "Hook excerpt"),
     (lambda p: p["hooks"]["A01"]["shots"][0]["source_mapping"].update(source_interval_seconds=[0.5, 3.5]), "Opening source interval"),
