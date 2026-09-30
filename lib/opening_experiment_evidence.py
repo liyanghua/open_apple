@@ -9,13 +9,29 @@ from lib.opening_freeze import _load, _require, _walk_refs, _reference_pool, ver
 from lib.production_evidence import file_sha256, project_file, read_object
 
 
+def _source_path(root, relative):
+    """Support root/public staging without guessing between different bytes."""
+    if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
+        raise ValueError("Expected a project-relative opening source")
+    root = Path(root).resolve()
+    (root / relative).resolve().relative_to(root)
+    candidates = [relative, "public/" + relative]
+    paths = [project_file(root, name) for name in candidates if (root / name).is_file()]
+    if not paths:
+        return project_file(root, relative)  # Preserve the missing-file diagnostic.
+    if len(paths) == 2 and paths[0] != paths[1]:
+        _require(file_sha256(paths[0]) == file_sha256(paths[1]),
+                 "Ambiguous opening source: root and public files differ")
+    return paths[0]
+
+
 def _content(root, props):
     """Measure content inputs only; colour/fonts/framing are not new work."""
     scenes = []
     for row in props["scenes"]:
         if row["fromFrame"] >= 90:
             continue
-        scenes.append({"sha256": file_sha256(project_file(root, "public/" + props["footage"][row["footageKey"]])),
+        scenes.append({"sha256": file_sha256(_source_path(root, props["footage"][row["footageKey"]])),
             **{k: row.get(k) for k in ("sourceInSeconds", "sourceOutSeconds", "playbackRate", "playbackMode")}})
     return {"scenes": scenes, "titles": [row["text"] for row in props.get("titles", []) if row["fromFrame"] < 90],
             "captions": [row["text"] for row in props.get("captions", []) if row["startMs"] < 3000],
@@ -23,16 +39,10 @@ def _content(root, props):
 
 
 def _plan_sources_match(root, props, plan):
-    def source_path(relative):
-        public = Path(root, "public", relative).resolve()
-        if public.is_file():
-            return project_file(root, "public/" + relative)
-        return project_file(root, relative)
-
     opening = [s for s in props["scenes"] if s["fromFrame"] < 90]
     _require(len(opening) == len(plan["shots"]), "Opening props and registered shots disagree")
     for scene, shot in zip(opening, plan["shots"]):
-        actual = file_sha256(source_path(props["footage"][scene["footageKey"]]))
+        actual = file_sha256(_source_path(root, props["footage"][scene["footageKey"]]))
         _require(actual == shot["asset_identity"]["source"]["sha256"], "Opening source differs from registered hook plan")
         mapping = shot["source_mapping"]
         _require(mapping["source_interval_seconds"] == [scene["sourceInSeconds"], scene["sourceOutSeconds"]]
