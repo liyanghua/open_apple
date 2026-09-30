@@ -28,16 +28,20 @@ for malformed JSON. Creative retries remain within the existing two-extra
 attempt limit. Missing cost is unknown, never zero. A preview approval does
 not approve a full variant or an original-300 work.
 
-Keep the generic `technical_validator` stage scope (`sample` or `final`) apart
-from the opening production-record scope (`preview` or `full_variant`). The
-opening quality projector in `lib.production_quality.collect_production_quality`
-requires a current render-bound technical measurement with the matching
-opening scope; a generic sample report cannot be relabeled. Preview-only
-checks such as full slogan/tail and frozen body get the predetermined N/A rule
-from `lib.opening_quality_scope.quality_applicability`, while decode, font,
-source and product checks remain applicable. A historical engineering probe
-with a different scope is retained as raw evidence, not promoted to current
-technical pass.
+Call the registered `technical_validator` on the actual opening render with
+`scope="preview"` or `scope="full_variant"`, `project_id`, current
+`input_path`, and its expected profile/duration, facts and text inputs. The
+tool accepts these opening scopes and returns `ToolResult.data` with the
+current `media_sha256`, raw probe and decode measurement; persist that report
+and bind it as the quality report's `source_refs.technical`. Ordinary samples
+and finals use `sample`/`final` respectively. The opening quality projector in
+`lib.production_quality.collect_production_quality` checks exact media hash
+and scope; a generic sample/final report or historical engineering probe
+cannot be relabeled. Preview-only checks such as full slogan/tail and frozen
+body get the predetermined N/A rule from
+`lib.opening_quality_scope.quality_applicability`, while decode, font, source
+and product checks remain applicable. The technical report alone never
+certifies the film.
 
 Use `lib.production_measurements.produce_narration_evidence` to compare
 independent ASR from the actual media against canonical words/captions. Keep
