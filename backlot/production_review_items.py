@@ -179,4 +179,35 @@ def production_review_items(project_dir: Path, index: dict, notes: list) -> list
         if group and group["role"] == "baseline" and len(unique) == 1:
             target = next(iter(unique.values()))
             item["opening_group"] = {**group, **{key: target[key] for key in ("id", "experiment_id", "experiment_ref", "baseline_record_path")}}
+    from lib.opening_results import comparison_reasons, results_for_record
+    for item in results:
+        item["opening_results"] = results_for_record(root, item["record_path"]) if item["opening_group"] else []
+    for item in results:
+        group = item["opening_group"]
+        if not group or group["role"] == "baseline":
+            continue
+        baseline = next((other for other in results if other is not item and other["opening_group"]
+            and other["opening_group"]["id"] == group["id"] and other["opening_group"]["role"] == "baseline"), None)
+        for row in item["opening_results"]:
+            if baseline is None or not baseline["opening_results"]:
+                row["comparison_reasons"].append("缺少同源基线实测")
+                continue
+            candidates = baseline["opening_results"]
+            comparable = False
+            reasons = []
+            for base in candidates:
+                current_reasons = comparison_reasons(row, base, group_same=True,
+                    scope_same=group["scope"] == baseline["opening_group"]["scope"],
+                    duration_same=item["duration_seconds"] == baseline["duration_seconds"])
+                if not current_reasons:
+                    comparable = True
+                    if any(metric["status"] == "undefined" for metric in row["metrics"] + base["metrics"]):
+                        row["comparison_reasons"].append("指标分母或数值缺失")
+                    break
+                reasons.extend(current_reasons)
+            if not comparable:
+                row["comparison_status"] = "不可比"
+                row["comparison_reasons"].extend(sorted(set(reasons)))
+            elif not row["comparison_reasons"]:
+                row["comparison_reasons"].append("未预注册胜出规则或独立新窗口复验")
     return results

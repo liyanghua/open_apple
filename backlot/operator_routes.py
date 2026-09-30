@@ -672,6 +672,16 @@ def create_operator_router(
             raise OperatorError.validation_failed("找不到此条成片的生产记录")
         return ReviewService(project_dir).create_production_review(record_path=entry["record_path"], submitted_by=session.actor.user_id)
 
+    @router.post("/projects/{project_id}/opening-results")
+    async def import_opening_result(project_id: str, request: Request) -> dict:
+        session = authenticate(request, project_id, "edit", csrf=True)
+        from lib.opening_results import import_result
+
+        payload = await body(request)
+        return await asyncio.to_thread(
+            import_result, project(project_id), payload, actor_id=session.actor.user_id
+        )
+
     @router.post("/projects/{project_id}/reviews/{review_id}/{decision}")
     async def decide_review(
         project_id: str, review_id: str, decision: str, request: Request

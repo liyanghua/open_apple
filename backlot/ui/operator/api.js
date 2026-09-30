@@ -47,6 +47,12 @@ export async function prepareProductionReview(projectId, contentSlotId) {
   });
 }
 
+export async function importOpeningResult(projectId, payload) {
+  return call(`/api/v2/projects/${encodeURIComponent(projectId)}/opening-results`, {
+    method: "POST", body: payload, mutation: true,
+  });
+}
+
 export async function fetchDraft(projectId, stage) {
   return call(`/api/v2/projects/${encodeURIComponent(projectId)}/drafts/${encodeURIComponent(stage)}`);
 }

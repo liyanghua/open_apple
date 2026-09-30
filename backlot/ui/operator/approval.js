@@ -4,7 +4,7 @@
 // 不含编辑器、草稿、版本历史或影响计算；技术字段只进入“查看制作记录”折叠区。
 // 数据全部来自现有 operator-state 投影与 review API
 // （script_editor / asset_review / sample_review / delivery_review 均为只读事实）。
-import { decideReview, prepareProductionReview, submitProductionReviewNote } from "./api.js";
+import { decideReview, prepareProductionReview, submitProductionReviewNote, importOpeningResult } from "./api.js";
 import { parseBatchContext } from "./store.js";
 import {
   STAGE_LABELS,
@@ -587,6 +587,7 @@ function renderArtifactValue(container, value, depth = 0) {
 
 let currentApprovalProjectId = null;
 let currentApprovalCanReview = false;
+let currentApprovalCanEdit = false;
 
 function hasText(value) {
   return value !== undefined && value !== null && value !== "";
@@ -1259,6 +1260,7 @@ function renderMediaObjectDetail(container, payload) {
 
 export function renderProductionReviews(container, payload, options = {}) {
   const canReview = options.canReview ?? currentApprovalCanReview;
+  const canEdit = options.canEdit ?? (options.canReview ?? currentApprovalCanEdit);
   const projectId = options.projectId ?? currentApprovalProjectId;
   const groups = new Map();
   for (const item of payload.items || []) {
@@ -1297,6 +1299,55 @@ export function renderProductionReviews(container, payload, options = {}) {
       const group = item.opening_group;
       card.append(detailRow("同源分组", `${group.sku} · ${group.experiment_id} · ${group.candidate_id} · ${group.role === 'baseline' ? 'B0 基线' : '登记候选'}`));
       card.append(detailRow("审核范围", previewOnly ? "仅开头预览；反馈通过不代表成片验收" : "完整成片；前三秒比较与最终验收分别判断"));
+      const observations = item.opening_results || [];
+      card.append(detailRow("开场实测", observations.length ? `${observations.length} 份结果已导入；尚无自动胜出结论` : "待测；尚未导入实测结果"));
+      for (const result of observations) {
+        const detail = node("details", "approval-detail-group");
+        detail.append(node("summary", "", `${result.import_id} · ${result.comparison_status} · ${result.binding_status === 'current' ? '当前绑定' : '证据已变化'}`));
+        detail.append(detailRow("结论", result.conclusion));
+        detail.append(detailRow("导入版本与时间", `v${result.result_version} · ${result.imported_at || '时间未知'}`));
+        detail.append(detailRow("平台与账号", `${result.platform} · ${result.account_id} · ${result.publication_id || result.ad_id || '投放标识待核实'}`));
+        detail.append(detailRow("受众与分配", `${result.audience?.description || '待核实'} · ${result.audience?.allocation_method || '待核实'} · ${result.audience?.allocation_id || '分配标识未提供'}`));
+        detail.append(detailRow("观察窗口", `${result.window?.start || '待核实'} → ${result.window?.end || '待核实'} · ${result.window?.timezone || ''} · ${result.window?.semantics || ''} · ${result.window?.label || ''}`));
+        for (const metric of result.metrics || []) {
+          const value = metric.value == null ? "待核实（分母或数值缺失）" : metric.kind === "rate" ? `${(metric.value * 100).toFixed(2)}%` : `${metric.value} ${metric.duration_unit || metric.count_unit}`;
+          detail.append(detailRow(`指标 ${metric.metric_id}`, `${value} · ${metric.definition} · 分子 ${metric.numerator ?? '未知'} ${metric.numerator_unit} / 分母 ${metric.denominator ?? '未知'} ${metric.denominator_unit} · 计数单位 ${metric.count_unit} · 支持样本 ${metric.support_count ?? '未提供'}`));
+        }
+        const fee = result.fee || {};
+        detail.append(detailRow("费用", fee.amount == null ? `费用待核实 · ${fee.settlement_status || 'unknown'}` : `${fee.amount} ${fee.currency || ''} · ${fee.settlement_status}`));
+        detail.append(detailRow("原始导出", `${result.raw_export_ref?.path || '未提供'} · SHA256 ${result.raw_export_ref?.sha256 || '未提供'}`));
+        detail.append(detailRow("样本条件", result.sample?.conditions || "待核实"));
+        detail.append(detailRow("限制", result.sample?.limitations || "待核实"));
+        detail.append(detailRow("比较状态", `${result.comparison_status} · ${(result.comparison_reasons || []).join('；') || '无可用胜出规则'}`));
+        card.append(detail);
+      }
+      if (canEdit && projectId) {
+        const form = node("details", "approval-detail-group");
+        form.append(node("summary", "", "手动导入实验结果"));
+        form.append(node("p", "approval-muted", "粘贴版本化 JSON；raw_export_ref 填本项目内已保留的原始导出文件相对路径与 SHA256。导入不会触发审核或发布。"));
+        const field = node("textarea", "review-note-input");
+        field.rows = 12;
+        field.setAttribute("aria-label", `${item.id} 实验结果 JSON`);
+        field.placeholder = "粘贴与当前实验、候选、生产记录和渲染文件绑定的结果 JSON";
+        const submit = node("button", "quiet-button", "导入实验结果");
+        submit.type = "button";
+        const status = node("p", "approval-muted");
+        status.setAttribute("role", "status");
+        submit.addEventListener("click", async () => {
+          let input;
+          try { input = JSON.parse(field.value); }
+          catch { status.textContent = "JSON 格式不正确，请检查后重试"; return; }
+          submit.disabled = true;
+          try {
+            const saved = await importOpeningResult(projectId, input);
+            status.textContent = saved.status === "replayed" ? "此导入记录已存在，未重复写入" : "实验结果已导入；尚无自动胜出结论";
+            window.location.reload();
+          } catch (error) { status.textContent = error.message || "导入失败，请检查绑定证据"; }
+          finally { submit.disabled = false; }
+        });
+        form.append(field, submit, status);
+        card.append(form);
+      }
       for (const shot of group.shots || []) {
         card.append(detailRow(`镜头 ${shot.shot_id || ''} 来源`, `${shot.source_kind || '待确认'} · ${shot.source_path || '未提供'} · ${shot.source_interval_seconds?.join('–') || '区间待确认'} 秒 · ${shot.motion_verb || '动作待确认'}`));
       }
@@ -2224,6 +2275,7 @@ export function renderApprovalWorkbench(container, project, snapshot) {
   const view = buildApprovalViewModel(project);
   currentApprovalProjectId = project.project_id || project.id || null;
   currentApprovalCanReview = hasReviewPermission(project);
+  currentApprovalCanEdit = (project?.permissions || []).includes("edit");
   const requestedStage = view.stages.find((stage) => stage.stageId === snapshot.selectedStageId);
   const selectedStage = requestedStage || view.stages.find((stage) => stage.stageId === view.reviewGateId) || view.stages[0];
   view.selectedStageId = selectedStage?.stageId || null;

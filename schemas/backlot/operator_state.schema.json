@@ -3774,6 +3774,58 @@
       },
       "additionalProperties": false
     },
+    "opening_result_projection": {
+      "type": "object",
+      "required": ["version", "import_id", "result_version", "experiment_ref", "candidate_id", "record_ref", "render_ref", "platform", "account_id", "publication_id", "ad_id", "audience", "window", "metrics", "fee", "raw_export_ref", "sample", "imported_at", "imported_by", "source_sha256", "binding_status", "comparison_status", "comparison_reasons", "conclusion"],
+      "properties": {
+        "version": {"const": "1.0"},
+        "import_id": {"type": "string"},
+        "result_version": {"type": "integer", "minimum": 1},
+        "experiment_ref": {"$ref": "#/$defs/opening_result_file_ref"},
+        "candidate_id": {"type": "string"},
+        "record_ref": {"$ref": "#/$defs/opening_result_file_ref"},
+        "render_ref": {"$ref": "#/$defs/opening_result_file_ref"},
+        "platform": {"type": "string"},
+        "account_id": {"type": "string"},
+        "publication_id": {"type": ["string", "null"]},
+        "ad_id": {"type": ["string", "null"]},
+        "audience": {"type": "object", "required": ["description", "allocation_id", "allocation_method"], "properties": {
+          "description": {"type": "string"}, "allocation_id": {"type": ["string", "null"]}, "allocation_method": {"type": "string"}
+        }, "additionalProperties": false},
+        "window": {"type": "object", "required": ["start", "end", "timezone", "semantics", "label"], "properties": {
+          "start": {"type": "string"}, "end": {"type": "string"}, "timezone": {"type": "string"},
+          "semantics": {"enum": ["cumulative", "disjoint"]}, "label": {"type": "string"}
+        }, "additionalProperties": false},
+        "metrics": {"type": "array", "items": {"type": "object", "required": ["metric_id", "definition", "kind", "numerator", "numerator_unit", "denominator", "denominator_unit", "count_unit", "duration_unit", "support_count", "value", "status"], "properties": {
+          "metric_id": {"type": "string"}, "definition": {"type": "string"}, "kind": {"enum": ["rate", "count", "duration"]},
+          "numerator": {"type": ["number", "null"]}, "numerator_unit": {"type": "string"},
+          "denominator": {"type": ["number", "null"]}, "denominator_unit": {"type": "string"},
+          "count_unit": {"type": "string"}, "duration_unit": {"type": ["string", "null"]},
+          "support_count": {"type": ["integer", "null"]}, "value": {"type": ["number", "null"]},
+          "status": {"enum": ["observed", "undefined"]}
+        }, "additionalProperties": false}},
+        "fee": {"type": "object", "required": ["amount", "currency", "settlement_status"], "properties": {
+          "amount": {"type": ["number", "null"]}, "currency": {"type": ["string", "null"]},
+          "settlement_status": {"enum": ["unknown", "estimated", "settled"]}
+        }, "additionalProperties": false},
+        "raw_export_ref": {"$ref": "#/$defs/opening_result_file_ref"},
+        "sample": {"type": "object", "required": ["conditions", "limitations"], "properties": {
+          "conditions": {"type": "string"}, "limitations": {"type": "string"}
+        }, "additionalProperties": false},
+        "imported_at": {"type": "string"}, "imported_by": {"type": "string"},
+        "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "binding_status": {"enum": ["current", "stale"]},
+        "comparison_status": {"enum": ["待测", "数据不足", "不可比"]},
+        "comparison_reasons": {"type": "array", "items": {"type": "string"}},
+        "conclusion": {"const": "已导入，尚无结论"}
+      }, "additionalProperties": false
+    },
+    "opening_result_file_ref": {
+      "type": "object", "required": ["path", "sha256"], "properties": {
+        "path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "version": {"type": "string"}, "seconds": {"type": "number"}
+      }, "additionalProperties": false
+    },
     "production_review_item": {
       "type": "object",
       "required": [
@@ -3793,6 +3845,7 @@
         "record_path": {
           "type": "string"
         },
+        "opening_results": {"type": "array", "items": {"$ref": "#/$defs/opening_result_projection"}},
         "cost_label": {
           "type": "string"
         },

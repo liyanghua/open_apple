@@ -86,6 +86,7 @@ ARTIFACT_NAMES = [
     "campaign_content_links",
     "motion_generation_task",
     "opening_experiment",
+    "opening_result",
     "opening_validation_report",
 ]
 
