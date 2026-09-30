@@ -163,3 +163,28 @@ def test_unknown_film_durations_cannot_be_treated_as_equal(tmp_path):
     result = cards["A01-H1"]["opening_results"][0]
     assert result["comparison_status"] == "不可比"
     assert "成片时长未知" in result["comparison_reasons"]
+
+
+def test_operator_state_validates_each_import_once_per_request_and_rechecks_stale(tmp_path, monkeypatch):
+    from backlot.operator_state import load_operator_state
+    from lib import opening_results
+    preview = tmp_path / "preview.mp4"; preview.write_bytes(b"synthetic preview")
+    full = tmp_path / "full.mp4"; full.write_bytes(b"synthetic full")
+    project = tmp_path / "film"
+    preview_project(project, media=preview, full_media=full)
+    opening_results.import_result(project, result_payload(project, import_id="preview"), actor_id="tester")
+    opening_results.import_result(project, result_payload(project, "record-full.json", import_id="full"), actor_id="tester")
+    original = opening_results.validate_artifact
+    calls = []
+    def spy(name, data):
+        if name == "experiment_result": calls.append(data["import_id"])
+        return original(name, data)
+    monkeypatch.setattr(opening_results, "validate_artifact", spy)
+    first = _cards(load_operator_state(project, permissions=("view", "review")))
+    assert sorted(calls) == ["full", "preview"]
+    assert all(card["opening_results"][0]["binding_status"] == "current" for card in first)
+    (project / "assets/synthetic-metrics.csv").write_bytes(b"changed")
+    calls.clear()
+    second = _cards(load_operator_state(project, permissions=("view", "review")))
+    assert sorted(calls) == ["full", "preview"]
+    assert all(card["opening_results"][0]["binding_status"] == "stale" for card in second)

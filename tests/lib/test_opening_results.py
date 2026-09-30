@@ -181,3 +181,33 @@ def test_normalizing_within_project_traversal_is_rejected(tmp_path):
     payload["raw_export_ref"]["path"] = "assets/../assets/synthetic-metrics.csv"
     with pytest.raises(OperatorError):
         import_result(tmp_path, payload, actor_id="tester")
+
+
+def test_concurrent_identical_replay_creates_only_one_import_audit(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier, local
+    from lib import opening_results
+    preview_project(tmp_path)
+    payload = result_payload(tmp_path)
+    barrier = Barrier(2)
+    counts = local()
+    original = opening_results._validate
+    def synchronized_validate(root, data):
+        result = original(root, data)
+        counts.calls = getattr(counts, "calls", 0) + 1
+        if counts.calls == 1:
+            barrier.wait(timeout=10)
+        return result
+    monkeypatch.setattr(opening_results, "_validate", synchronized_validate)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(opening_results.import_result, tmp_path, payload, actor_id="tester") for _ in range(2)]
+        outcomes = sorted(future.result(timeout=20)["status"] for future in futures)
+    assert outcomes == ["imported", "replayed"]
+    assert len(list((tmp_path / "artifacts/opening_results").glob("*.json"))) == 1
+    manifests = [json.loads(path.read_text()) for path in
+        (tmp_path / "operator/generations").glob("*/manifest.json")]
+    import_generations = [row for row in manifests if row["action"].get("type") == "import_opening_result"]
+    assert len(import_generations) == 1
+    assert len(import_generations[0]["write_set"]) == 1
+    assert import_generations[0]["result"]["status"] == "imported"
+    assert import_generations[0]["audit"]["event_type"] == "opening_result_imported"

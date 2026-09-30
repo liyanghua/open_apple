@@ -130,16 +130,22 @@ def import_result(root: Path, payload: dict, *, actor_id: str) -> dict:
                 "imported_by": actor_id, "source_sha256": digest}
     validate_artifact("experiment_result", document)
     store = ProjectCommitStore(root)
-    with store.transaction(action={"action_id": f"opening-result-{payload['import_id']}", "type": "import_opening_result"},
-        result={"status": "imported", "import_id": payload["import_id"]},
-        audit={"event_type": "opening_result_imported", "actor_id": actor_id}) as sink:
-        existing = sink.read_json(relative)
-        if existing is not None:
-            if not _source_matches(existing) or existing.get("source_sha256") != digest:
-                raise OperatorError("idempotency_conflict", "导入标识已用于另一份结果", 409)
-            return {"status": "replayed", "import_id": payload["import_id"]}
-        _validate(root, payload)
-        sink.stage_json(relative, document, schema="experiment_result")
+    class _ReplayExisting(Exception):
+        pass
+
+    try:
+        with store.transaction(action={"action_id": f"opening-result-{payload['import_id']}", "type": "import_opening_result"},
+            result={"status": "imported", "import_id": payload["import_id"]},
+            audit={"event_type": "opening_result_imported", "actor_id": actor_id}) as sink:
+            existing = sink.read_json(relative)
+            if existing is not None:
+                if not _source_matches(existing) or existing.get("source_sha256") != digest:
+                    raise OperatorError("idempotency_conflict", "导入标识已用于另一份结果", 409)
+                raise _ReplayExisting()
+            _validate(root, payload)
+            sink.stage_json(relative, document, schema="experiment_result")
+    except _ReplayExisting:
+        return {"status": "replayed", "import_id": payload["import_id"]}
     return {"status": "imported", "import_id": payload["import_id"]}
 
 
@@ -158,16 +164,16 @@ def _source_matches(document: dict) -> bool:
         return False
 
 
-def results_for_record(root: Path, record_path: str) -> list[dict]:
-    """Read imported history without rebinding a stale observation."""
+def results_by_record(root: Path) -> dict[str, list[dict]]:
+    """Read each imported file once for one request; never cache evidence state."""
     root = Path(root)
     directory = root / RESULT_DIR
     if not directory.is_dir():
-        return []
+        return {}
     files = list(directory.glob("*.json"))
     if len(files) > 3000:
         raise ValueError("Opening result history exceeds explicit read limit")
-    rows = []
+    grouped: dict[str, list[dict]] = {}
     for path in sorted(files):
         try:
             if path.is_symlink():
@@ -176,8 +182,7 @@ def results_for_record(root: Path, record_path: str) -> list[dict]:
             validate_artifact("experiment_result", data)
             if not _source_matches(data):
                 continue
-            if data["record_ref"]["path"] != record_path:
-                continue
+            record_path = data["record_ref"]["path"]
             binding = "current"
             for ref in (data["record_ref"], data["render_ref"], data["experiment_ref"], data["raw_export_ref"]):
                 try:
@@ -192,21 +197,27 @@ def results_for_record(root: Path, record_path: str) -> list[dict]:
                         binding = "stale"
                 except (ValidationError, ValueError, OSError, KeyError, TypeError):
                     binding = "stale"
-            rows.append({**data, "metrics": [_metric_view(m) for m in data["metrics"]],
+            grouped.setdefault(record_path, []).append({**data, "metrics": [_metric_view(m) for m in data["metrics"]],
                 "binding_status": binding, "comparison_status": "数据不足" if binding == "current" else "不可比",
                 "comparison_reasons": [] if binding == "current" else ["原始导出或绑定的生产证据已变化"],
                 "conclusion": "已导入，尚无结论"})
         except (OSError, ValueError, ValidationError, KeyError, TypeError):
             continue
-    for row in rows:
-        a, b = _window(row["window"])
-        if row["window"]["semantics"] == "cumulative" and any(
-            other is not row and other["window"]["semantics"] == "cumulative" and
-            other["platform"] == row["platform"] and other["account_id"] == row["account_id"] and
-            other["publication_id"] == row["publication_id"] and other["ad_id"] == row["ad_id"] and
-            a < _window(other["window"])[1] and _window(other["window"])[0] < b for other in rows):
-            row["comparison_reasons"].append("累计快照窗口重叠，不可当作独立样本相加")
-    return rows
+    for rows in grouped.values():
+        for row in rows:
+            a, b = _window(row["window"])
+            if row["window"]["semantics"] == "cumulative" and any(
+                other is not row and other["window"]["semantics"] == "cumulative" and
+                other["platform"] == row["platform"] and other["account_id"] == row["account_id"] and
+                other["publication_id"] == row["publication_id"] and other["ad_id"] == row["ad_id"] and
+                a < _window(other["window"])[1] and _window(other["window"])[0] < b for other in rows):
+                row["comparison_reasons"].append("累计快照窗口重叠，不可当作独立样本相加")
+    return grouped
+
+
+def results_for_record(root: Path, record_path: str) -> list[dict]:
+    """Compatibility read for one record, with fresh evidence checks."""
+    return results_by_record(root).get(record_path, [])
 
 
 def comparison_reasons(row: dict, baseline: dict, *, group_same: bool, scope_same: bool, duration_same: bool | None) -> list[str]:

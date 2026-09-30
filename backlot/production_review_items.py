@@ -179,9 +179,13 @@ def production_review_items(project_dir: Path, index: dict, notes: list) -> list
         if group and group["role"] == "baseline" and len(unique) == 1:
             target = next(iter(unique.values()))
             item["opening_group"] = {**group, **{key: target[key] for key in ("id", "experiment_id", "experiment_ref", "baseline_record_path")}}
-    from lib.opening_results import comparison_reasons, results_for_record
+    from lib.opening_results import comparison_reasons, results_by_record
+    imported_by_record = results_by_record(root)
     for item in results:
-        item["opening_results"] = results_for_record(root, item["record_path"])
+        item["opening_results"] = [
+            {**row, "comparison_reasons": list(row["comparison_reasons"])}
+            for row in imported_by_record.get(item["record_path"], [])
+        ]
     for item in results:
         group = item["opening_group"]
         if not group or group["role"] == "baseline":
