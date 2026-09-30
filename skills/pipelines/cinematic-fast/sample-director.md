@@ -30,7 +30,9 @@ not approve a full variant or an original-300 work.
 
 Call the registered `technical_validator` on the actual opening render with
 `scope="preview"` or `scope="full_variant"`, `project_id`, current
-`input_path`, and its expected profile/duration, facts and text inputs. The
+`input_path`, `subject_hash` set to the current render file's SHA-256, and
+its expected profile/duration, facts and text inputs. Bind `subject_ref` and
+`subject_version` where available. The
 tool accepts these opening scopes and returns `ToolResult.data` with the
 current `media_sha256`, raw probe and decode measurement; persist that report
 and bind it as the quality report's `source_refs.technical`. Ordinary samples

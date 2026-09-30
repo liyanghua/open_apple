@@ -1,5 +1,6 @@
 """Prepared preview migration keeps current bytes and pending authority distinct."""
 import copy
+import contextlib
 import hashlib
 import json
 from pathlib import Path
@@ -9,6 +10,7 @@ from jsonschema import ValidationError
 
 from lib.opening_contracts import verify_opening_experiment_files
 from lib.opening_preview_import import import_prepared_previews
+from backlot.project_commit import ProjectCommitStore
 from lib.opening_review_scope import opening_review_scope
 from lib.production_evidence import read_object
 from schemas.artifacts import validate_artifact
@@ -31,6 +33,7 @@ def _packet(root):
     brand = _put(root, "artifacts/brand.json", {"version": "1.0", "font_files": []})
     reference = _put(root, "assets/reference.png", b"synthetic-reference")
     mix = _put(root, "assets/mix.wav", b"synthetic-mix")
+    logo = _put(root, "assets/logo.png", b"synthetic-logo")
     old = _put(root, "historical/mother.json", {"sku": "pilot-sku-1", "approval_render_only": True})
     voice = {"version": "1.0", "source_document_sha256": source_hash,
              "status": "platform_verification_pending", "records": [{
@@ -54,7 +57,8 @@ def _packet(root):
                    "finalMix": {**mix, "mode": "external_mux"}, "logoSrc": "assets/logo.png",
                    "opening": {"scope": "preview", "endFrameExclusive": 90, "transitionFrames": 5},
                    "fps": 30, "width": 1080, "height": 1920}
-        snapshot = _put(root, f"artifacts/{cid}-snapshot.json", runtime)
+        snapshot = _put(root, f"artifacts/{cid}-snapshot.json", {
+            **runtime, "render_input_refs": [source, mix, logo]})
         render_input = _put(root, f"artifacts/{cid}-render-input.json", {"edit_decisions": runtime})
         render_result = _put(root, f"artifacts/{cid}-render-result.json", {"success": True, "data": {
             "renderer_props_ref": snapshot, "output": str(root / render["path"]), "final_review_status": "revise"}})
@@ -111,7 +115,9 @@ def test_prepared_import_is_hash_bound_idempotent_and_unapproved(tmp_path):
         plan = read_object(tmp_path, record["opening"]["hook_plan_ref"]["path"])
         assert plan["source"]["record_id"] == "DOC-1"
         assert plan["source"]["verification_status"] == "pending"
+    generation = read_object(tmp_path, "operator/current-generation.json")["generation_id"]
     assert import_prepared_previews(tmp_path, packet)["status"] == "replayed"
+    assert read_object(tmp_path, "operator/current-generation.json")["generation_id"] == generation
     with pytest.raises(ValidationError):
         verify_opening_experiment_files(tmp_path, read_object(tmp_path, index["items"][0]["record_path"])["opening"]["experiment_ref"])
     changed = copy.deepcopy(packet)
@@ -142,5 +148,74 @@ def test_import_rejects_wrong_historical_sku_alias_before_writing(tmp_path):
     packet = _packet(tmp_path)
     packet["sku_alias"]["legacy_sku"] = "different"
     with pytest.raises(ValueError, match="Historical SKU alias"):
+        import_prepared_previews(tmp_path, packet)
+    assert not (tmp_path / "artifacts/production_review_index.json").exists()
+
+
+def test_interleaved_different_packet_conflicts_under_project_lock(tmp_path, monkeypatch):
+    first = _packet(tmp_path)
+    second = copy.deepcopy(first)
+    second["previews"]["A01"]["title"] = "second packet title"
+    original_transaction = ProjectCommitStore.transaction
+    entered = False
+
+    @contextlib.contextmanager
+    def interleaved(self, **kwargs):
+        nonlocal entered
+        if not entered:
+            entered = True
+            assert import_prepared_previews(tmp_path, second)["status"] == "imported"
+        with original_transaction(self, **kwargs) as sink:
+            yield sink
+
+    monkeypatch.setattr(ProjectCommitStore, "transaction", interleaved)
+    with pytest.raises(ValueError, match="packet changed"):
+        import_prepared_previews(tmp_path, first)
+    index = read_object(tmp_path, "artifacts/production_review_index.json")
+    assert index["items"][0]["title"] == "second packet title"
+
+
+@pytest.mark.parametrize("change,issue", [
+    (lambda p: p["previews"]["A01"]["production_record"].update(campaign_role="original"), "pilot identity"),
+    (lambda p: p["previews"]["A01"]["production_record"].update(provenance="canonical"), "pilot identity"),
+    (lambda p: p["previews"]["A01"]["production_record"].update(approval_ref="historical/mother.json"), "authority or history"),
+    (lambda p: p["previews"]["A01"]["production_record"].update(historical_stage_gaps={"status": "completed"}), "authority or history"),
+    (lambda p: p["previews"]["A01"]["production_record"].update(costs={"paid_cny": 0}), "settled proof"),
+    (lambda p: p["previews"]["A01"]["quality_report"]["costs"].update(paid_cny=0), "settled proof"),
+    (lambda p: p["previews"]["A01"]["quality_report"]["costs"].update(source_task_id="other-task"), "task identity"),
+    (lambda p: p["previews"]["A01"]["production_record"].update(costs={"estimated_cny": 1}), "catalog estimate"),
+    (lambda p: p["previews"]["A01"]["quality_report"].update(certification_eligible=True), "certification"),
+])
+def test_import_rejects_authority_history_and_cost_claims(tmp_path, change, issue):
+    packet = _packet(tmp_path)
+    change(packet)
+    with pytest.raises(ValueError, match=issue):
+        import_prepared_previews(tmp_path, packet)
+    assert not (tmp_path / "artifacts/production_review_index.json").exists()
+
+
+def test_import_rejects_stale_renderer_input_pin_after_source_mutation(tmp_path):
+    packet = _packet(tmp_path)
+    preview = packet["previews"]["A01"]
+    source = _put(tmp_path, preview["source_ref"]["path"], b"changed source at same path")
+    preview["source_ref"] = source
+    packet["hooks"]["A01"]["shots"][0]["asset_identity"]["source"] = source
+    manifest = read_object(tmp_path, packet["imported_inputs_ref"]["path"])
+    manifest["files"][0]["sha256"] = source["sha256"]
+    manifest["files"][0]["bytes"] = len(b"changed source at same path")
+    packet["imported_inputs_ref"] = _put(tmp_path, packet["imported_inputs_ref"]["path"], manifest)
+    with pytest.raises(ValueError, match="Input hash changed"):
+        import_prepared_previews(tmp_path, packet)
+    assert not (tmp_path / "artifacts/production_review_index.json").exists()
+
+
+@pytest.mark.parametrize("change,issue", [
+    (lambda p: p["hooks"]["A01"]["source"].update(excerpt="different question"), "Hook excerpt"),
+    (lambda p: p["hooks"]["A01"]["shots"][0]["source_mapping"].update(source_interval_seconds=[0.5, 3.5]), "Opening source interval"),
+])
+def test_import_rejects_hook_source_mismatch_before_commit(tmp_path, change, issue):
+    packet = _packet(tmp_path)
+    change(packet)
+    with pytest.raises(ValueError, match=issue):
         import_prepared_previews(tmp_path, packet)
     assert not (tmp_path / "artifacts/production_review_index.json").exists()
