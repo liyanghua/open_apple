@@ -48,3 +48,37 @@ console.log(JSON.stringify({field:!!field,button:!!button,localError,serverError
     assert json.loads(result.stdout) == {"field":True,"button":True,"localError":True,
         "serverError":True,"status":True,"definition":True,"raw":True,
         "unknownFee":True,"approval":False}
+
+
+def test_stale_import_history_is_visible_when_opening_group_is_invalid():
+    script = r'''
+const elements=[];
+class Element {
+  constructor(tag){this.tag=tag;this.children=[];this.dataset={};this.listeners={};this.textContent='';elements.push(this);}
+  append(...children){this.children.push(...children);}
+  setAttribute(key,value){this[key]=value;}
+  addEventListener(key,fn){this.listeners[key]=fn;}
+}
+global.document={createElement:tag=>new Element(tag),querySelectorAll:()=>[]};
+global.window={location:{search:''}};
+const {renderProductionReviews}=await import('./backlot/ui/operator/approval.js');
+const main=new Element('main');
+renderProductionReviews(main,{items:[{id:'p',title:'Synthetic',version_ref:'p@sha',review_status:'开场登记或依赖已失效',
+ opening_group:null,scope_error:'开场登记或依赖已失效',review:null,opening_results:[{
+ import_id:'old-import',result_version:1,comparison_status:'不可比',comparison_reasons:['原始导出或绑定的生产证据已变化'],
+ conclusion:'已导入，尚无结论',binding_status:'stale',platform:'synthetic',account_id:'test',publication_id:'post',ad_id:null,
+ audience:{description:'synthetic',allocation_method:'unknown',allocation_id:null},
+ window:{start:'2026-09-29T00:00:00+08:00',end:'2026-09-30T00:00:00+08:00',timezone:'Asia/Shanghai',semantics:'cumulative',label:'24h'},
+ metrics:[{metric_id:'rate',definition:'views / impressions',kind:'rate',numerator:60,numerator_unit:'view',denominator:100,denominator_unit:'impression',count_unit:'event',duration_unit:null,support_count:null,value:.6,status:'observed'}],
+ fee:{amount:null,currency:null,settlement_status:'unknown'},raw_export_ref:{path:'assets/raw.csv',sha256:'a'.repeat(64)},
+ sample:{conditions:'synthetic',limitations:'no real traffic'}}]}]},{canEdit:true,projectId:'film'});
+const content=elements.map(e=>e.textContent).join('|');
+console.log(JSON.stringify({history:content.includes('old-import') && content.includes('60.00%'),
+ stale:content.includes('证据已变化') && content.includes('不可比'),blocker:content.includes('开场登记或依赖已失效'),
+ importEnabled:elements.some(e=>e.textContent==='导入实验结果')}));
+'''
+    result = subprocess.run(["node", "--input-type=module", "-e", script],
+        cwd=Path(__file__).resolve().parents[2], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"history": True, "stale": True,
+        "blocker": True, "importEnabled": False}

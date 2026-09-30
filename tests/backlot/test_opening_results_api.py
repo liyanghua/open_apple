@@ -1,6 +1,8 @@
 """Result imports use the real authenticated workbench and strict state schema."""
 import json
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from tests.backlot.test_opening_reviews import preview_project
@@ -102,3 +104,62 @@ def test_same_candidate_labels_in_other_group_cannot_borrow_baseline(tmp_path):
     assert "缺少同源基线实测" not in a01["comparison_reasons"]
     assert "缺少同源基线实测" in a03["comparison_reasons"]
     assert a01["conclusion"] == a03["conclusion"] == "已导入，尚无结论"
+
+
+@pytest.mark.parametrize("changed,group_invalid", [
+    ("experiment", True), ("hook", True), ("record", True), ("render", False), ("raw", False),
+])
+def test_stale_result_history_survives_binding_failure_in_strict_state(
+    projects_root, backlot_client, changed, group_invalid
+):
+    from lib.opening_results import import_result
+    from backlot.operator_state import load_operator_state
+    project = projects_root / "film"
+    preview_project(project)
+    import_result(project, result_payload(project), actor_id="tester")
+    if changed == "record":
+        path = project / "record.json"
+        record = json.loads(path.read_text())
+        record["opening"]["candidate_id"] = "unregistered"
+        path.write_text(json.dumps(record))
+    else:
+        path = project / {"experiment":"experiment.json", "hook":"hook.json", "render":"final.mp4",
+                          "raw":"assets/synthetic-metrics.csv"}[changed]
+        path.write_bytes(path.read_bytes() + b"changed")
+    state = load_operator_state(project, permissions=("view", "review"))
+    card = _cards(state)[0]
+    response = backlot_client.get("/api/v2/projects/film/operator-state")
+    assert response.status_code == 200, response.text
+    http_card = _cards(response.json())[0]
+    for row in (card, http_card):
+        assert row["opening_results"][0]["binding_status"] == "stale"
+        assert row["opening_results"][0]["comparison_status"] == "不可比"
+        assert row["opening_results"][0]["metrics"][0]["value"] == .45
+        assert row["review"] is None
+        assert bool(row["scope_error"]) == group_invalid
+        assert (row["opening_group"] is None) == group_invalid
+
+
+def test_unknown_film_durations_cannot_be_treated_as_equal(tmp_path):
+    from lib.opening_results import import_result
+    from backlot.production_review_items import production_review_items
+    from tests.lib.test_opening_freeze import scoped_registered_group, publish_group_in_shared_project
+    (tmp_path / "project.json").write_text(json.dumps({"project_id":"synthetic-unknown-duration"}))
+    publish_group_in_shared_project(tmp_path, "A01", scoped_registered_group(tmp_path, "A01"))
+    entries = []
+    for name in ("record.json", "H01_record.json"):
+        record_path = f"A01/{name}"
+        path = tmp_path / record_path
+        record = json.loads(path.read_text())
+        record["render"].pop("seconds", None)
+        path.write_text(json.dumps(record))
+        entries.append({"id":record["content_slot_id"], "record_path":record_path})
+    index = {"items":entries}
+    (tmp_path / "artifacts").mkdir(exist_ok=True)
+    (tmp_path / "artifacts/production_review_index.json").write_text(json.dumps(index))
+    import_result(tmp_path, result_payload(tmp_path, "A01/record.json", import_id="baseline"), actor_id="tester")
+    import_result(tmp_path, result_payload(tmp_path, "A01/H01_record.json", import_id="variant"), actor_id="tester")
+    cards = {card["id"]:card for card in production_review_items(tmp_path, index, [])}
+    result = cards["A01-H1"]["opening_results"][0]
+    assert result["comparison_status"] == "不可比"
+    assert "成片时长未知" in result["comparison_reasons"]

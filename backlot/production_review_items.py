@@ -181,7 +181,7 @@ def production_review_items(project_dir: Path, index: dict, notes: list) -> list
             item["opening_group"] = {**group, **{key: target[key] for key in ("id", "experiment_id", "experiment_ref", "baseline_record_path")}}
     from lib.opening_results import comparison_reasons, results_for_record
     for item in results:
-        item["opening_results"] = results_for_record(root, item["record_path"]) if item["opening_group"] else []
+        item["opening_results"] = results_for_record(root, item["record_path"])
     for item in results:
         group = item["opening_group"]
         if not group or group["role"] == "baseline":
@@ -198,7 +198,11 @@ def production_review_items(project_dir: Path, index: dict, notes: list) -> list
             for base in candidates:
                 current_reasons = comparison_reasons(row, base, group_same=True,
                     scope_same=group["scope"] == baseline["opening_group"]["scope"],
-                    duration_same=item["duration_seconds"] == baseline["duration_seconds"])
+                    duration_same=(item["duration_seconds"] == baseline["duration_seconds"]
+                        if (isinstance(item["duration_seconds"], (int, float))
+                            and item["duration_seconds"] > 0
+                            and isinstance(baseline["duration_seconds"], (int, float))
+                            and baseline["duration_seconds"] > 0) else None))
                 if not current_reasons:
                     comparable = True
                     if any(metric["status"] == "undefined" for metric in row["metrics"] + base["metrics"]):

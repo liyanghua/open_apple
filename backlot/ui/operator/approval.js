@@ -1295,12 +1295,13 @@ export function renderProductionReviews(container, payload, options = {}) {
     card.id = `production-card-${item.id}`;
     const previewOnly = item.review_kind === "opening_preview" || item.opening_group?.scope === "preview";
     card.append(node("h3", "approval-detail-group-title", `${item.id} · ${item.title}`));
-    if (item.opening_group) {
-      const group = item.opening_group;
+    const group = item.opening_group;
+    if (group) {
       card.append(detailRow("同源分组", `${group.sku} · ${group.experiment_id} · ${group.candidate_id} · ${group.role === 'baseline' ? 'B0 基线' : '登记候选'}`));
       card.append(detailRow("审核范围", previewOnly ? "仅开头预览；反馈通过不代表成片验收" : "完整成片；前三秒比较与最终验收分别判断"));
+    }
       const observations = item.opening_results || [];
-      card.append(detailRow("开场实测", observations.length ? `${observations.length} 份结果已导入；尚无自动胜出结论` : "待测；尚未导入实测结果"));
+      if (group || observations.length) card.append(detailRow("开场实测", observations.length ? `${observations.length} 份结果已导入；尚无自动胜出结论` : "待测；尚未导入实测结果"));
       for (const result of observations) {
         const detail = node("details", "approval-detail-group");
         detail.append(node("summary", "", `${result.import_id} · ${result.comparison_status} · ${result.binding_status === 'current' ? '当前绑定' : '证据已变化'}`));
@@ -1321,7 +1322,7 @@ export function renderProductionReviews(container, payload, options = {}) {
         detail.append(detailRow("比较状态", `${result.comparison_status} · ${(result.comparison_reasons || []).join('；') || '无可用胜出规则'}`));
         card.append(detail);
       }
-      if (canEdit && projectId) {
+      if (canEdit && projectId && group) {
         const form = node("details", "approval-detail-group");
         form.append(node("summary", "", "手动导入实验结果"));
         form.append(node("p", "approval-muted", "粘贴版本化 JSON；raw_export_ref 填本项目内已保留的原始导出文件相对路径与 SHA256。导入不会触发审核或发布。"));
@@ -1348,10 +1349,9 @@ export function renderProductionReviews(container, payload, options = {}) {
         form.append(field, submit, status);
         card.append(form);
       }
-      for (const shot of group.shots || []) {
+      for (const shot of group?.shots || []) {
         card.append(detailRow(`镜头 ${shot.shot_id || ''} 来源`, `${shot.source_kind || '待确认'} · ${shot.source_path || '未提供'} · ${shot.source_interval_seconds?.join('–') || '区间待确认'} 秒 · ${shot.motion_verb || '动作待确认'}`));
       }
-    }
     if (item.video_url) {
       const video = mediaVideo(item.video_url, null, `${item.id} ${previewOnly ? '开头预览' : '成片预览'}`);
       let openingLoop = Boolean(item.opening_group);

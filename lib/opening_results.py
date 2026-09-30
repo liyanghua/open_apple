@@ -52,7 +52,7 @@ def _window(value: dict) -> tuple[datetime, datetime]:
 
 def _validate(root: Path, data: dict) -> dict:
     try:
-        validate_artifact("opening_result", data)
+        validate_artifact("experiment_result", data)
         if not data["publication_id"] and not data["ad_id"]:
             raise ValueError("Publication or advertisement identity required")
         if data["fee"]["amount"] is not None and not data["fee"]["currency"]:
@@ -112,7 +112,7 @@ def import_result(root: Path, payload: dict, *, actor_id: str) -> dict:
     if set(payload) & {"imported_at", "imported_by", "source_sha256", "semantic_sha256", "artifact_sha256"}:
         raise OperatorError.validation_failed("导入元数据由系统生成")
     try:
-        validate_artifact("opening_result", payload)
+        validate_artifact("experiment_result", payload)
         digest = _digest(payload)
     except (ValidationError, ValueError, TypeError) as exc:
         raise OperatorError.validation_failed("实验结果格式或数值无效") from exc
@@ -128,7 +128,7 @@ def import_result(root: Path, payload: dict, *, actor_id: str) -> dict:
     _validate(root, payload)
     document = {**payload, "imported_at": datetime.now(timezone.utc).isoformat(),
                 "imported_by": actor_id, "source_sha256": digest}
-    validate_artifact("opening_result", document)
+    validate_artifact("experiment_result", document)
     store = ProjectCommitStore(root)
     with store.transaction(action={"action_id": f"opening-result-{payload['import_id']}", "type": "import_opening_result"},
         result={"status": "imported", "import_id": payload["import_id"]},
@@ -139,7 +139,7 @@ def import_result(root: Path, payload: dict, *, actor_id: str) -> dict:
                 raise OperatorError("idempotency_conflict", "导入标识已用于另一份结果", 409)
             return {"status": "replayed", "import_id": payload["import_id"]}
         _validate(root, payload)
-        sink.stage_json(relative, document, schema="opening_result")
+        sink.stage_json(relative, document, schema="experiment_result")
     return {"status": "imported", "import_id": payload["import_id"]}
 
 
@@ -173,7 +173,7 @@ def results_for_record(root: Path, record_path: str) -> list[dict]:
             if path.is_symlink():
                 continue
             data = json.loads(path.read_text(encoding="utf-8"))
-            validate_artifact("opening_result", data)
+            validate_artifact("experiment_result", data)
             if not _source_matches(data):
                 continue
             if data["record_ref"]["path"] != record_path:
@@ -183,6 +183,14 @@ def results_for_record(root: Path, record_path: str) -> list[dict]:
                 try:
                     _bound_file(root, ref)
                 except (ValueError, OSError):
+                    binding = "stale"
+            if binding == "current":
+                try:
+                    opening = opening_review_scope(root, read_object(root, data["record_ref"]["path"]))
+                    if (not opening or opening["candidate_id"] != data["candidate_id"]
+                            or opening["experiment_ref"] != data["experiment_ref"]):
+                        binding = "stale"
+                except (ValidationError, ValueError, OSError, KeyError, TypeError):
                     binding = "stale"
             rows.append({**data, "metrics": [_metric_view(m) for m in data["metrics"]],
                 "binding_status": binding, "comparison_status": "数据不足" if binding == "current" else "不可比",
@@ -201,12 +209,13 @@ def results_for_record(root: Path, record_path: str) -> list[dict]:
     return rows
 
 
-def comparison_reasons(row: dict, baseline: dict, *, group_same: bool, scope_same: bool, duration_same: bool) -> list[str]:
+def comparison_reasons(row: dict, baseline: dict, *, group_same: bool, scope_same: bool, duration_same: bool | None) -> list[str]:
     """Describe compatibility only; no rank or causal decision is calculated."""
     reasons = []
     if not group_same: reasons.append("不同基线组")
     if not scope_same: reasons.append("预览与完整成片范围不同")
-    if not duration_same: reasons.append("成片时长不同")
+    if duration_same is None: reasons.append("成片时长未知")
+    elif not duration_same: reasons.append("成片时长不同")
     for key, label in (("platform", "平台"), ("account_id", "账号")):
         if row[key] != baseline[key]: reasons.append(f"{label}不同")
     if row["audience"] != baseline["audience"]: reasons.append("受众或分配条件不同")

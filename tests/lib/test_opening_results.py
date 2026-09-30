@@ -125,16 +125,16 @@ def test_comparison_explains_group_scope_window_account_allocation_and_definitio
     assert {"不同基线组", "预览与完整成片范围不同", "成片时长不同", "平台不同", "账号不同", "受众或分配条件不同", "窗口语义不同", "观察时长不同", "指标定义或分母单位不同"} <= set(reasons)
 
 
-def test_result_artifact_is_registered_and_rejects_missing_denominator_unit(tmp_path):
+def test_experiment_result_artifact_is_registered_and_rejects_missing_denominator_unit(tmp_path):
     from jsonschema import ValidationError
     from schemas.artifacts import ARTIFACT_NAMES, validate_artifact
     preview_project(tmp_path)
     payload = result_payload(tmp_path)
-    assert "opening_result" in ARTIFACT_NAMES
-    validate_artifact("opening_result", payload)
+    assert "experiment_result" in ARTIFACT_NAMES
+    validate_artifact("experiment_result", payload)
     del payload["metrics"][0]["denominator_unit"]
     with pytest.raises(ValidationError):
-        validate_artifact("opening_result", payload)
+        validate_artifact("experiment_result", payload)
 
 
 def test_nonfinite_fee_and_tampered_saved_result_cannot_be_projected(tmp_path):
