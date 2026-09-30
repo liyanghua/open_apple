@@ -152,6 +152,42 @@ def test_import_rejects_wrong_historical_sku_alias_before_writing(tmp_path):
     assert not (tmp_path / "artifacts/production_review_index.json").exists()
 
 
+def test_import_replay_identifies_audited_successor_index_without_new_work(tmp_path):
+    packet = _packet(tmp_path)
+    receipt = import_prepared_previews(tmp_path, packet)
+    original_index = receipt["outputs"]["artifacts/production_review_index.json"]
+    import_receipt = _put(tmp_path, "artifacts/opening-import/import_receipt.json",
+                          read_object(tmp_path, "artifacts/opening-import/import_receipt.json"))
+    _put(tmp_path, "artifacts/post-import-audit/audit_receipt.json", {
+        "kind": "post_import_measurement_binding", "original_index_ref": original_index,
+        "original_import_receipt_ref": import_receipt})
+    index = read_object(tmp_path, "artifacts/production_review_index.json")
+    index["items"][0]["record_path"] = "artifacts/post-import-audit/A01/production_record.json"
+    _put(tmp_path, "artifacts/production_review_index.json", index)
+    with pytest.raises(ValueError, match="Import already registered.*do not re-import"):
+        import_prepared_previews(tmp_path, packet)
+
+
+def test_import_refuses_to_replace_existing_review_cards(tmp_path):
+    packet = _packet(tmp_path)
+    existing = {"version": "1.0", "items": [{"id": "existing-slot", "title": "Existing review",
+        "record_path": "artifacts/existing/production_record.json"}]}
+    original = _put(tmp_path, "artifacts/production_review_index.json", existing)
+    with pytest.raises(ValueError, match="nonempty review index"):
+        import_prepared_previews(tmp_path, packet)
+    assert read_object(tmp_path, original["path"]) == existing
+    assert not (tmp_path / "artifacts/opening-import/import_receipt.json").exists()
+
+
+def test_import_refuses_duplicate_preview_content_slots(tmp_path):
+    packet = _packet(tmp_path)
+    packet["previews"]["A03"]["production_record"]["content_slot_id"] = (
+        packet["previews"]["A01"]["production_record"]["content_slot_id"])
+    with pytest.raises(ValueError, match="Duplicate preview content_slot_id"):
+        import_prepared_previews(tmp_path, packet)
+    assert not (tmp_path / "artifacts/production_review_index.json").exists()
+
+
 def test_interleaved_different_packet_conflicts_under_project_lock(tmp_path, monkeypatch):
     first = _packet(tmp_path)
     second = copy.deepcopy(first)

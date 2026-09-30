@@ -140,7 +140,16 @@ def _verify_replay(root: Path, packet: Mapping, fingerprint: str) -> dict:
     previous = read_object(root, RECEIPT)
     if previous.get("packet_sha256") != fingerprint:
         raise ValueError("Import packet changed after registration")
-    for ref in previous["outputs"].values():
+    for path, ref in previous["outputs"].items():
+        if path == "artifacts/production_review_index.json" and file_sha256(project_file(root, path)) != ref["sha256"]:
+            audit_path = "artifacts/post-import-audit/audit_receipt.json"
+            if (root / audit_path).is_file():
+                audit = read_object(root, audit_path)
+                if (audit.get("kind") == "post_import_measurement_binding"
+                        and audit.get("original_index_ref") == ref
+                        and audit.get("original_import_receipt_ref") == _ref(root, RECEIPT)):
+                    raise ValueError("Import already registered; a post-import QA audit advanced the current index. "
+                                     "Use that index for recovery; do not re-import or submit paid tasks")
         _ref(root, **ref)
     _verify_source_manifest(root, packet["imported_inputs_ref"])
     if file_sha256(Path(packet["source_document_path"])) != packet["voice_source_register"]["source_document_sha256"]:
@@ -162,6 +171,9 @@ def import_prepared_previews(root: Path, packet: Mapping) -> dict:
         raise ValueError("Import packet version/project mismatch")
     if set(packet.get("previews", {})) != set(packet.get("hooks", {})) or len(packet["previews"]) != 2:
         raise ValueError("Exactly two prepared preview plans and records are required")
+    slots = [preview["production_record"]["content_slot_id"] for preview in packet["previews"].values()]
+    if len(set(slots)) != len(slots):
+        raise ValueError("Duplicate preview content_slot_id")
     fingerprint = _digest(packet)
     receipt_path = root / RECEIPT
     if receipt_path.exists():
@@ -231,6 +243,9 @@ def import_prepared_previews(root: Path, packet: Mapping) -> dict:
                            business_diff=["Registered two historical engineering previews as pending pilot evidence."]) as sink:
             if receipt_path.exists():
                 raise _ReplayImport(_verify_replay(root, packet, fingerprint))
+            index_path = root / "artifacts/production_review_index.json"
+            if index_path.is_file() and read_object(root, "artifacts/production_review_index.json").get("items"):
+                raise ValueError("Cannot import previews over a nonempty review index")
             _verify_source_manifest(root, packet["imported_inputs_ref"])
             if file_sha256(source_doc) != voice["source_document_sha256"]:
                 raise ValueError("Source document hash changed before import commit")
