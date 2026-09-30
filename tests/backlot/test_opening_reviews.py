@@ -13,7 +13,9 @@ def preview_project(root, *, media=None, full_media=None):
     """Synthetic UI fixture: no certification or real production authority."""
     root.mkdir(parents=True, exist_ok=True)
     record, _, _ = fixture(root)
-    record.update(content_slot_id="SYNTHETIC-A", campaign_role="pilot")
+    record.update(version="1.0", provenance="legacy_import", content_slot_id="SYNTHETIC-A",
+                  campaign_role="pilot", quality_report_ref="synthetic-quality.json")
+    write(root, "synthetic-quality.json", {"scope":"preview", "checks":[], "status":"not_run"})
     record["render"]["seconds"] = 3
     if media:
         # Observation does not match replacement test media: honestly unresolved.
@@ -51,6 +53,29 @@ def test_preview_feedback_has_no_stage_or_delivery_authority(tmp_path):
     assert item["final_review"] is None
     assert item["opening_group"]["candidate_id"] == record["opening"]["candidate_id"]
     assert not item["certification_eligible"]
+
+
+def test_opening_review_requires_complete_production_record_schema(tmp_path):
+    record, index = preview_project(tmp_path)
+    record.pop("version")
+    write(tmp_path, "record.json", record)
+    service = ReviewService(tmp_path)
+    with pytest.raises(OperatorError):
+        service.create_production_review(record_path="record.json", submitted_by="pipeline")
+    card = production_review_items(tmp_path, index, [])[0]
+    assert card["scope_error"]
+    assert card["review"] is None
+
+
+def test_final_opening_review_rejects_invalid_production_record_metadata(tmp_path):
+    from tests.lib.test_opening_freeze import scoped_registered_group
+    scoped_registered_group(tmp_path, "A01")
+    record_path = "A01/record.json"
+    record = json.loads((tmp_path / record_path).read_text())
+    record.pop("version")
+    write(tmp_path, record_path, record)
+    with pytest.raises(OperatorError):
+        ReviewService(tmp_path).create_final_review(record_path=record_path, submitted_by="pipeline")
 
 
 def test_rejection_does_not_resurrect_older_approval(tmp_path):
@@ -117,6 +142,55 @@ def test_synthetic_full_playback_card_is_visibly_uncertified(tmp_path):
     assert not items[1]["certification_eligible"]
     with pytest.raises(OperatorError):
         ReviewService(tmp_path / "film").create_production_review(record_path="record-full.json", submitted_by="pipeline")
+
+
+def test_operator_state_and_api_accept_synthetic_preview_and_full_cards(projects_root, backlot_client, tmp_path):
+    from backlot.operator_state import load_operator_state
+    preview = tmp_path / "input-preview.mp4"; preview.write_bytes(b"synthetic preview")
+    full = tmp_path / "input-full.mp4"; full.write_bytes(b"synthetic full")
+    project = projects_root / "film"
+    preview_project(project, media=preview, full_media=full)
+    before = {p.relative_to(project).as_posix(): p.stat().st_mtime_ns for p in project.rglob("*") if p.is_file()}
+    state = load_operator_state(project, permissions=("view", "review"))
+    cards = next(s for s in state["stages"] if s["id"] == "compose")["editor"]["data"]["production_reviews"]
+    assert {c["review_kind"] for c in cards} == {"opening_preview", "final_review"}
+    response = backlot_client.get("/api/v2/projects/film/operator-state")
+    assert response.status_code == 200, response.text
+    assert {c["id"] for c in next(s for s in response.json()["stages"] if s["id"] == "compose")["editor"]["data"]["production_reviews"]} == {"SYNTHETIC-A", "SYNTHETIC-FULL"}
+    after = {p.relative_to(project).as_posix(): p.stat().st_mtime_ns for p in project.rglob("*") if p.is_file()}
+    assert after == before
+
+
+def test_latest_review_is_selected_within_current_scope_after_scope_cycles(tmp_path):
+    preview, index = preview_project(tmp_path)
+    full = {key: value for key, value in preview.items() if key != "opening"}
+    full["provenance"] = "legacy_import"
+    write(tmp_path, "record.json", full)
+    service = ReviewService(tmp_path)
+    first_full = service.create_production_review(record_path="record.json", submitted_by="pipeline")
+    approve(service, first_full)
+
+    write(tmp_path, "record.json", preview)
+    first_preview = service.create_production_review(record_path="record.json", submitted_by="pipeline")
+    approve(service, first_preview)
+    for version in (2, 3):
+        next_preview = service.create(kind="opening_preview", subject_id=first_preview["subject_id"],
+            subject_version=version, subject_hash=first_preview["subject_hash"],
+            submitted_by="pipeline", production_subject=first_preview["production_subject"])
+        approve(service, next_preview)
+
+    full["run_id"] = "new-full-run"
+    write(tmp_path, "record.json", full)
+    current_full = service.create_production_review(record_path="record.json", submitted_by="pipeline")
+    assert current_full["kind"] == "final_review"
+    assert current_full["subject_version"] == 2
+    approve(service, current_full)
+    card = production_review_items(tmp_path, index, [])[0]
+    assert card["review_kind"] == "final_review"
+    assert card["review"]["review_id"] == current_full["review_id"]
+    assert card["binding_status"] == "current"
+    assert card["review_status"] == "已通过"
+    assert {r["kind"] for r in card["review_history"]} == {"final_review", "opening_preview"}
 
 
 def test_group_identity_isolates_registered_local_candidate_ids(tmp_path):
@@ -221,6 +295,7 @@ def test_campaign_role_pilot_and_preview_never_subtract_original_target():
 
 
 def test_actual_batch_callers_propagate_verified_opening_context(tmp_path):
+    import shutil
     from tests.lib.test_opening_freeze import scoped_registered_group, publish_group_in_shared_project, write as write_ref
     from tests.backlot.test_batch_actions import _child_with_review, _write
     from lib.candidate_diversity import build_variant_plan
@@ -242,6 +317,27 @@ def test_actual_batch_callers_propagate_verified_opening_context(tmp_path):
         candidates.append({"candidate_id":name, "project_id":name, "status":"evaluated"})
     batch={"batch_id":"batch", "candidates":candidates, "diversity_mode":"hard_gate"}
     _write(batch_root / "artifacts/candidate_batch.json", batch)
+    # A matching candidate label and valid batch registration cannot authorize
+    # unrelated selected-child props. The old implementation waived four gates.
+    for c in candidates:
+        failures = selection_quality_failures(batch, c, tmp_path / c["project_id"], batch_dir=batch_root)
+        assert any("差异度不足" in f for f in failures)
+    assert not build_batch_quality_report(batch_root)["pairwise_diversity"][0]["passes"]
+    assert not build_batch_review_data({"_project_dir":batch_root}, batch)["diversity"]["pairwise"][0]["passes"]
+    # Materialize the exact verified records/media/props into the selected
+    # children, then mark each current record in its own canonical index.
+    for c in candidates:
+        cid = c["candidate_id"]
+        child = tmp_path / cid
+        shutil.copytree(batch_root / "A01", child / "A01", dirs_exist_ok=True)
+        shutil.copytree(batch_root / "public", child / "public", dirs_exist_ok=True)
+        shutil.copytree(batch_root / "operator", child / "operator", dirs_exist_ok=True)
+        evidence = json.loads((batch_root / context["candidate_evidence_refs"][cid]["path"]).read_text())
+        props = batch_root / evidence["candidate_props_ref"]["path"]
+        shutil.copyfile(props, child / "artifacts/final_props.json")
+        canonical = json.loads((batch_root / evidence["production_record_ref"]["path"]).read_text())
+        _write(child / "artifacts/production_review_index.json", {"items": [
+            {"id":canonical["content_slot_id"], "record_path":evidence["production_record_ref"]["path"]}]})
     for c in candidates:
         failures = selection_quality_failures(batch, c, tmp_path / c["project_id"], batch_dir=batch_root)
         assert not any("差异" in f for f in failures), failures
@@ -249,6 +345,21 @@ def test_actual_batch_callers_propagate_verified_opening_context(tmp_path):
     assert report["pairwise_diversity"][0]["passes"]
     state = build_batch_review_data({"_project_dir":batch_root}, batch)
     assert state["diversity"]["pairwise"][0]["passes"]
+
+    # Stale current props close the exception again even though the batch
+    # registration and all canonical evidence remain untouched.
+    (tmp_path / "H01/artifacts/final_props.json").write_bytes(b"unrelated props")
+    assert any("差异度不足" in f for f in selection_quality_failures(
+        batch, candidates[1], tmp_path / "H01", batch_dir=batch_root))
+    assert not build_batch_quality_report(batch_root)["pairwise_diversity"][0]["passes"]
+    assert not build_batch_review_data({"_project_dir":batch_root}, batch)["diversity"]["pairwise"][0]["passes"]
+    evidence = json.loads((batch_root / context["candidate_evidence_refs"]["H01"]["path"]).read_text())
+    good_props = batch_root / evidence["candidate_props_ref"]["path"]
+    shutil.copyfile(good_props, tmp_path / "H01/artifacts/final_props.json")
+    selected_record = json.loads((tmp_path / "H01" / evidence["production_record_ref"]["path"]).read_text())
+    (tmp_path / "H01" / selected_record["render"]["path"]).write_bytes(b"stale selected render")
+    assert any("差异度不足" in f for f in selection_quality_failures(
+        batch, candidates[1], tmp_path / "H01", batch_dir=batch_root))
 
 
 def test_prepare_route_requires_project_role_and_csrf(tmp_path, monkeypatch):

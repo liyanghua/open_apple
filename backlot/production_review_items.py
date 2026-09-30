@@ -30,6 +30,30 @@ def _json(root: Path, value: Any) -> dict:
         return {}
 
 
+def _review_checks(checks: dict) -> dict:
+    """Small typed UI facts from the detailed canonical quality report."""
+    projected = {}
+    for name, check in checks.items():
+        observations = []
+        for observation in check.get("observations", []):
+            if not isinstance(observation, dict):
+                continue
+            motion = observation.get("motion") or {}
+            action = observation.get("actual_action") or {}
+            observations.append({
+                "shot_id": str(observation.get("shot_id") or ""),
+                "method": str(observation.get("method") or ""),
+                "reason": str(observation.get("reason") or ""),
+                "motion": {"verb": str(motion.get("verb") or ""), "visible_result": str(motion.get("visible_result") or "")},
+                "actual_action": {"source_interval_seconds": action.get("source_interval_seconds"),
+                                  "output_interval_seconds": action.get("output_interval_seconds")},
+            })
+        projected[name] = {"machine_status": check.get("machine_status", "not_run"),
+                           "effective_status": check.get("effective_status", "not_run"),
+                           "observations": observations}
+    return projected
+
+
 def production_review_items(project_dir: Path, index: dict, notes: list) -> list[dict]:
     """Never advance checkpoints or transfer approval from a different render."""
     root = Path(project_dir)
@@ -67,7 +91,6 @@ def production_review_items(project_dir: Path, index: dict, notes: list) -> list
         checks = record.get("checks") if valid and isinstance(record.get("checks"), dict) else {}
         matches = [r for r in reviews if r.get("subject_id") == slot
                    and (r.get("production_subject") or {}).get("record_path") == entry.get("record_path")]
-        latest = max(matches, key=lambda r: (r.get("subject_version", 0), r.get("created_at", "")), default=None)
         from lib.opening_review_scope import opening_review_scope
         from jsonschema import ValidationError
         opening, scope_error = None, None
@@ -76,21 +99,21 @@ def production_review_items(project_dir: Path, index: dict, notes: list) -> list
         except (ValueError, OSError, KeyError, TypeError, ValidationError):
             scope_error = "开场登记或依赖已失效"
         kind = None if scope_error else "opening_preview" if opening and opening["scope"] == "preview" else "final_review"
-        review_valid = bool(valid and latest and latest.get("kind") == kind
+        latest = max((r for r in matches if r.get("kind") == kind),
+                     key=lambda r: (r.get("subject_version", 0), r.get("created_at", "")), default=None)
+        historical_binding = latest or (max(matches, key=lambda r: (r.get("created_at", ""), r.get("subject_version", 0)), default=None) if scope_error else None)
+        review_valid = bool(valid and latest
                             and verify_production_subject(root, latest.get("production_subject") or {}))
-        binding_status = "current" if review_valid else "pending"
-        if latest and not review_valid:
+        binding_status = "current" if review_valid else "scope_changed" if kind and matches and not latest else "pending"
+        if historical_binding and not review_valid:
             binding_status = "insufficient_history"
-            subject = latest.get("production_subject") or {}
+            subject = historical_binding.get("production_subject") or {}
             for ref in [subject.get("render") or {}, *(subject.get("dependencies") or {}).values()]:
                 path = _file(root, ref.get("path")) if isinstance(ref, dict) else None
                 from lib.production_evidence import file_sha256
                 if not path or file_sha256(path) != ref.get("sha256"):
                     binding_status = "changed"
                     break
-            declared_kind = "opening_preview" if (record.get("opening") or {}).get("scope") == "preview" else "final_review"
-            if latest.get("kind") != declared_kind:
-                binding_status = "scope_changed"
         human_status = latest.get("status") if review_valid else "pending"
         qa = quality_summary(root, record)
         if not valid:
@@ -124,14 +147,14 @@ def production_review_items(project_dir: Path, index: dict, notes: list) -> list
             "preview_review": review if kind == "opening_preview" else None,
             "review": review, "review_kind": kind,
             "opening_group": opening, "scope_error": scope_error,
-            "checks": qa["checks"], "applicability": qa.get("applicability", {}),
+            "checks": _review_checks(qa["checks"]), "applicability": qa.get("applicability", {}),
             "certification_eligible": qa["eligible"],
             "binding_status": binding_status,
             "review_history": [{key: r.get(key) for key in ("review_id", "kind", "subject_version", "status", "decided_by", "reason", "decided_at")}
                                for r in sorted(matches, key=lambda r: r.get("subject_version", 0), reverse=True)],
             "record_path": entry["record_path"],
             "cost_label": cost_label,
-            "review_status": (scope_error or {
+            "review_status": (("文件已变化，请重新提交审核" if not valid else None) or scope_error or {
                 "changed": "制作文件或依赖已变化，请重新提交审核",
                 "scope_changed": "审核范围已变化，请重新提交审核",
                 "insufficient_history": "历史人工审核保留；旧绑定证据不足，请重新提交审核",

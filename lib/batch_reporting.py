@@ -412,7 +412,7 @@ def build_batch_quality_report(
         })
 
     from lib.opening_batch_context import resolve_opening_context, compare_batch_pairs
-    contexts = {str(c["candidate_id"]): resolve_opening_context(batch_dir, str(c["candidate_id"])) or resolve_opening_context(_child_dir(batch_dir, c), str(c["candidate_id"])) for c in candidates if str(c["candidate_id"]) in variant_plans}
+    contexts = {str(c["candidate_id"]): resolve_opening_context(batch_dir, str(c["candidate_id"]), selected_child_dir=_child_dir(batch_dir, c)) or resolve_opening_context(_child_dir(batch_dir, c), str(c["candidate_id"]), selected_child_dir=_child_dir(batch_dir, c)) for c in candidates if str(c["candidate_id"]) in variant_plans}
     pairwise = compare_batch_pairs(variant_plans, contexts)
 
     recommendations = []

@@ -123,7 +123,7 @@ def frozen(tmp_path, request):
         "checks": [{"id": name, "shot_id": "s1", "status": "pass", "method": "independent_semantic_review", "evidence_interval_seconds": [.5, 2.5],
                     "reviewer": reviewer, "observation_ref": observation_ref} for name in ("opening_motion", "opening_framing")]}
     opening_report_ref = write(tmp_path, "preparation_report.json", opening_report)
-    record = {"content_slot_id": "B0", "sku": "sku", "render": ref(tmp_path, "render.mp4"),
+    record = {"version": "1.0", "provenance": "legacy_import", "content_slot_id": "B0", "sku": "sku", "render": ref(tmp_path, "render.mp4"),
         "canonical_artifacts": {"final_props": props_ref["path"], **{k: v["path"] for k, v in deps.items()}},
         "review_dependencies": {"pcm": "baseline.wav", "raw": "raw.wav", "body_source": "public/body.mp4", "hook_source": "public/hook.mp4", "reference_one": "approved-one.png", "reference_two": "approved-two.png", "renderer_implementation": "renderer-source.bin"}}
     record["opening"] = {"scope": "full_variant", "candidate_id": "B0", "experiment_ref": prep_ref,
@@ -253,7 +253,9 @@ def registered(frozen):
             mix_ref = write(root, "H01_mix.json", mix)
             (root / "H01_render.mp4").write_bytes(b"distinct-candidate-render-bytes")
             media_ref = ref(root, "H01_render.mp4")
-            record_ref = write(root, "H01_record.json", {"content_slot_id": "H01", "sku": "sku", "render": media_ref,
+            write(root, "H01-quality.json", {"scope": "full_variant", "checks": [], "status": "not_run"})
+            record_ref = write(root, "H01_record.json", {"version": "1.0", "provenance": "legacy_import", "content_slot_id": "H01", "sku": "sku", "render": media_ref,
+                "quality_report_ref": "H01-quality.json",
                 "canonical_artifacts": {"final_props": props_ref["path"]},
                 "opening": {"scope": "full_variant", "candidate_id": "H01", "experiment_ref": experiment_ref, "hook_plan_ref": refs[index]["hook_plan_ref"]}})
         evidence[candidate_id] = write(root, candidate_id + "_evidence.json", {"version": "1.0", "candidate_id": candidate_id,

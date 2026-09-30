@@ -1298,7 +1298,7 @@ export function renderProductionReviews(container, payload, options = {}) {
       card.append(detailRow("同源分组", `${group.sku} · ${group.experiment_id} · ${group.candidate_id} · ${group.role === 'baseline' ? 'B0 基线' : '登记候选'}`));
       card.append(detailRow("审核范围", previewOnly ? "仅开头预览；反馈通过不代表成片验收" : "完整成片；前三秒比较与最终验收分别判断"));
       for (const shot of group.shots || []) {
-        card.append(detailRow(`镜头 ${shot.shot_id || shot.id || ''} 来源`, `${shot.asset_identity?.kind || '待确认'} · ${shot.asset_identity?.source?.path || '未提供'} · ${shot.source_mapping?.source_interval_seconds?.join('–') || '区间待确认'} 秒`));
+        card.append(detailRow(`镜头 ${shot.shot_id || ''} 来源`, `${shot.source_kind || '待确认'} · ${shot.source_path || '未提供'} · ${shot.source_interval_seconds?.join('–') || '区间待确认'} 秒 · ${shot.motion_verb || '动作待确认'}`));
       }
     }
     if (item.video_url) {

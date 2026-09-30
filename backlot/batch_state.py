@@ -544,9 +544,13 @@ def build_batch_review_data(board: Mapping[str, Any], batch: Mapping[str, Any]) 
             except (OSError, json.JSONDecodeError):
                 pass
     from lib.opening_batch_context import resolve_opening_context, compare_batch_pairs
-    contexts = {cid: resolve_opening_context(project_dir, cid) or resolve_opening_context(
-        _safe_child_dir(child_root, str(next((c.get("project_id") or cid for c in candidates if str(c.get("candidate_id")) == cid), cid))) or (child_root / "__invalid_candidate__"), cid)
-        for cid in variant_plans}
+    contexts = {}
+    for cid in variant_plans:
+        member = next((c for c in candidates if str(c.get("candidate_id")) == cid), {})
+        child = _safe_child_dir(child_root, str(member.get("project_id") or cid))
+        if child:
+            contexts[cid] = (resolve_opening_context(project_dir, cid, selected_child_dir=child)
+                             or resolve_opening_context(child, cid, selected_child_dir=child))
     pairwise = compare_batch_pairs(variant_plans, contexts)
     diversity = {
         "mode": batch.get("diversity_mode") or "legacy_read_only",

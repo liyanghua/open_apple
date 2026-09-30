@@ -227,7 +227,7 @@ class ReviewService:
         try:
             opening = opening_review_scope(self.project_dir, record)
         except (ValueError, OSError, KeyError, TypeError, ValidationError) as exc:
-            raise OperatorError.validation_failed(f"开场登记无效：{exc}") from exc
+            raise OperatorError.validation_failed("开场制作记录或登记不符合要求") from exc
         if kind == "opening_preview":
             if not opening or opening["scope"] != "preview":
                 raise OperatorError.validation_failed("预览反馈只适用于已登记的开头预览")
@@ -245,7 +245,7 @@ class ReviewService:
         try:
             opening = opening_review_scope(self.project_dir, read_object(self.project_dir, record_path))
         except (ValueError, OSError, KeyError, TypeError, ValidationError) as exc:
-            raise OperatorError.validation_failed(f"开场登记无效：{exc}") from exc
+            raise OperatorError.validation_failed("开场制作记录或登记不符合要求") from exc
         kind = "opening_preview" if opening and opening["scope"] == "preview" else "final_review"
         return self._create_production_review(record_path=record_path, submitted_by=submitted_by, kind=kind)
 

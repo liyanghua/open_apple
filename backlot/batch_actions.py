@@ -210,13 +210,28 @@ def selection_quality_failures(
                 siblings.append(other_plan)
         from lib.opening_batch_context import resolve_opening_context, compare_batch_pairs
         candidate_id = str(variant_plan.get("candidate_id") or "")
-        context = (resolve_opening_context(batch_dir, candidate_id) if batch_dir else None) or resolve_opening_context(child_dir, candidate_id)
-        diversity = selection_diversity_failures(variant_plan, siblings, opening_context=context)
+        plans = {str(p.get("candidate_id")): p for p in [variant_plan, *siblings]}
+        by_id = {str(c.get("candidate_id")): c for c in batch.get("candidates", []) if isinstance(c, Mapping)}
+        contexts = {}
+        for cid in plans:
+            member = by_id.get(cid, {})
+            other_dir = child_dir.parent / str(member.get("project_id") or cid)
+            try:
+                other_dir = other_dir.resolve()
+                other_dir.relative_to(child_dir.parent.resolve())
+            except ValueError:
+                continue
+            contexts[cid] = ((resolve_opening_context(batch_dir, cid, selected_child_dir=other_dir) if batch_dir else None)
+                             or resolve_opening_context(other_dir, cid, selected_child_dir=other_dir))
+        context = contexts.get(candidate_id)
+        baseline_bound = context and contexts.get("B0") and context["experiment_ref"] == contexts["B0"]["experiment_ref"]
+        variant_bound = any(c and c["experiment_ref"] == context["experiment_ref"] for cid, c in contexts.items() if cid != "B0") if context else False
+        diversity = selection_diversity_failures(variant_plan, siblings,
+            opening_context=context if (baseline_bound or candidate_id == "B0" and variant_bound) else None)
         if diversity_mode == "hard_gate":
             for item in diversity["structural_failures"]:
                 failures.append(f"差异度不足：{item}")
-            plans = {str(p.get("candidate_id")): p for p in [variant_plan, *siblings]}
-            for pair in compare_batch_pairs(plans, {candidate_id: context}):
+            for pair in compare_batch_pairs(plans, contexts):
                 if candidate_id in (pair["candidate_a"], pair["candidate_b"]) and not pair["passes"]:
                     failures.append(f"与候选 {pair['candidate_a']} / {pair['candidate_b']} 的批级差异不足")
     else:
