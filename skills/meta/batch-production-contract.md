@@ -14,6 +14,8 @@
 
 先资产检索和缺口分析；缺镜头才生成。商品参考必须绑定SKU，素材记原始/处理/输出哈希、任务ID、用途与使用区间。SeedanceArk提交前必须有正金额、操作匹配、足额预占和任务幂等键。未知远端状态先 query，禁止盲重发。creative追加最多2次；judge格式修复最多1次。若仍不合格，记录失败类别，交人工选最小修改，不追加无限任务。成功但创意淘汰的素材仍计费。
 
+已批准的动态前三秒首件执行 [dynamic-opening-pilot](../../.agents/skills/dynamic-opening-pilot/SKILL.md)：先以只读校验绑定人工批准、付费任务额度、商品参考图与预算预占；再让Agent选择实际动作、取景和剪点。生成源、预览渲染和技术报告必须是同一版本，使用 `scripts/validate_dynamic_hook_pilot.py` 的 `gate` 与 `preview` 两个阶段检查。`ready_for_preview_review` 只表示可送人工看预览；不覆盖 `revise/not_run`、不批准完整成片，也不计入300条。
+
 声音先生成并测量实际词时间；口播文案保持事实边界，左上只放关键词。用已批准 SUNO 素材和混音规范；检查BGM对口播的遮盖。最终音轨更换后，独立ASR/人工听审与字幕时轴必须重新验证。所有素材的provider/model/resolution记录真实值，960×960素材裁切成1080×1920不能标原生1080p生成。
 
 ## QA与正式验收
