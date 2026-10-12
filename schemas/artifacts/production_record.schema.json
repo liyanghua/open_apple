@@ -4,7 +4,29 @@
   "type": "object",
   "required": ["version", "content_slot_id", "provenance", "render", "canonical_artifacts", "quality_report_ref"],
   "properties": {
-    "version": {"const": "1.0"},
+    "version": {"enum": ["1.0", "1.1"]},
+    "category_profile_ref": {
+      "type": "object",
+      "required": ["path", "profile_id", "category_id", "version", "artifact_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "profile_id": {"type": "string", "minLength": 1},
+        "category_id": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "brand_profile_ref": {
+      "type": "object", "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+      "additionalProperties": false
+    },
+    "fact_snapshot_ref": {
+      "type": "object", "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+      "additionalProperties": false
+    },
     "provenance": {"enum": ["canonical", "legacy_import"]},
     "content_slot_id": {"type": "string", "minLength": 1},
     "run_id": {"type": "string", "minLength": 1},
@@ -109,6 +131,13 @@
       "estimated_cny": {"type": ["number", "null"], "minimum": 0},
       "paid_cny": {"type": ["number", "null"], "minimum": 0}}}
   },
-  "allOf": [{"if": {"properties": {"provenance": {"const": "canonical"}}},
-    "then": {"required": ["run_id", "work_id", "sku", "campaign_role", "production_route", "content_version_id", "fact_version", "brand_version", "timing", "costs"]}}]
+  "allOf": [
+    {"if": {"properties": {"provenance": {"const": "canonical"}}},
+      "then": {"required": ["run_id", "work_id", "sku", "campaign_role", "production_route", "content_version_id", "fact_version", "brand_version", "timing", "costs"]}},
+    {"if": {"properties": {"version": {"const": "1.1"}}, "required": ["version"]},
+      "then": {
+        "required": ["category_profile_ref", "brand_profile_ref", "fact_snapshot_ref"],
+        "properties": {"provenance": {"const": "canonical"}}
+      }}
+  ]
 }

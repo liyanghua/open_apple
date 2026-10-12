@@ -363,6 +363,7 @@ def assert_paid_media_ready(project: Path, run_plan: dict, template: dict | None
     readiness = check_template_run_plan_ready(
         run_plan, template=template, input_mode=input_mode,
         authoritative_differentiation_plan_ref=authoritative_ref,
+        project_dir=project,
     )
     if not readiness.get("ready"):
         raise SystemExit(f"template_run_plan 未就绪，禁止付费媒体管线: {readiness.get('blockers')}")

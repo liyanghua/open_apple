@@ -61,6 +61,12 @@ def build_production_subject(root: Path, record_path: str) -> dict:
     """
     root = Path(root)
     record = read_object(root, record_path)
+    if record.get("version") == "1.1":
+        from schemas.artifacts import validate_artifact
+        try:
+            validate_artifact("production_record", record)
+        except Exception as exc:
+            raise ValueError(f"Invalid versioned production record: {exc}") from exc
     slot = record.get("content_slot_id")
     if not isinstance(slot, str) or not slot:
         raise ValueError("Production record has no content_slot_id")
@@ -157,7 +163,18 @@ def quality_summary(root: Path, record: Mapping[str, Any]) -> dict:
     scope, applicability = quality_applicability(root, record)
     if current:
         applicability = current["applicability"]
-    required = list(dict.fromkeys([name for name, rule in applicability.items() if rule["required"]] + extra))
+    category_ids: set[str] = set()
+    category_error = False
+    if record.get("version") == "1.1":
+        try:
+            from lib.category_profile import load_category_profile_ref
+            category = load_category_profile_ref(root, record.get("category_profile_ref"))
+            category_ids = {item["id"] for item in category["qa_checks"]}
+        except (ValueError, OSError, TypeError, KeyError):
+            category_error = True
+    required = list(dict.fromkeys(
+        [name for name, rule in applicability.items() if rule["required"]] + extra + sorted(category_ids)
+    ))
     checks, blockers = {}, []
     for name in list(dict.fromkeys(required + list(applicability) + list(entries))):
         item = entries.get(name, {})
@@ -173,11 +190,14 @@ def quality_summary(root: Path, record: Mapping[str, Any]) -> dict:
             status = "error" if name in duplicates else measurement.get("status", "not_run")
         effective = "pass" if status == "pass" and evidenced else (status if status != "pass" else "unverified")
         for verification in manual if isinstance(manual, list) else []:
-            if (name in MANUAL_ALLOWED and name not in duplicates and isinstance(verification, dict)
+            if (name in (MANUAL_ALLOWED | (category_ids - {"product_identity", "fact_source", "caption_alignment"}))
+                    and name not in duplicates and isinstance(verification, dict)
                     and verification.get("check_id") == name and verification.get("decision") == "pass"
                     and _identified_verification(verification)
                     and verification.get("render_sha256") == render_sha
                     and verification.get("qa_report_sha256") == report_sha and report_bound
+                    and (name not in category_ids or verification.get("category_profile_sha256") ==
+                         (record.get("category_profile_ref") or {}).get("artifact_sha256"))
                     and ("opening" not in record or current.get("dependency_fingerprint") is not None
                          and current.get("dependency_fingerprint") == report.get("dependency_fingerprint"))
                     and _evidence_exists(root, verification.get("evidence_refs"))):
@@ -196,6 +216,8 @@ def quality_summary(root: Path, record: Mapping[str, Any]) -> dict:
             blockers.append(name)
     if scope in {"preview", "invalid"}:
         blockers.append("opening_scope_not_final")
+    if category_error:
+        blockers.append("category_profile")
     completed = not blockers
     aggregate = "manual_verified" if completed and any(c["effective_status"] == "manual_verified" for c in checks.values()) else "pass"
     return {"eligible": completed, "scope": scope, "applicability": applicability, "status": aggregate if completed else "incomplete",

@@ -50,11 +50,17 @@ def create_template_run(
     adaptation_policy: str = "proof-first",
     differentiation_plan_ref: Mapping[str, Any] | None = None,
     campaign_content_ref: Mapping[str, Any] | None = None,
+    target_category_id: str | None = None,
+    category_profile_ref: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """由模板创建 template_run_plan（slot_bindings 初始为 require-binding 的 unbound）。"""
     template_id = str(template.get("template_id") or "")
     if not template_id:
         raise ValueError("template_run_plan requires template_id")
+    if bool(target_category_id) != bool(category_profile_ref):
+        raise ValueError("target_category_id and category_profile_ref must be bound together")
+    if category_profile_ref and str(category_profile_ref.get("category_id") or "") != target_category_id:
+        raise ValueError("category_profile_ref.category_id must match target_category_id")
     bindings: list[dict[str, Any]] = []
     for slot in (template.get("slots") or []):
         if not isinstance(slot, Mapping):
@@ -66,8 +72,8 @@ def create_template_run(
             "asset_type": None,
             "reason": "待绑定自有素材或生成素材",
         })
-    return {
-        "version": "1.0",
+    run = {
+        "version": "1.1" if category_profile_ref else "1.0",
         "run_id": _run_id(),
         "template_id": template_id,
         "template_pack_ref": dict(template_pack_ref),
@@ -79,6 +85,10 @@ def create_template_run(
         "caption_policy": {"reference_text": "analysis_only", "copy_reference_caption": False},
         "status": "awaiting_human",
     }
+    if category_profile_ref:
+        run["target_category_id"] = target_category_id
+        run["category_profile_ref"] = dict(category_profile_ref)
+    return run
 
 
 def bind_slot(
@@ -157,6 +167,7 @@ def approve_template_run_plan(
         template=template,
         input_mode=input_mode,
         authoritative_differentiation_plan_ref=authoritative_ref,
+        project_dir=project,
     )
     if not readiness.get("ready"):
         raise ValueError(
@@ -240,6 +251,7 @@ def check_template_run_plan_ready(
     *,
     input_mode: str | None = None,
     authoritative_differentiation_plan_ref: Mapping[str, Any] | None = None,
+    project_dir: Path | None = None,
 ) -> dict[str, Any]:
     """fail-closed：template_run_plan 是否可进入 paid assets（代码硬门，非描述）。
 
@@ -255,6 +267,7 @@ def check_template_run_plan_ready(
     from lib.campaign_contracts import campaign_content_ref_blockers
 
     blockers.extend(campaign_content_ref_blockers(run_plan))
+    blockers.extend(_category_profile_ref_blockers(run_plan, project_dir))
     status = str(run_plan.get("status") or "").strip()
     if status != "approved":
         blockers.append(f"template_run_plan 未批准（status={status or '未决'}），禁止付费生成")
@@ -457,8 +470,41 @@ def _check_compression_plan(comp: Mapping[str, Any], run_plan: Mapping[str, Any]
         blockers.append("压缩计划 input_hash 非法")
 
 
-def is_slot_paid_allowed(run_plan: Mapping[str, Any], slot_id: str, template: Mapping[str, Any] | None = None) -> bool:
-    """该 slot 是否允许付费生成：status 已批准 + 该 slot 已绑定（非 unbound）+ 未复制参考。"""
+def _category_profile_ref_blockers(
+    run_plan: Mapping[str, Any], project_dir: Path | None
+) -> list[str]:
+    """Require a verified target-category profile for version 1.1 paid work."""
+    version = str(run_plan.get("version") or "1.0").strip()
+    if version == "1.0":
+        return []
+    if version != "1.1":
+        return [f"category_profile: unsupported template_run_plan version {version!r}"]
+    target = str(run_plan.get("target_category_id") or "").strip()
+    ref = run_plan.get("category_profile_ref")
+    if not target:
+        return ["category_profile: target_category_id is required for v1.1 paid work"]
+    if not isinstance(ref, Mapping):
+        return ["category_profile_ref is required for v1.1 paid work"]
+    if str(ref.get("category_id") or "").strip() != target:
+        return ["category_profile_ref.category_id does not match target_category_id"]
+    if project_dir is None:
+        return ["category_profile_ref cannot be verified without project_dir"]
+    try:
+        from lib.category_profile import load_category_profile_ref
+
+        load_category_profile_ref(Path(project_dir), ref)
+    except ValueError as exc:
+        return [f"category_profile_ref verification failed: {exc}"]
+    return []
+
+
+def is_slot_paid_allowed(
+    run_plan: Mapping[str, Any], slot_id: str,
+    template: Mapping[str, Any] | None = None, *, project_dir: Path | None = None,
+) -> bool:
+    """该 slot 是否允许付费生成：plan 已批准、profile 已验证、slot 已绑定。"""
+    if _category_profile_ref_blockers(run_plan, project_dir):
+        return False
     if str(run_plan.get("status") or "").strip() != "approved":
         return False
     if (run_plan.get("caption_policy") or {}).get("copy_reference_caption"):

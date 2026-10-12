@@ -54,6 +54,7 @@ ARTIFACT_NAMES = [
     "sample_execution_trace",
     "caption_policy_revision",
     "brand_profile",
+    "category_profile",
     "creative_control_plan",
     "shot_execution_plan",
     "hook_plan",
@@ -106,7 +107,7 @@ def load_schema(name: str) -> dict:
         return json.load(f)
 
 
-def validate_artifact(name: str, data: dict[str, Any]) -> None:
+def validate_artifact(name: str, data: dict[str, Any], *, project_dir: Path | None = None) -> None:
     """Validate artifact data against its schema. Raises on failure."""
     schema = load_schema(name)
     properties = schema.get("properties", {})
@@ -282,7 +283,10 @@ def validate_artifact(name: str, data: dict[str, Any]) -> None:
             "motion_generation_task": validate_motion_task_semantics,
         }
         try:
-            validators[name](data)
+            if name in {"campaign_plan", "content_recipe"}:
+                validators[name](data, project_dir=project_dir)
+            else:
+                validators[name](data)
         except ValueError as exc:
             raise jsonschema.ValidationError(str(exc)) from exc
     elif name == "reference_source_matrix":

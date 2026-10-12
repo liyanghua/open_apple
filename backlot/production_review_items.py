@@ -56,6 +56,8 @@ def _review_checks(checks: dict) -> dict:
 
 def _bound_visual_confirmations(root: Path, record: dict) -> list[str]:
     """Show a user's scoped visual decision only beside its exact media version."""
+    if record.get("version") not in (None, "1.0") or record.get("category_profile_ref"):
+        return []
     artifacts = record.get("canonical_artifacts") or {}
     review = _json(root, artifacts.get("human_color_review"))
     render = record.get("render") or {}
@@ -72,6 +74,18 @@ def _bound_visual_confirmations(root: Path, record: dict) -> list[str]:
         for media in media_list
     )
     return ["11.37 秒后的灰色毛巾已由你确认可接受；仅限此成片版本，其他商品画面仍需核看。"] if bound else []
+
+
+def _category_review_profile(root: Path, record: dict) -> tuple[dict, str | None]:
+    """Project current, hash-bound category guidance without trusting stale files."""
+    ref = record.get("category_profile_ref")
+    if not ref and record.get("version") in (None, "1.0"):
+        return {}, None
+    try:
+        from lib.category_profile import load_category_profile_ref
+        return load_category_profile_ref(root, ref), None
+    except (ValueError, OSError, TypeError, KeyError):
+        return {}, "品类配置缺失或版本已变化，请重新提交审核"
 
 
 def production_review_items(project_dir: Path, index: dict, notes: list) -> list[dict]:
@@ -115,6 +129,7 @@ def production_review_items(project_dir: Path, index: dict, notes: list) -> list
             except OSError:
                 pass
         checks = record.get("checks") if valid and isinstance(record.get("checks"), dict) else {}
+        category_profile, category_error = _category_review_profile(root, record)
         matches = [r for r in reviews if r.get("subject_id") == slot
                    and (r.get("production_subject") or {}).get("record_path") == entry.get("record_path")]
         from lib.opening_review_scope import opening_review_scope
@@ -124,6 +139,7 @@ def production_review_items(project_dir: Path, index: dict, notes: list) -> list
             opening = opening_review_scope(root, record)
         except (ValueError, OSError, KeyError, TypeError, ValidationError):
             scope_error = "开场登记或依赖已失效"
+        scope_error = category_error or scope_error
         kind = None if scope_error else "opening_preview" if opening and opening["scope"] == "preview" else "final_review"
         latest = max((r for r in matches if r.get("kind") == kind),
                      key=lambda r: (r.get("subject_version", 0), r.get("created_at", "")), default=None)
@@ -142,14 +158,16 @@ def production_review_items(project_dir: Path, index: dict, notes: list) -> list
                     break
         human_status = latest.get("status") if review_valid else "pending"
         qa = quality_summary(root, record)
-        if not valid:
+        if not valid or category_error:
             qa["eligible"] = False
+        if category_error:
+            qa["blocking_checks"] = list(dict.fromkeys([*qa["blocking_checks"], "category_profile"]))
         structure = structure_by_slot.get(slot)
         if not (valid and isinstance(structure, dict) and structure.get("record_path") == entry.get("record_path")
                 and structure.get("render_sha256") == sha):
             structure = None
         review_scope = None
-        if structure and feedback_current:
+        if record.get("version") in (None, "1.0") and structure and feedback_current:
             rework = [row.get("id") for row in scoped_feedback.get("rework_items", [])
                       if isinstance(row, dict) and slot in row.get("content_slot_ids", [])]
             if "opening_impact" in rework:
@@ -185,6 +203,8 @@ def production_review_items(project_dir: Path, index: dict, notes: list) -> list
                                   if structure else None),
             "scoped_review_status": review_scope,
             "review_confirmations": _bound_visual_confirmations(root, record) if valid else [],
+            "review_guides": category_profile.get("review_guidance", {}),
+            "category_qa_checks": category_profile.get("qa_checks", []),
             "final_review": review if kind == "final_review" else None,
             "preview_review": review if kind == "opening_preview" else None,
             "review": review, "review_kind": kind,

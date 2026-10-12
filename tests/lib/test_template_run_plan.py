@@ -366,3 +366,122 @@ def test_template_run_plan_schema_accepts_compression_contract():
         },
     }
     validate_artifact("template_run_plan", plan)
+
+CATEGORY_PROFILE_REF = {
+    "path": "artifacts/category_profile.json",
+    "profile_id": "towel-v1",
+    "category_id": "towel",
+    "version": "1.0",
+    "artifact_sha256": "c" * 64,
+}
+
+
+def test_v11_template_run_binds_target_category_profile():
+    run = create_template_run(
+        _pack()["templates"][0], template_pack_ref=PACK_REF,
+        product_facts_ref=FACTS_REF, target_category_id="towel",
+        category_profile_ref=CATEGORY_PROFILE_REF,
+    )
+    assert run["version"] == "1.1"
+    assert run["target_category_id"] == "towel"
+    assert run["category_profile_ref"] == CATEGORY_PROFILE_REF
+    validate_artifact("template_run_plan", attach_hashes(dict(run)))
+
+
+def test_v11_schema_requires_versioned_category_binding():
+    import pytest
+    from jsonschema import ValidationError
+
+    legacy = create_template_run(
+        _pack()["templates"][0], template_pack_ref=PACK_REF,
+        product_facts_ref=FACTS_REF,
+    )
+    assert legacy["version"] == "1.0"
+    validate_artifact("template_run_plan", attach_hashes(dict(legacy)))
+
+    v11 = {**legacy, "version": "1.1", "target_category_id": "towel",
+           "category_profile_ref": CATEGORY_PROFILE_REF}
+    validate_artifact("template_run_plan", attach_hashes(dict(v11)))
+    for missing in ("target_category_id", "category_profile_ref"):
+        invalid = {key: value for key, value in v11.items() if key != missing}
+        with pytest.raises(ValidationError):
+            validate_artifact("template_run_plan", attach_hashes(invalid))
+
+
+def test_v11_paid_readiness_rejects_unbound_or_mismatched_category_profile(tmp_path, monkeypatch):
+    from lib.template_run_plan import check_template_run_plan_ready, is_slot_paid_allowed
+    import lib.template_source_match as source_match
+
+    monkeypatch.setattr(source_match, "is_template_calibrated", lambda _template_id: True)
+    monkeypatch.setattr(source_match, "capacity_verdict", lambda _template: None)
+    template = {"template_id": "cross-category-tablemat", "slots": [{"slot_id": "s1"}]}
+    base = {
+        "version": "1.1", "status": "approved", "template_id": template["template_id"],
+        "target_category_id": "towel",
+        "slot_bindings": [{"slot_id": "s1", "source": "owned", "source_media_id": "m1", "reason": "r"}],
+        "caption_policy": {"reference_text": "analysis_only", "copy_reference_caption": False},
+    }
+    missing = check_template_run_plan_ready(base, template=template, project_dir=tmp_path)
+    assert missing["ready"] is False
+    assert any("category_profile" in item for item in missing["blockers"])
+    assert is_slot_paid_allowed(base, "s1", template=template, project_dir=tmp_path) is False
+
+    mismatched = {**base, "target_category_id": "tablemat", "category_profile_ref": CATEGORY_PROFILE_REF}
+    result = check_template_run_plan_ready(mismatched, template=template, project_dir=tmp_path)
+    assert result["ready"] is False
+    assert any("category_profile" in item for item in result["blockers"])
+
+
+def test_offline_tablemat_first_article_uses_pinned_profile_and_rejects_drift(tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+    import lib.template_source_match as source_match
+    from lib.category_profile import load_category_profile_ref
+    from lib.template_run_plan import check_template_run_plan_ready, is_slot_paid_allowed
+
+    fixture_dir = Path(__file__).resolve().parents[1] / "fixtures/category_profile"
+    profile = json.loads((fixture_dir / "tablemat_first_article_profile.json").read_text())
+    template = json.loads((fixture_dir / "tablemat_first_article_template.json").read_text())
+    run_plan = json.loads((fixture_dir / "tablemat_first_article_run_plan.json").read_text())
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "category_profile.json").write_text(json.dumps(profile))
+    ref = run_plan["category_profile_ref"]
+    assert load_category_profile_ref(tmp_path, ref)["category_id"] == "tablemat"
+    assert template["source_category_id"] == "tablemat"
+    assert run_plan["target_category_id"] == "tablemat"
+    validate_artifact("template_run_plan", attach_hashes(dict(run_plan)))
+    monkeypatch.setattr(source_match, "is_template_calibrated", lambda _template_id: True)
+    monkeypatch.setattr(source_match, "capacity_verdict", lambda _template: None)
+    assert check_template_run_plan_ready(run_plan, template=template)["ready"] is False
+    assert check_template_run_plan_ready(run_plan, template=template, project_dir=tmp_path)["ready"] is True
+    assert is_slot_paid_allowed(run_plan, "opening-fit", template=template, project_dir=tmp_path) is True
+
+    wrong_target = {**run_plan, "target_category_id": "towel"}
+    assert check_template_run_plan_ready(wrong_target, template=template, project_dir=tmp_path)["ready"] is False
+    edited_profile = {**profile, "default_action": "surface_wipe"}
+    (artifacts / "category_profile.json").write_text(json.dumps(edited_profile))
+    drift = check_template_run_plan_ready(run_plan, template=template, project_dir=tmp_path)
+    assert drift["ready"] is False
+    assert any("category_profile" in blocker for blocker in drift["blockers"])
+
+
+def test_bundled_tablemat_profile_is_distinct_and_resolves_offline(tmp_path):
+    import json
+    from pathlib import Path
+    from lib.category_profile import load_category_profile_ref, load_legacy_towel_profile
+
+    path = Path(__file__).resolve().parents[2] / "config/category_profiles/table-mat-v1.json"
+    profile = json.loads(path.read_text())
+    ref = {"path": "config/category_profiles/table-mat-v1.json", **{
+        key: profile[key] for key in ("profile_id", "category_id", "version", "artifact_sha256")
+    }}
+    resolved = load_category_profile_ref(tmp_path, ref)
+    towel = load_legacy_towel_profile()
+    assert resolved["category_id"] == "tablemat"
+    assert {"edge_align", "corner_lift", "surface_wipe"} <= set(resolved["action_keys"])
+    assert set(resolved["action_labels"]) == set(resolved["action_keys"])
+    assert all(resolved["action_labels"].values())
+    assert not {"weave_macro", "fold_fall"} & set(resolved["action_keys"])
+    assert resolved["identity_checks"] != towel["identity_checks"]
+    assert resolved["shot_timing"] != towel["shot_timing"]

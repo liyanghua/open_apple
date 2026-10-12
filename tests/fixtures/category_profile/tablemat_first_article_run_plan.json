@@ -1,0 +1,46 @@
+{
+  "version": "1.1",
+  "run_id": "offline-tablemat-first-article-run",
+  "template_id": "offline-tablemat-first-article",
+  "template_pack_ref": {
+    "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "version": "1.0"
+  },
+  "product_facts_ref": {
+    "artifact_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "target_category_id": "tablemat",
+  "category_profile_ref": {
+    "profile_id": "tablemat-v1",
+    "category_id": "tablemat",
+    "version": "1.0",
+    "artifact_sha256": "1a6cc22c9ee51d154b04073d9e69a04a88324042bcd921bdc03cc016f786bb1c",
+    "path": "artifacts/category_profile.json"
+  },
+  "adaptation_policy": "proof-first",
+  "slot_bindings": [
+    {
+      "slot_id": "opening-fit",
+      "source": "owned",
+      "source_media_id": "offline-tablemat-edge",
+      "reason": "Offline first-article fit action"
+    },
+    {
+      "slot_id": "surface-proof",
+      "source": "owned",
+      "source_media_id": "offline-tablemat-wipe",
+      "reason": "Offline first-article wipe action"
+    },
+    {
+      "slot_id": "closing-view",
+      "source": "owned",
+      "source_media_id": "offline-tablemat-full",
+      "reason": "Offline first-article product view"
+    }
+  ],
+  "caption_policy": {
+    "reference_text": "analysis_only",
+    "copy_reference_caption": false
+  },
+  "status": "approved"
+}

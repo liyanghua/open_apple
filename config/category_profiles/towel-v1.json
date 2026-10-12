@@ -1,0 +1,269 @@
+{
+  "version": "1.0",
+  "profile_id": "towel-v1",
+  "category_id": "towel",
+  "action_keys": [
+    "product_full_view",
+    "weave_macro",
+    "touch_brush",
+    "lift_unfold",
+    "fold_fall",
+    "color_reveal",
+    "use_context"
+  ],
+  "action_labels": {
+    "product_full_view": "商品全貌",
+    "weave_macro": "织纹特写",
+    "touch_brush": "轻触表面",
+    "lift_unfold": "提起展开",
+    "fold_fall": "折叠垂落",
+    "color_reveal": "颜色展示",
+    "use_context": "真实使用场景",
+    "continuous_pour_water": "连续倒水",
+    "water_contacts_towel": "水流接触毛巾",
+    "macro_texture_reveal": "毛圈纹理特写",
+    "stroke_towel_surface": "手指轻抚毛巾表面",
+    "press_and_rub_towel": "按压并轻揉毛巾",
+    "press_stacked_towels": "按压叠放毛巾",
+    "wipe_face_with_towel": "用毛巾轻擦面部",
+    "take_towel": "从挂杆取下毛巾",
+    "hang_towel": "展开并挂好毛巾",
+    "slow_product_reveal": "缓慢展示当前商品",
+    "display_color_range": "展示系列颜色"
+  },
+  "evidence_action_map": {
+    "product_full_view": "product_full_view",
+    "weave_macro": "weave_macro",
+    "edge_label": "color_reveal",
+    "label_or_sku": "color_reveal",
+    "sku_color_options": "color_reveal",
+    "page_params_snapshot": "product_full_view",
+    "page_and_detail_reference": "product_full_view",
+    "fold_storage": "fold_fall",
+    "real_use_action": "use_context",
+    "absorbency_field": "product_full_view",
+    "price_snapshot": "product_full_view",
+    "sku_option_copy": "color_reveal",
+    "review_snapshot": "use_context",
+    "claim_evidence_map": "product_full_view",
+    "same_condition_test": "lift_unfold",
+    "production_log": "use_context"
+  },
+  "default_action": "product_full_view",
+  "direction_action_rules": {
+    "healing_ritual": {
+      "any_of": [
+        "touch_brush",
+        "fold_fall",
+        "use_context"
+      ],
+      "message": "healing_ritual recipe requires a real life action slot"
+    },
+    "relationship_story": {
+      "all_of": [
+        "use_context"
+      ],
+      "message": "relationship_story recipe requires a use_context action slot"
+    },
+    "space_play": {
+      "min_distinct": 2,
+      "message": "space_play recipe requires at least two action slots for a before/after change"
+    },
+    "transaction": {
+      "any_of": [
+        "product_full_view",
+        "color_reveal"
+      ],
+      "message": "transaction recipe requires a product identity or color action slot"
+    }
+  },
+  "forbidden_wording_defaults": [
+    "检测证明",
+    "保证",
+    "绝对不掉毛",
+    "100%抗菌"
+  ],
+  "transaction_cta_default": "查看商品页当前规格与颜色",
+  "shot_timing": {
+    "raw_action_seconds": {
+      "min": 3.0,
+      "max": 5.0
+    },
+    "body_cut_seconds": {
+      "min": 1.8,
+      "max": 2.6
+    },
+    "default_raw_seconds": 4.0,
+    "by_structure": {}
+  },
+  "identity_checks": [
+    "商品款式与包装一致",
+    "织纹与颜色准确",
+    "边标与 SKU 匹配"
+  ],
+  "qa_checks": [
+    {
+      "id": "product_identity",
+      "label": "商品身份",
+      "review_instruction": "核对款式、边标、包装和 SKU；不接受跨款混用。"
+    },
+    {
+      "id": "action_completion",
+      "label": "动作完整性",
+      "review_instruction": "确认展开、触摸或使用动作完整可见，避免只用空镜替代。"
+    },
+    {
+      "id": "material_fidelity",
+      "label": "材质与颜色",
+      "review_instruction": "核对织纹、绒感与真实颜色，拒绝明显材质漂移。"
+    },
+    {
+      "id": "claim_grounding",
+      "label": "事实依据",
+      "review_instruction": "画面和文案仅表达已批准事实；待确认功效不得升级为保证。"
+    }
+  ],
+  "review_guidance": {
+    "product_identity": "核对毛巾款式、织纹、边标、包装和 SKU 是否与已批准商品一致。",
+    "opening_motion": "检查开头动作是否完整、毛巾形态是否稳定，避免材质或颜色漂移。",
+    "opening_preview_fact": "预览只使用已批准的商品事实；对吸水、掉毛和安全功效保留证据边界。"
+  },
+  "semantic_sha256": "09605e0486ffb6b301b7612a81dc75736ffab589b4f869e8a59782b95de3221f",
+  "artifact_sha256": "8dbafe433304beef769bfc1520d37c2008c186f13c497cea6ed0087558774ea3",
+  "action_visible_results": {
+    "product_full_view": "商品全貌、款式和可见标识同框清晰呈现",
+    "weave_macro": "毛圈织纹与纤维表面清晰可辨",
+    "touch_brush": "手与毛巾表面接触并完成轻抚动作",
+    "lift_unfold": "毛巾由折叠到展开的连续形态变化可见",
+    "fold_fall": "毛巾折叠或自然垂落的结束状态可见",
+    "color_reveal": "当前 SKU 颜色在稳定光线下清晰呈现",
+    "use_context": "毛巾在真实使用场景中的完整动作和结果可见"
+  },
+  "evidence_requirements": {
+    "product_full_view": {
+      "source_types": [
+        "owned_video",
+        "product_page"
+      ],
+      "visible_result": "商品全貌及可见标识",
+      "sku_bound": true
+    },
+    "weave_macro": {
+      "source_types": [
+        "owned_video"
+      ],
+      "visible_result": "真实织纹特写",
+      "sku_bound": true
+    },
+    "edge_label": {
+      "source_types": [
+        "owned_video",
+        "product_page"
+      ],
+      "visible_result": "边标或缝线标识清晰可读",
+      "sku_bound": true
+    },
+    "label_or_sku": {
+      "source_types": [
+        "product_page",
+        "owned_video"
+      ],
+      "visible_result": "标签与当前 SKU 对应",
+      "sku_bound": true
+    },
+    "sku_color_options": {
+      "source_types": [
+        "product_page"
+      ],
+      "visible_result": "当前 SKU 的可选颜色列表",
+      "sku_bound": true
+    },
+    "page_params_snapshot": {
+      "source_types": [
+        "product_page"
+      ],
+      "visible_result": "商品参数字段可读",
+      "sku_bound": true
+    },
+    "page_and_detail_reference": {
+      "source_types": [
+        "product_page"
+      ],
+      "visible_result": "商品页与详情页事实一致",
+      "sku_bound": true
+    },
+    "fold_storage": {
+      "source_types": [
+        "owned_video"
+      ],
+      "visible_result": "折叠收纳动作完成",
+      "sku_bound": true
+    },
+    "real_use_action": {
+      "source_types": [
+        "owned_video"
+      ],
+      "visible_result": "真实使用动作与结果连续可见",
+      "sku_bound": true
+    },
+    "absorbency_field": {
+      "source_types": [
+        "product_page",
+        "qualified_report"
+      ],
+      "visible_result": "吸水相关字段及限定条件可读",
+      "sku_bound": true
+    },
+    "price_snapshot": {
+      "source_types": [
+        "product_page"
+      ],
+      "visible_result": "当前价格及规格条件可读",
+      "sku_bound": true
+    },
+    "sku_option_copy": {
+      "source_types": [
+        "product_page"
+      ],
+      "visible_result": "当前 SKU 选项文案可读",
+      "sku_bound": true
+    },
+    "review_snapshot": {
+      "source_types": [
+        "buyer_review"
+      ],
+      "visible_result": "评论原文与来源可追溯",
+      "sku_bound": true
+    },
+    "claim_evidence_map": {
+      "source_types": [
+        "approved_fact_snapshot"
+      ],
+      "visible_result": "声明与证据条目一一对应",
+      "sku_bound": true
+    },
+    "same_condition_test": {
+      "source_types": [
+        "owned_video",
+        "measurement_log"
+      ],
+      "visible_result": "同条件对比过程与结果可见",
+      "sku_bound": true
+    },
+    "production_log": {
+      "source_types": [
+        "production_log"
+      ],
+      "visible_result": "生产过程记录与对应商品可追溯",
+      "sku_bound": true
+    }
+  },
+  "allowed_structures": [
+    "P1",
+    "P2",
+    "P3",
+    "P4",
+    "P5",
+    "P6"
+  ]
+}

@@ -16,7 +16,19 @@
   "properties": {
     "version": {
       "type": "string",
-      "const": "1.0"
+      "enum": ["1.0", "1.1"]
+    },
+    "category_profile_ref": {
+      "type": "object",
+      "required": ["path", "profile_id", "category_id", "version", "artifact_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "profile_id": {"type": "string", "minLength": 1},
+        "category_id": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      },
+      "additionalProperties": false
     },
     "campaign_id": {
       "type": "string",
@@ -262,5 +274,9 @@
       "type": "string"
     }
   },
+  "allOf": [{
+    "if": {"properties": {"version": {"const": "1.1"}}, "required": ["version"]},
+    "then": {"required": ["category_profile_ref"]}
+  }],
   "additionalProperties": false
 }

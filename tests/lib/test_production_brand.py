@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -91,6 +92,51 @@ def valid(tmp_path):
 def report(valid):
     profile, props, directory = valid
     return module().preflight_production_brand(profile, props, project_dir=directory)
+
+
+def test_category_timing_overrides_legacy_brand_recipe(valid):
+    from lib.category_profile import bundled_towel_profile_ref
+
+    profile, props, directory = valid
+    profile["production"]["recipe"]["body_cut_seconds"] = [8, 10]
+    props["category_profile_ref"] = bundled_towel_profile_ref()
+    result = module().preflight_production_brand(profile, props, project_dir=directory)
+    assert result["status"] == "passed"
+    assert result["category_profile_id"] == "towel-v1"
+    assert check(result, "shot_rhythm")["evidence"]["recipe"]["body_cut_seconds"] == [1.8, 2.6]
+
+
+def test_category_timing_conflict_and_missing_v11_ref_block_preflight(valid):
+    from lib.category_profile import bundled_towel_profile_ref
+
+    profile, props, directory = valid
+    props["category_profile_ref"] = bundled_towel_profile_ref()
+    props["recipe"] = {"id": "display", "raw_action_seconds": [3, 5], "body_cut_seconds": [7, 9]}
+    result = module().preflight_production_brand(profile, props, project_dir=directory)
+    assert result["status"] == "blocked"
+    assert "recipe timing conflicts" in " ".join(check(result, "input_contract")["evidence"]["issues"])
+    del props["category_profile_ref"]
+    del props["recipe"]
+    props["version"] = "1.1"
+    result = module().preflight_production_brand(profile, props, project_dir=directory)
+    assert result["status"] == "blocked"
+
+
+def test_new_category_render_rejects_brand_profile_mismatch(valid):
+    from lib.category_profile import bundled_towel_profile_ref
+
+    profile, props, directory = valid
+    brand_path = directory / "brand.json"
+    brand_path.write_text(json.dumps(profile), encoding="utf-8")
+    props["version"] = "1.1"
+    props["category_profile_ref"] = bundled_towel_profile_ref()
+    props["brand_profile_ref"] = {"path": "brand.json", "sha256": hashlib.sha256(brand_path.read_bytes()).hexdigest()}
+    assert module().preflight_production_brand(profile, props, project_dir=directory)["status"] == "passed"
+    changed = json.loads(json.dumps(profile))
+    changed["production"]["logo"]["width"] = 200
+    result = module().preflight_production_brand(changed, props, project_dir=directory)
+    assert result["status"] == "blocked"
+    assert "brand_profile_ref" in " ".join(check(result, "input_contract")["evidence"]["issues"])
 
 
 def check(result, name):

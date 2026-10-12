@@ -1266,11 +1266,11 @@ function renderMediaObjectDetail(container, payload) {
 
 const PRODUCTION_CHECK_GUIDE = {
   fact_source: {label:"商品事实来源", owner:"production", action:"制作方逐句核对成片卖点与已批准商品事实、证据和允许措辞；无需你重复批准已确认的主图宣称。"},
-  product_identity: {label:"商品一致性", owner:"viewer", action:"通看全片：款式、织纹、包边、LOGO 和颜色变化是否仍像同一商品；发现不一致请记下时间点。", seek:0},
+  product_identity: {label:"商品一致性", owner:"viewer", action:"通看全片：商品外观、标识和颜色变化是否与当前商品一致；发现不一致请记下时间点。", seek:0},
   narration_content: {label:"完整口播", owner:"viewer", action:"听完整条口播，确认每个卖点和结尾都读对、读清；如有读错或被音乐遮住，请标出时间点。独立语音核验仍由制作方处理。", seek:0},
   caption_alignment: {label:"口播与字幕", owner:"viewer", action:"边听边看下方字幕，检查有没有漏字、错字、提前或滞后；请记录具体句子和时间点。自动对齐失败仍需制作方复核。", seek:0},
   visual_continuity: {label:"画面与转场连续性", owner:"viewer", action:"连续播放整片，重点看镜头切换是否闪烁、双影突兀、动作断裂或商品突然变形。", seek:0},
-  opening_motion: {label:"前三秒动作", owner:"viewer", action:"看开头 0–3 秒：毛巾是否真的在动、动作是否自然、第一眼能否抓住注意力。", seek:0},
+  opening_motion: {label:"前三秒动作", owner:"viewer", action:"看开头 0–3 秒：商品是否真的在动、动作是否自然、第一眼能否抓住注意力。", seek:0},
   opening_framing: {label:"前三秒构图", owner:"viewer", action:"看开头 0–3 秒：商品是否清楚、卖点是否突出、文字和 LOGO 是否挡住商品。", seek:0},
   frozen_body: {label:"正文冻结", owner:"production", action:"制作方补正式 B0 与正文冻结证据，证明对照时没有悄悄改动后半段；这项无需你逐帧核对。"},
   opening_join: {label:"开头接正文", owner:"production", action:"制作方验证约 3 秒的拼接点及冻结基准，确保画面和声音接续自然；你可顺带观察该切点。", seek:2.8},
@@ -1287,7 +1287,8 @@ function renderProductionCheckList(card, item, seek) {
   panel.append(node("p", "approval-muted", `你需要看／听 ${viewerCount} 项；制作方补证据 ${blockers.length - viewerCount} 项。你的意见不会自动改写机器检查结果。`));
   const list = node("ol", "production-checklist-items");
   blockers.forEach((id) => {
-    const guide = PRODUCTION_CHECK_GUIDE[id] || {label:id, owner:"production", action:"制作方核对该检查的原始证据与当前成片版本。"};
+    const guide = {...(PRODUCTION_CHECK_GUIDE[id] || {label:id, owner:"production", action:"制作方核对该检查的原始证据与当前成片版本。"})};
+    if (typeof item.review_guides?.[id] === "string") guide.action = item.review_guides[id];
     const status = item.checks?.[id]?.machine_status || "not_run";
     const statusLabel = {fail:"自动检查失败",not_run:"尚未完成",error:"检查出错",pass:"已通过"}[status] || "尚未完成";
     const row = node("li", "production-checklist-item");
@@ -1312,7 +1313,7 @@ function renderProductionCheckList(card, item, seek) {
   card.append(panel);
 }
 
-function renderOpeningPreviewGuide(card) {
+function renderOpeningPreviewGuide(card, item) {
   const panel = node("section", "production-checklist");
   panel.append(node("h4", "production-checklist-title", "前三秒预览审核 · 4 项"));
   panel.append(node("p", "approval-muted", "这里只确认开头预览。完整成片的接缝、正文、结尾与综合质检将在拼接后另行审核。"));
@@ -1320,11 +1321,25 @@ function renderOpeningPreviewGuide(card) {
   for (const [label, action] of [
     ["动态与首帧", "确认商品从第一帧就清楚、确实在动，动作自然且能抓住注意力。"],
     ["承诺与兑现", "确认口播提出具体卖点或看点，并在三秒内用画面给出可见结果。"],
-    ["商品与事实", "确认款式、颜色、织纹和包边仍像同一商品；防臭、10A 等文字只表达已核对的商品标注，不把生成画面当作实测证据。"],
+    ["商品与事实", item.review_guides?.opening_preview_fact || "确认外观与当前商品一致；文字只使用已核对的商品事实，不把生成画面当作实测证据。"],
     ["声音与版式", "听清完整口播，核对字幕、LOGO、关键词与下划线的位置，检查是否遮挡商品。"],
   ]) {
     const row = node("li", "production-checklist-item");
     row.append(node("strong", "", label), node("p", "production-checklist-action", action));
+    list.append(row);
+  }
+  panel.append(list);
+  card.append(panel);
+}
+
+function renderCategoryReviewGuide(card, item) {
+  if (!Array.isArray(item.category_qa_checks) || !item.category_qa_checks.length) return;
+  const panel = node("section", "production-checklist");
+  panel.append(node("h4", "production-checklist-title", "当前品类核看项"));
+  const list = node("ol", "production-checklist-items");
+  for (const check of item.category_qa_checks) {
+    const row = node("li", "production-checklist-item");
+    row.append(node("strong", "", check.label), node("p", "production-checklist-action", check.review_instruction));
     list.append(row);
   }
   panel.append(list);
@@ -1494,8 +1509,9 @@ export function renderProductionReviews(container, payload, options = {}) {
     card.append(detailRow("时长", `${item.duration_seconds ?? "—"} 秒`));
     card.append(detailRow("人工审核", item.review_status));
     if (item.scope_error) card.append(detailRow("登记状态", item.scope_error));
-    if (previewOnly) renderOpeningPreviewGuide(card);
+    if (previewOnly) renderOpeningPreviewGuide(card, item);
     else renderProductionCheckList(card, item, seekReviewTime);
+    renderCategoryReviewGuide(card, item);
     const rawChecks = node("details", "approval-detail-group");
     rawChecks.append(node("summary", "", "查看机器检查原始状态"));
     for (const [name, check] of Object.entries(item.checks || {})) {

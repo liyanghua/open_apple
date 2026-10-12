@@ -1,6 +1,7 @@
 """Bounded, hash-validating closure of production evidence (read-only)."""
 from __future__ import annotations
 from collections.abc import Mapping
+from pathlib import Path
 from lib.production_evidence import file_sha256, project_file, read_object
 
 
@@ -55,6 +56,14 @@ def dependency_closure(root, record_path=None, *, document=None):
                 visit(value, depth)
                 return
             for key, child in value.items():
+                if key == 'category_profile_ref':
+                    from lib.category_profile import load_category_profile_ref
+                    load_category_profile_ref(Path(root), child)
+                    name = child['path']
+                    base = Path(__file__).resolve().parents[1] if name.startswith('config/category_profiles/') else Path(root)
+                    path = (base / name).resolve()
+                    dependencies['category_profile:' + name] = {'path': name, 'sha256': file_sha256(path)}
+                    continue
                 refs = key in containers or key.endswith('_ref') or key in {'baseline'}
                 walk(child, depth + 1, string_refs or refs)
         elif isinstance(value, list):

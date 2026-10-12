@@ -3889,6 +3889,17 @@
           "type": "array",
           "items": {"type": "string"}
         },
+        "review_guides": {
+          "type": "object", "additionalProperties": {"type": "string"}
+        },
+        "category_qa_checks": {
+          "type": "array", "items": {
+            "type": "object", "required": ["id", "label", "review_instruction"],
+            "properties": {"id": {"type": "string"}, "label": {"type": "string"},
+              "review_instruction": {"type": "string"}},
+            "additionalProperties": false
+          }
+        },
         "content_structure": {
           "oneOf": [
             {"type": "null"},

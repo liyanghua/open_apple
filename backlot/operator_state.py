@@ -357,11 +357,36 @@ def _product_fact_cards_for_refs(
     ]
 
 
-def _source_led_action_labels(actions: Any) -> list[str]:
+def _source_led_action_labels(actions: Any, *, category_profile: Any = None,
+                              legacy_towel: bool = False) -> list[str]:
+    labels = category_profile.get("action_labels", {}) if isinstance(category_profile, Mapping) else {}
+    if not isinstance(labels, Mapping):
+        labels = {}
+    if not labels and legacy_towel:
+        labels = SOURCE_LED_ACTION_LABELS
     return [
-        SOURCE_LED_ACTION_LABELS.get(action, action.replace("_", " "))
+        labels.get(action, action.replace("_", " "))
         for action in _string_values(actions)
     ]
+
+
+def _board_category_profile(board: Mapping[str, Any]) -> Mapping[str, Any]:
+    profile = _artifact(board, "category_profile")
+    if isinstance(profile, Mapping) and profile.get("action_keys"):
+        return profile
+    project_dir = board.get("_project_dir")
+    if not isinstance(project_dir, Path):
+        return {}
+    for name in ("campaign_plan", "template_run_plan", "production_record"):
+        artifact = _artifact(board, name)
+        ref = artifact.get("category_profile_ref") if isinstance(artifact, Mapping) else None
+        if ref:
+            try:
+                from lib.category_profile import load_category_profile_ref
+                return load_category_profile_ref(project_dir, ref)
+            except (ValueError, OSError, KeyError, TypeError):
+                return {}
+    return {}
 
 
 _CONTROL_SECTION_LABELS = {
@@ -423,6 +448,8 @@ def _generation_tasks_for_operator(project_dir: Path, project_id: str) -> list[d
 
 
 def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
+    category_profile = _board_category_profile(board)
+    legacy_towel = "towel" in str(board.get("project_id") or "").lower()
     research = _artifact(board, "research_brief")
     analysis = _artifact(board, "video_analysis_brief")
     fingerprint = _artifact(board, "reference_fingerprint")
@@ -627,7 +654,7 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "gap": _safe_text(item.get("unmatched_gap")),
             "claim_ids": _string_values(item.get("claim_ids")),
             "action_keys": _string_values(item.get("action_keys")),
-            "action_labels": _source_led_action_labels(item.get("action_keys")),
+            "action_labels": _source_led_action_labels(item.get("action_keys"), category_profile=category_profile, legacy_towel=legacy_towel),
             "product_fact_refs": _string_values(item.get("product_fact_refs")),
             "fact_bindings": _product_fact_cards_for_refs(
                 fact_cards, item.get("product_fact_refs")
@@ -639,7 +666,7 @@ def _research_editor(board: Mapping[str, Any]) -> dict[str, Any]:
                 "omit": "不进入成片",
             }.get(_safe_text(item.get("visual_route")), "待确定画面来源"),
             "required_subjects": _string_values(requirements.get("required_subjects")),
-            "required_actions": _source_led_action_labels(requirements.get("required_actions")),
+            "required_actions": _source_led_action_labels(requirements.get("required_actions"), category_profile=category_profile, legacy_towel=legacy_towel),
             "required_results": _string_values(requirements.get("required_results")),
             "allowed_wording": _string_values(item.get("allowed_wording")),
             "prohibited_wording": _string_values(item.get("prohibited_wording")),
@@ -872,6 +899,8 @@ def _proposal_editor(board: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _script_editor(board: Mapping[str, Any]) -> dict[str, Any]:
+    category_profile = _board_category_profile(board)
+    legacy_towel = "towel" in str(board.get("project_id") or "").lower()
     script = _artifact(board, "script")
     control_plan = _artifact(board, "creative_control_plan")
     product_facts = _artifact(board, "product_facts")
@@ -975,7 +1004,7 @@ def _script_editor(board: Mapping[str, Any]) -> dict[str, Any]:
                     "omit": "不进入成片",
                 }.get(visual_route, "画面来源待确认"),
                 "required_subjects": _string_values(requirements.get("required_subjects")),
-                "required_actions": _source_led_action_labels(requirements.get("required_actions") or section.get("action_keys")),
+                "required_actions": _source_led_action_labels(requirements.get("required_actions") or section.get("action_keys"), category_profile=category_profile, legacy_towel=legacy_towel),
                 "required_results": _string_values(requirements.get("required_results")),
                 "allowed_wording": _string_values(evidence_row.get("allowed_wording")),
                 "prohibited_wording": _string_values(evidence_row.get("prohibited_wording")),

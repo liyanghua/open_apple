@@ -790,6 +790,7 @@ def build_assets(project: Path, template: dict, *, pipeline_dir: Path, sink=None
     readiness = check_template_run_plan_ready(
         rp, template=template, input_mode=input_mode,
         authoritative_differentiation_plan_ref=authoritative_ref,
+        project_dir=project,
     )
     if not readiness.get("ready"):
         raise SystemExit(f"template_run_plan 未就绪，禁止 paid assets: {readiness.get('blockers')}")

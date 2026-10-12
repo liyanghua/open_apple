@@ -119,6 +119,7 @@ class ShotGenerationService:
             run_plan, template=template,
             input_mode=input_mode,
             authoritative_differentiation_plan_ref=authoritative_ref,
+            project_dir=self.project_dir,
         )
         if not result["ready"]:
             raise OperatorError.validation_failed(

@@ -1,0 +1,21 @@
+{
+  "template_id": "offline-tablemat-first-article",
+  "source_category_id": "tablemat",
+  "slots": [
+    {
+      "slot_id": "opening-fit",
+      "duration_s": 3.0,
+      "action_key": "edge_align"
+    },
+    {
+      "slot_id": "surface-proof",
+      "duration_s": 3.0,
+      "action_key": "surface_wipe"
+    },
+    {
+      "slot_id": "closing-view",
+      "duration_s": 3.0,
+      "action_key": "product_full_view"
+    }
+  ]
+}

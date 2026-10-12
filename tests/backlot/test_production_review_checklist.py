@@ -91,3 +91,34 @@ console.log(JSON.stringify({count:rows.length,unique:new Set(rows.map(e=>e.datas
         "seek": 2.8, "autoPassed": False, "structure": True,
         "scoped": True, "previewHidden": True,
     }
+
+
+def test_non_towel_review_uses_bound_category_guidance():
+    script = r'''
+const elements=[];
+class Element {
+  constructor(tag){this.tag=tag;this.children=[];this.dataset={};this.listeners={};this.textContent='';elements.push(this);}
+  append(...children){this.children.push(...children);} setAttribute(key,value){this[key]=value;}
+  addEventListener(key,fn){this.listeners[key]=fn;} pause(){} play(){return Promise.resolve();} scrollIntoView(){}
+}
+global.document={createElement:tag=>new Element(tag),querySelectorAll:()=>[],getElementById:()=>null};
+global.window={location:{search:''}};
+const {renderProductionReviews}=await import('./backlot/ui/operator/approval.js');
+const guidance={product_identity:'核对桌垫尺寸、边缘和防滑底面。',opening_motion:'桌垫铺开并露出底面。',
+ opening_preview_fact:'桌垫尺寸只按已批准事实展示。'};
+const checks=[{id:'edge',label:'边缘',review_instruction:'核对桌垫边缘没有变形。'}];
+renderProductionReviews(new Element('main'),{items:[
+ {id:'desk-1',title:'desk',review_kind:'final_review',blocking_checks:['product_identity','opening_motion'],
+  review_guides:guidance,category_qa_checks:checks,checks:{}},
+ {id:'desk-preview',title:'preview',review_kind:'opening_preview',review_guides:guidance,category_qa_checks:checks}
+]},{canReview:false});
+const text=elements.map(e=>e.textContent).join('|');
+console.log(JSON.stringify({identity:text.includes(guidance.product_identity),motion:text.includes(guidance.opening_motion),
+ fact:text.includes(guidance.opening_preview_fact),qa:text.includes(checks[0].review_instruction),
+ towel:text.includes('毛巾')||text.includes('防臭')||text.includes('10A')}));
+'''
+    result = subprocess.run(["node", "--input-type=module", "-e", script],
+                            cwd=Path(__file__).resolve().parents[2], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"identity": True, "motion": True, "fact": True,
+                                         "qa": True, "towel": False}

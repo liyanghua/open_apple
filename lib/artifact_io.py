@@ -12,6 +12,13 @@ from lib.artifact_hashing import attach_hashes, verify_hashes
 from schemas.artifacts import validate_artifact
 
 
+def _validate_with_project_context(name: str, data: dict, project_dir: Path) -> None:
+    if name in {"campaign_plan", "content_recipe"} and data.get("category_profile_ref") is not None:
+        validate_artifact(name, data, project_dir=project_dir)
+    else:
+        validate_artifact(name, data)
+
+
 _ENVELOPE_FIELDS = {
     "name",
     "path",
@@ -138,7 +145,9 @@ def write_artifact_atomic(
         raise TypeError("Artifact data must be a JSON object")
 
     attached = attach_hashes(data)
-    validate_artifact(name, attached)
+    _validate_with_project_context(
+        name, attached, Path(project_dir) if project_dir is not None else Path.cwd(),
+    )
     envelope = {
         "name": name,
         "path": relative.as_posix(),
@@ -225,7 +234,7 @@ def load_artifact_envelope(
             "Artifact disk envelope does not match embedded checkpoint envelope"
         )
     try:
-        validate_artifact(envelope["name"], data)
+        _validate_with_project_context(envelope["name"], data, Path(project_dir))
     except Exception as exc:
         raise ValueError(f"Artifact schema validation failed: {exc}") from exc
     return data
@@ -263,6 +272,6 @@ def unwrap_checkpoint_artifact(
         artifact = loaded
 
     if isinstance(artifact, dict):
-        validate_artifact(name, artifact)
+        _validate_with_project_context(name, artifact, Path(project_dir))
         return artifact
     raise ValueError(f"Unsupported checkpoint artifact value for {name!r}")

@@ -6,7 +6,7 @@
   "type": "object",
   "required": ["version", "run_id", "template_id", "template_pack_ref", "product_facts_ref", "adaptation_policy", "slot_bindings", "caption_policy", "status"],
   "properties": {
-    "version": { "type": "string", "const": "1.0" },
+    "version": { "type": "string", "enum": ["1.0", "1.1"] },
     "run_id": { "type": "string", "minLength": 1 },
     "template_id": { "type": "string", "minLength": 1 },
     "template_pack_ref": {
@@ -22,6 +22,19 @@
       "type": "object",
       "required": ["artifact_sha256"],
       "properties": { "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
+      "additionalProperties": false
+    },
+    "target_category_id": { "type": "string", "minLength": 1 },
+    "category_profile_ref": {
+      "type": "object",
+      "required": ["path", "profile_id", "category_id", "version", "artifact_sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "profile_id": { "type": "string", "minLength": 1 },
+        "category_id": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
       "additionalProperties": false
     },
     "campaign_content_ref": {
@@ -121,6 +134,10 @@
           }
         }
       }
+    },
+    {
+      "if": { "properties": { "version": { "const": "1.1" } }, "required": ["version"] },
+      "then": { "required": ["target_category_id", "category_profile_ref"] }
     }
   ],
   "additionalProperties": false

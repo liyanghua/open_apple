@@ -67,6 +67,30 @@ def test_changed_video_cannot_reuse_old_checks_or_approval(tmp_path):
     assert items[0]["technical_label"] != "通过"
 
 
+def test_review_card_uses_current_tablemat_guidance_and_blocks_changed_profile(tmp_path):
+    fixture_project(tmp_path)
+    profile_path = Path(__file__).resolve().parents[2] / "config/category_profiles/table-mat-v1.json"
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    record_ref = "artifacts/waves/W1/A01/production_record.json"
+    record = json.loads((tmp_path / record_ref).read_text(encoding="utf-8"))
+    record["category_profile_ref"] = {
+        "path": "config/category_profiles/table-mat-v1.json", "version": profile["version"],
+        "profile_id": profile["profile_id"], "category_id": profile["category_id"],
+        "artifact_sha256": profile["artifact_sha256"],
+    }
+    write_json(tmp_path, record_ref, record)
+    items, _ = review_items(tmp_path)
+    card = items[0]
+    assert "桌垫" in card["review_guides"]["product_identity"]
+    assert any("桌垫" in item["review_instruction"] for item in card["category_qa_checks"])
+    assert card["scope_error"] is None
+    record["category_profile_ref"]["artifact_sha256"] = "0" * 64
+    write_json(tmp_path, record_ref, record)
+    items, _ = review_items(tmp_path)
+    assert items[0]["scope_error"] == "品类配置缺失或版本已变化，请重新提交审核"
+    assert "category_profile" in items[0]["blocking_checks"]
+
+
 @pytest.mark.parametrize("bad_path", ["../outside.json", "/tmp/outside.json"])
 def test_index_cannot_read_outside_project(tmp_path, bad_path):
     fixture_project(tmp_path)

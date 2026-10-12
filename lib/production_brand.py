@@ -505,30 +505,79 @@ def _final_mix(props: dict, base: Path) -> dict:
         return _check("final_mix", "fail", path=str(path), reason=str(exc))
 
 
+def _category_timing_recipe(category: dict, props: dict) -> dict:
+    timing = category["shot_timing"]
+    structure = props.get("content_structure_id") or (props.get("recipe") or {}).get("id")
+    selected = timing.get("by_structure", {}).get(structure, timing)
+    raw = selected.get("raw_action_seconds", timing["raw_action_seconds"])
+    body = selected.get("body_cut_seconds", timing["body_cut_seconds"])
+    return {
+        "id": structure or category["category_id"],
+        "default_raw_seconds": selected.get("default_raw_seconds", timing["default_raw_seconds"]),
+        "raw_action_seconds": [raw["min"], raw["max"]],
+        "body_cut_seconds": [body["min"], body["max"]],
+    }
+
+
 def preflight_production_brand(profile: dict, props: dict, *, project_dir: Path | str) -> dict:
     """Read assets and return JSON-serializable checks; never render, mutate or approve.
 
     props is the ProductionBrandFilm payload excluding its redundant profile field.
     A passed preflight does not replace font-loading/DOM evidence from final rendering.
     """
-    issues = _input_issues(profile, props)
+    category_ref = props.get("category_profile_ref")
+    category = None
+    category_issues = []
+    brand_ref = props.get("brand_profile_ref")
+    if brand_ref is not None:
+        try:
+            from lib.production_evidence import file_sha256, project_file
+            brand_path = project_file(Path(project_dir), brand_ref["path"])
+            if file_sha256(brand_path) != brand_ref["sha256"]:
+                raise ValueError("brand_profile_ref hash mismatch")
+            import json
+            if json.loads(brand_path.read_text(encoding="utf-8")) != profile:
+                raise ValueError("rendered brand profile differs from bound brand_profile_ref")
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            category_issues.append(f"brand_profile_ref: {exc}")
+    elif props.get("version") == "1.1":
+        category_issues.append("version 1.1 production requires brand_profile_ref")
+    effective_props = props
+    if category_ref is not None:
+        try:
+            from lib.category_profile import load_category_profile_ref
+            category = load_category_profile_ref(Path(project_dir), category_ref)
+            category_recipe = _category_timing_recipe(category, props)
+            explicit_recipe = props.get("recipe")
+            if isinstance(explicit_recipe, dict) and any(
+                explicit_recipe.get(key) != category_recipe[key]
+                for key in ("raw_action_seconds", "body_cut_seconds")
+            ):
+                category_issues.append("recipe timing conflicts with the bound category_profile")
+            effective_props = {**props, "recipe": category_recipe}
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            category_issues.append(f"category_profile_ref: {exc}")
+    elif props.get("version") == "1.1":
+        category_issues.append("version 1.1 production requires category_profile_ref")
+    issues = [*_input_issues(profile, effective_props), *category_issues]
     checks = [_check("input_contract", "fail" if issues else "pass", issues=issues, profile_id=profile.get("profile_id"))]
     if not issues:
         font_checks, fonts = _fonts(profile, Path(project_dir))
         checks.extend(font_checks)
-        geometry = _geometry(profile, props, Path(project_dir), fonts)
+        geometry = _geometry(profile, effective_props, Path(project_dir), fonts)
         checks.extend(geometry)
-        checks.extend(_timing(profile, props))
-        checks.extend(_shots(profile, props))
-        schedule = _opening_schedule(props) if props.get("opening") else None
+        checks.extend(_timing(profile, effective_props))
+        checks.extend(_shots(profile, effective_props))
+        schedule = _opening_schedule(effective_props) if effective_props.get("opening") else None
         if schedule:
             checks.append(schedule)
-            checks.append(_final_mix(props, Path(project_dir)))
-        if any(s.get("framing") for s in props["scenes"]):
-            checks.append(_motion_framing(profile, props, geometry, schedule))
+            checks.append(_final_mix(effective_props, Path(project_dir)))
+        if any(s.get("framing") for s in effective_props["scenes"]):
+            checks.append(_motion_framing(profile, effective_props, geometry, schedule))
     failed = any(c["status"] in ("fail", "error") for c in checks)
     missing = any(c["status"] == "not_run" and c["evidence"].get("applicability") != "not_applicable" for c in checks)
     strict = profile.get("production", {}).get("font_mode") == "strict"
     status = "blocked" if failed or (strict and missing) else "degraded" if missing else "passed"
-    return {"version": "1.0", "profile_id": profile.get("profile_id"), "status": status,
+    return {"version": "1.0", "profile_id": profile.get("profile_id"),
+            "category_profile_id": category.get("profile_id") if category else None, "status": status,
             "strict_ready": strict and status == "passed", "scope": "production_brand_preflight", "checks": checks}

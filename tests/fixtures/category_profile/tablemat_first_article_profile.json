@@ -1,0 +1,114 @@
+{
+  "version": "1.0",
+  "profile_id": "tablemat-v1",
+  "category_id": "tablemat",
+  "action_keys": [
+    "product_full_view",
+    "edge_align",
+    "corner_lift",
+    "surface_wipe"
+  ],
+  "evidence_action_map": {
+    "whole_product": "product_full_view",
+    "edge_fit": "edge_align",
+    "corner_lift": "corner_lift",
+    "wipe_test": "surface_wipe"
+  },
+  "default_action": "product_full_view",
+  "direction_action_rules": {
+    "proof_first": {
+      "any_of": [
+        "surface_wipe",
+        "edge_align"
+      ],
+      "message": "Show a tablemat fit or wipe action before making a proof claim."
+    }
+  },
+  "forbidden_wording_defaults": [
+    "永不磨损"
+  ],
+  "transaction_cta_default": "核对尺寸后选购",
+  "shot_timing": {
+    "raw_action_seconds": {
+      "min": 2.5,
+      "max": 5.0
+    },
+    "body_cut_seconds": {
+      "min": 1.5,
+      "max": 4.0
+    },
+    "default_raw_seconds": 3.5,
+    "by_structure": {}
+  },
+  "identity_checks": [
+    "桌垫尺寸与形状和商品事实一致",
+    "透明度与边缘轮廓保持真实"
+  ],
+  "qa_checks": [
+    {
+      "id": "product_identity",
+      "label": "商品身份",
+      "review_instruction": "核对桌垫尺寸、形状及边缘与已批准商品一致。"
+    },
+    {
+      "id": "action_completion",
+      "label": "动作完整性",
+      "review_instruction": "擦拭或掀角动作必须在连续镜头中可见。"
+    }
+  ],
+  "review_guidance": {
+    "product_identity": "核对桌垫尺寸、形状和边缘。",
+    "opening_motion": "开头先呈现真实铺设或擦拭动作，不用静态图冒充动作。",
+    "opening_preview_fact": "只展示商品事实卡已批准的尺寸和材质描述。"
+  },
+  "semantic_sha256": "2f09b52471279443d8da285b3c3220d0534e372dbeb68a6cab6b12b397a63fc4",
+  "artifact_sha256": "1a6cc22c9ee51d154b04073d9e69a04a88324042bcd921bdc03cc016f786bb1c",
+  "action_labels": {
+    "product_full_view": "桌垫全貌",
+    "edge_align": "贴边对齐",
+    "corner_lift": "掀角展示",
+    "surface_wipe": "表面擦拭"
+  },
+  "action_visible_results": {
+    "product_full_view": "桌垫整体形状、尺寸比例和边缘清晰可辨",
+    "edge_align": "桌垫边缘与桌面边界贴合对齐",
+    "corner_lift": "掀角后桌垫厚度与回落状态可见",
+    "surface_wipe": "污渍或水迹经擦拭后的表面状态可见"
+  },
+  "evidence_requirements": {
+    "whole_product": {
+      "source_types": [
+        "owned_video",
+        "product_page"
+      ],
+      "visible_result": "桌垫全貌及当前款式",
+      "sku_bound": true
+    },
+    "edge_fit": {
+      "source_types": [
+        "owned_video"
+      ],
+      "visible_result": "桌垫边缘贴合桌面的结果",
+      "sku_bound": true
+    },
+    "corner_lift": {
+      "source_types": [
+        "owned_video"
+      ],
+      "visible_result": "掀角与回落动作连续可见",
+      "sku_bound": true
+    },
+    "wipe_test": {
+      "source_types": [
+        "owned_video"
+      ],
+      "visible_result": "擦拭前后表面变化可见",
+      "sku_bound": true
+    }
+  },
+  "allowed_structures": [
+    "P1",
+    "P2",
+    "P6"
+  ]
+}

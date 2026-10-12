@@ -8,10 +8,12 @@ approved decision explicit and prevents an unbound slot from entering paid work.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 from uuid import uuid4
 
 from lib.artifact_hashing import attach_hashes
+from lib.category_profile import load_category_profile_ref, load_legacy_towel_profile
 from schemas.artifacts import validate_artifact
 
 CONTENT_DIRECTIONS = {
@@ -25,15 +27,6 @@ CONTENT_DIRECTIONS = {
 SUPPORT_TYPES = {"experiment", "trust", "faq", "transaction"}
 CONTENT_ROLES = {"product_evidence", "life_context", "graphic_support"}
 STRUCTURES = {f"P{i}" for i in range(1, 7)}
-ACTION_KEYS = {
-    "product_full_view",
-    "weave_macro",
-    "touch_brush",
-    "lift_unfold",
-    "fold_fall",
-    "color_reveal",
-    "use_context",
-}
 MOTION_FAILURE_CLASSES = {
     "input_ratio",
     "privacy_block",
@@ -62,8 +55,27 @@ def _unique(values: Sequence[Any]) -> bool:
     return len(values) == len(set(values))
 
 
-def validate_campaign_plan_semantics(plan: Mapping[str, Any]) -> None:
+def _category_profile_for(
+    artifact: Mapping[str, Any], *, project_dir: Path | None = None,
+) -> dict[str, Any]:
+    version = str(artifact.get("version") or "")
+    if version not in {"1.0", "1.1"}:
+        raise ValueError(f"unsupported category-bound artifact version: {version}")
+    ref = artifact.get("category_profile_ref")
+    if version == "1.1" and ref is None:
+        raise ValueError("v1.1 artifact requires category_profile_ref")
+    if ref is None:
+        return load_legacy_towel_profile()
+    return load_category_profile_ref(project_dir or Path(__file__).resolve().parents[1], ref)
+
+
+def validate_campaign_plan_semantics(
+    plan: Mapping[str, Any], *, project_dir: Path | None = None,
+) -> None:
     """Validate invariants that JSON Schema cannot express cleanly."""
+    profile = None
+    if plan.get("version") == "1.1" or plan.get("category_profile_ref") is not None:
+        profile = _category_profile_for(plan, project_dir=project_dir)
     slots = list(plan.get("slots") or [])
     target = int(plan.get("target_count") or 0)
     pilot = int(plan.get("pilot_count") or 0)
@@ -83,6 +95,8 @@ def validate_campaign_plan_semantics(plan: Mapping[str, Any]) -> None:
             raise ValueError(f"unknown content structure: {structure}")
         if structure is not None and structure not in TYPE_STRUCTURE_HINTS[direction]:
             raise ValueError(f"structure {structure} is not valid for direction {direction}")
+        if plan.get("version") == "1.1" and structure not in profile["allowed_structures"]:
+            raise ValueError(f"structure {structure} is not allowed by category profile")
         fact_ref = slot.get("fact_snapshot_ref")
         if fact_ref is not None and not str(fact_ref).strip():
             raise ValueError(f"slot {ids[index - 1]} has an empty fact_snapshot_ref")
@@ -91,7 +105,10 @@ def validate_campaign_plan_semantics(plan: Mapping[str, Any]) -> None:
             raise ValueError(f"slot {ids[index - 1]} has an empty content_version_id")
 
 
-def validate_content_recipe_semantics(recipe: Mapping[str, Any]) -> None:
+def validate_content_recipe_semantics(
+    recipe: Mapping[str, Any], *, project_dir: Path | None = None,
+    category_profile: Mapping[str, Any] | None = None,
+) -> None:
     direction = str(recipe.get("direction_id") or "")
     structure = str(recipe.get("structure_id") or "")
     role = str(recipe.get("content_role") or "")
@@ -103,8 +120,27 @@ def validate_content_recipe_semantics(recipe: Mapping[str, Any]) -> None:
         raise ValueError(f"structure {structure} is not valid for direction {direction}")
     if role not in CONTENT_ROLES:
         raise ValueError(f"unknown content role: {role}")
+    profile = dict(category_profile) if category_profile is not None else _category_profile_for(
+        recipe, project_dir=project_dir,
+    )
+    if recipe.get("version") == "1.1" and structure not in profile["allowed_structures"]:
+        raise ValueError(f"structure {structure} is not allowed by category profile")
+    if recipe.get("version") == "1.1":
+        ref = recipe.get("category_profile_ref")
+        if not isinstance(ref, Mapping) or any(
+            ref.get(key) != profile.get(key)
+            for key in ("profile_id", "category_id", "version", "artifact_sha256")
+        ):
+            raise ValueError("recipe category_profile_ref does not match resolved profile")
     asset_slots = {str(item) for item in (recipe.get("asset_slots") or [])}
-    unknown_actions = asset_slots - ACTION_KEYS
+    if recipe.get("version") == "1.1":
+        evidence_ids = set(recipe.get("evidence_ids") or [])
+        if not evidence_ids:
+            raise ValueError("v1.1 recipe requires mapped category evidence")
+        unknown_evidence = evidence_ids - set(profile["evidence_action_map"])
+        if unknown_evidence:
+            raise ValueError(f"unknown category evidence id(s): {', '.join(sorted(unknown_evidence))}")
+    unknown_actions = asset_slots - set(profile["action_keys"])
     if unknown_actions:
         raise ValueError(f"unknown asset action slot(s): {', '.join(sorted(unknown_actions))}")
     fixed = list((recipe.get("control_variables") or {}).get("fixed") or [])
@@ -115,37 +151,14 @@ def validate_content_recipe_semantics(recipe: Mapping[str, Any]) -> None:
         raise ValueError("experiment recipe requires at least one variable")
     if direction == "comment_faq" and not recipe.get("evidence_ids"):
         raise ValueError("comment_faq recipe requires a source evidence id")
-    if direction == "healing_ritual" and not asset_slots & {"touch_brush", "fold_fall", "use_context"}:
-        raise ValueError("healing_ritual recipe requires a real life action slot")
-    if direction == "relationship_story" and "use_context" not in asset_slots:
-        raise ValueError("relationship_story recipe requires a use_context action slot")
-    if direction == "space_play" and len(asset_slots) < 2:
-        raise ValueError("space_play recipe requires at least two action slots for a before/after change")
     if direction == "transaction":
         if not str(recipe.get("cta") or "").strip():
             raise ValueError("transaction recipe requires a CTA")
-        if not asset_slots & {"product_full_view", "color_reveal"}:
-            raise ValueError("transaction recipe requires a product identity or color action slot")
-
-
-_EVIDENCE_ACTION_MAP = {
-    "product_full_view": "product_full_view",
-    "weave_macro": "weave_macro",
-    "edge_label": "color_reveal",
-    "label_or_sku": "color_reveal",
-    "sku_color_options": "color_reveal",
-    "page_params_snapshot": "product_full_view",
-    "page_and_detail_reference": "product_full_view",
-    "fold_storage": "fold_fall",
-    "real_use_action": "use_context",
-    "absorbency_field": "product_full_view",
-    "price_snapshot": "product_full_view",
-    "sku_option_copy": "color_reveal",
-    "review_snapshot": "use_context",
-    "claim_evidence_map": "product_full_view",
-    "same_condition_test": "lift_unfold",
-    "production_log": "use_context",
-}
+    rule = (profile.get("direction_action_rules") or {}).get(direction) or {}
+    if (rule.get("any_of") and not asset_slots.intersection(rule["any_of"])) or (
+        rule.get("all_of") and not set(rule["all_of"]).issubset(asset_slots)
+    ) or (rule.get("min_distinct") and len(asset_slots) < rule["min_distinct"]):
+        raise ValueError(rule.get("message") or f"{direction} recipe does not satisfy category action requirements")
 
 
 def build_content_recipe_from_slot(
@@ -153,6 +166,9 @@ def build_content_recipe_from_slot(
     *,
     fact_snapshot_ref: str,
     need_id: str | None = None,
+    version: str = "1.0",
+    category_profile_ref: Mapping[str, Any] | None = None,
+    project_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Build a conservative recipe from one normalized legacy slot.
 
@@ -160,6 +176,10 @@ def build_content_recipe_from_slot(
     invent a product claim. Unknown evidence remains explicit and is surfaced
     as a recipe blocker rather than silently treated as proof.
     """
+    binding = {"version": version}
+    if category_profile_ref is not None:
+        binding["category_profile_ref"] = dict(category_profile_ref)
+    profile = _category_profile_for(binding, project_dir=project_dir)
     direction = str(slot.get("direction_id") or "")
     role = {
         "test_selection": "product_evidence",
@@ -170,19 +190,28 @@ def build_content_recipe_from_slot(
         "transaction": "graphic_support",
     }[direction]
     evidence = [str(item) for item in slot.get("required_evidence") or [] if str(item).strip()]
-    actions = [_EVIDENCE_ACTION_MAP[item] for item in evidence if item in _EVIDENCE_ACTION_MAP]
+    evidence_map = profile["evidence_action_map"]
+    if version == "1.1":
+        if not evidence:
+            raise ValueError("v1.1 slot requires mapped category evidence")
+        unknown_evidence = set(evidence) - set(evidence_map)
+        if unknown_evidence:
+            raise ValueError(f"unknown category evidence id(s): {', '.join(sorted(unknown_evidence))}")
+    actions = [evidence_map[item] for item in evidence if item in evidence_map]
     if not actions:
-        actions = ["product_full_view"]
-    if direction == "relationship_story" and "use_context" not in actions:
-        actions.append("use_context")
-    if direction == "transaction" and not set(actions) & {"product_full_view", "color_reveal"}:
-        actions.append("product_full_view")
+        actions = [profile["default_action"]]
+    rule = (profile.get("direction_action_rules") or {}).get(direction) or {}
+    for required_action in rule.get("all_of") or []:
+        if required_action not in actions:
+            actions.append(required_action)
+    if rule.get("any_of") and not set(actions).intersection(rule["any_of"]):
+        actions.append(rule["any_of"][0])
     # Keep order stable while removing duplicates.
     actions = list(dict.fromkeys(actions))
     support = str(slot.get("support_type") or "experiment")
     variable = str(slot.get("changed_variable") or "source_angle").strip()
     recipe = {
-        "version": "1.0",
+        "version": version,
         "recipe_id": str(slot.get("recipe_id") or f"{slot.get('content_slot_id')}-recipe-v1"),
         "sku": str(slot.get("sku") or ""),
         "direction_id": direction,
@@ -200,11 +229,13 @@ def build_content_recipe_from_slot(
             "variable": [variable] if support == "experiment" else [],
         },
         "allowed_wording": [],
-        "forbidden_wording": ["检测证明", "保证", "绝对不掉毛", "100%抗菌"],
-        "cta": "查看商品页当前规格与颜色" if direction == "transaction" else None,
+        "forbidden_wording": list(profile.get("forbidden_wording_defaults") or []),
+        "cta": profile.get("transaction_cta_default") if direction == "transaction" else None,
     }
-    validate_content_recipe_semantics(recipe)
-    validate_artifact("content_recipe", recipe)
+    if version == "1.1":
+        recipe["category_profile_ref"] = dict(category_profile_ref or {})
+    validate_content_recipe_semantics(recipe, project_dir=project_dir, category_profile=profile)
+    validate_artifact("content_recipe", recipe, project_dir=project_dir)
     return attach_hashes(recipe)
 
 
@@ -229,6 +260,7 @@ def validate_campaign_bundle(
     recipes: Mapping[str, Mapping[str, Any]],
     *,
     paid: bool = False,
+    project_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Validate the cross-artifact campaign admission contract.
 
@@ -238,7 +270,9 @@ def validate_campaign_bundle(
     snapshot.  Pending snapshots are allowed for a visual-only sample, but
     block paid work until a human approves them.
     """
-    validate_campaign_plan_semantics(plan)
+    validate_campaign_plan_semantics(plan, project_dir=project_dir)
+    profile = _category_profile_for(plan, project_dir=project_dir)
+    plan_ref = plan.get("category_profile_ref")
     blockers: list[str] = []
     snapshot_by_id = {str(key): value for key, value in snapshots.items()}
     for ref, snapshot in snapshot_by_id.items():
@@ -262,8 +296,18 @@ def validate_campaign_bundle(
             blockers.append(f"slot {slot_id}: missing content recipe {recipe_id or '<empty>'}")
             continue
         recipe = recipes[recipe_id]
+        if plan.get("version") == "1.1" and (
+            recipe.get("version") != "1.1" or recipe.get("category_profile_ref") != plan_ref
+        ):
+            blockers.append(f"recipe {recipe_id}: category_profile_ref does not match campaign plan")
+            continue
+        if plan.get("version") == "1.0" and recipe.get("version") == "1.1":
+            blockers.append(f"recipe {recipe_id}: v1.1 recipe requires a v1.1 campaign plan")
+            continue
         try:
-            validate_content_recipe_semantics(recipe)
+            validate_content_recipe_semantics(
+                recipe, project_dir=project_dir, category_profile=profile,
+            )
         except ValueError as exc:
             blockers.append(f"recipe {recipe_id}: {exc}")
             continue
@@ -275,7 +319,47 @@ def validate_campaign_bundle(
         missing_claims = sorted(set(recipe.get("claim_ids") or []) - claim_ids)
         if missing_claims:
             blockers.append(f"recipe {recipe_id}: claims not found in snapshot: {', '.join(missing_claims)}")
+        if plan.get("version") == "1.1":
+            claims_by_id = {str(claim.get("claim_id")): claim for claim in snapshot.get("claims") or []}
+            selected = [claims_by_id[claim_id] for claim_id in recipe.get("claim_ids") or [] if claim_id in claims_by_id]
+            for claim in selected:
+                if claim.get("status") != "authorized" or (paid and claim.get("evidence_status") in {
+                    "needs_human_confirmation", "restricted", "forbidden"
+                }):
+                    blockers.append(f"recipe {recipe_id}: claim {claim['claim_id']} is not authorized for production")
+            allowed = {wording for claim in selected for wording in claim.get("allowed_wording") or []}
+            unsupported = set(recipe.get("allowed_wording") or []) - allowed
+            if unsupported:
+                blockers.append(f"recipe {recipe_id}: wording not supported by selected claims: {', '.join(sorted(unsupported))}")
     return {"ready": not blockers, "blockers": blockers, "slot_count": len(plan.get("slots") or [])}
+
+
+def validate_production_record_semantics(
+    record: Mapping[str, Any], *, project_dir: Path | None = None,
+    campaign_plan: Mapping[str, Any] | None = None,
+    recipe: Mapping[str, Any] | None = None,
+) -> None:
+    """Validate a v1.1 film's pinned category and optional campaign lineage."""
+    validate_artifact("production_record", dict(record), project_dir=project_dir)
+    if record.get("version") == "1.0":
+        return
+    _category_profile_for(record, project_dir=project_dir)
+    record_ref = record["category_profile_ref"]
+    if campaign_plan is not None:
+        if campaign_plan.get("version") != "1.1" or campaign_plan.get("category_profile_ref") != record_ref:
+            raise ValueError("production record category_profile_ref does not match campaign plan")
+        slot_id = str(record.get("content_slot_id") or "")
+        slot = next((item for item in campaign_plan.get("slots") or []
+                     if item.get("content_slot_id") == slot_id), None)
+        if slot is None:
+            raise ValueError(f"production record content_slot_id {slot_id} is not in campaign plan")
+        if record.get("sku") != slot.get("sku"):
+            raise ValueError("production record SKU does not match campaign slot")
+    if recipe is not None:
+        if recipe.get("version") != "1.1" or recipe.get("category_profile_ref") != record_ref:
+            raise ValueError("production record category_profile_ref does not match recipe")
+        if record.get("sku") != recipe.get("sku"):
+            raise ValueError("production record SKU does not match recipe")
 
 
 def validate_motion_task_semantics(task: Mapping[str, Any]) -> None:
@@ -382,10 +466,13 @@ def create_campaign_plan(
     status: str = "draft",
     fact_snapshot_refs: Sequence[str] = (),
     wave_refs: Sequence[str] = (),
+    version: str = "1.0",
+    category_profile_ref: Mapping[str, Any] | None = None,
+    project_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Build a hashable campaign plan without inventing slot content."""
     plan = {
-        "version": "1.0",
+        "version": version,
         "campaign_id": campaign_id,
         "plan_revision": plan_revision,
         "target_count": target_count,
@@ -395,8 +482,10 @@ def create_campaign_plan(
         "wave_refs": list(wave_refs),
         "slots": [dict(slot) for slot in slots],
     }
-    validate_campaign_plan_semantics(plan)
-    validate_artifact("campaign_plan", plan)
+    if version == "1.1":
+        plan["category_profile_ref"] = dict(category_profile_ref or {})
+    validate_campaign_plan_semantics(plan, project_dir=project_dir)
+    validate_artifact("campaign_plan", plan, project_dir=project_dir)
     return attach_hashes(plan)
 
 

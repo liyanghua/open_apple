@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/category_profile",
+  "title": "Category Profile",
+  "description": "Versioned category vocabulary and review policy, pinned by artifact hash.",
+  "type": "object",
+  "required": ["version", "profile_id", "category_id", "action_keys", "action_visible_results", "evidence_action_map", "evidence_requirements", "allowed_structures", "default_action", "direction_action_rules", "shot_timing", "identity_checks", "qa_checks", "review_guidance", "semantic_sha256", "artifact_sha256"],
+  "properties": {
+    "version": {"const": "1.0"},
+    "profile_id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "category_id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "action_keys": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "action_visible_results": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string", "minLength": 1}},
+    "action_labels": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+    "evidence_action_map": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+    "evidence_requirements": {
+      "type": "object", "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["source_types", "visible_result", "sku_bound"],
+        "properties": {
+          "source_types": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "visible_result": {"type": "string", "minLength": 1},
+          "sku_bound": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "allowed_structures": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["P1", "P2", "P3", "P4", "P5", "P6"]}},
+    "default_action": {"type": "string", "minLength": 1},
+    "direction_action_rules": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "any_of": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "all_of": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "min_distinct": {"type": "integer", "minimum": 1},
+          "message": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "forbidden_wording_defaults": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "transaction_cta_default": {"type": "string", "minLength": 1},
+    "shot_timing": {
+      "type": "object",
+      "required": ["raw_action_seconds", "body_cut_seconds", "default_raw_seconds", "by_structure"],
+      "properties": {
+        "raw_action_seconds": {"$ref": "#/$defs/seconds_range"},
+        "body_cut_seconds": {"$ref": "#/$defs/seconds_range"},
+        "default_raw_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "by_structure": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "raw_action_seconds": {"$ref": "#/$defs/seconds_range"},
+              "body_cut_seconds": {"$ref": "#/$defs/seconds_range"}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "identity_checks": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "qa_checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "review_instruction"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "label": {"type": "string", "minLength": 1},
+          "review_instruction": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "review_guidance": {
+      "type": "object",
+      "required": ["product_identity", "opening_motion", "opening_preview_fact"],
+      "properties": {
+        "product_identity": {"type": "string", "minLength": 1},
+        "opening_motion": {"type": "string", "minLength": 1},
+        "opening_preview_fact": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "$defs": {
+    "seconds_range": {
+      "type": "object",
+      "required": ["min", "max"],
+      "properties": {
+        "min": {"type": "number", "exclusiveMinimum": 0},
+        "max": {"type": "number", "exclusiveMinimum": 0}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
