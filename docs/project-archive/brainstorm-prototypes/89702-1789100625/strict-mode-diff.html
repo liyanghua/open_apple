@@ -1,0 +1,49 @@
+<h2>严格复刻模式 vs 当前主线</h2>
+<p class="subtitle">核心变化：参考片从“分析依据”升级为“时间轴与表现合同”，但最终素材仍必须来自你的产品与授权资产</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">当前主线 · reference_driven</div>
+    <div class="mockup-body" style="font-size:14px">
+      <p><b>参考片角色</b><br>提供结构、节奏、镜头语法和风格灵感</p>
+      <p><b>脚本</b><br>重新创作；不复制原台词和原字幕</p>
+      <p><b>镜头</b><br>按 scene plan 做语义映射，允许重新安排镜头表达</p>
+      <p><b>时长</b><br>目标时长和节奏相近，但没有逐拍锁定合同</p>
+      <p><b>验收</b><br>重点看机制、产品证据、语义对齐和原创边界</p>
+      <div style="margin-top:12px;padding:10px;background:#332b1f;border-left:3px solid #d6a84f">适合：借鉴一类爆款的叙事方法，做出有明显差异的新片</div>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">新增 · reference_fidelity</div>
+    <div class="mockup-body" style="font-size:14px">
+      <p><b>参考片角色</b><br>生成可执行的 beat/shot/audio/caption fingerprint</p>
+      <p><b>脚本</b><br>保留口播结构、停顿、强调点；逐句替换为产品事实</p>
+      <p><b>镜头</b><br>每个 reference shot 必须有对应 replacement shot 和证据</p>
+      <p><b>时长</b><br>锁定每拍区间、切点、速度和允许 drift 容差</p>
+      <p><b>验收</b><br>新增时间轴相似度、口播节拍、转场意图和逐镜替换闭环硬门</p>
+      <div style="margin-top:12px;padding:10px;background:#203126;border-left:3px solid #83c58b">适合：同一条广告骨架换成你的 SKU，要求“看起来就是同一套节奏”</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>主线需要新增的 5 个合同</h3>
+  <div class="cards">
+    <div class="card"><div class="card-body"><h3>1 · Reference Timeline</h3><p>每拍 start/end、beat_role、cut_type、speed、transition_intent</p></div></div>
+    <div class="card"><div class="card-body"><h3>2 · Voice Performance</h3><p>逐段文字槽位、pause、emphasis、WPM、音色与响度约束</p></div></div>
+    <div class="card"><div class="card-body"><h3>3 · Replacement Matrix</h3><p>reference_shot → product_claim → owned/generated asset → source window</p></div></div>
+    <div class="card"><div class="card-body"><h3>4 · Fidelity Policy</h3><p>锁定项、可变项、禁止复制项、duration drift 容差</p></div></div>
+    <div class="card"><div class="card-body"><h3>5 · Fidelity Evaluation</h3><p>输出 reference_alignment_report，失败时只重做受影响镜头</p></div></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="mockup"><div class="mockup-header">建议的执行流</div><div class="mockup-body" style="font-family:ui-monospace,monospace;line-height:1.8">
+    research → reference_fingerprint → fidelity_policy_lock → script_rewrite → replacement_matrix → assets → sample → fidelity_eval → compose
+  </div></div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="approve-diff" onclick="toggleSelect(this)"><div class="letter">✓</div><div class="content"><h3>差异定义符合预期</h3><p>继续细化严格复刻模式的 artifact、状态机和质量门</p></div></div>
+  <div class="option" data-choice="adjust-diff" onclick="toggleSelect(this)"><div class="letter">↺</div><div class="content"><h3>需要调整锁定范围</h3><p>例如只锁节奏，不锁口播；或允许更大的镜头重排</p></div></div>
+</div>

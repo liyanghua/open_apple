@@ -1,0 +1,60 @@
+<h2>R0 Research Shadow</h2>
+<p class="subtitle">只读并行研究：验证覆盖率与吞吐，不改变 production checkpoint</p>
+
+<div class="section">
+  <div class="label">输入与主控</div>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">OpenMontage facts</div>
+      <div class="mockup-body">
+        <p><strong>Project revision</strong><br>research input hash + source media refs</p>
+        <p><strong>Executive Producer</strong><br>创建任务、设定边界、合并报告</p>
+        <p><strong>Production state</strong><br>现有 checkpoint / artifacts 保持不变</p>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">Shadow boundary</div>
+      <div class="mockup-body">
+        <p>允许：读取已授权输入、调用只读分析工具、写临时报告</p>
+        <p>禁止：写 canonical artifact、付费生成、改 decision log、推进 stage</p>
+        <p>输出：schema-valid <code>TaskReport</code> + evidence refs</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">并行任务单元</div>
+  <div class="options" data-multiselect>
+    <div class="option" data-choice="reference-analyst" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content"><h3>Reference Analyst</h3><p>视频结构、镜头节奏、caption / visual pattern；只产观察与时间码证据</p></div>
+    </div>
+    <div class="option" data-choice="source-inspector" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content"><h3>Source Inspector</h3><p>自有素材清单、时长、可用区间、质量与 provenance；不做创意选择</p></div>
+    </div>
+    <div class="option" data-choice="evidence-researcher" onclick="toggleSelect(this)">
+      <div class="letter">C</div>
+      <div class="content"><h3>Evidence Researcher</h3><p>事实、来源、时效性和受众问题；不改写 script 或 proposal</p></div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">汇合与判定</div>
+  <div class="mockup">
+    <div class="mockup-header">TaskBoard → merge → existing research gate</div>
+    <div class="mockup-body">
+      <p><strong>1. SpawnGuard</strong>：并发上限 2-3、单任务超时、无嵌套 spawn</p>
+      <p><strong>2. TaskReport validator</strong>：输入 revision、角色、结论、证据、置信度、warnings</p>
+      <p><strong>3. EP synthesis</strong>：去重、冲突标记、覆盖率统计；只有主 Agent 能写 research artifacts</p>
+      <p><strong>4. R0 decision</strong>：通过 → 进入原 research checkpoint；失败 → 关闭 shadow、单 Agent 继续</p>
+    </div>
+  </div>
+</div>
+
+<div class="pros-cons">
+  <div class="pros"><h4>R0 成功信号</h4><ul><li>研究覆盖提升 ≥20% 或 wall time 下降 ≥25%</li><li>报告 schema 通过率 100%</li><li>0 越权、0 重复付费、0 canonical 污染</li></ul></div>
+  <div class="cons"><h4>不算成功</h4><ul><li>只是产生更多文字</li><li>主 Agent 仍需人工重做全部研究</li><li>并发导致证据冲突却没有可追溯标记</li></ul></div>
+</div>

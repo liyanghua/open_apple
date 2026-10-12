@@ -25,7 +25,8 @@ output/
 pipeline/
 tests/qa/output/
 
-# Project workspaces (generated assets, renders — all regenerable)
+# Local project workspaces (assets, renders, run state). Preserve design docs
+# separately under docs/project-archive/ before committing.
 projects/
 
 # Corpus directories (downloaded stock clips, thumbnails, embeddings —

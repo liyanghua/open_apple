@@ -1,0 +1,63 @@
+<style>
+  .transition-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; margin-top:22px; }
+  .transition-card { background:#151922; border:1px solid #2c3445; border-radius:16px; padding:16px; cursor:pointer; }
+  .transition-card:hover { border-color:#86a8ff; transform:translateY(-2px); }
+  .stage { height:150px; border-radius:12px; overflow:hidden; position:relative; background:#0b0e14; margin-bottom:14px; }
+  .clip { position:absolute; top:26px; height:92px; display:flex; align-items:center; justify-content:center; font-weight:700; letter-spacing:.02em; }
+  .clip-a { left:10px; width:48%; background:linear-gradient(135deg,#b66b32,#e3b069); color:#25170f; }
+  .clip-b { right:10px; width:48%; background:linear-gradient(135deg,#6d9a8b,#b5dfc0); color:#10251e; }
+  .transition-zone { position:absolute; left:46%; width:8%; top:20px; height:104px; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; text-align:center; z-index:2; }
+  .match .transition-zone { background:linear-gradient(90deg,transparent,#f5c96a,transparent); box-shadow:0 0 22px #f5c96a88; }
+  .blend .transition-zone { background:linear-gradient(90deg,#b66b32cc,#d1be90cc,#6d9a8bcc); opacity:.85; }
+  .impact .transition-zone { background:#fff; box-shadow:0 0 34px #fff; width:5%; left:47.5%; }
+  .arrow { position:absolute; left:50%; top:8px; transform:translateX(-50%); color:#aab5cc; font-size:12px; }
+  .meter { height:5px; background:#252c3b; border-radius:5px; overflow:hidden; margin:12px 0 10px; }
+  .meter span { display:block; height:100%; border-radius:5px; }
+  .match .meter span { width:86%; background:#f5c96a; }
+  .blend .meter span { width:58%; background:#9cb8ff; }
+  .impact .meter span { width:35%; background:#fff; }
+  .tag { display:inline-block; font-size:11px; padding:4px 8px; border-radius:20px; background:#263044; color:#c9d4f5; margin-bottom:8px; }
+  .recommended { border-color:#f5c96a; box-shadow:0 0 0 1px #f5c96a44; }
+  .recommended .tag { background:#5d4b20; color:#ffe3a0; }
+  .principles { margin-top:26px; padding:16px 18px; border-radius:14px; background:#10141d; border:1px solid #242d3e; }
+  .principles span { display:inline-block; margin:5px 12px 5px 0; color:#c7d0e4; font-size:13px; }
+  @media (max-width:900px) { .transition-grid { grid-template-columns:1fr; } }
+</style>
+
+<h2>转场风格对比</h2>
+<p class="subtitle">场景：防油 → 贴合 → 防刮 → 餐桌结果。请优先看“动作是否连续、卖点是否被转场打断、批量能否稳定复用”。</p>
+
+<div class="transition-grid">
+  <div class="transition-card recommended match" data-choice="action-match" onclick="toggleSelect(this)">
+    <div class="stage"><div class="arrow">擦拭方向 → 贴合方向</div><div class="clip clip-a">擦拭结果</div><div class="clip clip-b">贴合动作</div><div class="transition-zone">动作<br>对齐</div></div>
+    <span class="tag">推荐：默认主风格</span>
+    <h3>动作匹配切</h3>
+    <p>按手势方向、运动速度、画面构图衔接。看起来仍然是切镜，但观众会把两个动作感知成一个连续动作。</p>
+    <div class="meter"><span></span></div><small>自然度高 · 信息密度高 · 对素材要求中等</small>
+  </div>
+
+  <div class="transition-card blend" data-choice="soft-blend" onclick="toggleSelect(this)">
+    <div class="stage"><div class="arrow">结果停留 6–10 帧</div><div class="clip clip-a">擦拭结果</div><div class="clip clip-b">餐桌场景</div><div class="transition-zone">短叠化</div></div>
+    <span class="tag">适合：结果 / 场景回落</span>
+    <h3>短叠化 + 音频桥接</h3>
+    <p>只在“功能证明 → 生活结果”这类语义换段使用，叠化控制在 0.2–0.35 秒，配合环境声或音乐延续。</p>
+    <div class="meter"><span></span></div><small>柔和度高 · 节奏略慢 · 不宜连续使用</small>
+  </div>
+
+  <div class="transition-card impact" data-choice="impact-cut" onclick="toggleSelect(this)">
+    <div class="stage"><div class="arrow">重音 / 字幕落点</div><div class="clip clip-a">痛点</div><div class="clip clip-b">证据</div><div class="transition-zone">闪</div></div>
+    <span class="tag">适合：钩子 / 关键证明</span>
+    <h3>冲击切</h3>
+    <p>用 3–5 帧闪白、轻微 punch-in 和音效强调“检测报告、防刮”等证据落点；只能作为节拍，不是默认转场。</p>
+    <div class="meter"><span></span></div><small>强调力高 · 使用频率低 · 过量会廉价</small>
+  </div>
+</div>
+
+<div class="principles">
+  <h3>我建议的批量默认规则</h3>
+  <span>① 普通证明镜头：动作匹配切</span>
+  <span>② 功能 → 生活场景：短叠化</span>
+  <span>③ Hook / 0甲醛检测 / CTA：最多 2–3 次冲击切</span>
+  <span>④ 连续两镜不使用同一种转场超过 3 次</span>
+  <span>⑤ 每次切换保留 6–10 帧音频预延续</span>
+</div>

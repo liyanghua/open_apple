@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>OpenMontage explainer-data</title>
+  <style>
+    :root {
+      --color-bg: #0B0F1A;
+      --color-fg: #F5F5F5;
+      --color-accent: #F59E0B;
+      --color-primary: #2563EB;
+      --color-secondary: #10B981;
+      --color-surface: #111827;
+      --color-muted: #6B7280;
+      --font-heading: Inter;
+      --font-body: Inter;
+      --font-mono: JetBrains Mono;
+      --ease-primary: cubic-bezier(0.65, 0, 0.35, 1);
+      --ease-entrance: cubic-bezier(0.33, 1, 0.68, 1);
+      --ease-exit: cubic-bezier(0.32, 0, 0.67, 0);
+      --duration-entrance: 0.6s;
+      --duration-transition: 0.5s;
+    }
+    body { margin: 0; background: var(--color-bg); color: var(--color-fg); font-family: var(--font-body); }
+    [data-composition-id="root"] {
+      position: relative;
+      width: 1080px;
+      height: 1920px;
+      overflow: hidden;
+    }
+    .clip { position: absolute; inset: 0; }
+    .clip.video-clip, .clip.image-clip { object-fit: cover; width: 100%; height: 100%; }
+    .clip.text-card { display: flex; align-items: center; justify-content: center; padding: 120px 160px; box-sizing: border-box; text-align: center; }
+    .clip.text-card h1 { font-family: var(--font-heading); font-weight: 700; font-size: 96px; line-height: 1.1; margin: 0; color: var(--color-fg); }
+    .clip.text-card .subtitle { font-size: 36px; margin-top: 24px; color: var(--color-accent); }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+</head>
+<body>
+  <div data-composition-id="root" data-start="0" data-duration="15" data-width="1080" data-height="1920">
+    <video id="cut-0" class="clip video-clip" src="assets/video/shot-01-proxy.mp4" data-start="0" data-duration="2.3" data-media-start="0" data-track-index="1" muted playsinline></video><video id="cut-1" class="clip video-clip" src="assets/video/shot-02-proxy.mp4" data-start="2.3" data-duration="2.4" data-media-start="0" data-track-index="1" muted playsinline></video><video id="cut-2" class="clip video-clip" src="assets/video/shot-03-proxy.mp4" data-start="4.7" data-duration="2.3" data-media-start="0" data-track-index="1" muted playsinline></video><video id="cut-3" class="clip video-clip" src="assets/video/shot-04-proxy.mp4" data-start="7" data-duration="3.4" data-media-start="0" data-track-index="1" muted playsinline></video><video id="cut-4" class="clip video-clip" src="assets/video/shot-05-proxy.mp4" data-start="10.4" data-duration="2.7" data-media-start="0" data-track-index="1" muted playsinline></video><video id="cut-5" class="clip video-clip" src="assets/video/shot-06-proxy.mp4" data-start="13.1" data-duration="1.9" data-media-start="0" data-track-index="1" muted playsinline></video>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      // no tweens
+      window.__timelines["root"] = tl;
+    </script>
+  </div>
+</body>
+</html>

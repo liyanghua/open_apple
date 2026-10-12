@@ -1,0 +1,34 @@
+<h2>这组样片的复刻评估</h2>
+<p class="subtitle">原片：douyin-7670014963255151913.mp4 · 复刻：depth-video-clone.mp4</p>
+<div class="section"><div class="mockup"><div class="mockup-header">客观测量</div><div class="mockup-body" style="font-family:ui-monospace,monospace;line-height:1.8">
+  <b>画幅</b> 两者均为 720×1280<br>
+  <b>时长</b> 原片 12.434s · 复刻 12.042s · drift -0.392s（约 -3.2%）<br>
+  <b>帧率</b> 原片 30fps · 复刻 24fps<br>
+  <b>响度</b> 原片 -13.0 LUFS · 复刻 -15.5 LUFS（复刻更小约 2.5 LU）
+  </div></div></div>
+<div class="cards">
+  <div class="card"><div class="card-body"><h3>结构保真 8.8/10</h3><p>镜头顺序、节拍密度、景别和“边缘特写→场景→泼洒→擦拭→收尾”骨架高度一致。</p></div></div>
+  <div class="card"><div class="card-body"><h3>视觉语法 8.3/10</h3><p>同类桌面、手部动作、暖色家居、底部字幕位置基本复刻；复刻片产品边缘颜色和桌面材质已换。</p></div></div>
+  <div class="card"><div class="card-body"><h3>卖点映射 7.2/10</h3><p>5 个卖点均被写进字幕，但“纯净/透度/无味/质保”主要靠字幕宣称，画面证据不足。</p></div></div>
+  <div class="card"><div class="card-body"><h3>技术同步 6.8/10</h3><p>时长缩短 0.392s，24fps，响度低 2.5 LU；若口播是重录，需做逐词时间对齐才能称为严格复刻。</p></div></div>
+  <div class="card"><div class="card-body"><h3>商业可用性 6.5/10</h3><p>作为“换品演示”有效；作为可发布广告，960 小时、两年质保和安全表述需要证据等级与合规审核。</p></div></div>
+</div>
+<div class="section"><h3>逆向得到的复刻手法</h3><div class="mockup"><div class="mockup-body">
+  1. 抽取原片镜头时间轴与字幕/口播槽位。<br>
+  2. 保留镜头动作模板：手摸边、桌面展示、边缘特写、油污泼洒、擦拭、全景收尾。<br>
+  3. 用产品图/事实重建同构画面，替换桌面颜色、产品边缘和文案。<br>
+  4. 用统一暖色调、浅景深、竖屏构图和白字描边维持“同一条片”的感觉。<br>
+  5. 用后期叠字幕完成卖点替换，但没有把每个 claim 编译成可验证的视觉证据。
+  </div></div></div>
+<div class="section"><h3>要超过它，主线必须新增的硬门</h3><div class="mockup"><div class="mockup-body" style="line-height:1.8">
+  <b>F1 时间轴锁定：</b> reference_fingerprint 保存逐镜区间、切点、速度和 drift 容差。<br>
+  <b>F2 口播锁定：</b> transcript → word/phrase timecodes → TTS performance lock；逐词起止误差可测。<br>
+  <b>F3 卖点证据编译：</b> 每个 claim 必须有 required_action/result/evidence_window；无证据就 omit 或人工确认。<br>
+  <b>F4 替换矩阵：</b> reference_shot → product_fact → visual_route → asset hash → final shot，禁止按数组位置漂移。<br>
+  <b>F5 双重评分：</b> reference fidelity（结构/节奏/镜头语法）与 product truth（身份/事实/证据）分开评分。<br>
+  <b>F6 失败只重做局部：</b> 以 shot_id 为粒度回滚，不整片重跑；时长、字幕、TTS 变化触发受影响镜头重渲染。
+  </div></div></div>
+<div class="options">
+  <div class="option" data-choice="approve-evaluation" onclick="toggleSelect(this)"><div class="letter">✓</div><div class="content"><h3>按这个评估继续设计</h3><p>下一步输出 strict reference_fidelity 的完整 artifact/schema/状态机方案</p></div></div>
+  <div class="option" data-choice="needs-deeper-audio" onclick="toggleSelect(this)"><div class="letter">A</div><div class="content"><h3>先深挖口播与音频</h3><p>补装或接入转录器，做逐词时间轴和音色/语速对齐评估</p></div></div>
+</div>

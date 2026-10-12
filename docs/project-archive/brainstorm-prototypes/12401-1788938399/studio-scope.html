@@ -1,0 +1,47 @@
+<h2>编辑工作室闭环：先确定精细剪辑边界</h2>
+<p class="subtitle">当前批量交付已经能看成片；下一步是从单条成片进入新版本编辑，再回到 QA 与交付。</p>
+
+<div class="section">
+  <h3>这轮实际交互已经固化的主线</h3>
+  <div class="mockup">
+    <div class="mockup-header">批量总览 → 单条复核 → 交付成片</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:16px">
+      <div class="mock-content">批量比较<br><small>4 条候选 / 最终成片</small></div>
+      <div>→</div>
+      <div class="mock-content">单条复核<br><small>脚本、分镜、素材、成片</small></div>
+      <div>→</div>
+      <div class="mock-content">交付只读<br><small>final.mp4 / QA / 下载</small></div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>目标闭环</h3>
+  <div class="mockup">
+    <div class="mockup-header">查看剪辑工作室 → 创建新版本 → 预览 → QA → 采用 / 放弃</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:16px">
+      <div class="mock-sidebar">版本栏<br>v1 已交付<br><b>v2 编辑中</b><br>v3 已放弃</div>
+      <div class="mock-content">视频画面 + 时间轴<br><br>字幕轨 · 口播轨 · BGM · 镜头轨<br><br><button class="mock-button">预览新版</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>第一版你希望编辑到哪一层？</h3>
+  <div class="cards">
+    <div class="card" data-choice="caption-voice" onclick="toggleSelect(this)">
+      <div class="card-image" style="padding:18px;font-size:28px">字幕<br>口播</div>
+      <div class="card-body"><h3>A · 字幕/口播级</h3><p>改花字、底部口播字幕、口播文案与 TTS；不动镜头结构。最快，最适合当前淘宝种草视频。</p></div>
+    </div>
+    <div class="card" data-choice="shot-level" onclick="toggleSelect(this)">
+      <div class="card-image" style="padding:18px;font-size:28px">镜头<br>节奏</div>
+      <div class="card-body"><h3>B · 镜头级</h3><p>在时间线上删减、替换、调整镜头时长，改转场与字幕锚点；保留受控的素材候选。</p></div>
+    </div>
+    <div class="card" data-choice="timeline" onclick="toggleSelect(this)">
+      <div class="card-image" style="padding:18px;font-size:28px">完整<br>时间线</div>
+      <div class="card-body"><h3>C · 完整时间线</h3><p>像轻量剪辑软件一样编辑视频、口播、BGM、字幕多轨；能力最完整，开发与 QA 成本最高。</p></div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle">点击一个选项记录你的偏好；也可以直接在对话中说明要选 A、B 或 C。</p>

@@ -1,0 +1,28 @@
+<style>
+  .timeline { margin-top:22px; display:grid; gap:10px; }
+  .row { display:grid; grid-template-columns:150px 1fr 190px; align-items:center; gap:12px; padding:12px; background:#151922; border:1px solid #2c3445; border-radius:12px; }
+  .shot { font-weight:700; color:#e8edf8; }
+  .strip { display:flex; align-items:stretch; height:48px; gap:3px; }
+  .seg { display:flex; align-items:center; justify-content:center; border-radius:6px; font-size:11px; text-align:center; padding:0 8px; }
+  .out { flex:1; background:#a96d3c; color:#24160f; }
+  .bridge { width:70px; background:#fff2b8; color:#32270a; box-shadow:0 0 16px #f5c96a99; }
+  .in { flex:1; background:#76a997; color:#10251e; }
+  .note { color:#bec9dc; font-size:12px; line-height:1.45; }
+  .rule { margin-top:20px; padding:15px 18px; background:#10141d; border:1px solid #242d3e; border-radius:12px; }
+  .rule strong { color:#ffe3a0; }
+  .bad { color:#ffb3ab; }
+  @media(max-width:850px){ .row{grid-template-columns:1fr}.bridge{width:58px}.shot{margin-bottom:-5px} }
+</style>
+
+<h2>冲击切的“中间片段”怎么取</h2>
+<p class="subtitle">关键原则：中间不是第三个无关镜头，而是前后镜头的动作峰值插帧。每个桥接只保留 3–6 帧（约 0.10–0.20 秒）。</p>
+
+<div class="timeline">
+  <div class="row"><div class="shot">防油 → 无甲醛</div><div class="strip"><div class="seg out">纸巾离开<br>干净桌面</div><div class="seg bridge">闪白<br>+重音</div><div class="seg in">检测仪<br>读数锁定</div></div><div class="note">桥接取“擦净结果”最后一拍；不新增字幕。</div></div>
+  <div class="row"><div class="shot">无甲醛 → 桌角贴合</div><div class="strip"><div class="seg out">检测数字<br>稳定</div><div class="seg bridge">数字定格<br>3帧</div><div class="seg in">手压桌角<br>贴合</div></div><div class="note">这里建议轻冲击，不要强闪，避免把检测和贴合混成同一 claim。</div></div>
+  <div class="row"><div class="shot">自动铺开 → 防刮</div><div class="strip"><div class="seg out">垫面落平<br>对齐完成</div><div class="seg bridge">落点闪<br>+微缩放</div><div class="seg in">叉子接触<br>垫面</div></div><div class="note">以“落平”作为动作落点，接下一镜的接触动作。</div></div>
+  <div class="row"><div class="shot">防刮 → 餐桌</div><div class="strip"><div class="seg out">叉子抬起<br>表面完好</div><div class="seg bridge">干净表面<br>4帧</div><div class="seg in">完整餐桌<br>生活场景</div></div><div class="note">这里不建议闪白，改用结果停留 + 环境声延续。</div></div>
+  <div class="row"><div class="shot">餐桌 → CTA</div><div class="strip"><div class="seg out">餐桌高光<br>保持</div><div class="seg bridge">无第三片段</div><div class="seg in">价格字卡<br>进入</div></div><div class="note">CTA 应从同一画面上长出来，不要再切一次素材。</div></div>
+</div>
+
+<div class="rule"><strong>推荐执行规则：</strong>冲击切最多 2–3 次；普通镜头用动作匹配切；功能证明回到生活场景时用 0.2–0.35 秒短叠化。<span class="bad">不要使用随机产品特写、无关餐桌镜头或整段检测画面作为“转场填充”。</span></div>

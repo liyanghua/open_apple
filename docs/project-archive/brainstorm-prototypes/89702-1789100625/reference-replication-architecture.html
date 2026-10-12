@@ -1,0 +1,56 @@
+<h2>参考视频严格复刻：主线升级点</h2>
+<p class="subtitle">保留叙事、节奏、口播结构；只替换产品事实、画面证据与品牌表达</p>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">Recommended mainline: cinematic-fast / reference_fidelity mode</div>
+    <div class="mockup-body" style="padding:18px;background:#101217;color:#e9e7df;font-family:ui-monospace,monospace">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;align-items:stretch">
+        <div style="border:1px solid #d6a84f;padding:12px"><b style="color:#f0c66b">1. Reference</b><br><small>video_analyzer<br>scene_detect<br>transcript<br>frame_sampler</small></div>
+        <div style="border:1px solid #7ca6d8;padding:12px"><b style="color:#9dc5f2">2. Lock</b><br><small>timeline fingerprint<br>beat map<br>shot grammar<br>voice timing</small></div>
+        <div style="border:1px solid #83c58b;padding:12px"><b style="color:#a9e2ae">3. Replace</b><br><small>product_facts<br>claim evidence<br>owned/generated media<br>new copy policy</small></div>
+        <div style="border:1px solid #d18484;padding:12px"><b style="color:#efaaaa">4. Verify</b><br><small>reference fidelity<br>audio alignment<br>product identity<br>publish gate</small></div>
+      </div>
+      <div style="margin:18px 0 8px;color:#aaa">Existing modes</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <span style="padding:7px 10px;border:1px solid #555">reference_driven = structural inspiration</span>
+        <span style="padding:7px 10px;border:1px solid #555">source_led = owned footage first</span>
+        <span style="padding:7px 10px;border:1px solid #555">source_led_template = slot prior</span>
+      </div>
+      <div style="margin:18px 0 8px;color:#f0c66b">New mode (recommended)</div>
+      <div style="padding:12px;border:2px solid #f0c66b;background:#242018">
+        <b>reference_fidelity</b> → reference timeline is executable contract; reference media remains analysis-only; all final pixels, words, voice and product proof come from owned/approved/generated assets.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">What stays locked from the reference</div>
+    <div class="mockup-body">
+      <ul><li>Beat order and narrative roles</li><li>Per-shot duration and cut points</li><li>Voice cadence, pause map and emphasis</li><li>Transition intent, framing grammar and caption geometry</li></ul>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">What must be replaced</div>
+    <div class="mockup-body">
+      <ul><li>Every brand/product identity</li><li>Every claim from product_facts</li><li>Every visual evidence window</li><li>Copy text, captions, logos, music and source pixels</li></ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>One shot, one traceable contract</h3>
+  <div class="mockup"><div class="mockup-body" style="font-family:ui-monospace,monospace;font-size:13px">
+    reference_beat_id → script.section_id → scene.id → shot.id → asset_manifest → final_props → evaluation_report<br><br>
+    <span style="color:#a9e2ae">pass</span>: duration drift ≤ configured tolerance · narration/caption aligned · product evidence visible · identity stable<br>
+    <span style="color:#efaaaa">block</span>: missing evidence · copied reference text/logo/watermark · voice timing drift · generated visual used as factual proof
+  </div></div>
+</div>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="fidelity" onclick="toggleSelect(this)"><div class="letter">A</div><div class="content"><h3>严格复刻模式</h3><p>逐拍锁定参考时间轴，适合“同一条广告骨架换品”</p></div></div>
+  <div class="option" data-choice="hybrid" onclick="toggleSelect(this)"><div class="letter">B</div><div class="content"><h3>可调保真模式</h3><p>默认保留节奏和口播结构，允许人工调整镜头与文案差异</p></div></div>
+  <div class="option" data-choice="governance" onclick="toggleSelect(this)"><div class="letter">C</div><div class="content"><h3>先做治理底座</h3><p>先补 artifact、硬门和对齐评估，再接入生成与批量运行</p></div></div>
+</div>
