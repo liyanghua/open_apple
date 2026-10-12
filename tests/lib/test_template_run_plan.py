@@ -8,12 +8,25 @@ from lib.template_run_plan import (
     approve_template_run_plan,
     bind_slot,
     create_template_run,
+    default_template_pack_path,
     select_pilot,
 )
 from schemas.artifacts import validate_artifact
 
 PACK_REF = {"artifact_sha256": "a" * 64, "version": "1.0"}
 FACTS_REF = {"artifact_sha256": "b" * 64}
+
+
+def test_default_template_pack_path_uses_bundled_pack_only_without_local_pack(tmp_path):
+    bundled = tmp_path / "resources/template_packs/table_mat_template_pack.json"
+    local = tmp_path / "projects/template-pack-library/artifacts/template_pack.json"
+    bundled.parent.mkdir(parents=True)
+    bundled.write_text("{}", encoding="utf-8")
+    assert default_template_pack_path(root=tmp_path) == bundled
+
+    local.parent.mkdir(parents=True)
+    local.write_text("{}", encoding="utf-8")
+    assert default_template_pack_path(root=tmp_path) == local
 
 
 def _pack() -> dict:

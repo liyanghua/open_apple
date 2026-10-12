@@ -30,14 +30,14 @@ from tests.lib._tablemat_pool import install_complete_pool
 from tests.lib._tablemat_research import install_tablemat_research
 
 ROOT = Path(__file__).resolve().parents[2]
-PACK = ROOT / "projects/template-pack-library/artifacts/template_pack.json"
+PACK = ROOT / "resources/template_packs/table_mat_template_pack.json"
 
 
 def _setup_run(tmp_path: Path, monkeypatch, template: dict, facts: dict, *, approved: bool = True) -> str:
     install_complete_pool(monkeypatch, tmp_path)
     run_id = f"template-run-{template['template_id']}-ast"
     fork_template_run(run_id, source_project_dir=install_tablemat_research(tmp_path), pipeline_dir=tmp_path,
-                      product_facts_path=ROOT / "projects/template-pilot/artifacts/product_facts.json")
+                      product_facts_path=ROOT / "tests/fixtures/template_pilot/artifacts/product_facts.json")
     rp = create_template_run(template, template_pack_ref={"artifact_sha256": "a" * 64, "version": "1.0"},
                              product_facts_ref={"artifact_sha256": facts.get("artifact_sha256", "b" * 64)})
     match_run_plan(template.get("slots") or [], rp)
@@ -57,7 +57,7 @@ def test_assets_gate_blocks_unapproved_run_plan(tmp_path: Path, monkeypatch):
     import pytest
     pack = json.loads(PACK.read_text(encoding="utf-8"))
     template = next(t for t in pack["templates"] if t["template_id"] == "sheet-01-video1-aks-zhuodian")
-    facts = json.loads(ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
+    facts = json.loads(ROOT.joinpath("tests/fixtures/template_pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
     run_id = _setup_run(tmp_path, monkeypatch, template, facts, approved=False)
     # run_plan 未批准（awaiting_human）→ build_assets 必须 fail-closed 拦住
     with pytest.raises(SystemExit):
@@ -67,7 +67,7 @@ def test_assets_gate_blocks_unapproved_run_plan(tmp_path: Path, monkeypatch):
 def test_assets_gate_requires_authoritative_batch_ref_for_new_source_led_template(tmp_path: Path, monkeypatch):
     pack = json.loads(PACK.read_text(encoding="utf-8"))
     template = next(t for t in pack["templates"] if t["template_id"] == "sheet-01-video1-aks-zhuodian")
-    facts = json.loads(ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
+    facts = json.loads(ROOT.joinpath("tests/fixtures/template_pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
     run_id = _setup_run(tmp_path, monkeypatch, template, facts)
     project = tmp_path / run_id
     marker_path = project / "project.json"
@@ -83,7 +83,7 @@ def test_assets_gate_requires_authoritative_batch_ref_for_new_source_led_templat
 def test_advance_to_assets_writes_awaiting_human_no_paid(tmp_path: Path, monkeypatch):
     pack = json.loads(PACK.read_text(encoding="utf-8"))
     template = next(t for t in pack["templates"] if t["template_id"] == "sheet-01-video1-aks-zhuodian")
-    facts = json.loads(ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
+    facts = json.loads(ROOT.joinpath("tests/fixtures/template_pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
     run_id = _setup_run(tmp_path, monkeypatch, template, facts)
     project = tmp_path / run_id
     marker_path = project / "project.json"
@@ -491,3 +491,18 @@ def test_template_resolution_prefers_run_local_pack_for_source_led_pilot(tmp_pat
     }), encoding="utf-8")
 
     assert _template_for_project(project, "yinlizi-aligned-A") == local_template
+
+
+def test_template_resolution_uses_bundled_pack_when_local_library_is_absent(tmp_path: Path, monkeypatch):
+    import lib.template_mainline as mainline
+
+    repo = tmp_path / "repo"
+    bundled = repo / "resources/template_packs/table_mat_template_pack.json"
+    bundled.parent.mkdir(parents=True)
+    template = {"template_id": "bundled-template", "slots": []}
+    bundled.write_text(json.dumps({"templates": [template]}), encoding="utf-8")
+    monkeypatch.setattr(mainline, "ROOT", repo)
+
+    project = tmp_path / "run"
+    project.mkdir()
+    assert _template_for_project(project, "bundled-template") == template

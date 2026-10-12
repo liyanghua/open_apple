@@ -26,6 +26,7 @@ from lib.artifact_io import write_artifact_atomic
 from lib.caption_treatment import resolve_caption_recipe_intent
 from lib.checkpoint import get_next_stage, write_checkpoint
 from lib.template_source_match import build_source_mappings, match_run_plan, resolve_matrix_grounding
+from lib.template_run_plan import default_template_pack_path
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECTS = ROOT / "projects"
@@ -425,7 +426,7 @@ def _template_for_project(
         packs.append(pack)
     else:
         local_pack = _load(project / "artifacts" / "template_pack.json")
-        global_pack = _load(ROOT / "projects/template-pack-library/artifacts/template_pack.json")
+        global_pack = _load(default_template_pack_path(root=ROOT))
         if isinstance(local_pack, Mapping):
             packs.append(local_pack)
         if isinstance(global_pack, Mapping):

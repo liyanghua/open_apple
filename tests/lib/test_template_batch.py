@@ -48,14 +48,14 @@ def test_refresh_status_reflects_completed_scene_plan(tmp_path: Path):
         run_id,
         source_project_dir=install_tablemat_research(tmp_path),
         pipeline_dir=tmp_path,
-        product_facts_path=ROOT / "projects/template-pilot/artifacts/product_facts.json",
+        product_facts_path=ROOT / "tests/fixtures/template_pilot/artifacts/product_facts.json",
     )
-    pack = json.loads((ROOT / "projects/template-pack-library/artifacts/template_pack.json").read_text(encoding="utf-8"))
+    pack = json.loads((ROOT / "resources/template_packs/table_mat_template_pack.json").read_text(encoding="utf-8"))
     from lib.artifact_io import write_artifact_atomic
     from lib.template_run_plan import create_template_run
     from lib.template_source_match import match_run_plan
     template = next(t for t in pack["templates"] if t["template_id"] == template_id)
-    facts = json.loads((ROOT / "projects/template-pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
+    facts = json.loads((ROOT / "tests/fixtures/template_pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
     rp = create_template_run(template, template_pack_ref={"artifact_sha256": "a" * 64, "version": "1.0"},
                              product_facts_ref={"artifact_sha256": facts.get("artifact_sha256", "b" * 64)})
     match_run_plan(template.get("slots") or [], rp)

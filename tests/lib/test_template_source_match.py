@@ -253,7 +253,7 @@ def test_capacity_and_h2_scale_per_physical_media(monkeypatch):
     expanded = base_stems + [dining + "-俯拍", dining + "-侧拍"]
     monkeypatch.setattr(source_match, "_clip_stems", lambda: expanded)
     pack = json.loads((Path(__file__).resolve().parents[2] /
-                       "projects/template-pack-library/artifacts/template_pack.json").read_text())
+                       "resources/template_packs/table_mat_template_pack.json").read_text())
     template = next(t for t in pack["templates"] if t["template_id"] == "sheet-14-video15-aks-zhuodian")
     verdict = source_match.capacity_verdict(template)
     assert verdict["window_capacities"]["餐桌场景"] >= 18

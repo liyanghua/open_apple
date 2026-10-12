@@ -13,7 +13,7 @@ from lib.research_validation import _iter_evidence_paths
 
 
 ROOT = Path(__file__).resolve().parents[2]
-REAL_SOURCE = ROOT / "projects/table-mat-mix-v8" / "artifacts"
+REAL_SOURCE = ROOT / "tests/fixtures/tablemat_research/artifacts"
 RESEARCH_ARTIFACTS = (
     "research_brief", "video_analysis_brief", "source_media_review", "media_index",
     "reference_fingerprint", "research_breakdown", "reference_source_matrix",

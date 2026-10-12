@@ -15,12 +15,21 @@ from typing import Any, Mapping
 DEFAULT_ADAPTATION_POLICIES = ("proof-first", "pain-first", "story")
 
 
+def default_template_pack_path(*, root: Path | None = None) -> Path:
+    """Prefer the operator's local library, then the bundled starter pack."""
+    repo_root = root or Path(__file__).resolve().parents[1]
+    local = repo_root / "projects/template-pack-library/artifacts/template_pack.json"
+    if local.is_file():
+        return local
+    return repo_root / "resources/template_packs/table_mat_template_pack.json"
+
+
 def load_template_for_run_plan(run_plan: Mapping[str, Any], *, pack_path: Path | None = None) -> dict[str, Any] | None:
     """Load the canonical template for a run plan when one is registered locally."""
     template_id = str(run_plan.get("template_id") or "").strip()
     if not template_id:
         return None
-    path = pack_path or Path(__file__).resolve().parents[1] / "projects/template-pack-library/artifacts/template_pack.json"
+    path = pack_path or default_template_pack_path()
     try:
         pack = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):

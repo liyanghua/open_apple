@@ -25,7 +25,7 @@ from schemas.artifacts import validate_artifact
 from tests.lib._tablemat_research import install_tablemat_research
 
 ROOT = Path(__file__).resolve().parents[2]
-PACK = ROOT / "projects/template-pack-library/artifacts/template_pack.json"
+PACK = ROOT / "resources/template_packs/table_mat_template_pack.json"
 
 
 def test_load_or_build_edit_decisions_reconstructs_missing_canonical_artifact(tmp_path: Path):
@@ -76,7 +76,7 @@ def test_advance_run_full_walks_proposal_script_scene_plan(tmp_path: Path, monke
     install_complete_pool(monkeypatch, tmp_path)
     pack = json.loads(PACK.read_text(encoding="utf-8"))
     template = next(t for t in pack["templates"] if t["template_id"] == "sheet-01-video1-aks-zhuodian")
-    facts = json.loads(ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
+    facts = json.loads(ROOT.joinpath("tests/fixtures/template_pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
     _fresh_run(tmp_path, template["template_id"], template, facts)
     run_id = f"template-run-{template['template_id']}-itest"
 
@@ -111,7 +111,7 @@ def test_advance_run_full_requires_explicit_script_approval_to_continue(tmp_path
     install_complete_pool(monkeypatch, tmp_path)
     pack = json.loads(PACK.read_text(encoding="utf-8"))
     template = next(t for t in pack["templates"] if t["template_id"] == "sheet-01-video1-aks-zhuodian")
-    facts = json.loads(ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
+    facts = json.loads(ROOT.joinpath("tests/fixtures/template_pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
     _fresh_run(tmp_path, template["template_id"], template, facts)
     run_id = f"template-run-{template['template_id']}-itest"
 
@@ -143,7 +143,7 @@ def test_advance_run_full_uses_version_transactions_for_operator_managed_project
     install_complete_pool(monkeypatch, tmp_path)
     pack = json.loads(PACK.read_text(encoding="utf-8"))
     template = next(t for t in pack["templates"] if t["template_id"] == "sheet-01-video1-aks-zhuodian")
-    facts = json.loads(ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
+    facts = json.loads(ROOT.joinpath("tests/fixtures/template_pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
     project = _fresh_run(tmp_path, template["template_id"], template, facts)
     ProjectCommitStore(project).initialize()
 
@@ -167,7 +167,7 @@ def test_rebuild_alignment_reopens_script_gate_and_invalidates_downstream(tmp_pa
     install_complete_pool(monkeypatch, tmp_path)
     pack = json.loads(PACK.read_text(encoding="utf-8"))
     template = next(t for t in pack["templates"] if t["template_id"] == "sheet-01-video1-aks-zhuodian")
-    facts = json.loads(ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
+    facts = json.loads(ROOT.joinpath("tests/fixtures/template_pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
     project = _fresh_run(tmp_path, template["template_id"], template, facts)
     run_id = project.name
     advance_run_full(run_id, pipeline_dir=tmp_path, pack=pack)
@@ -200,7 +200,7 @@ def test_rebuild_alignment_replaces_stale_operator_review_with_script_gate(
         if t["template_id"] == "sheet-01-video1-aks-zhuodian"
     )
     facts = json.loads(
-        ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json")
+        ROOT.joinpath("tests/fixtures/template_pilot/artifacts/product_facts.json")
         .read_text(encoding="utf-8")
     )
     project = _fresh_run(tmp_path, template["template_id"], template, facts)

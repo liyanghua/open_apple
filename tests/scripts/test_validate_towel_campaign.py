@@ -5,7 +5,7 @@ from pathlib import Path
 from scripts.validate_towel_campaign import validate
 
 
-PROJECT = Path("projects/playboy-towel-p1p2-v1")
+PROJECT = Path(__file__).resolve().parents[1] / "fixtures/towel_campaign"
 
 
 def test_visual_sample_gate_accepts_pending_facts():

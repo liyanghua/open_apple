@@ -463,7 +463,7 @@ def test_capacity_readiness_failclosed_and_compress_blocks_original():
     from lib.template_run_plan import check_template_run_plan_ready
     import json as _json
 
-    pack = _json.loads((ROOT / "projects/template-pack-library/artifacts/template_pack.json").read_text())
+    pack = _json.loads((ROOT / "resources/template_packs/table_mat_template_pack.json").read_text())
     t14 = next(t for t in pack["templates"] if t["template_id"] == "sheet-14-video15-aks-zhuodian")
     t14c1 = next(t for t in pack["templates"] if t["template_id"] == "sheet-14-video15-aks-zhuodian-c1")
     base = {"status": "approved", "slot_bindings": [
@@ -563,7 +563,7 @@ def test_strict_planner_subset_and_capacity():
 
     assert strict_capacity("自动铺开对齐") == 1
     assert strict_capacity("桌角对齐-挤压不变形") == 2
-    pack = _json.loads((ROOT / "projects/template-pack-library/artifacts/template_pack.json").read_text())
+    pack = _json.loads((ROOT / "resources/template_packs/table_mat_template_pack.json").read_text())
 
     t05 = next(t for t in pack["templates"] if t["template_id"] == "sheet-05-video5-aks-zhuodian-c1")
     p = plan_strict_subset(t05)
@@ -591,7 +591,7 @@ def test_calibration_gate_strategy_c():
 
     import lib.template_source_match as sm
 
-    pack = _json.loads((ROOT / "projects/template-pack-library/artifacts/template_pack.json").read_text())
+    pack = _json.loads((ROOT / "resources/template_packs/table_mat_template_pack.json").read_text())
     # 机制性覆盖：强制某模板视为未标定（VLM 量产已全部标定，用 monkeypatch 测 blocker）
     t03 = next(t for t in pack["templates"] if t["template_id"] == "sheet-03-video3-aks-zhuodian")
     base = {"status": "approved", "slot_bindings": [
@@ -622,7 +622,7 @@ def test_all_calibrated_tables_semantic_consistent():
     from lib.template_mainline import rows_for_template
     from lib.template_source_match import SLOT_ACTION_BY_TEMPLATE, semantic_mismatches
 
-    pack = _json.loads((ROOT / "projects/template-pack-library/artifacts/template_pack.json").read_text())
+    pack = _json.loads((ROOT / "resources/template_packs/table_mat_template_pack.json").read_text())
     checked = 0
     for t in pack["templates"]:
         tid = t["template_id"]
