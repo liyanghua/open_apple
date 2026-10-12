@@ -19,6 +19,11 @@ import { CollageBurst, CollageBurstProps } from "./CollageBurst";
 import { LyricOverlay, LyricOverlayProps } from "./LyricOverlay";
 import { EditorialTimeline } from "./editorial/EditorialTimeline";
 import type { EditorialTimelineProps } from "./editorial/types";
+import { P1LogoSample } from "./P1LogoSample";
+import { P2Sample } from "./P2Sample";
+import { RemainSample } from "./RemainSample";
+import { DenseSample } from "./DenseSample";
+import { CaptionSample } from "./CaptionSample";
 
 // ---------------------------------------------------------------------------
 // Theme System — prevents every video from looking like dark fintech
@@ -157,6 +162,11 @@ const calculateEditorialMetadata: CalculateMetadataFunction<Record<string, unkno
 export const Root: React.FC = () => {
   return (
     <>
+      <Composition id="CaptionSample" component={CaptionSample} durationInFrames={255} fps={30} width={1080} height={1920} defaultProps={{}} />
+      <Composition id="DenseSample" component={DenseSample} durationInFrames={270} fps={30} width={1080} height={1920} defaultProps={{}} />
+      <Composition id="RemainSample" component={RemainSample} durationInFrames={120} fps={30} width={1080} height={1920} defaultProps={{}} />
+      <Composition id="P2Sample" component={P2Sample} durationInFrames={210} fps={30} width={1080} height={1920} defaultProps={{}} />
+      <Composition id="P1LogoSample" component={P1LogoSample} durationInFrames={122} fps={30} width={1080} height={1920} defaultProps={{videoSrc:"",logoSrc:""}} />
       <Composition
         id="Explainer"
         component={Explainer}

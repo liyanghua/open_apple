@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 
 from lib.checkpoint import get_next_stage, read_checkpoint, validate_checkpoint
@@ -13,28 +12,12 @@ from lib.template_fork import (
     shared_research_artifact_names,
     shared_research_refs,
 )
-
-# 真实共享研究源：schema 有效的研究制品 + analysis/ 证据帧，fork 会原样复制并重建信封。
-REAL_SOURCE = Path(__file__).resolve().parents[2] / "projects/table-mat-mix-v8"
-RESEARCH_ARTIFACTS = (
-    "research_brief", "video_analysis_brief", "source_media_review", "media_index",
-    "reference_fingerprint", "research_breakdown", "reference_source_matrix",
-    "research_synthesis", "research_scorecard", "caption_style_fingerprint",
-)
+from tests.lib._tablemat_research import RESEARCH_ARTIFACTS, install_tablemat_research
 
 
 def _copy_source(tmp_path: Path) -> Path:
-    """复制真实 v8 研究源到 tmp，作为共享研究源项目（schema 有效）。"""
-    src = tmp_path / "research-src"
-    (src / "artifacts").mkdir(parents=True)
-    for name in RESEARCH_ARTIFACTS:
-        f = REAL_SOURCE / "artifacts" / f"{name}.json"
-        if f.is_file():
-            shutil.copyfile(f, src / "artifacts" / f"{name}.json")
-    analysis = REAL_SOURCE / "analysis"
-    if analysis.is_dir():
-        shutil.copytree(analysis, src / "analysis", dirs_exist_ok=True)
-    return src
+    """Use the checked-in Research facts with tiny valid evidence frames."""
+    return install_tablemat_research(tmp_path)
 
 
 def test_fork_seeds_completed_research_and_starts_at_proposal(tmp_path: Path):
@@ -58,6 +41,32 @@ def test_fork_is_idempotent(tmp_path: Path):
     cp = read_checkpoint(tmp_path, run_id, "research")
     assert cp.get("status") == "completed"
     assert get_next_stage(tmp_path, run_id, "cinematic-fast") == "proposal"
+
+
+def test_fork_commits_research_seed_and_checkpoint_in_one_generation(tmp_path: Path) -> None:
+    """A fork must not expose copied research before its checkpoint is committed."""
+    src = _copy_source(tmp_path)
+    run_id = "template-run-transactional-research"
+
+    project_dir = fork_template_run(run_id, source_project_dir=src, pipeline_dir=tmp_path)
+
+    pointer = json.loads(
+        (project_dir / "operator" / "current-generation.json").read_text(encoding="utf-8")
+    )
+    manifest = json.loads(
+        (
+            project_dir
+            / "operator"
+            / "generations"
+            / pointer["generation_id"]
+            / "manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    paths = {entry["relative_path"] for entry in manifest["write_set"]}
+
+    assert "checkpoint_research.json" in paths
+    assert "artifacts/research_brief.json" in paths
+    assert any(path.startswith("analysis/") for path in paths)
 
 
 def test_shared_research_refs_are_content_addressed(tmp_path: Path):

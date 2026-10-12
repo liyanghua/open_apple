@@ -32,7 +32,7 @@ def _iter_evidence_paths(value: Any) -> Iterator[str]:
 
 
 def validate_research_derived_files(
-    project_dir: str | Path, research_artifacts: Mapping[str, Any]
+    project_dir: str | Path, research_artifacts: Mapping[str, Any], *, sink: Any = None
 ) -> None:
     """Reject a completed Research stage whose derived evidence files are missing.
 
@@ -53,7 +53,10 @@ def validate_research_derived_files(
             if text in seen:
                 continue
             seen.add(text)
-            if not (Path(project_dir) / text).is_file():
+            visible_in_transaction = bool(
+                sink is not None and sink.has_staged_path(text)
+            )
+            if not visible_in_transaction and not (Path(project_dir) / text).is_file():
                 missing.append(text)
     if missing:
         raise ValueError(
@@ -85,6 +88,10 @@ def validate_proposal_research_handoff(
 ) -> None:
     """Ensure every concept remains traceable to the approved Research output."""
     if input_mode is not None:
+        # Both reference-driven modes use the reference/source matrix schema's
+        # canonical `reference` mode. `reference_fidelity` adds timing and
+        # narration constraints at the pipeline level; it is not a new matrix
+        # enum value.
         expected_mode = "reference" if input_mode == "reference_driven" else input_mode
         actual_mode = matrix.get("matrix_mode", "reference")
         if actual_mode != expected_mode:

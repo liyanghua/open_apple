@@ -146,6 +146,14 @@ class _TransactionSink:
                 "invalid_write_context", "项目内容不是有效 JSON", 409
             ) from exc
 
+    def has_staged_path(self, relative_path: str) -> bool:
+        """Return whether a file is present in this transaction's visible view."""
+        self._check(relative_path)
+        staged = self._writes.get(relative_path)
+        if staged is not None:
+            return staged.operation == "write" and staged.payload is not None
+        return self._store._canonical_path(relative_path).is_file()
+
     def _deactivate(self) -> None:
         self._active = False
 

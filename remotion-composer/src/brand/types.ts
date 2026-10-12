@@ -6,6 +6,7 @@ export type ProductionBrandProfile = {
   font: {family: string; fallbacks?: string[]; files?: ProductionFontFile[]};
   production: {
     font_mode: "strict" | "legacy_appearance";
+    overlay_background?: "soft_gradient" | "none";
     legacy_font_stack: string;
     logo: {right: number; top: number; width: number; clear_space: number};
     title: {left: number; top: number; font_size: number; font_weight: 700; line_height: number; characters: [number, number]};

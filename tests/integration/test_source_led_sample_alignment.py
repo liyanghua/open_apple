@@ -571,7 +571,7 @@ def test_apply_alignment_is_idempotent() -> None:
     assert [r["check_id"] for r in twice["repair_targets"]].count("semantic_alignment") == 1
 
 
-def test_finish_sample_resolves_taobao_review_output_from_l1a(tmp_path) -> None:
+def test_finish_sample_allows_legacy_l1a_fallback_only_without_a_resolvable_profile(tmp_path) -> None:
     from scripts.finish_template_sample import _resolve_review_output
 
     target = tmp_path / "renders" / "sample-v1.mp4"
@@ -579,7 +579,7 @@ def test_finish_sample_resolves_taobao_review_output_from_l1a(tmp_path) -> None:
     target.write_bytes(b"video")
     resolved = _resolve_review_output(
         tmp_path,
-        {"output_path": "renders/full.mp4", "profile": "social_vertical_3_4_1080p30"},
+        {"output_path": "renders/full.mp4"},
         {"subject_ref": {"path": "renders/sample-v1.mp4"}},
     )
     assert resolved == "renders/sample-v1.mp4"

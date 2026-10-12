@@ -22,6 +22,25 @@ def test_bundle_is_immutable_and_approve_keeps_awaiting_history(tmp_path: Path):
     assert json.loads(approved.read_text())["status"] == "approved"
 
 
+def test_new_same_version_awaiting_snapshot_masks_stale_approval(tmp_path: Path):
+    """A regenerated bundle must not be blocked by an older approval file."""
+    from lib.approval_groups import _bundle_state
+
+    project = tmp_path / "project"
+    approvals = project / "artifacts" / "approvals"
+    approvals.mkdir(parents=True)
+    old = approvals / "bundle-v1-approved.json"
+    new = approvals / "bundle-v1-awaiting_human.json"
+    old.write_text(json.dumps({"bundle_version": 1, "status": "approved"}))
+    import time
+    time.sleep(0.01)
+    new.write_text(json.dumps({"bundle_version": 1, "status": "awaiting_human"}))
+
+    path, state = _bundle_state(project, "bundle")
+    assert path == new
+    assert state["status"] == "awaiting_human"
+
+
 def test_reject_writes_new_state(tmp_path: Path):
     project = tmp_path / "project"; (project / "artifacts").mkdir(parents=True)
     for stage in ("script", "assets"):

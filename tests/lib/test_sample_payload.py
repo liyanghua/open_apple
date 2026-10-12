@@ -210,8 +210,8 @@ def test_caption_style_passthrough_and_recipe_from_scene_plan() -> None:
     assert payload["captionRecipes"]["shot-01"]["recipe_id"] == "keyword-highlight"
 
 
-def test_taobao_default_caption_treatment_is_large_vertical_flower_text() -> None:
-    """No-reference Taobao runs still get the approved two-layer text treatment."""
+def test_taobao_caption_treatment_is_left_top_and_compact_even_with_generic_fingerprint() -> None:
+    """Taobao selling-point flower text must not inherit a centered generic prior."""
     result = build_sample_render_payload({
         "final_props": {
             "fps": 30, "durationInFrames": 90,
@@ -224,13 +224,22 @@ def test_taobao_default_caption_treatment_is_large_vertical_flower_text() -> Non
         "asset_manifest": {"assets": [
             {"id": "proxy-01", "path": "a.mp4", "duration_seconds": 3.0},
         ]},
-        "caption_style_fingerprint": {"applicability": "not_applicable"},
+        "caption_style_fingerprint": {
+            "applicability": "needs_review",
+            "profile": "generic",
+            "style": {
+                "font_family": "思源黑体",
+                "size_hierarchy": [64, 96],
+                "position": "下方居中",
+                "vertical": False,
+            },
+        },
     })
 
     assert result["captionStyle"] == {
         "fontFamily": "Long Cang",
-        "fontSize": 112,
-        "emphasizeFontSize": 132,
+        "fontSize": 72,
+        "emphasizeFontSize": 84,
         "fontWeight": 800,
         "fillColor": "#FFF7E8",
         "strokeColor": "#3A1710",
@@ -281,6 +290,31 @@ def test_sample_payload_derives_narration_subtitle_track_from_script() -> None:
     assert result["narrationSubtitles"] == [
         {"text": "油污，一擦就没了？", "startMs": 0, "endMs": 2000},
         {"text": "0 甲醛，检测报告为证。", "startMs": 2000, "endMs": 4000},
+    ]
+
+
+def test_narration_subtitles_hide_product_page_attribution_prefixes() -> None:
+    result = build_sample_render_payload({
+        "final_props": {
+            "fps": 30,
+            "durationInFrames": 60,
+            "scenes": [{
+                "id": "shot-01", "section_id": "sec-001", "assetId": "proxy-01",
+                "fromFrame": 0, "toFrameExclusive": 60,
+                "sourceInSeconds": 0.0, "sourceOutSeconds": 2.0,
+            }],
+        },
+        "asset_manifest": {"assets": [
+            {"id": "proxy-01", "path": "assets/video/shot-01.mp4", "duration_seconds": 2.0},
+        ]},
+        "script": {"sections": [{
+            "id": "sec-001", "narration": "商品页参数标注吸水性等级5s-10s",
+            "start_seconds": 0.0, "end_seconds": 2.0,
+        }]},
+    })
+
+    assert result["narrationSubtitles"] == [
+        {"text": "吸水性等级5s-10s", "startMs": 0, "endMs": 2000},
     ]
 
 
@@ -348,7 +382,7 @@ def test_sample_payload_maps_narration_to_realized_sample_timeline() -> None:
     assert result["narrationSubtitles"] == [
         {"text": "一股水浇下，湿润范围清楚可见", "startMs": 0, "endMs": 7200},
         {"text": "毛圈纹理特写，细节清楚可见", "startMs": 7200, "endMs": 10200},
-        {"text": "商品页主打AG+银离子净护", "startMs": 10200, "endMs": 13200},
+        {"text": "AG+银离子净护", "startMs": 10200, "endMs": 13200},
     ]
     assert result["captionSafeZoneProfile"] == "taobao_detail_3_4"
     assert result["narrationSafeZoneProfile"] == "taobao_detail_3_4"

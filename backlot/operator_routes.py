@@ -439,6 +439,14 @@ def create_operator_router(
             raise OperatorError.validation_failed("缺少重复提交保护标识")
         skill = catalog().resolve(str(payload.get("skill_id") or ""), payload.get("skill_version"))
         intake = payload.get("intake") if isinstance(payload.get("intake"), dict) else {}
+        input_mode = str(intake.get("input_mode") or "reference_driven")
+        if input_mode not in {"reference_driven", "reference_fidelity"}:
+            raise OperatorError.validation_failed("不支持的复刻模式")
+        if input_mode == "reference_fidelity":
+            external = intake.get("external_reference") if isinstance(intake.get("external_reference"), dict) else {}
+            if external.get("usage", "analysis_only") != "analysis_only":
+                raise OperatorError.validation_failed("严格复刻的参考视频只能用于分析")
+            intake["external_reference"] = {"present": True, "paths": intake.get("reference_paths") or [], "usage": "analysis_only"}
         for field, prefix in (("reference_paths", "inputs/reference"), ("source_paths", "inputs/source")):
             values = intake.get(field) if isinstance(intake.get(field), list) else []
             for value in values:

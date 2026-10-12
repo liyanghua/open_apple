@@ -1,6 +1,6 @@
 """为已渲染的 template sample 产出 sample 阶段四制品 + 写 sample checkpoint（awaiting_human）。
 
-前置（已由主链路产生）：renders/sample-v1.mp4（Remotion full）、final_qa quick probe、
+前置（已由主链路产生）：profile 匹配的 renders/sample-v1-<width>x<height>.mp4（或旧 full）、final_qa quick probe、
 technical_validator L1a（subject_ref/subject_hash）。本脚本把这些结果写成 canonical 制品：
 sample_report / evaluation_report(sample) / sample_execution_trace / caption_policy_revision，
 再 `write_checkpoint(..., 'sample', 'awaiting_human')`（human_approval_default=true，等人批五效果确认）。
@@ -36,19 +36,52 @@ def _write(proj: Path, name: str, data: dict, *, sink=None) -> dict:
     return write_artifact_atomic(f"artifacts/{name}.json", name, data, project_dir=proj, sink=sink)
 
 
+def _configured_review_profile(proj: Path, render_plan: dict | None) -> str | None:
+    configured = (render_plan or {}).get("profile")
+    if configured:
+        return str(configured)
+    lock = _load(proj / "artifacts" / "production_lock.json") or {}
+    output = (lock.get("locked_values") or {}).get("output") or {}
+    return str(output["profile"]) if output.get("profile") else None
+
+
 def _resolve_review_output(proj: Path, render_plan: dict | None, l1a: dict | None) -> str:
-    """Resolve the reviewed sample path from canonical artifacts, not dimensions."""
+    """Resolve the only valid review sample for profiled runs, or legacy fallback."""
+    profile = _configured_review_profile(proj, render_plan)
+    from lib.sample_contract import canonical_sample_relative_path
+
+    if profile:
+        canonical = canonical_sample_relative_path(profile)
+        if (proj / canonical).is_file():
+            return canonical
+        raise FileNotFoundError(
+            f"canonical sample {canonical!r} is missing for configured profile {profile!r}"
+        )
+
     candidates = [
-        ((l1a or {}).get("subject_ref") or {}).get("path"),
         (render_plan or {}).get("sample_output_path"),
+        ((l1a or {}).get("subject_ref") or {}).get("path"),
         (render_plan or {}).get("output_path"),
         "renders/sample-v1.mp4",
-        "renders/sample-v1-540x960.mp4",
     ]
     for value in candidates:
         if value and (proj / str(value)).is_file():
             return str(value)
     raise FileNotFoundError("当前 render_plan/L1a 未指向可读取的样片文件")
+
+
+def validate_l1a_subject(l1a: dict, review_output: str, review_path: Path) -> None:
+    """Require the L1a verdict to bind exactly to the current review sample."""
+    subject_ref = l1a.get("subject_ref") or {}
+    subject_path = str(subject_ref.get("path") or "")
+    if subject_path != review_output:
+        raise ValueError(
+            "L1a subject_ref does not match current review output "
+            f"({subject_path!r} != {review_output!r})"
+        )
+    current_hash = hashlib.sha256(review_path.read_bytes()).hexdigest()
+    if str(l1a.get("subject_hash") or "") != current_hash:
+        raise ValueError("L1a subject_hash does not match current review output")
 
 def _probe(proj: Path, output: str) -> dict:
     import subprocess
@@ -71,6 +104,7 @@ def build(proj: Path, *, run: str, l1a: dict, qa: dict, sink=None) -> dict:
     script = _load(proj / "artifacts" / "script.json") or {}
     scene_plan = _load(proj / "artifacts" / "scene_plan.json") or {}
     output = _resolve_review_output(proj, render_plan, l1a)
+    validate_l1a_subject(l1a, output, proj / output)
     probe = _probe(proj, output)
     # 评审窗口以实际审片文件为准（render-gradient sample 层 300-450 帧），
     # 不按 full 时间线声称覆盖全集；scale 恒为 0.5。
@@ -161,6 +195,12 @@ def main() -> None:
         raise SystemExit(f"{args.run}: artifacts/l1a_sample.json 缺失——请先跑 technical_validator（sample scope）再立门")
     if str(l1a.get("status") or "") != "pass":
         raise SystemExit(f"{args.run}: L1a(sample) 未通过（status={l1a.get('status')}），禁止立 sample 门")
+    render_plan = _load(proj / "artifacts" / "render_plan.json") or _load(proj / "artifacts" / "render_plan.sample.json")
+    try:
+        review_output = _resolve_review_output(proj, render_plan, l1a)
+        validate_l1a_subject(l1a, review_output, proj / review_output)
+    except (FileNotFoundError, ValueError) as exc:
+        raise SystemExit(f"{args.run}: {exc}，禁止立 sample 门") from exc
     alignment_path = proj / "analysis" / "alignment_check.json"
     if alignment_path.is_file():
         from lib.template_alignment import alignment_gate_errors, current_alignment_checks
@@ -168,11 +208,6 @@ def main() -> None:
             alignment_report = json.loads(alignment_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise SystemExit(f"{args.run}: alignment_check.json 无法读取") from exc
-        render_plan = _load(proj / "artifacts" / "render_plan.json") or _load(proj / "artifacts" / "render_plan.sample.json")
-        try:
-            review_output = _resolve_review_output(proj, render_plan, l1a)
-        except FileNotFoundError as exc:
-            raise SystemExit(f"{args.run}: {exc}") from exc
         sample_path = proj / review_output
         sample_hash = hashlib.sha256(sample_path.read_bytes()).hexdigest() if sample_path.is_file() else ""
         script_data = _load(proj / "artifacts" / "script.json") or {}
@@ -200,9 +235,10 @@ def main() -> None:
                           "data": data}
     with store.transaction(action={"action_id": "write-sample-artifacts"}) as sink:
         envs.update(build(proj, run=args.run, l1a=l1a, qa=qa, sink=sink))
+        sample_output = envs["sample_report"]["data"]["output_path"]
         write_checkpoint(ROOT / "projects", args.run, "sample", "awaiting_human", envs, pipeline_type=PIPELINE,
                          next_action={"summary": "sample 已渲染并过 final_qa + L1a，等待人工五效果确认", "verb": "await_user",
-                                      "context_refs": ["renders/sample-v1-540x960.mp4", "artifacts/sample_report.json", "artifacts/evaluation_report.sample.json"]},
+                                      "context_refs": [sample_output, "artifacts/sample_report.json", "artifacts/evaluation_report.sample.json"]},
                          sink=sink)
     print(f"sample checkpoint awaiting_human written for {args.run}")
     for name, env in envs.items():

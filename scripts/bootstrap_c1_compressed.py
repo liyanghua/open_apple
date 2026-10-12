@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 from lib.artifact_hashing import attach_hashes
 from lib.artifact_io import write_artifact_atomic
+from backlot.project_commit import ProjectCommitStore
 from lib.template_fork import fork_template_run
 from lib.template_compression import compression_plan_for_subset
 from lib.template_mainline import _NARRATION_BY_TEMPLATE
@@ -68,8 +69,13 @@ if (run_dir / "artifacts/template_run_plan.json").exists():
         existing.pop("artifact_sha256", None)
         sealed_existing = attach_hashes(existing)
         validate_artifact("template_run_plan", sealed_existing)
-        write_artifact_atomic("artifacts/template_run_plan.json", "template_run_plan", sealed_existing,
-                              project_dir=run_dir)
+        with ProjectCommitStore(run_dir).transaction(
+            action={"action_id": f"backfill-compression-{RUN}"}
+        ) as sink:
+            write_artifact_atomic(
+                "artifacts/template_run_plan.json", "template_run_plan", sealed_existing,
+                project_dir=run_dir, sink=sink,
+            )
         print("run compression 契约已回填")
 else:
     facts = json.loads(FACTS_SRC.read_text(encoding="utf-8"))
@@ -88,7 +94,12 @@ else:
     run_dir.mkdir(parents=True, exist_ok=True)
     fork_template_run(RUN, source_project_dir=SHARED_RESEARCH, pipeline_dir=ROOT / "projects",
                       product_facts_path=FACTS_SRC)
-    write_artifact_atomic("artifacts/template_run_plan.json", "template_run_plan", sealed_run,
-                          project_dir=run_dir)
+    with ProjectCommitStore(run_dir).transaction(
+        action={"action_id": f"seed-run-plan-{RUN}"}
+    ) as sink:
+        write_artifact_atomic(
+            "artifacts/template_run_plan.json", "template_run_plan", sealed_run,
+            project_dir=run_dir, sink=sink,
+        )
     n_owned = sum(1 for b in sealed_run["slot_bindings"] if b["source"] == "owned")
     print(f"run 引导完成: {RUN} | owned {n_owned}/{len(sealed_run['slot_bindings'])} | research seeded")

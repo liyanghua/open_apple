@@ -1,4 +1,5 @@
 """Synthetic bound source-report fixtures; never real media/VI certification."""
+import hashlib
 import json
 from pathlib import Path
 
@@ -34,6 +35,36 @@ def create_bound_quality(root, record, *, prefix="fixture-evidence"):
         refs[source] = put(source, {"fixture_only": True, "render_sha256": sha,
             "method": method, "checks": [{"id": name, "status": "pass", "issues": []} for name in names]})
     return collect_production_quality(root, record, refs)
+
+
+def approve_production_record(root, *, render_path, content_slot_id, seconds=4):
+    """Bind synthetic quality evidence and a real final review to fixture media."""
+    from backlot.operator_reviews import ReviewService
+
+    root = Path(root)
+    render_sha = hashlib.sha256((root / render_path).read_bytes()).hexdigest()
+    record_path = f"artifacts/{content_slot_id}-production_record.json"
+    quality_path = f"artifacts/{content_slot_id}-quality_report.json"
+    record = {
+        "content_slot_id": content_slot_id,
+        "render": {"path": render_path, "sha256": render_sha, "seconds": seconds},
+        "quality_report_ref": quality_path,
+    }
+    quality = create_bound_quality(root, record, prefix=f"artifacts/{content_slot_id}-evidence")
+    (root / quality_path).write_text(json.dumps(quality), encoding="utf-8")
+    (root / record_path).write_text(json.dumps(record), encoding="utf-8")
+    service = ReviewService(root)
+    review = service.create_final_review(record_path=record_path, submitted_by="fixture-pipeline")
+    service.decide(
+        review_id=review["review_id"], decision="approved", actor_id="fixture-reviewer",
+        reason="已逐项核验", expected_hash=review["subject_hash"],
+        expected_version=review["subject_version"],
+    )
+    return {
+        "production_record_path": record_path,
+        "final_review_id": review["review_id"],
+        "video_master_sha256": render_sha,
+    }
 
 
 def create_bound_opening_quality(root, record, *, prefix='fixture-evidence'):

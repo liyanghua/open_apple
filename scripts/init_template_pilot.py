@@ -18,6 +18,7 @@ import json
 import shutil
 from pathlib import Path
 
+from backlot.project_commit import ProjectCommitStore
 from lib.artifact_hashing import attach_hashes
 from lib.artifact_io import write_artifact_atomic
 from lib.template_batch import create_template_batch, mark_pilot, refresh_template_batch_status_for_pipeline
@@ -96,10 +97,19 @@ def main() -> None:
             pipeline_dir=ROOT / "projects",
             product_facts_path=facts_path,
         )
-        write_artifact_atomic("artifacts/template_run_plan.json", "template_run_plan", sealed, project_dir=run_dir)
-        # 共享事实卡复制到该 run（只读引用；fork 若已复制则跳过）
-        if not (run_dir / "artifacts" / "product_facts.json").exists():
-            shutil.copyfile(facts_path, run_dir / "artifacts" / "product_facts.json")
+        with ProjectCommitStore(run_dir).transaction(
+            action={"action_id": f"seed-run-plan-{run_dir.name}"}
+        ) as sink:
+            write_artifact_atomic(
+                "artifacts/template_run_plan.json", "template_run_plan", sealed,
+                project_dir=run_dir, sink=sink,
+            )
+            # 共享事实卡复制到该 run（只读引用；fork 若已复制则跳过）
+            if not (run_dir / "artifacts" / "product_facts.json").exists():
+                sink.stage_bytes(
+                    "artifacts/product_facts.json", facts_path,
+                    media_type="product_facts",
+                )
         run_plan_refs[tid] = {"artifact_sha256": sealed["artifact_sha256"]}
         n_owned = sum(1 for b in sealed["slot_bindings"] if b["source"] == "owned")
         print(f"  run {tid} -> {run_dir} ({n_owned}/{len(sealed['slot_bindings'])} owned slots, research seeded)")

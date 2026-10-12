@@ -41,6 +41,14 @@ def test_fails_when_analysis_files_missing(tmp_path: Path):
         validate_research_derived_files(tmp_path, _artifacts())
 
 
+def test_accepts_analysis_files_staged_in_the_current_transaction(tmp_path: Path):
+    class StagedView:
+        def has_staged_path(self, relative_path: str) -> bool:
+            return relative_path.startswith("analysis/")
+
+    validate_research_derived_files(tmp_path, _artifacts(), sink=StagedView())
+
+
 def test_ignores_external_and_non_derived_refs(tmp_path: Path):
     artifacts = {
         "research_breakdown": {

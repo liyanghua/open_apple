@@ -27,7 +27,7 @@ from tools.base_tool import (
 
 class SeedanceVideo(BaseTool):
     name = "seedance_video"
-    version = "0.2.0"
+    version = "0.2.1"
     tier = ToolTier.GENERATE
     capability = "video_generation"
     provider = "seedance"
@@ -244,11 +244,14 @@ class SeedanceVideo(BaseTool):
                     error=f"Seedance 2.0 reference_to_video accepts at most 3 reference audio clips; got {len(ref_audio_urls)}",
                 )
             if ref_image_urls:
-                payload["reference_image_urls"] = ref_image_urls
+                # fal's public reference-to-video schema calls these image_urls.
+                # Keep the provider-neutral input name on the tool surface, but
+                # translate it at the HTTP boundary.
+                payload["image_urls"] = ref_image_urls
             if ref_video_urls:
-                payload["reference_video_urls"] = ref_video_urls
+                payload["video_urls"] = ref_video_urls
             if ref_audio_urls:
-                payload["reference_audio_urls"] = ref_audio_urls
+                payload["audio_urls"] = ref_audio_urls
 
         headers = {
             "Authorization": f"Key {api_key}",
@@ -267,9 +270,19 @@ class SeedanceVideo(BaseTool):
             status_url = queue_data["status_url"]
             response_url = queue_data["response_url"]
 
+            consecutive_poll_errors = 0
             while True:
                 time.sleep(5)
-                status_resp = requests.get(status_url, headers=headers, timeout=15)
+                try:
+                    status_resp = requests.get(status_url, headers=headers, timeout=30)
+                except requests.RequestException:
+                    consecutive_poll_errors += 1
+                    if consecutive_poll_errors >= 8:
+                        raise
+                    # The queue request already exists. Retrying this GET is
+                    # safe and avoids submitting a duplicate billable job.
+                    continue
+                consecutive_poll_errors = 0
                 status_resp.raise_for_status()
                 status = status_resp.json().get("status", "UNKNOWN")
                 if status == "COMPLETED":

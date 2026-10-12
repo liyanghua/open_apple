@@ -7,7 +7,7 @@
   "properties": {
     "version": {"type": "string"}, "project_id": {"type": "string", "minLength": 1}, "created_at": {"type": "string", "format": "date-time"}, "producer": {"type": "string", "minLength": 1},
     "input_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "semantic_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "matrix_mode": {"enum": ["reference", "source_led", "source_led_template"]},
+    "matrix_mode": {"enum": ["reference", "reference_fidelity", "source_led", "source_led_template"]},
     "rows": {"type": "array", "items": {"$ref": "#/$defs/row"}}, "unmatched_gaps": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
   },
   "$defs": {
@@ -126,7 +126,7 @@
     }
   },
   "allOf": [
-    {"if": {"anyOf": [{"not": {"required": ["matrix_mode"]}}, {"required": ["matrix_mode"], "properties": {"matrix_mode": {"const": "reference"}}}]}, "then": {"properties": {"rows": {"items": {"properties": {"reference_scene_id": {"type": "string", "minLength": 1}, "reference_time_range": {"$ref": "#/$defs/interval"}}}}}}},
+    {"if": {"anyOf": [{"not": {"required": ["matrix_mode"]}}, {"required": ["matrix_mode"], "properties": {"matrix_mode": {"enum": ["reference", "reference_fidelity"]}}}]}, "then": {"properties": {"rows": {"items": {"properties": {"reference_scene_id": {"type": "string", "minLength": 1}, "reference_time_range": {"$ref": "#/$defs/interval"}}}}}}},
     {
       "if": {"required": ["matrix_mode"], "properties": {"matrix_mode": {"enum": ["source_led", "source_led_template"]}}},
       "then": {

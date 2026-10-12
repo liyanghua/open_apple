@@ -156,6 +156,7 @@
       "description": "Input-mode-specific artifact requirements and stage outputs.",
       "properties": {
         "reference_driven": { "$ref": "#/$defs/modeRequirements" },
+        "reference_fidelity": { "$ref": "#/$defs/modeRequirements" },
         "source_led": { "$ref": "#/$defs/modeRequirements" },
         "source_led_template": { "$ref": "#/$defs/modeRequirements" },
         "all_modes": { "$ref": "#/$defs/modeRequirements" },

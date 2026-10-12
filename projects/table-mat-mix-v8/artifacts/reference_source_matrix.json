@@ -1,0 +1,198 @@
+{
+  "artifact_sha256": "aeb1e92c2554c27416f9696715b8affe8a58367d85bb120821017d0968d4248d",
+  "created_at": "2026-08-20T04:25:58.799562+00:00",
+  "input_hashes": {
+    "breakdown": "bdb46993ca071216bb7c3fd6150f31ad608cd401f5328b52ba11296257911cf9",
+    "fingerprint": "ac55c4052bb20b08d38bef3e0232698b0faf1ea9354306c46a76c904f16e1e4b"
+  },
+  "producer": "reference_source_matcher@2.0",
+  "project_id": "table-mat-mix-v7",
+  "rows": [
+    {
+      "confidence": 0.9,
+      "evidence_frames": [
+        "analysis/source/0757a4784647644cba0ad60521011215085d1f8a634dd08509a4ddb017e35f74/frame_0001.jpg"
+      ],
+      "match_reason": "自动铺开动作先于解释，能在第一秒交代产品和使用场景",
+      "matrix_row_id": "matrix-01",
+      "reference_intent": "真人展开透明桌垫并对准木桌，第一秒同时交代产品和使用场景",
+      "reference_scene_id": "reference-shot-1",
+      "reference_time_range": {
+        "end_seconds_exclusive": 1.0,
+        "start_seconds": 0.0
+      },
+      "resolution": "accept",
+      "source_media_id": "source-04",
+      "source_time_range": {
+        "start_seconds": 0.0,
+        "end_seconds_exclusive": 3.9
+      },
+      "unmatched_gap": null
+    },
+    {
+      "confidence": 0.93,
+      "evidence_frames": [
+        "analysis/source/aa1712278fe76e692c8418e856577196d2ee9711ceecf5fc9020a503db3c796a/frame_0002.jpg"
+      ],
+      "match_reason": "桌角对齐和按压后的边缘状态，与参考片的贴合特写同样是边缘证据",
+      "matrix_row_id": "matrix-02",
+      "reference_intent": "镜头压到桌角和边缘，透明垫沿桌面轮廓贴合",
+      "reference_scene_id": "reference-shot-2",
+      "reference_time_range": {
+        "end_seconds_exclusive": 2.067,
+        "start_seconds": 1.0
+      },
+      "resolution": "accept",
+      "source_media_id": "source-03",
+      "source_time_range": {
+        "start_seconds": 1.2,
+        "end_seconds_exclusive": 5.75
+      },
+      "unmatched_gap": null
+    },
+    {
+      "confidence": 0.97,
+      "evidence_frames": [
+        "analysis/source/ad38ded3aa91a16492c0997c173643a11da51b607c2eb2ce507467f02c91b87e/frame_0002.jpg"
+      ],
+      "match_reason": "硬物刮擦动作和透明垫面结果直接对应防刮证明",
+      "matrix_row_id": "matrix-03",
+      "reference_intent": "硬物在垫面上刮擦，动作结果直接对应耐刮证明",
+      "reference_scene_id": "reference-shot-3",
+      "reference_time_range": {
+        "end_seconds_exclusive": 3.767,
+        "start_seconds": 2.067
+      },
+      "resolution": "accept",
+      "source_media_id": "source-05",
+      "source_time_range": {
+        "end_seconds_exclusive": 6.7,
+        "start_seconds": 1.3
+      },
+      "unmatched_gap": null
+    },
+    {
+      "confidence": 0.96,
+      "evidence_frames": [
+        "analysis/source/6c9a821063ba05af5f221f87f492a2dea74ffb407f829a55940909d430a7564d/frame_0002.jpg"
+      ],
+      "match_reason": "倒液体并擦拭，动作-结果链比参考片更完整",
+      "matrix_row_id": "matrix-04",
+      "reference_intent": "液体/油污落在垫面上，连续展示防护和易处理",
+      "reference_scene_id": "reference-shot-4",
+      "reference_time_range": {
+        "end_seconds_exclusive": 6.4,
+        "start_seconds": 3.767
+      },
+      "resolution": "accept",
+      "source_media_id": "source-06",
+      "source_time_range": {
+        "end_seconds_exclusive": 10.8,
+        "start_seconds": 3.2
+      },
+      "unmatched_gap": null
+    },
+    {
+      "confidence": 0.66,
+      "evidence_frames": [
+        "analysis/source/aa1712278fe76e692c8418e856577196d2ee9711ceecf5fc9020a503db3c796a/frame_0003.jpg"
+      ],
+      "match_reason": "可证明按压和不变形，但没有清楚的回弹释放瞬间，需桥接或改写为“柔韧不变形”",
+      "matrix_row_id": "matrix-05",
+      "reference_intent": "手部掀起并弯折垫面，展示柔软和可操作性",
+      "reference_scene_id": "reference-shot-5",
+      "reference_time_range": {
+        "end_seconds_exclusive": 8.167,
+        "start_seconds": 6.4
+      },
+      "resolution": "bridge",
+      "source_media_id": "source-03",
+      "source_time_range": {
+        "end_seconds_exclusive": 6.8,
+        "start_seconds": 2.4
+      },
+      "unmatched_gap": "参考片强调回弹，自有素材主要证明挤压不变形"
+    },
+    {
+      "confidence": 0.94,
+      "evidence_frames": [
+        "analysis/source/114ffcd6f7c246bd48ddd96970c8e39e3ed4daa873dd3497cb88bddc36f336b2/frame_0003.jpg"
+      ],
+      "match_reason": "真实餐桌、餐具和透明垫面都能承接生活化收束",
+      "matrix_row_id": "matrix-06",
+      "reference_intent": "回到真人与餐桌环境，展示透明垫不遮住桌面质感",
+      "reference_scene_id": "reference-shot-6",
+      "reference_time_range": {
+        "end_seconds_exclusive": 9.967,
+        "start_seconds": 8.167
+      },
+      "resolution": "accept",
+      "source_media_id": "source-07",
+      "source_time_range": {
+        "end_seconds_exclusive": 7.51,
+        "start_seconds": 0.0
+      },
+      "unmatched_gap": null
+    },
+    {
+      "confidence": 0.99,
+      "evidence_frames": [
+        "analysis/reference/keyframes/frame_0007.jpg"
+      ],
+      "match_reason": "参考片 CTA 是品牌/账号/搜索卡，现有素材没有同类画面，必须原创设计",
+      "matrix_row_id": "matrix-07",
+      "reference_intent": "深色收尾卡，品牌头像、搜索框和账号信息引导搜索",
+      "reference_scene_id": "reference-shot-7",
+      "reference_time_range": {
+        "end_seconds_exclusive": 14.791,
+        "start_seconds": 9.967
+      },
+      "resolution": "rewrite",
+      "source_media_id": null,
+      "source_time_range": null,
+      "unmatched_gap": "缺少可复用的 CTA 画面；只迁移“搜索型收尾”机制"
+    },
+    {
+      "confidence": 0.9,
+      "evidence_frames": [
+        "analysis/source/2f9213d9132ae3f7b1a8831aa01ead0d402ea342f3e2f0de0dc374f7e824086a/frame_0001.jpg",
+        "analysis/source/2f9213d9132ae3f7b1a8831aa01ead0d402ea342f3e2f0de0dc374f7e824086a/frame_0002.jpg",
+        "analysis/source/2f9213d9132ae3f7b1a8831aa01ead0d402ea342f3e2f0de0dc374f7e824086a/frame_0003.jpg",
+        "analysis/source/2f9213d9132ae3f7b1a8831aa01ead0d402ea342f3e2f0de0dc374f7e824086a/frame_0004.jpg"
+      ],
+      "match_reason": "补足「无甲醛检测」卖点动作的素材缺口（内容寻址桥接，不复制参考镜头）",
+      "matrix_row_id": "matrix-08",
+      "reference_intent": "0甲醛 检测报告为证（无甲醛/0甲醛 安心卖点）",
+      "reference_scene_id": "reference-shot-4",
+      "reference_time_range": {
+        "end_seconds_exclusive": 6.4,
+        "start_seconds": 3.767
+      },
+      "resolution": "accept",
+      "source_media_id": "2f9213d9132ae3f7",
+      "source_time_range": {
+        "end_seconds_exclusive": 8.01,
+        "start_seconds": 0.0
+      },
+      "unmatched_gap": null
+    }
+  ],
+  "semantic_sha256": "748b26aad96cc33239d9627e95fad6864332986447f0636a0666550c176d0f53",
+  "unmatched_gaps": [
+    {
+      "description": "回弹证据不足，需桥接或补拍",
+      "gap_id": "gap-rebound",
+      "matrix_row_ids": [
+        "matrix-05"
+      ]
+    },
+    {
+      "description": "无现成 CTA 画面，需原创设计",
+      "gap_id": "gap-cta",
+      "matrix_row_ids": [
+        "matrix-07"
+      ]
+    }
+  ],
+  "version": "1.0"
+}

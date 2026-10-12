@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+
+import pytest
 import json
 
 
@@ -182,6 +184,14 @@ def test_core_selling_point_copy_removes_page_attribution_prefix() -> None:
     assert mod.core_selling_point("日常洁面使用画面") == "日常洁面"
 
 
+def test_core_selling_point_copy_compacts_descriptive_tiansi_page_claims() -> None:
+    mod = _stage50()
+
+    assert mod.core_selling_point("商品页参数标注吸水性等级5s-10s") == "吸水实测"
+    assert mod.core_selling_point("商品主图标注莱赛尔纤维细腻顺滑") == "莱赛尔纤维"
+    assert mod.core_selling_point("当前页面默认选中海天蓝") == "海天蓝"
+
+
 def test_alignment_report_freshness_distinguishes_stale_sample(tmp_path: Path) -> None:
     mod = _stage50()
     project = tmp_path / "run"
@@ -236,13 +246,41 @@ def test_stage51_maps_review_sections_to_sample_timeline(tmp_path: Path) -> None
     ]
 
 
-def test_stage51_reviews_the_same_proxy_file_as_the_sample_gate() -> None:
-    source = (ROOT / "scripts/towel_batch_2026_09_02/stage51_verify_alignment.py").read_text(
-        encoding="utf-8"
-    )
-    assert 'sample_path = d / "renders" / "sample-v1-540x960.mp4"' in source
-    assert 'sample_path = d / "renders" / "sample-v1.mp4"' in source
-    assert 'str(sample_path), "-frames:v", "1"' in source
+def test_stage51_uses_rendered_frame_window_not_container_duration() -> None:
+    mod = _stage51()
+
+    assert mod.effective_sample_duration(
+        media_duration=15.061,
+        fps=30,
+        total_frames=861,
+    ) == pytest.approx(449 / 30)
+    assert mod.effective_sample_duration(
+        media_duration=13.2,
+        fps=30,
+        total_frames=390,
+    ) == pytest.approx(389 / 30)
+
+
+def test_stage51_reviews_the_profile_matched_proxy_file_as_the_sample_gate(tmp_path: Path) -> None:
+    mod = _stage51()
+    project = tmp_path / "run"
+    sample = project / "renders" / "sample-v1-540x720.mp4"
+    sample.parent.mkdir(parents=True)
+    sample.write_bytes(b"sample")
+    artifacts = project / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "production_lock.json").write_text(json.dumps({
+        "locked_values": {"output": {"profile": "social_vertical_3_4_2160p30"}},
+    }), encoding="utf-8")
+
+    assert mod.resolve_sample_path(project) == sample
+
+
+def test_stage51_scales_alignment_frames_to_the_resolved_sample_profile() -> None:
+    mod = _stage51()
+
+    assert mod.sample_scale_filter("social_vertical_1080p30") == "scale=540:960"
+    assert mod.sample_scale_filter("social_vertical_3_4_2160p30") == "scale=540:720"
 
 
 def test_canonical_props_carry_product_identity_into_realized_scenes(tmp_path: Path) -> None:

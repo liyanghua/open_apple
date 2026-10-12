@@ -17,6 +17,7 @@ import {
   APPROVAL_COPY,
 } from "./language.js";
 import { buildApprovalViewModel } from "./approval_model.js";
+import { createSegmentPreview } from "./segment_preview.js";
 
 const byId = (id) => document.getElementById(id);
 
@@ -840,9 +841,14 @@ function renderShotPlanDetail(container, payload) {
       const referenceRange = secondsRange(shot.reference_evidence.start_seconds, shot.reference_evidence.end_seconds);
       if (shot.reference_evidence.description) card.append(detailRow("参考片段", shot.reference_evidence.description));
       if (referenceRange) card.append(detailRow("参考时间区间", referenceRange));
-      card.append(mediaVideo(shot.reference_evidence.preview_url, shot.reference_evidence.poster_url, "参考片段预览"));
+      card.append(createSegmentPreview({
+        preview_url: shot.reference_evidence.preview_url,
+        poster_url: shot.reference_evidence.poster_url,
+        source_in_seconds: shot.reference_evidence.start_seconds,
+        source_out_seconds: shot.reference_evidence.end_seconds,
+      }, `镜头 ${index + 1} 参考片段预览`));
     }
-    if (hasText(shot.preview_url)) card.append(mediaVideo(shot.preview_url, shot.poster_url, "自有素材预览"));
+    card.append(createSegmentPreview(shot, `镜头 ${index + 1} 本镜片段预览`));
     list.append(card);
   });
   container.append(list);
@@ -1258,6 +1264,73 @@ function renderMediaObjectDetail(container, payload) {
   return true;
 }
 
+const PRODUCTION_CHECK_GUIDE = {
+  fact_source: {label:"商品事实来源", owner:"production", action:"制作方逐句核对成片卖点与已批准商品事实、证据和允许措辞；无需你重复批准已确认的主图宣称。"},
+  product_identity: {label:"商品一致性", owner:"viewer", action:"通看全片：款式、织纹、包边、LOGO 和颜色变化是否仍像同一商品；发现不一致请记下时间点。", seek:0},
+  narration_content: {label:"完整口播", owner:"viewer", action:"听完整条口播，确认每个卖点和结尾都读对、读清；如有读错或被音乐遮住，请标出时间点。独立语音核验仍由制作方处理。", seek:0},
+  caption_alignment: {label:"口播与字幕", owner:"viewer", action:"边听边看下方字幕，检查有没有漏字、错字、提前或滞后；请记录具体句子和时间点。自动对齐失败仍需制作方复核。", seek:0},
+  visual_continuity: {label:"画面与转场连续性", owner:"viewer", action:"连续播放整片，重点看镜头切换是否闪烁、双影突兀、动作断裂或商品突然变形。", seek:0},
+  opening_motion: {label:"前三秒动作", owner:"viewer", action:"看开头 0–3 秒：毛巾是否真的在动、动作是否自然、第一眼能否抓住注意力。", seek:0},
+  opening_framing: {label:"前三秒构图", owner:"viewer", action:"看开头 0–3 秒：商品是否清楚、卖点是否突出、文字和 LOGO 是否挡住商品。", seek:0},
+  frozen_body: {label:"正文冻结", owner:"production", action:"制作方补正式 B0 与正文冻结证据，证明对照时没有悄悄改动后半段；这项无需你逐帧核对。"},
+  opening_join: {label:"开头接正文", owner:"production", action:"制作方验证约 3 秒的拼接点及冻结基准，确保画面和声音接续自然；你可顺带观察该切点。", seek:2.8},
+  mix_origin: {label:"混音来源", owner:"production", action:"制作方补实际混音执行回执，核对配音与 BGM 来源、版本和音量；不是让你再次试听已确认的四段。"},
+  video_judge: {label:"视频综合评估", owner:"production", action:"制作方按预先锁定的新评分策略重跑评估；旧评分不能追认为本轮通过。"},
+};
+
+function renderProductionCheckList(card, item, seek) {
+  const blockers = item.blocking_checks || [];
+  if (!blockers.length) return;
+  const panel = node("section", "production-checklist");
+  panel.append(node("h4", "production-checklist-title", `成片审核清单 · ${blockers.length} 项待处理`));
+  const viewerCount = blockers.filter(id => PRODUCTION_CHECK_GUIDE[id]?.owner === "viewer").length;
+  panel.append(node("p", "approval-muted", `你需要看／听 ${viewerCount} 项；制作方补证据 ${blockers.length - viewerCount} 项。你的意见不会自动改写机器检查结果。`));
+  const list = node("ol", "production-checklist-items");
+  blockers.forEach((id) => {
+    const guide = PRODUCTION_CHECK_GUIDE[id] || {label:id, owner:"production", action:"制作方核对该检查的原始证据与当前成片版本。"};
+    const status = item.checks?.[id]?.machine_status || "not_run";
+    const statusLabel = {fail:"自动检查失败",not_run:"尚未完成",error:"检查出错",pass:"已通过"}[status] || "尚未完成";
+    const row = node("li", "production-checklist-item");
+    row.dataset.checkId = id;
+    const heading = node("div", "production-checklist-heading");
+    heading.append(node("strong", "", guide.label), node("span", `production-checklist-status is-${status}`, statusLabel));
+    row.append(heading);
+    row.append(node("p", "production-checklist-owner", guide.owner === "viewer" ? "需要你看／听" : "制作方补证据"));
+    row.append(node("p", "production-checklist-action", guide.action));
+    if (id === "product_identity") {
+      (item.review_confirmations || []).forEach(text => row.append(node("p", "production-checklist-confirmation", text)));
+    }
+    if (typeof guide.seek === "number" && seek) {
+      const jump = node("button", "quiet-button production-checklist-jump", `从 ${guide.seek.toFixed(1)} 秒看`);
+      jump.type = "button";
+      jump.addEventListener("click", () => seek(guide.seek));
+      row.append(jump);
+    }
+    list.append(row);
+  });
+  panel.append(list);
+  card.append(panel);
+}
+
+function renderOpeningPreviewGuide(card) {
+  const panel = node("section", "production-checklist");
+  panel.append(node("h4", "production-checklist-title", "前三秒预览审核 · 4 项"));
+  panel.append(node("p", "approval-muted", "这里只确认开头预览。完整成片的接缝、正文、结尾与综合质检将在拼接后另行审核。"));
+  const list = node("ol", "production-checklist-items");
+  for (const [label, action] of [
+    ["动态与首帧", "确认商品从第一帧就清楚、确实在动，动作自然且能抓住注意力。"],
+    ["承诺与兑现", "确认口播提出具体卖点或看点，并在三秒内用画面给出可见结果。"],
+    ["商品与事实", "确认款式、颜色、织纹和包边仍像同一商品；防臭、10A 等文字只表达已核对的商品标注，不把生成画面当作实测证据。"],
+    ["声音与版式", "听清完整口播，核对字幕、LOGO、关键词与下划线的位置，检查是否遮挡商品。"],
+  ]) {
+    const row = node("li", "production-checklist-item");
+    row.append(node("strong", "", label), node("p", "production-checklist-action", action));
+    list.append(row);
+  }
+  panel.append(list);
+  card.append(panel);
+}
+
 export function renderProductionReviews(container, payload, options = {}) {
   const canReview = options.canReview ?? currentApprovalCanReview;
   const canEdit = options.canEdit ?? (options.canReview ?? currentApprovalCanEdit);
@@ -1290,13 +1363,44 @@ export function renderProductionReviews(container, payload, options = {}) {
   }
   container.append(navigation);
   container.append(node("p", "approval-detail-copy", "逐条播放并确认当前版本。正式验收、审核意见和自动检查分别保存；人工通过不会补造缺失的检查证据。"));
+  const structureCounts = new Map();
+  for (const item of payload.items || []) {
+    const structure = item.content_structure;
+    if (structure?.structure_id) {
+      const current = structureCounts.get(structure.structure_id) || {label:structure.structure_label, count:0};
+      current.count += 1;
+      structureCounts.set(structure.structure_id, current);
+    }
+  }
+  let structureFilter = null;
+  if (structureCounts.size) {
+    const bar = node("div", "production-structure-filter");
+    bar.append(node("p", "approval-detail-copy", `已按实际内容结构归类 ${[...structureCounts.values()].reduce((sum, row) => sum + row.count, 0)} 条完整成片；其余工程预览不计入分类。`));
+    structureFilter = node("select", "production-panorama-filter");
+    structureFilter.setAttribute("aria-label", "按内容结构筛选成片");
+    const all = node("option", "", "全部内容结构"); all.value = ""; structureFilter.append(all);
+    for (const [id, row] of structureCounts) {
+      const option = node("option", "", `${row.label} · ${row.count} 条`);
+      option.value = id;
+      structureFilter.append(option);
+    }
+    bar.append(structureFilter);
+    container.append(bar);
+  }
   const list = node("div", "production-review-list");
+  const renderedCards = [];
   (payload.items || []).forEach((item) => {
     const card = node("section", "approval-detail-group");
     card.dataset.productionId = item.id;
+    card.dataset.structureId = item.content_structure?.structure_id || "";
     card.id = `production-card-${item.id}`;
     const previewOnly = item.review_kind === "opening_preview" || item.opening_group?.scope === "preview";
     card.append(node("h3", "approval-detail-group-title", `${item.id} · ${item.title}`));
+    if (item.content_structure) {
+      card.append(detailRow("内容结构", `${item.content_structure.structure_label} · ${item.content_structure.fit === 'P2_partial' || item.content_structure.fit === 'P6_partial' ? '原方案雏形' : '展示试点'}`));
+      card.append(detailRow("与 300 条结构的关系", item.content_structure.planned_structure_relation));
+    }
+    if (item.scoped_review_status) card.append(detailRow("本轮定向审核", item.scoped_review_status));
     const group = item.opening_group;
     if (group) {
       card.append(detailRow("同源分组", `${group.sku} · ${group.experiment_id} · ${group.candidate_id} · ${group.role === 'baseline' ? 'B0 基线' : '登记候选'}`));
@@ -1354,9 +1458,11 @@ export function renderProductionReviews(container, payload, options = {}) {
       for (const shot of group?.shots || []) {
         card.append(detailRow(`镜头 ${shot.shot_id || ''} 来源`, `${shot.source_kind || '待确认'} · ${shot.source_path || '未提供'} · ${shot.source_interval_seconds?.join('–') || '区间待确认'} 秒 · ${shot.motion_verb || '动作待确认'}`));
       }
+    let seekReviewTime = null;
     if (item.video_url) {
       const video = mediaVideo(item.video_url, null, `${item.id} ${previewOnly ? '开头预览' : '成片预览'}`);
       let openingLoop = Boolean(item.opening_group);
+      let mode = null;
       video.addEventListener("play", () => {
         document.querySelectorAll(".production-review-list video").forEach(other => {if(other !== video) other.pause();});
       });
@@ -1368,7 +1474,7 @@ export function renderProductionReviews(container, payload, options = {}) {
       });
       card.append(video);
       if (item.opening_group) {
-        const mode = node("button", "quiet-button", previewOnly ? "循环前三秒预览" : "观看完整成片");
+        mode = node("button", "quiet-button", previewOnly ? "循环前三秒预览" : "观看完整成片");
         mode.type = "button";
         mode.disabled = previewOnly;
         mode.addEventListener("click", () => {
@@ -1377,12 +1483,23 @@ export function renderProductionReviews(container, payload, options = {}) {
         });
         card.append(mode);
       }
+      seekReviewTime = (seconds) => {
+        openingLoop = false;
+        if (mode && !previewOnly) mode.textContent = "循环前三秒比较";
+        video.pause();
+        video.currentTime = seconds;
+        video.play().catch(() => {});
+      };
     }
     card.append(detailRow("时长", `${item.duration_seconds ?? "—"} 秒`));
     card.append(detailRow("人工审核", item.review_status));
     if (item.scope_error) card.append(detailRow("登记状态", item.scope_error));
+    if (previewOnly) renderOpeningPreviewGuide(card);
+    else renderProductionCheckList(card, item, seekReviewTime);
+    const rawChecks = node("details", "approval-detail-group");
+    rawChecks.append(node("summary", "", "查看机器检查原始状态"));
     for (const [name, check] of Object.entries(item.checks || {})) {
-      card.append(detailRow(`检查 ${name}`, `自动 ${check.machine_status || check.status || 'not_run'}；有效 ${check.effective_status || check.machine_status || check.status || 'not_run'}；人工 ${check.manual_status || (check.effective_status === 'manual_verified' ? 'manual_verified' : '未提供')}；适用 ${item.applicability?.[name]?.applies === false ? 'N/A' : '是'}`));
+      rawChecks.append(detailRow(`检查 ${name}`, `自动 ${check.machine_status || check.status || 'not_run'}；有效 ${check.effective_status || check.machine_status || check.status || 'not_run'}；人工 ${check.manual_status || (check.effective_status === 'manual_verified' ? 'manual_verified' : '未提供')}；适用 ${item.applicability?.[name]?.applies === false ? 'N/A' : '是'}`));
       if (name === "opening_motion" || name === "opening_framing") {
         for (const observation of check.observations || []) {
           const action = observation.actual_action || {};
@@ -1390,10 +1507,11 @@ export function renderProductionReviews(container, payload, options = {}) {
           const detail = [observation.shot_id, observation.method, motion.verb,
             motion.visible_result, action.source_interval_seconds?.join("–"),
             action.output_interval_seconds?.join("–"), observation.reason].filter(Boolean).join(" · ");
-          if (detail) card.append(detailRow("实际动作与依据", detail));
+          if (detail) rawChecks.append(detailRow("实际动作与依据", detail));
         }
       }
     }
+    if (Object.keys(item.checks || {}).length) card.append(rawChecks);
     if (item.review_history?.length) {
       const history = node("details", "approval-detail-group");
       history.append(node("summary", "", "查看原始人工审核历史"));
@@ -1405,12 +1523,6 @@ export function renderProductionReviews(container, payload, options = {}) {
     card.append(detailRow("历史视觉评分记录", item.judge_label));
     if (item.quality_label) card.append(detailRow("完整生产认证", item.quality_label));
     if (item.cost_label) card.append(detailRow("费用记录", item.cost_label));
-    if (item.blocking_checks?.length) {
-      const labels = {file_integrity:"文件完整性",decode:"完整解码",video_profile:"输出规格",duration:"时长",audio_track:"音轨",
-        font_identity:"指定字体",text_layout:"文字布局",dependency_integrity:"依赖版本",fact_source:"商品事实来源",
-        product_identity:"商品一致性",narration_content:"独立口播核验",caption_alignment:"字幕对应",visual_continuity:"转场连续性"};
-      card.append(detailRow("待补检查", item.blocking_checks.map(id => labels[id] || id).join("、")));
-    }
     const notes = node("div", "approval-detail-list");
     (item.notes || []).forEach((note) => notes.append(node("p", "approval-detail-copy", note.note)));
     card.append(notes);
@@ -1467,6 +1579,10 @@ export function renderProductionReviews(container, payload, options = {}) {
       }
     }
     list.append(card);
+    renderedCards.push(card);
+  });
+  structureFilter?.addEventListener("change", () => {
+    for (const card of renderedCards) card.hidden = Boolean(structureFilter.value) && card.dataset.structureId !== structureFilter.value;
   });
   container.append(list);
   return true;

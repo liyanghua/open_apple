@@ -1,6 +1,10 @@
 import {filterMediaFiles, selectionSummary} from "/ui/media-selection.mjs";
 
 const byId = (id) => document.getElementById(id);
+const modeField = document.createElement("fieldset");
+modeField.className = "full";
+modeField.innerHTML = '<legend>复刻模式</legend><label><input type="radio" name="input_mode" value="reference_driven" checked> 普通参考驱动</label><label><input type="radio" name="input_mode" value="reference_fidelity"> 严格复刻：锁定镜头顺序、节奏和口播节拍，只替换商品与卖点</label>';
+byId("create-form")?.querySelector(".form-grid")?.prepend(modeField);
 const lines = (value) => String(value || "").split("\n").map((item) => item.trim()).filter(Boolean);
 const safeName = (file) => (file.webkitRelativePath || file.name).split("/").slice(-2).join("_").replace(/[^\p{L}\p{N}._ -]/gu, "_");
 
@@ -62,6 +66,7 @@ byId("create-form").onsubmit = async (event) => {
   const platforms = form.getAll("platforms");
   const references = selectedFiles("reference-files");
   const sources = selectedFiles("source-files");
+  const inputMode = form.get("input_mode") || "reference_driven";
   const advancedReferences = lines(form.get("reference_paths"));
   const advancedSources = lines(form.get("source_paths"));
   if (!platforms.length) { message.textContent = "请至少选择一个发布平台"; return; }
@@ -75,8 +80,8 @@ byId("create-form").onsubmit = async (event) => {
   const referencePaths = [...advancedReferences, ...references.map((file) => `inputs/reference/${safeName(file)}`)];
   const sourcePaths = [...advancedSources, ...sources.map((file) => `inputs/source/video/product/${safeName(file)}`)];
   const payload = {
-    project_id: projectId, title: `${form.get("product_name")}复刻`, skill_id: "ecommerce-viral-remix", skill_version: "1.0.0",
-    intake: { product_name: form.get("product_name"), category: "home-protection", platforms, duration_seconds: Number(form.get("duration_seconds")), reference_paths: [...new Set(referencePaths)], source_paths: [...new Set(sourcePaths)], copyright_confirmed: form.get("copyright_confirmed") === "on", brand_cta: form.get("brand_cta"), paid_generation_approved: form.get("paid_generation_approved") === "on", narration_required: true, subtitles_required: true, bgm_required: true },
+    project_id: projectId, title: `${form.get("product_name")}复刻`, skill_id: "ecommerce-viral-remix", skill_version: "1.0.1",
+    intake: { input_mode: inputMode, external_reference: { present: true, paths: [...new Set(referencePaths)], usage: "analysis_only" }, product_name: form.get("product_name"), category: "home-protection", platforms, duration_seconds: Number(form.get("duration_seconds")), reference_paths: [...new Set(referencePaths)], source_paths: [...new Set(sourcePaths)], copyright_confirmed: form.get("copyright_confirmed") === "on", brand_cta: form.get("brand_cta"), paid_generation_approved: form.get("paid_generation_approved") === "on", narration_required: true, subtitles_required: true, bgm_required: true },
   };
 
   try {

@@ -6,16 +6,21 @@ import re
 
 
 _ATTRIBUTION_PREFIX = re.compile(
-    r"^(?:商品页(?:主打|参数标注|标注)|详情页(?:描述|标注)|商品标题(?:宣称|标注))\s*"
+    r"^(?:商品页(?:主打|参数标注|标注)|商品主图标注|详情页(?:描述|标注)|商品标题(?:宣称|标注))\s*"
 )
+
+
+def strip_attribution_prefix(text: str) -> str:
+    """Remove source-language labels that do not belong in viewer-facing copy."""
+    value = str(text or "").strip()
+    return _ATTRIBUTION_PREFIX.sub("", value).strip()
 
 
 def core_selling_point(text: str) -> str:
     """Reduce explanatory screen copy to one compact visual selling point."""
-    value = str(text or "").strip()
+    value = strip_attribution_prefix(text)
     if not value:
         return ""
-    value = _ATTRIBUTION_PREFIX.sub("", value)
     direct = {
         "日常洁面使用画面": "日常洁面",
         "随手取下，进入日常使用": "随手取下",
@@ -26,6 +31,10 @@ def core_selling_point(text: str) -> str:
         "轻揉时，毛圈的蓬松形变画面可见": "亲肤柔软",
         "叠放后的厚度层次，画面看得见": "加厚款",
         "AG+银离子净护": "银离子净护",
+        "吸水性等级5s-10s": "吸水实测",
+        "莱赛尔纤维细腻顺滑": "莱赛尔纤维",
+        "当前页面默认选中海天蓝": "海天蓝",
+        "花花公子天丝莱赛尔毛巾": "天丝毛巾",
     }
     if value in direct:
         return direct[value]

@@ -128,7 +128,7 @@ class AudioMixer(BaseTool):
                 "properties": {
                     "enabled": {"type": "boolean", "default": True},
                     "music_volume_during_speech": {
-                        "type": "number", "minimum": 0, "maximum": 1.0, "default": 0.15,
+                        "type": "number", "minimum": 0, "maximum": 1.0, "default": 0.08,
                     },
                     "attack_ms": {"type": "number", "default": 200},
                     "release_ms": {"type": "number", "default": 500},
@@ -476,7 +476,11 @@ class AudioMixer(BaseTool):
             )
 
         # Use FFmpeg sidechaincompress for ducking
-        music_vol = ducking.get("music_volume_during_speech", 0.15)
+        # Keep the music bed genuinely subordinate to speech.  This is a
+        # post-sidechain ceiling, not a compensating boost: the previous
+        # ``* 3`` multiplier made a nominal 0.15 duck level become 0.45
+        # (only about -7 dB), which could mask TTS in ecommerce samples.
+        music_vol = ducking.get("music_volume_during_speech", 0.08)
         attack = ducking.get("attack_ms", 200) / 1000
         release = ducking.get("release_ms", 500) / 1000
 
@@ -485,7 +489,7 @@ class AudioMixer(BaseTool):
             f"[1:a]sidechaincompress="
             f"threshold=0.02:ratio=9:attack={attack}:release={release}:"
             f"level_sc=1:mix=0.9[ducked];"
-            f"[ducked]volume={music_vol * 3}[music_out];"  # compensate sidechain level
+            f"[ducked]volume={music_vol}[music_out];"
             f"[0:a][music_out]amix=inputs=2:duration=longest[out]"
         )
 
@@ -559,7 +563,7 @@ class AudioMixer(BaseTool):
                 ],
                 "ducking": {
                     "enabled": true,
-                    "music_volume_during_speech": 0.15,
+                    "music_volume_during_speech": 0.08,
                     "attack_ms": 200,
                     "release_ms": 500
                 },
@@ -657,13 +661,15 @@ class AudioMixer(BaseTool):
             duck_params = ducking if isinstance(ducking, dict) else {}
             attack = duck_params.get("attack_ms", 200) / 1000
             release = duck_params.get("release_ms", 500) / 1000
-            music_vol = duck_params.get("music_volume_during_speech", 0.15)
+            # This is an explicit music-bed ceiling after sidechain ducking;
+            # do not boost it to compensate for the compressor output.
+            music_vol = duck_params.get("music_volume_during_speech", 0.08)
 
             filter_parts.append(
                 f"{music_in}[speech_key]sidechaincompress="
                 f"threshold=0.02:ratio=9:attack={attack}:release={release}:"
                 f"level_sc=1:mix=0.9[ducked_music];"
-                f"[ducked_music]volume={music_vol * 3}[music_out]"
+                f"[ducked_music]volume={music_vol}[music_out]"
             )
 
             # Final mix: the other speech branch + ducked music

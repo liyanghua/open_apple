@@ -16,6 +16,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Mapping
 
+from backlot.project_commit import ProjectCommitStore
 from lib.artifact_io import write_artifact_atomic
 from lib.checkpoint import init_project, write_checkpoint
 from schemas.artifacts import validate_artifact
@@ -97,17 +98,28 @@ def materialize_template_run_provenance(
     *,
     template_pack_path: Path,
     batch_project_id: str,
+    sink: Any = None,
 ) -> dict[str, Any]:
-    """Copy the canonical pack into a run and bind its batch-root ownership."""
+    """Copy the canonical pack into a run and bind its batch-root ownership.
+
+    ``sink`` keeps this helper usable for legacy setup while allowing an
+    operator-managed template fork to commit provenance with its research seed.
+    """
     if not template_pack_path.is_file():
         raise FileNotFoundError(f"template pack not found: {template_pack_path}")
     pack = json.loads(template_pack_path.read_text(encoding="utf-8"))
     validate_artifact("template_pack", pack)
-    target = project_dir / "artifacts" / "template_pack.json"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(template_pack_path, target)
-    marker_path = project_dir / "project.json"
-    marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    if sink is not None:
+        sink.stage_json("artifacts/template_pack.json", pack, schema="template_pack")
+        marker = sink.read_json("project.json")
+        if not isinstance(marker, dict):
+            raise ValueError("template run project marker is missing")
+    else:
+        target = project_dir / "artifacts" / "template_pack.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(template_pack_path, target)
+        marker_path = project_dir / "project.json"
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
     prior = dict(marker.get("template_prior") or {})
     prior.update({
         "present": True,
@@ -118,8 +130,37 @@ def materialize_template_run_provenance(
     run = dict(marker.get("template_run") or {})
     run["batch_project_id"] = str(batch_project_id)
     marker["template_run"] = run
-    marker_path.write_text(json.dumps(marker, ensure_ascii=False, indent=2), encoding="utf-8")
+    if sink is not None:
+        sink.stage_json("project.json", marker, schema="project_marker")
+    else:
+        marker_path.write_text(json.dumps(marker, ensure_ascii=False, indent=2), encoding="utf-8")
     return pack
+
+
+def _stage_analysis_tree(source_root: Path, *, sink: Any) -> None:
+    """Stage every derived research file without exposing a partial copy."""
+    if not source_root.is_dir():
+        return
+    for source in sorted(source_root.rglob("*")):
+        if not source.is_file():
+            continue
+        relative = source.relative_to(source_root).as_posix()
+        sink.stage_bytes(
+            f"analysis/{relative}", source, media_type="research_analysis"
+        )
+
+
+def _stage_product_facts(
+    product_facts_path: Path | None, *, sink: Any
+) -> None:
+    """Preserve an existing run-local fact card, otherwise stage the shared card."""
+    if product_facts_path is None or not product_facts_path.is_file():
+        return
+    if sink.read_json("artifacts/product_facts.json") is not None:
+        return
+    sink.stage_bytes(
+        "artifacts/product_facts.json", product_facts_path, media_type="product_facts"
+    )
 
 
 def shared_research_refs(source_project_dir: Path) -> list[dict[str, Any]]:
@@ -167,87 +208,82 @@ def fork_template_run(
         if isinstance(inherited_product_input, Mapping):
             product_input = dict(inherited_product_input)
 
-    project_dir = init_project(
-        run_project,
-        title=f"Template run {run_project}",
-        pipeline_type="cinematic-fast",
-        pipeline_dir=pipeline_dir,
-        input_mode=input_mode,
-        template_prior=template_prior,
-        product_input=product_input,
-        owned_source_root="inputs/source",
-    )
-    if template_pack_path is not None:
-        if not batch_project_id:
-            raise ValueError("template_pack_path requires batch_project_id")
-        materialize_template_run_provenance(
-            project_dir,
-            template_pack_path=template_pack_path,
-            batch_project_id=batch_project_id,
+    project_dir = Path(pipeline_dir) / run_project
+    # The initial marker establishes project identity before the commit store
+    # creates its managed-write fence.  Re-runs must never mutate that marker
+    # outside a transaction.
+    if not (project_dir / "operator" / "operator-managed").exists():
+        project_dir = init_project(
+            run_project,
+            title=f"Template run {run_project}",
+            pipeline_type="cinematic-fast",
+            pipeline_dir=pipeline_dir,
+            input_mode=input_mode,
+            template_prior=template_prior,
+            product_input=product_input,
+            owned_source_root="inputs/source",
         )
 
-    # 1) 复制共享研究制品
-    research_names = shared_research_artifact_names(source_project_dir)
-    for name in research_names:
-        source = source_project_dir / "artifacts" / f"{name}.json"
-        if not source.is_file():
-            continue
-        target = project_dir / "artifacts" / f"{name}.json"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)
+    if template_pack_path is not None and not batch_project_id:
+        raise ValueError("template_pack_path requires batch_project_id")
 
-    # 2) 复制派生 analysis/（证据帧完整性）
-    analysis_source = source_project_dir / "analysis"
-    if analysis_source.is_dir():
-        shutil.copytree(analysis_source, project_dir / "analysis", dirs_exist_ok=True)
-
-    # Raw owned footage remains single-copy.  A project-local link preserves
-    # the canonical ``inputs/source/...`` paths consumed by Scene/Assets while
-    # avoiding multi-gigabyte duplication for every candidate run.
+    # Raw owned footage remains single-copy. A project-local link preserves
+    # canonical ``inputs/source/...`` paths without duplicating gigabytes per
+    # candidate. It is created before the managed-write fence exists.
     source_inputs = source_project_dir / "inputs" / "source"
     run_inputs = project_dir / "inputs" / "source"
     if source_inputs.is_dir() and not run_inputs.exists():
         run_inputs.parent.mkdir(parents=True, exist_ok=True)
         run_inputs.symlink_to(source_inputs.resolve(), target_is_directory=True)
 
-    # 3) 复制共享商品事实（若已有 run 自有卡则保留，不覆盖）
-    if product_facts_path is not None and product_facts_path.is_file():
-        target = project_dir / "artifacts" / "product_facts.json"
-        if not target.is_file():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(product_facts_path, target)
+    # The research snapshot, its derived evidence, completed checkpoint and
+    # provenance marker are one visible state transition. This prevents a
+    # resume from observing copied evidence without its checkpoint contract.
+    research_names = shared_research_artifact_names(source_project_dir)
+    with ProjectCommitStore(project_dir).transaction(
+        action={"action_id": f"fork-template-research-{run_project}"}
+    ) as sink:
+        if template_pack_path is not None:
+            materialize_template_run_provenance(
+                project_dir,
+                template_pack_path=template_pack_path,
+                batch_project_id=batch_project_id,
+                sink=sink,
+            )
 
-    # 4) 重建信封 + 写 completed research checkpoint（research 无人门，可完成）。
-    envelopes: dict[str, dict[str, Any]] = {}
-    for name in research_names:
-        path = project_dir / "artifacts" / f"{name}.json"
-        if not path.is_file():
-            continue
-        data = adapt_shared_research_artifact(
-            name,
-            json.loads(path.read_text(encoding="utf-8")),
-            target_input_mode=input_mode,
+        envelopes: dict[str, dict[str, Any]] = {}
+        for name in research_names:
+            source = source_project_dir / "artifacts" / f"{name}.json"
+            if not source.is_file():
+                continue
+            data = adapt_shared_research_artifact(
+                name,
+                json.loads(source.read_text(encoding="utf-8")),
+                target_input_mode=input_mode,
+            )
+            envelopes[name] = write_artifact_atomic(
+                f"artifacts/{name}.json", name, data, project_dir=project_dir, sink=sink
+            )
+        _stage_analysis_tree(source_project_dir / "analysis", sink=sink)
+        _stage_product_facts(product_facts_path, sink=sink)
+        write_checkpoint(
+            pipeline_dir,
+            run_project,
+            "research",
+            "completed",
+            envelopes,
+            pipeline_type="cinematic-fast",
+            next_action=None,
+            sink=sink,
         )
-        envelopes[name] = write_artifact_atomic(
-            f"artifacts/{name}.json", name, data, project_dir=project_dir
-        )
-    write_checkpoint(
-        pipeline_dir,
-        run_project,
-        "research",
-        "completed",
-        envelopes,
-        pipeline_type="cinematic-fast",
-        next_action=None,
-    )
 
-    # 5) 把共享研究来源 + template 血缘写入 project.json（可追溯）。
-    marker_path = project_dir / "project.json"
-    marker = json.loads(marker_path.read_text(encoding="utf-8"))
-    marker["template_run"] = {
-        **dict(marker.get("template_run") or {}),
-        "source_research_project": source_project_dir.name,
-        "shared_research_refs": shared_research_refs(source_project_dir),
-    }
-    marker_path.write_text(json.dumps(marker, ensure_ascii=False, indent=2), encoding="utf-8")
+        marker = sink.read_json("project.json")
+        if not isinstance(marker, dict):
+            raise ValueError("template run project marker is missing")
+        marker["template_run"] = {
+            **dict(marker.get("template_run") or {}),
+            "source_research_project": source_project_dir.name,
+            "shared_research_refs": shared_research_refs(source_project_dir),
+        }
+        sink.stage_json("project.json", marker, schema="project_marker")
     return project_dir

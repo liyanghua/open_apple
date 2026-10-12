@@ -2944,6 +2944,40 @@
                   "additionalProperties": true
                 }
               ]
+            },
+            "reference_fidelity": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "hard_gate_failures",
+                    "reference_fidelity_score",
+                    "product_truth_score"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "hard_gate_failures": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "reference_fidelity_score": {
+                      "$ref": "#/$defs/nullable_number"
+                    },
+                    "product_truth_score": {
+                      "$ref": "#/$defs/nullable_number"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
             }
           },
           "additionalProperties": false
@@ -3159,14 +3193,7 @@
                 "$ref": "#/$defs/production_review_item"
               }
             },
-            "production_panorama": {
-              "type": "object",
-              "required": [
-                "campaign_id",
-                "summary",
-                "slots"
-              ]
-            }
+            "production_panorama": {"type": "object", "required": ["campaign_id", "summary", "slots"]}
           },
           "additionalProperties": false
         }
@@ -3858,6 +3885,20 @@
             "type": "string"
           }
         },
+        "review_confirmations": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "content_structure": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "object", "required": ["structure_id", "structure_label", "planned_structure_relation", "fit"],
+             "properties": {"structure_id": {"type": "string"}, "structure_label": {"type": "string"},
+               "planned_structure_relation": {"type": "string"}, "fit": {"type": "string"}},
+             "additionalProperties": false}
+          ]
+        },
+        "scoped_review_status": {"type": ["string", "null"]},
         "final_review": {
           "oneOf": [
             {

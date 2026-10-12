@@ -70,15 +70,17 @@ const Footage: React.FC<{shot: ReturnType<typeof buildBrandShotSchedule>[number]
 export const ProductionBrandOverlay: React.FC<{props: ProductionBrandProps; frame: number; fontFamily: string}> = ({props, frame, fontFamily}) => {
   const {logo, title, caption, underline} = props.profile.production;
   const current = getBrandFrameState(props, frame);
+  const clearOverlay = props.profile.production.overlay_background === "none";
+  const textShadow = clearOverlay ? "0 0 2px rgba(255,255,255,.95), 0 1px 2px rgba(255,255,255,.8)" : undefined;
   const fontSynthesis = props.profile.production.font_mode === "strict" ? "none" : undefined;
   return <AbsoluteFill data-brand-overlay="persistent" style={{pointerEvents: "none", color: "#111111"}}>
-    <AbsoluteFill style={{background: "linear-gradient(to bottom, rgba(255,255,255,.32), transparent 28%, transparent 66%, rgba(255,255,255,.45) 86%, transparent)"}} />
+    {!clearOverlay && <AbsoluteFill data-brand-background="soft-gradient" style={{background: "linear-gradient(to bottom, rgba(255,255,255,.32), transparent 28%, transparent 66%, rgba(255,255,255,.45) 86%, transparent)"}} />}
     <Img data-brand-role="logo" src={asset(props.logoSrc)} style={{position: "absolute", right: logo.right, top: logo.top, width: logo.width, height: "auto"}} />
-    <div style={{position: "absolute", left: title.left, top: title.top, width: "max-content", fontFamily, fontSize: title.font_size, fontWeight: title.font_weight, fontSynthesis, lineHeight: title.line_height, whiteSpace: "nowrap"}}>
+    <div style={{position: "absolute", left: title.left, top: title.top, width: "max-content", fontFamily, fontSize: title.font_size, fontWeight: title.font_weight, fontSynthesis, textShadow, lineHeight: title.line_height, whiteSpace: "nowrap"}}>
       <div data-brand-role="title">{current.title}</div>
       <div data-brand-role="underline" style={{marginTop: underline.gap, width: "100%", height: underline.height, backgroundColor: underline.color}} />
     </div>
-    <div style={{position: "absolute", left: caption.left, right: caption.right, top: caption.top, minHeight: 52, fontFamily, fontSize: caption.font_size, fontWeight: caption.font_weight, fontSynthesis, lineHeight: caption.line_height, textAlign: "center", whiteSpace: "nowrap"}}>
+    <div style={{position: "absolute", left: caption.left, right: caption.right, top: caption.top, minHeight: 52, fontFamily, fontSize: caption.font_size, fontWeight: caption.font_weight, fontSynthesis, textShadow, lineHeight: caption.line_height, textAlign: "center", whiteSpace: "nowrap"}}>
       <span data-brand-role="caption" style={{display: "inline-block"}}>{current.caption}</span>
     </div>
   </AbsoluteFill>;

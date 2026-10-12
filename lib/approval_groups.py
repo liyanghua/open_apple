@@ -80,12 +80,18 @@ def _bundle_state(project_dir: Path, bundle_id: str) -> tuple[Path, dict[str, An
         except (OSError, json.JSONDecodeError): continue
     if not states: raise ValueError(f"approval bundle files are unreadable: {bundle_id}")
     precedence = {"awaiting_human": 0, "approved": 1, "rejected": 1, "superseded": 2}
+    # A bundle id/version can be regenerated after an upstream revision while
+    # retaining the previous immutable state file.  In that case the newest
+    # snapshot is authoritative, even when its status is ``awaiting_human``
+    # and the older snapshot is ``approved``.  Status precedence must only
+    # break ties (for example, files restored with identical mtimes); it must
+    # not let a stale approval mask a newly generated bundle.
     return max(
         states,
         key=lambda item: (
             int(item[1].get("bundle_version", 0)),
-            precedence.get(str(item[1].get("status")), -1),
             item[0].stat().st_mtime_ns,
+            precedence.get(str(item[1].get("status")), -1),
         ),
     )
 

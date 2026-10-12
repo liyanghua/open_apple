@@ -1,0 +1,82 @@
+{
+  "version": "1.0",
+  "project_id": "table-mat-mix-v8",
+  "created_at": "2026-08-22T11:14:23.039760+00:00",
+  "applicability": "needs_review",
+  "source": {
+    "research_breakdown_ref": null,
+    "evidence_frames": [
+      "analysis/reference/keyframes/frame_0000.jpg",
+      "analysis/reference/keyframes/frame_0001.jpg",
+      "analysis/reference/keyframes/frame_0002.jpg",
+      "analysis/reference/keyframes/frame_0003.jpg",
+      "analysis/reference/keyframes/frame_0004.jpg",
+      "analysis/reference/keyframes/frame_0005.jpg",
+      "analysis/reference/keyframes/frame_0006.jpg",
+      "analysis/reference/keyframes/frame_0007.jpg",
+      "analysis/source/2f9213d9132ae3f7b1a8831aa01ead0d402ea342f3e2f0de0dc374f7e824086a/frame_0001.jpg",
+      "analysis/source/2f9213d9132ae3f7b1a8831aa01ead0d402ea342f3e2f0de0dc374f7e824086a/frame_0002.jpg",
+      "analysis/source/2f9213d9132ae3f7b1a8831aa01ead0d402ea342f3e2f0de0dc374f7e824086a/frame_0003.jpg",
+      "analysis/source/2f9213d9132ae3f7b1a8831aa01ead0d402ea342f3e2f0de0dc374f7e824086a/frame_0004.jpg",
+      "analysis/source/aa1712278fe76e692c8418e856577196d2ee9711ceecf5fc9020a503db3c796a/frame_0001.jpg",
+      "analysis/source/aa1712278fe76e692c8418e856577196d2ee9711ceecf5fc9020a503db3c796a/frame_0002.jpg",
+      "analysis/source/aa1712278fe76e692c8418e856577196d2ee9711ceecf5fc9020a503db3c796a/frame_0003.jpg",
+      "analysis/source/aa1712278fe76e692c8418e856577196d2ee9711ceecf5fc9020a503db3c796a/frame_0004.jpg",
+      "analysis/source/0757a4784647644cba0ad60521011215085d1f8a634dd08509a4ddb017e35f74/frame_0001.jpg",
+      "analysis/source/0757a4784647644cba0ad60521011215085d1f8a634dd08509a4ddb017e35f74/frame_0002.jpg",
+      "analysis/source/0757a4784647644cba0ad60521011215085d1f8a634dd08509a4ddb017e35f74/frame_0003.jpg",
+      "analysis/source/0757a4784647644cba0ad60521011215085d1f8a634dd08509a4ddb017e35f74/frame_0004.jpg",
+      "analysis/source/ad38ded3aa91a16492c0997c173643a11da51b607c2eb2ce507467f02c91b87e/frame_0001.jpg",
+      "analysis/source/ad38ded3aa91a16492c0997c173643a11da51b607c2eb2ce507467f02c91b87e/frame_0002.jpg",
+      "analysis/source/ad38ded3aa91a16492c0997c173643a11da51b607c2eb2ce507467f02c91b87e/frame_0003.jpg",
+      "analysis/source/ad38ded3aa91a16492c0997c173643a11da51b607c2eb2ce507467f02c91b87e/frame_0004.jpg",
+      "analysis/source/6c9a821063ba05af5f221f87f492a2dea74ffb407f829a55940909d430a7564d/frame_0001.jpg",
+      "analysis/source/6c9a821063ba05af5f221f87f492a2dea74ffb407f829a55940909d430a7564d/frame_0002.jpg",
+      "analysis/source/6c9a821063ba05af5f221f87f492a2dea74ffb407f829a55940909d430a7564d/frame_0003.jpg",
+      "analysis/source/6c9a821063ba05af5f221f87f492a2dea74ffb407f829a55940909d430a7564d/frame_0004.jpg",
+      "analysis/source/114ffcd6f7c246bd48ddd96970c8e39e3ed4daa873dd3497cb88bddc36f336b2/frame_0001.jpg",
+      "analysis/source/114ffcd6f7c246bd48ddd96970c8e39e3ed4daa873dd3497cb88bddc36f336b2/frame_0002.jpg",
+      "analysis/source/114ffcd6f7c246bd48ddd96970c8e39e3ed4daa873dd3497cb88bddc36f336b2/frame_0003.jpg",
+      "analysis/source/114ffcd6f7c246bd48ddd96970c8e39e3ed4daa873dd3497cb88bddc36f336b2/frame_0004.jpg"
+    ],
+    "overlay_text_samples": [
+      "贴合桌面",
+      "贴合桌面",
+      "防刮耐磨",
+      "防水防油",
+      "柔软回弹",
+      "贴合桌面",
+      "抖音搜索 CTA"
+    ]
+  },
+  "style": {
+    "font_family": "Noto Sans CJK SC（开源近似）",
+    "font_style_approx": "",
+    "size_hierarchy": [
+      48,
+      58
+    ],
+    "weight": "bold",
+    "fill_color": "#FFFFFF",
+    "stroke": {
+      "color": "#000000",
+      "width_px": 3
+    },
+    "opacity": 1.0,
+    "position": "画面底部边缘",
+    "safe_zone_profile": "douyin_9_16",
+    "max_chars_per_line": 12,
+    "line_breaks": "按短语断行",
+    "entrance_animation": "硬切（动作跟随）",
+    "emphasis_animation": "无",
+    "sync_mode": "follow_visual",
+    "background_bar": null
+  },
+  "binding": {
+    "brand_required_rules": [],
+    "reference_only_rules": []
+  },
+  "notes": "参考片字幕：短促卖点字卡、硬切随动作出现（无淡入）、无背景块；白字黑描边；字体近似 Noto Sans CJK SC，最终字体族待人工确认",
+  "semantic_sha256": "9775b910cb87dd7004daf91d5ccdeb794da16d4532f7b57582b0297d222febe4",
+  "artifact_sha256": "c98d4c5d6786d7c8ddbb85fb94855b8fe5f814ad554738115348e830e0dce501"
+}

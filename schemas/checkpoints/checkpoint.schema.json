@@ -20,7 +20,7 @@
     "pipeline_type": { "type": "string", "description": "Pipeline manifest name" },
     "input_mode": {
       "type": "string",
-      "enum": ["reference_driven", "source_led", "source_led_template"],
+      "enum": ["reference_driven", "reference_fidelity", "source_led", "source_led_template"],
       "description": "Resolved project input mode; omitted on legacy checkpoints"
     },
     "style_playbook": { "type": "string" },

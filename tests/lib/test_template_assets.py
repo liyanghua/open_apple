@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import pytest
 
+from backlot.project_commit import ProjectCommitStore
 from lib.artifact_hashing import attach_hashes
 from lib.artifact_io import write_artifact_atomic
 from lib.checkpoint import get_completed_stages, get_next_stage
@@ -25,15 +26,17 @@ from lib.template_mainline import (
 from lib.template_run_plan import create_template_run, check_template_run_plan_ready
 from lib.template_source_match import match_run_plan
 from schemas.artifacts import validate_artifact
+from tests.lib._tablemat_pool import install_complete_pool
+from tests.lib._tablemat_research import install_tablemat_research
 
 ROOT = Path(__file__).resolve().parents[2]
-REAL_SOURCE = ROOT / "projects/table-mat-mix-v8"
 PACK = ROOT / "projects/template-pack-library/artifacts/template_pack.json"
 
 
-def _setup_run(tmp_path: Path, template: dict, facts: dict, *, approved: bool = True) -> str:
+def _setup_run(tmp_path: Path, monkeypatch, template: dict, facts: dict, *, approved: bool = True) -> str:
+    install_complete_pool(monkeypatch, tmp_path)
     run_id = f"template-run-{template['template_id']}-ast"
-    fork_template_run(run_id, source_project_dir=REAL_SOURCE, pipeline_dir=tmp_path,
+    fork_template_run(run_id, source_project_dir=install_tablemat_research(tmp_path), pipeline_dir=tmp_path,
                       product_facts_path=ROOT / "projects/template-pilot/artifacts/product_facts.json")
     rp = create_template_run(template, template_pack_ref={"artifact_sha256": "a" * 64, "version": "1.0"},
                              product_facts_ref={"artifact_sha256": facts.get("artifact_sha256", "b" * 64)})
@@ -41,46 +44,53 @@ def _setup_run(tmp_path: Path, template: dict, facts: dict, *, approved: bool = 
     if approved:
         rp["status"] = "approved"
         rp["differentiation_plan_ref"] = {"name": "differentiation_plan", "path": "artifacts/differentiation_plan.json", "artifact_sha256": "d" * 64}
-    write_artifact_atomic("artifacts/template_run_plan.json", "template_run_plan", rp, project_dir=tmp_path / run_id)
+    project = tmp_path / run_id
+    with ProjectCommitStore(project).transaction(action={"action_id": "seed-run-plan"}) as sink:
+        write_artifact_atomic(
+            "artifacts/template_run_plan.json", "template_run_plan", rp,
+            project_dir=project, sink=sink,
+        )
     return run_id
 
 
-def test_assets_gate_blocks_unapproved_run_plan(tmp_path: Path):
+def test_assets_gate_blocks_unapproved_run_plan(tmp_path: Path, monkeypatch):
     import pytest
     pack = json.loads(PACK.read_text(encoding="utf-8"))
     template = next(t for t in pack["templates"] if t["template_id"] == "sheet-01-video1-aks-zhuodian")
     facts = json.loads(ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
-    run_id = _setup_run(tmp_path, template, facts, approved=False)
+    run_id = _setup_run(tmp_path, monkeypatch, template, facts, approved=False)
     # run_plan 未批准（awaiting_human）→ build_assets 必须 fail-closed 拦住
     with pytest.raises(SystemExit):
         build_assets(tmp_path / run_id, template, pipeline_dir=tmp_path)
 
 
-def test_assets_gate_requires_authoritative_batch_ref_for_new_source_led_template(tmp_path: Path):
+def test_assets_gate_requires_authoritative_batch_ref_for_new_source_led_template(tmp_path: Path, monkeypatch):
     pack = json.loads(PACK.read_text(encoding="utf-8"))
     template = next(t for t in pack["templates"] if t["template_id"] == "sheet-01-video1-aks-zhuodian")
     facts = json.loads(ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
-    run_id = _setup_run(tmp_path, template, facts)
-    marker_path = tmp_path / run_id / "project.json"
+    run_id = _setup_run(tmp_path, monkeypatch, template, facts)
+    project = tmp_path / run_id
+    marker_path = project / "project.json"
     marker = json.loads(marker_path.read_text(encoding="utf-8"))
     marker["input_mode"] = "source_led_template"
     marker["template_run"]["batch_project_id"] = "batch-root"
-    marker_path.write_text(json.dumps(marker), encoding="utf-8")
+    with ProjectCommitStore(project).transaction(action={"action_id": "set-source-led-mode"}) as sink:
+        sink.stage_json("project.json", marker, schema="project_marker")
     with pytest.raises(SystemExit, match="differentiation"):
         build_assets(tmp_path / run_id, template, pipeline_dir=tmp_path)
 
 
 def test_advance_to_assets_writes_awaiting_human_no_paid(tmp_path: Path, monkeypatch):
-    from tests.lib._tablemat_pool import install_complete_pool
-    install_complete_pool(monkeypatch, tmp_path)
     pack = json.loads(PACK.read_text(encoding="utf-8"))
     template = next(t for t in pack["templates"] if t["template_id"] == "sheet-01-video1-aks-zhuodian")
     facts = json.loads(ROOT.joinpath("projects/template-pilot/artifacts/product_facts.json").read_text(encoding="utf-8"))
-    run_id = _setup_run(tmp_path, template, facts)
-    marker_path = tmp_path / run_id / "project.json"
+    run_id = _setup_run(tmp_path, monkeypatch, template, facts)
+    project = tmp_path / run_id
+    marker_path = project / "project.json"
     marker = json.loads(marker_path.read_text(encoding="utf-8"))
     marker["product_input"] = {"target_platform": "taobao"}
-    marker_path.write_text(json.dumps(marker), encoding="utf-8")
+    with ProjectCommitStore(project).transaction(action={"action_id": "set-target-platform"}) as sink:
+        sink.stage_json("project.json", marker, schema="project_marker")
     advance_run_full(run_id, pipeline_dir=tmp_path, approve_control_plan=True)
     # 推进到 assets
     next_stage = advance_to_assets(run_id, pipeline_dir=tmp_path, approve_script=True)

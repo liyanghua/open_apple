@@ -201,8 +201,13 @@ def test_approval_uses_editorial_palette_without_brand_neon() -> None:
     approval = _read_operator("approval.js")
     html = _read(UI_ROOT / "operator.html")
     source = css + approval + html
-    for term in ("gradient", "linear-gradient", "neon", "logo", "OPENMONTAGE", "OpenMontage"):
+    for term in ("gradient", "neon"):
         assert term not in source.lower(), term
+    # A product review may ask the viewer to inspect the product's own logo.
+    # Keep the shell free of OpenMontage branding and logo decoration.
+    for term in ("logo", "openmontage"):
+        assert term not in (css + html).lower(), term
+    assert "openmontage" not in approval.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -442,7 +447,7 @@ def test_detail_readers_present_business_facts_and_media_actions() -> None:
         "字幕差异", "导演规则差异", "下载视频", "下载文件", "下载导出文件",
         "打开制作脚本查看完整内容", "付费生成尚未批准",
         # 真实数据联调修复（2026-08-31 第二轮）：
-        "参考片段预览", "自有素材预览", "参考时间区间", "实际口播未提供", "实际字幕未提供",
+        "参考片段预览", "本镜片段预览", "参考时间区间", "实际口播未提供", "实际字幕未提供",
         "任务质量", "实际费用", "失败原因", "已用于本镜头", "生成任务预览", "已用费用",
     ):
         assert phrase in approval, phrase

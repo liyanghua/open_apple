@@ -17,7 +17,7 @@ class PipelineManifestError(ValueError):
     """Raised when a manifest passes JSON Schema but violates workflow semantics."""
 
 
-INPUT_MODES = frozenset({"reference_driven", "source_led", "source_led_template"})
+INPUT_MODES = frozenset({"reference_driven", "reference_fidelity", "source_led", "source_led_template"})
 
 PIPELINE_DEFS_DIR = Path(__file__).resolve().parent.parent / "pipeline_defs"
 SCHEMA_PATH = (
@@ -186,7 +186,11 @@ def load_input_context(project_dir: str | Path) -> dict[str, Any]:
     owned_root = marker.get("owned_source_root") or "inputs/source"
     if not isinstance(owned_root, str) or not owned_root.strip():
         raise PipelineManifestError("owned_source_root must be a non-empty path")
-    if mode == "reference_driven" and not legacy_compat:
+    if mode in {"reference_driven", "reference_fidelity"} and not legacy_compat:
+        if mode == "reference_fidelity" and external.get("usage") != "analysis_only":
+            raise PipelineManifestError(
+                "reference_fidelity projects require external_reference.usage=analysis_only"
+            )
         paths = external.get("paths") or []
         if not external.get("present") or not paths:
             raise PipelineManifestError(

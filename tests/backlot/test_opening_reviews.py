@@ -335,6 +335,8 @@ console.log(JSON.stringify({allText,time:video.currentTime,full:elements.filter(
     actual = json.loads(result.stdout)
     assert "确认开头预览反馈" in actual["allText"]
     assert "仅开头预览" in actual["allText"]
+    assert "前三秒预览审核 · 4 项" in actual["allText"]
+    assert "成片审核清单" not in actual["allText"]
     assert "自动 not_run" in actual["allText"]
     assert "人工 manual_verified" in actual["allText"]
     assert "contents visible" in actual["allText"]

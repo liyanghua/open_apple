@@ -25,6 +25,8 @@ class ProjectWriteSink(Protocol):
 
     def read_json(self, relative_path: str) -> object | None: ...
 
+    def has_staged_path(self, relative_path: str) -> bool: ...
+
 
 def require_project_sink(
     project_dir: Path, sink: ProjectWriteSink | None

@@ -64,6 +64,11 @@ SUPPLEMENTARY_ARTIFACTS = {
     "sample_report",
     "sample_execution_trace",
     "differentiation_plan",
+    "fidelity_policy",
+    "reference_timeline",
+    "replacement_matrix",
+    "voice_alignment_report",
+    "reference_alignment_report",
 }
 
 _SCENE_MAPPING_EVIDENCE_FIELDS = (
@@ -168,6 +173,30 @@ def _validate_source_led_scene_mapping(
         ):
             raise ValueError(f"{label} must be a non-empty half-open interval")
         return float(start), float(end)
+
+    def same_source_path(left: Any, right: Any) -> bool:
+        """Compare provenance paths across project-relative and captured absolute forms.
+
+        Browser/source research often records the original absolute path while
+        forked runs intentionally use the canonical project-relative path. They
+        refer to the same owned file and must remain traceable without weakening
+        the reviewed-source and hash checks below.
+        """
+        if not isinstance(left, str) or not isinstance(right, str):
+            return False
+        if left == right:
+            return True
+        try:
+            lpath = Path(left)
+            rpath = Path(right)
+            if project_dir is not None:
+                if not lpath.is_absolute():
+                    lpath = project_dir / lpath
+                if not rpath.is_absolute():
+                    rpath = project_dir / rpath
+            return lpath.resolve() == rpath.resolve()
+        except OSError:
+            return False
 
     metadata = scene_plan.get("metadata") if isinstance(scene_plan, dict) else None
     mappings = metadata.get("source_mapping") if isinstance(metadata, dict) else None
@@ -339,7 +368,7 @@ def _validate_source_led_scene_mapping(
             matrix_media_id = row.get("source_media_id")
             path_entries = [
                 entry for entry in semantic_entries
-                if entry.get("source_path") == source_path
+                if same_source_path(entry.get("source_path"), source_path)
             ]
             if not path_entries:
                 raise ValueError(f"mapping for {scene_id!r} is missing source semantic evidence")
@@ -697,7 +726,9 @@ def _validate_artifacts_for_stage(
 
             if project_dir is None:
                 raise ValueError("research derived-file validation requires project_dir")
-            validate_research_derived_files(project_dir, validated_artifacts)
+            validate_research_derived_files(
+                project_dir, validated_artifacts, sink=sink
+            )
         except Exception as exc:
             raise CheckpointValidationError(
                 f"cinematic-fast research derived-file gate failed: {exc}"
@@ -1039,11 +1070,15 @@ def init_project(
     product = _normalise_product_input(
         product_input if product_input is not None else marker.get("product_input")
     )
+    if mode == "reference_fidelity" and external.get("usage") != "analysis_only":
+        raise ValueError(
+            "reference_fidelity projects require external_reference.usage=analysis_only"
+        )
     if mode in {"source_led", "source_led_template"} and (
         external.get("present") or external.get("paths")
     ):
         raise ValueError(f"{mode} projects cannot declare external reference paths")
-    if mode == "reference_driven" and explicit_mode:
+    if mode in {"reference_driven", "reference_fidelity"} and explicit_mode:
         paths = external.get("paths") or []
         if not external.get("present") or not paths:
             raise ValueError(

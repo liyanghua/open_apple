@@ -54,6 +54,26 @@ def _review_checks(checks: dict) -> dict:
     return projected
 
 
+def _bound_visual_confirmations(root: Path, record: dict) -> list[str]:
+    """Show a user's scoped visual decision only beside its exact media version."""
+    artifacts = record.get("canonical_artifacts") or {}
+    review = _json(root, artifacts.get("human_color_review"))
+    render = record.get("render") or {}
+    if (review.get("decision") != "accept_gray_towel_visual_for_bound_variants"
+            or (review.get("reviewer") or {}).get("kind") != "human"):
+        return []
+    media_list = review.get("media")
+    if not isinstance(media_list, list):
+        return []
+    bound = any(
+        isinstance(media, dict) and (media.get("render") or {}).get("path") == render.get("path")
+        and (media.get("render") or {}).get("sha256") == render.get("sha256")
+        and media.get("reviewed_interval_seconds") == [11.37, 16.1]
+        for media in media_list
+    )
+    return ["11.37 秒后的灰色毛巾已由你确认可接受；仅限此成片版本，其他商品画面仍需核看。"] if bound else []
+
+
 def production_review_items(project_dir: Path, index: dict, notes: list) -> list[dict]:
     """Never advance checkpoints or transfer approval from a different render."""
     root = Path(project_dir)
@@ -61,6 +81,12 @@ def production_review_items(project_dir: Path, index: dict, notes: list) -> list
     from lib.production_evidence import quality_summary, verify_production_subject
 
     reviews = [r for r in ReviewService(root).list() if r.get("kind") in {"final_review", "opening_preview"}]
+    structure_inventory = _json(root, "artifacts/review-20261010/structure_inventory.v1.json")
+    structure_by_slot = {row.get("content_slot_id"): row for row in structure_inventory.get("entries", [])
+                         if isinstance(row, dict) and isinstance(row.get("content_slot_id"), str)}
+    scoped_feedback = _json(root, "artifacts/review-20261010/human_feedback.v1.json")
+    feedback_current = (scoped_feedback.get("decision") == "conditional_creative_acceptance_rework_required"
+                        and (scoped_feedback.get("reviewer") or {}).get("kind") == "human")
     results = []
     entries = index.get("items")
     entries = entries if isinstance(entries, list) else []
@@ -118,6 +144,18 @@ def production_review_items(project_dir: Path, index: dict, notes: list) -> list
         qa = quality_summary(root, record)
         if not valid:
             qa["eligible"] = False
+        structure = structure_by_slot.get(slot)
+        if not (valid and isinstance(structure, dict) and structure.get("record_path") == entry.get("record_path")
+                and structure.get("render_sha256") == sha):
+            structure = None
+        review_scope = None
+        if structure and feedback_current:
+            rework = [row.get("id") for row in scoped_feedback.get("rework_items", [])
+                      if isinstance(row, dict) and slot in row.get("content_slot_ids", [])]
+            if "opening_impact" in rework:
+                review_scope = "其他已看过的表现项获条件通过；前三秒钩子待加强"
+                if "odor_visual" in rework:
+                    review_scope += "；防臭画面待加强"
         review = ({key: latest[key] for key in ("review_id", "kind", "subject_version", "subject_hash", "status")}
                         if review_valid else None)
         version_ref = f"{slot}@{sha}"
@@ -143,6 +181,10 @@ def production_review_items(project_dir: Path, index: dict, notes: list) -> list
                 else "自动视觉评分未完成，原错误记录保留",
             "quality_label": "必要检查已完成" if qa["eligible"] else "检查证据待补齐，尚未获得完整生产认证",
             "blocking_checks": qa["blocking_checks"],
+            "content_structure": ({key: structure[key] for key in ("structure_id", "structure_label", "planned_structure_relation", "fit")}
+                                  if structure else None),
+            "scoped_review_status": review_scope,
+            "review_confirmations": _bound_visual_confirmations(root, record) if valid else [],
             "final_review": review if kind == "final_review" else None,
             "preview_review": review if kind == "opening_preview" else None,
             "review": review, "review_kind": kind,

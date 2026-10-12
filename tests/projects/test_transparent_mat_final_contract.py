@@ -12,7 +12,8 @@ PROJECT = ROOT / "projects" / "transparent-table-mat-remix-01"
 
 def test_transparent_mat_final_props_is_single_timeline_source() -> None:
     props = json.loads((PROJECT / "artifacts" / "final_props.json").read_text())
-    validate_final_props(props, project_dir=PROJECT)
+    # Timeline validation is independent of ignored source media in public/.
+    validate_final_props(props)
     assert props["durationInFrames"] == sum(scene["durationInFrames"] for scene in props["scenes"])
     assert len(props["scenes"]) == 16
 

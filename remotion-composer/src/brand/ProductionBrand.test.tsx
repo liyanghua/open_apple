@@ -100,6 +100,20 @@ describe("production brand", () => {
     expect(markup).not.toContain("opacity:0");
     expect(markup).not.toContain("font-synthesis:none");
   });
+  test("clear overlay preserves brand and captions without painting a veil", () => {
+    const clearProps = {...props, profile: {...profile, production: {...profile.production, overlay_background: "none" as const}}};
+    const markup = renderToStaticMarkup(createElement(ProductionBrandOverlay, {props: clearProps, frame: 120, fontFamily: profile.production.legacy_font_stack}));
+    expect(markup).not.toContain("linear-gradient");
+    expect(markup).not.toContain('data-brand-background');
+    expect(markup).toContain('data-brand-role="logo"');
+    expect(markup).toContain('data-brand-role="caption"');
+    expect(markup).toContain("font-size:64px");
+    expect(markup).toContain("font-size:38px");
+    expect(markup).toContain("text-shadow:");
+    expect(markup).toContain("margin-top:22px;width:100%;height:8px;background-color:#4874CB");
+    const legacy = renderToStaticMarkup(createElement(ProductionBrandOverlay, {props, frame: 120, fontFamily: profile.production.legacy_font_stack}));
+    expect(legacy).toContain('data-brand-background="soft-gradient"');
+  });
   test("strict loading cannot proceed without regular and bold pinned assets", async () => {
     await expect(loadProductionFonts({...profile, production: {...profile.production, font_mode: "strict"}})).rejects.toThrow("400 and 700");
   });

@@ -435,9 +435,13 @@ def validate_scene_mapping(
     """Reject scene plans whose source mapping is not grounded and traceable."""
     if (
         reference_source_matrix is not None
-        and reference_source_matrix.get("matrix_mode", "reference") != "reference"
+        and reference_source_matrix.get("matrix_mode", "reference")
+        not in {"reference", "reference_fidelity"}
     ):
-        raise ValueError("reference-driven scene validation requires matrix_mode 'reference'")
+        raise ValueError(
+            "reference-driven scene validation requires matrix_mode 'reference' "
+            "or 'reference_fidelity'"
+        )
     metadata = scene_plan.get("metadata")
     if not isinstance(metadata, Mapping):
         raise ValueError("scene_plan metadata is required")

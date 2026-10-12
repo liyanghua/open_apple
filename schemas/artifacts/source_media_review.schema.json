@@ -6,6 +6,7 @@
   "type": "object",
   "required": ["version", "files", "summary", "planning_implications"],
   "properties": {
+    "project_id": { "type": "string", "minLength": 1 },
     "version": { "type": "string", "const": "1.0" },
     "caption_policy_version": { "type": "string", "const": "1.0" },
     "files": {

@@ -823,6 +823,12 @@ h3 { font-size: 15px; }
   border: 1px solid var(--approval-line);
   border-radius: 4px;
 }
+.shot-segment-preview { min-width: 0; margin-top: 10px; }
+.shot-segment-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.shot-segment-controls button { cursor: pointer; padding: 6px 10px; border: 1px solid var(--approval-line); border-radius: 4px; background: var(--approval-surface); color: inherit; }
+.shot-segment-controls input { flex: 1; min-width: 100px; accent-color: #287cba; }
+.shot-segment-controls output { font-variant-numeric: tabular-nums; font-size: 12px; }
+.shot-segment-preview > a { font-size: 12px; }
 .approval-evidence-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -859,6 +865,20 @@ h3 { font-size: 15px; }
 .production-review-list .approval-detail-group { min-width: 0; margin-top: 0; }
 .production-review-list .approval-detail-video { aspect-ratio: 9 / 16; max-height: 440px; margin-bottom: 12px; }
 .production-review-list .review-note-input { width: 100%; box-sizing: border-box; margin: 12px 0 8px; padding: 10px; resize: vertical; font: inherit; }
+.production-structure-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 10px 0 16px; }
+.production-structure-filter .approval-detail-copy { margin: 0; }
+.production-review-list [hidden] { display: none !important; }
+.production-checklist { margin: 14px 0; padding: 14px; border: 1px solid var(--approval-line); border-radius: 8px; background: var(--approval-surface); }
+.production-checklist-title { margin: 0 0 6px; font-size: 15px; color: #f0f2f4; }
+.production-checklist-items { margin: 12px 0 0; padding-left: 24px; display: grid; gap: 10px; }
+.production-checklist-item { padding: 10px 12px; border: 1px solid var(--approval-line); border-radius: 6px; min-width: 0; }
+.production-checklist-heading { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px; }
+.production-checklist-status { font-size: 12px; font-weight: 600; color: #b6bec7; }
+.production-checklist-status.is-fail, .production-checklist-status.is-error { color: #f0ad85; }
+.production-checklist-owner { margin: 7px 0 0; font-size: 12px; font-weight: 600; color: #9ec6ed; }
+.production-checklist-action, .production-checklist-confirmation { margin: 6px 0 0; line-height: 1.5; overflow-wrap: anywhere; }
+.production-checklist-confirmation { color: #9bd5b3; }
+.production-checklist-jump { margin-top: 8px; }
 
 .approval-download,
 .approval-jump {

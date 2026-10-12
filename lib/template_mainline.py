@@ -1783,6 +1783,17 @@ def advance_run_full(
                 write_checkpoint(PDIR, run, "script", "completed", {"script": sc_env},
                                  pipeline_type=PIPELINE, next_action=None,
                                  human_approved=True, sink=sink)
+                # Command-driven approval is an audited approval path too.
+                # Retire the formal review created for the draft so the next
+                # assets gate is the only item presented to the operator.
+                from backlot.operator_reviews import ReviewService
+
+                ReviewService(project).stage_supersede_pending(
+                    sink,
+                    kinds={"script_lock"},
+                    decided_by="cinematic-fast-script",
+                    reason="脚本已通过主链显式审批",
+                )
         else:
             sc_env = build_script(project, template, sp_data, ccp, facts, approved=True)
             write_checkpoint(PDIR, run, "script", "completed", {"script": sc_env},

@@ -23,6 +23,18 @@ mode_requirements:
     research_required: [research_brief, source_media_review]
     scene_plan_required: [script, creative_control_plan, source_media_review, video_analysis_brief, reference_fingerprint, research_breakdown, reference_source_matrix, research_synthesis]
     research_produces: [research_brief, video_analysis_brief, source_media_review, media_index, reference_fingerprint, research_breakdown, reference_source_matrix, research_synthesis, research_scorecard, caption_style_fingerprint]
+  reference_fidelity:
+    research_required_tools: [video_analyzer, scene_detect, frame_sampler, transcriber, audio_energy]
+    research_required: [research_brief, video_analysis_brief, reference_fingerprint, reference_timeline, fidelity_policy, caption_style_fingerprint]
+    scene_plan_required: [script, creative_control_plan, reference_timeline, replacement_matrix, reference_source_matrix]
+    research_produces: [research_brief, video_analysis_brief, reference_fingerprint, reference_timeline, fidelity_policy, caption_style_fingerprint]
+    script_required: [proposal_packet, creative_control_plan, reference_timeline, fidelity_policy]
+    script_produces: [script, replacement_matrix]
+    assets_required: [scene_plan, replacement_matrix, fidelity_policy]
+    sample_required: [asset_plan, production_lock, reference_timeline, replacement_matrix]
+    sample_produces: [sample_report, sample_execution_trace, voice_alignment_report, reference_alignment_report]
+    compose_required: [edit_decisions, final_props, reference_timeline, replacement_matrix, voice_alignment_report]
+    compose_produces: [render_report, evaluation_report, reference_alignment_report]
   source_led:
     research_required_tools: [scene_detect, frame_sampler]
     research_required: [research_brief, source_media_review, media_index, research_breakdown, source_semantic_index, reference_source_matrix, research_synthesis, research_scorecard, caption_style_fingerprint]
@@ -142,9 +154,9 @@ stages:
     required_artifacts_in: [proposal_packet, creative_control_plan, script, scene_plan]
     optional_artifacts_in: [template_run_plan]
     produces: [shot_execution_plan, asset_plan, production_lock, approval_bundle]
-    tools_available: [tts_selector, audio_mixer, subtitle_gen, media_proxy]
+    tools_available: [tts_selector, audio_mixer, subtitle_gen, media_proxy, video_selector]
     required_tools: []
-    optional_tools: [tts_selector, audio_mixer, subtitle_gen, media_proxy]
+    optional_tools: [tts_selector, audio_mixer, subtitle_gen, media_proxy, video_selector]
     checkpoint_required: true
     human_approval_default: true
     review_focus: [Lock is complete, asset plan is costed, no paid provider call occurred before approval]

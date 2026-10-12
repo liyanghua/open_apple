@@ -93,6 +93,31 @@ def test_generation_gate_rejects_unapproved_or_duplicate_paid_scope(tmp_path):
     packet["items"][0]["slot_id"] = "slot-b"
     with pytest.raises(PilotEvidenceError, match="approved scope"):
         validate_generation_gate(tmp_path, packet)
+
+
+def test_generation_gate_accepts_reserved_unsubmitted_attempt(tmp_path):
+    packet = _pilot(tmp_path)
+    ledger = tmp_path / "artifacts/cost.json"
+    data = json.loads(ledger.read_text())
+    data["entries"][0].pop("idempotency_key")
+    data["entries"][0]["submission_status"] = "not_submitted"
+    ledger.write_text(json.dumps(data))
+    assert validate_generation_gate(tmp_path, packet)["status"] == "ready"
+
+    data["entries"][0]["provider_task_id"] = "already-submitted"
+    ledger.write_text(json.dumps(data))
+    with pytest.raises(PilotEvidenceError, match="paid reservation differs"):
+        validate_generation_gate(tmp_path, packet)
+
+
+def test_generation_gate_rejects_wrong_bound_idempotency_key(tmp_path):
+    packet = _pilot(tmp_path)
+    ledger = tmp_path / "artifacts/cost.json"
+    data = json.loads(ledger.read_text())
+    data["entries"][0]["idempotency_key"] = "another-attempt"
+    ledger.write_text(json.dumps(data))
+    with pytest.raises(PilotEvidenceError, match="paid reservation differs"):
+        validate_generation_gate(tmp_path, packet)
     packet["items"][0]["slot_id"] = "slot-a"
     packet["items"].append(dict(packet["items"][0]))
     with pytest.raises(PilotEvidenceError, match="approved scope"):

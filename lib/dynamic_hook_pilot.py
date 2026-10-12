@@ -112,10 +112,21 @@ def validate_generation_gate(root: Path, packet: Mapping[str, Any]) -> dict[str,
              "Pilot ledger exceeds approved paid-submission count")
     for item in verified:
         matching = [entry for entry in entries if entry.get("id") == item["reservation_id"]]
-        _require(len(matching) == 1 and matching[0].get("idempotency_key") == item["idempotency_key"]
-                 and matching[0].get("tool") == lock["tool"]
-                 and matching[0].get("operation") == lock["operation"],
+        _require(len(matching) == 1, f"{item['slot_id']}: paid reservation differs from locked request")
+        entry = matching[0]
+        _require(entry.get("tool") == lock["tool"] and entry.get("operation") == lock["operation"],
                  f"{item['slot_id']}: paid reservation differs from locked request")
+        bound_key = entry.get("idempotency_key")
+        if bound_key is None:
+            # The provider attempt is bound immediately before POST. A true
+            # pre-payment gate must accept a reserved, unsubmitted entry.
+            _require(entry.get("status") == "reserved"
+                     and entry.get("submission_status") in (None, "not_submitted")
+                     and not entry.get("provider_task_id"),
+                     f"{item['slot_id']}: paid reservation differs from locked request")
+        else:
+            _require(bound_key == item["idempotency_key"],
+                     f"{item['slot_id']}: paid reservation differs from locked request")
     return {"status": "ready", "provider": lock["provider"],
             "max_paid_submissions": cap, "items": verified}
 

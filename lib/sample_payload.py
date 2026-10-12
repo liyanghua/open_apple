@@ -211,9 +211,20 @@ def build_sample_render_payload(sample_payload: Mapping[str, Any]) -> dict[str, 
     if narration_subs:
         payload["narrationSubtitles"] = narration_subs
 
-    # 花字风格：显式 captionStyle 优先，否则从 caption_style_fingerprint 派生。
+    # 花字风格：显式 captionStyle 优先。淘宝 3:4 是平台级的两层字幕
+    # 版式，不能被旧的通用/居中指纹覆盖；研究指纹仍作为审计输入保留。
     if sample_payload.get("captionStyle"):
         payload["captionStyle"] = sample_payload["captionStyle"]
+    elif payload["captionSafeZoneProfile"] == "taobao_detail_3_4":
+        payload["captionStyle"] = {
+            "fontFamily": "Long Cang", "fontSize": 72,
+            "emphasizeFontSize": 84, "fontWeight": 800,
+            "fillColor": "#FFF7E8", "strokeColor": "#3A1710",
+            "strokeWidthPx": 5, "backgroundColor": "transparent",
+            "opacity": 1, "position": "topleft",
+            "entranceAnimation": "pop", "bottomOffsetPx": 180,
+            "vertical": True,
+        }
     elif sample_payload.get("caption_style_fingerprint"):
         from lib.caption_style import to_overlay_spec
 
@@ -225,28 +236,15 @@ def build_sample_render_payload(sample_payload: Mapping[str, Any]) -> dict[str, 
         if applicability in {"extracted", "needs_review"} and isinstance(style, Mapping):
             payload["captionStyle"] = to_overlay_spec(style)
     if "captionStyle" not in payload:
-        # Source-led Taobao runs have no reference-caption fingerprint to
-        # extract, so use the approved product treatment rather than generic text.
-        if payload["captionSafeZoneProfile"] == "taobao_detail_3_4":
-            payload["captionStyle"] = {
-                "fontFamily": "Long Cang", "fontSize": 112,
-                "emphasizeFontSize": 132, "fontWeight": 800,
-                "fillColor": "#FFF7E8", "strokeColor": "#3A1710",
-                "strokeWidthPx": 5, "backgroundColor": "transparent",
-                "opacity": 1, "position": "topleft",
-                "entranceAnimation": "pop", "bottomOffsetPx": 180,
-                "vertical": True,
-            }
-        else:
-            payload["captionStyle"] = {
-                "fontFamily": "Noto Sans CJK SC", "fontSize": 48,
-                "emphasizeFontSize": 52, "fontWeight": 700,
-                "fillColor": "#FFFFFF", "strokeColor": "#000000",
-                "strokeWidthPx": 0, "backgroundColor": "transparent",
-                "opacity": 1, "position": "topleft",
-                "entranceAnimation": "fade", "bottomOffsetPx": 180,
-                "vertical": False,
-            }
+        payload["captionStyle"] = {
+            "fontFamily": "Noto Sans CJK SC", "fontSize": 48,
+            "emphasizeFontSize": 52, "fontWeight": 700,
+            "fillColor": "#FFFFFF", "strokeColor": "#000000",
+            "strokeWidthPx": 0, "backgroundColor": "transparent",
+            "opacity": 1, "position": "topleft",
+            "entranceAnimation": "fade", "bottomOffsetPx": 180,
+            "vertical": False,
+        }
 
     # P2：scene_plan 的 caption/transition recipe intent → 渲染级规格。
     # 渲染器按 **cut.id（shot-NN）** 查 captionRecipes/transitionRecipes；而 scene_plan 的
@@ -288,6 +286,8 @@ def _narration_subtitles(
     ``SafeCaptionTrack`` (bottom safe-zone, 口播字幕轨), which co-exists with
     the 花字 ``CaptionOverlay`` as the second caption layer.
     """
+    from lib.caption_copy import strip_attribution_prefix
+
     if not isinstance(script, Mapping):
         return []
     sections = script.get("sections")
@@ -313,6 +313,9 @@ def _narration_subtitles(
             text = section.get("narration") if section else None
             if not isinstance(text, str) or not text.strip():
                 continue
+            display_text = strip_attribution_prefix(text)
+            if not display_text:
+                continue
             start_frame, end_frame = scene.get("fromFrame"), scene.get("toFrameExclusive")
             if not isinstance(start_frame, (int, float)) or not isinstance(end_frame, (int, float)):
                 continue
@@ -322,13 +325,16 @@ def _narration_subtitles(
             if isinstance(measured, (int, float)) and measured > 0:
                 end_ms = min(end_ms, start_ms + int(round(float(measured) * 1000)))
             if end_ms > start_ms:
-                cues.append({"text": text.strip(), "startMs": start_ms, "endMs": end_ms})
+                cues.append({"text": display_text, "startMs": start_ms, "endMs": end_ms})
         return cues
     for section in sections:
         if not isinstance(section, Mapping):
             continue
         text = section.get("narration")
         if not isinstance(text, str) or not text.strip():
+            continue
+        display_text = strip_attribution_prefix(text)
+        if not display_text:
             continue
         start = section.get("start_seconds")
         end = section.get("end_seconds")
@@ -337,7 +343,7 @@ def _narration_subtitles(
         if float(end) <= float(start):
             continue
         cues.append({
-            "text": text.strip(),
+            "text": display_text,
             "startMs": int(round(float(start) * 1000)),
             "endMs": int(round(float(end) * 1000)),
         })

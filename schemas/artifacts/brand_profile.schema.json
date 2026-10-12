@@ -93,6 +93,7 @@
       "required": ["font_mode", "legacy_font_stack", "logo", "title", "underline", "caption", "transition", "slogan", "min_tail_seconds", "recipe"],
       "properties": {
         "font_mode": {"enum": ["strict", "legacy_appearance"]},
+        "overlay_background": {"enum": ["soft_gradient", "none"]},
         "legacy_font_stack": {"type": "string", "minLength": 1},
         "logo": {
           "type": "object", "required": ["right", "top", "width", "clear_space"],

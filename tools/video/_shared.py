@@ -432,8 +432,22 @@ def upload_image_fal(image_path: str) -> str:
         suffix.lstrip("."), "image/png"
     )
 
-    # Initiate upload
-    init_resp = requests.post(
+    def request_with_retry(request_fn: Any, url: str, **kwargs: Any):
+        last_error: Exception | None = None
+        for attempt in range(4):
+            try:
+                return request_fn(url, **kwargs)
+            except requests.RequestException as exc:
+                last_error = exc
+                if attempt == 3:
+                    raise
+                time.sleep(1.5 * (attempt + 1))
+        raise RuntimeError(f"fal.ai upload request failed: {last_error}")
+
+    # Initiate upload. The storage edge occasionally closes TLS connections;
+    # retries are safe because this step only requests a fresh presigned URL.
+    init_resp = request_with_retry(
+        requests.post,
         "https://rest.alpha.fal.ai/storage/upload/initiate",
         headers={"Authorization": f"Key {api_key}", "Content-Type": "application/json"},
         json={"content_type": content_type, "file_name": path.name},
@@ -443,7 +457,8 @@ def upload_image_fal(image_path: str) -> str:
     data = init_resp.json()
 
     # Upload file content
-    put_resp = requests.put(
+    put_resp = request_with_retry(
+        requests.put,
         data["upload_url"],
         headers={"Content-Type": content_type},
         data=path.read_bytes(),

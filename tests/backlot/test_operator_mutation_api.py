@@ -85,15 +85,21 @@ def test_delivery_review_api_commit_preserves_compose_checkpoint(tmp_path, monke
     from backlot.auth_store import AuthStore
     from backlot.delivery_versions import DeliveryVersionService
     from backlot.project_commit import ProjectCommitStore
+    from tests.production_evidence_fixture import approve_production_record
 
     projects = tmp_path / "projects"; project = projects / "film"; (project / "artifacts").mkdir(parents=True)
     (project / "project.json").write_text(json.dumps({
         "project_id": "film", "title": "桌垫", "pipeline_type": "cinematic-fast",
         "created_at": "2026-08-19T00:00:00Z",
     }))
+    (project / "renders").mkdir()
+    (project / "renders/final-v1.mp4").write_bytes(b"certified-fixture-film")
+    evidence = approve_production_record(
+        project, render_path="renders/final-v1.mp4", content_slot_id="v1", seconds=30,
+    )
     (project / "artifacts/render_report.json").write_text(json.dumps({
         "outputs": [{"path": "renders/final-v1.mp4", "duration_seconds": 30}],
-        "video_master_sha256": "a" * 64,
+        "video_master_sha256": evidence["video_master_sha256"],
     }))
     checkpoint = b'{"stage":"compose","status":"completed"}'
     (project / "checkpoint_compose.json").write_bytes(checkpoint)
@@ -102,7 +108,7 @@ def test_delivery_review_api_commit_preserves_compose_checkpoint(tmp_path, monke
         "created_at": "2026-08-19T00:00:00Z", "review_revision_id": None,
         "video": {"path": "renders/final-v1.mp4", "poster_path": None, "subtitles_path": None},
         "audio_mix": {}, "qa": {"status": "pass", "issues": []},
-        "change_summary": "首个认证版本", "video_master_sha256": "a" * 64,
+        "change_summary": "首个认证版本", **evidence,
     }, actor_id="system")
     current_before = (project / "operator/current-delivery.json").read_bytes()
     pointer = ProjectCommitStore(project).initialize()

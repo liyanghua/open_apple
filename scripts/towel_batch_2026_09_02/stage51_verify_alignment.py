@@ -29,6 +29,36 @@ DIMENSIONS = (
 ALLOWED = {"pass", "revise", "fail"}
 
 
+def locked_output_profile(project: Path) -> str:
+    lock_path = project / "artifacts" / "production_lock.json"
+    try:
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        lock = {}
+    output = (lock.get("locked_values") or {}).get("output") or {}
+    return str(output.get("profile") or "social_vertical_1080p30")
+
+
+def sample_scale_filter(output_profile: str) -> str:
+    """Return the alignment-frame scale for the resolved approval sample."""
+    from lib.media_profiles import get_profile
+    from lib.sample_contract import resolve_sample_profile
+
+    sample = get_profile(resolve_sample_profile(output_profile))
+    return f"scale={sample.width}:{sample.height}"
+
+
+def resolve_sample_path(project: Path) -> Path:
+    """Resolve the profile-matched canonical review sample for alignment."""
+    profile = locked_output_profile(project)
+    from lib.sample_contract import canonical_sample_relative_path
+
+    canonical = project / canonical_sample_relative_path(profile)
+    if canonical.is_file():
+        return canonical
+    return project / "renders" / "sample-v1.mp4"
+
+
 def _load_env() -> None:
     env_path = ROOT / ".env"
     if not env_path.is_file():
@@ -173,6 +203,26 @@ def sample_review_sections(
     return mapped
 
 
+def effective_sample_duration(
+    *, media_duration: float, fps: float, total_frames: int,
+    max_sample_frames: int = 450,
+) -> float:
+    """Keep frame extraction inside the actual canonical sample window.
+
+    MP4 container duration can include a fractional trailing frame. The quick
+    sample contract is frame-bound, so alignment must cap its timestamps to
+    ``min(total_frames, max_sample_frames) / fps`` instead of sampling that
+    trailing container time. The last rendered frame is excluded as well:
+    seek-based extraction is not reliable at a container's terminal timestamp.
+    """
+    if fps <= 0:
+        raise ValueError("fps must be positive")
+    window_frames = min(max(total_frames, 0), max_sample_frames)
+    if window_frames <= 0:
+        raise ValueError("total_frames must be positive")
+    return min(float(media_duration), max(0, window_frames - 1) / float(fps))
+
+
 def review_timestamps(section: dict) -> list[float]:
     """Return midpoint for static shots, or before/action/result points for proof shots."""
     start = float(section["start_seconds"])
@@ -225,17 +275,21 @@ def main(argv: list[str] | None = None) -> int:
         }
         # Review the same proxy file exposed at the sample gate when it exists.
         # Falling back to the full render is valid for older runs that did not
-        # materialize a 540x720 preview, but mixing the two files invalidates
+        # materialize a profile-matched canonical preview, but mixing the files invalidates
         # the hash-bound alignment report.
-        sample_path = d / "renders" / "sample-v1-540x960.mp4"
-        if not sample_path.is_file():
-            sample_path = d / "renders" / "sample-v1.mp4"
-        sample_duration = float(
+        output_profile = locked_output_profile(d)
+        sample_path = resolve_sample_path(d)
+        media_duration = float(
             subprocess.check_output(
                 ["ffprobe", "-v", "error", "-show_entries", "format=duration",
                  "-of", "default=nw=1:nk=1", str(sample_path)],
                 text=True,
             ).strip()
+        )
+        sample_duration = effective_sample_duration(
+            media_duration=media_duration,
+            fps=float(final_props.get("fps") or 30),
+            total_frames=int(final_props.get("durationInFrames") or 0),
         )
         shot_by_id = {
             str(item.get("id") or item.get("shot_id") or ""): item
@@ -273,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
                 frame.parent.mkdir(parents=True, exist_ok=True)
                 subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{timestamp:.3f}", "-i",
                                 str(sample_path), "-frames:v", "1",
-                                "-vf", "scale=540:720", "-q:v", "3", str(frame)],
+                                "-vf", sample_scale_filter(output_profile), "-q:v", "3", str(frame)],
                                check=True, timeout=60)
                 frames.append(frame)
             last = None

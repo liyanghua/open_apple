@@ -48,7 +48,9 @@ class _Gate:
 def test_source_led_editorial_preview_final_promote_preserves_old_delivery(tmp_path: Path) -> None:
     from backlot.editorial_sessions import EditorialSessionService
     from backlot.openreel_bridge import actions_to_delta
+    from backlot.project_commit import ProjectCommitStore
     from lib.editorial_executor import EditorialRenderExecutor
+    from tests.production_evidence_fixture import approve_production_record
 
     project = _fixture(tmp_path)
     service = EditorialSessionService(project, actor_id="operator-a")
@@ -67,7 +69,17 @@ def test_source_led_editorial_preview_final_promote_preserves_old_delivery(tmp_p
     session = service.request_final(session["session_id"])
     final = executor.render_final(revision=session["revision_id"], **common)
     assert final["status"] == "pass"
-    session = service.record_final(session["session_id"], {"report_path": f"operator/editorial/versions/{session['revision_id']}/final-execution_report.json"})
+    evidence = approve_production_record(
+        project, render_path=final["output_path"], content_slot_id="editorial-final", seconds=1,
+    )
+    report_path = project / f"operator/editorial/versions/{session['revision_id']}/final-execution_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report.update(evidence)
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    session = service.record_final(
+        session["session_id"], {"report_path": report_path.relative_to(project).as_posix()},
+        expected_generation=ProjectCommitStore(project).initialize()["generation_id"],
+    )
     session = service.promote(session["session_id"])
     assert session["status"] == "promoted"
     assert (project / "renders/final.mp4").read_bytes() == b"old-delivery"

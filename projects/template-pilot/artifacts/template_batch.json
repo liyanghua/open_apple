@@ -1,0 +1,496 @@
+{
+  "version": "1.0",
+  "batch_id": "template-batch-1c313898526f",
+  "created_at": "2026-08-25T11:59:46.156613+00:00",
+  "template_pack_ref": {
+    "artifact_sha256": "63f4bcb9ff0041df596e6e0dcd90d8eb0d30f23838014d21f1ac6c779436f504",
+    "version": "1.0"
+  },
+  "product_facts_ref": {
+    "artifact_sha256": "61fca1bf15c2ac9a3c6e68f4ffd206a4b85e3b979c4022a58e5463bcafe41f6d"
+  },
+  "shared_research_refs": [
+    {
+      "name": "research_brief",
+      "path": "artifacts/research_brief.json",
+      "artifact_sha256": "8ce39a06278fe414a475206acbcc27198b3f6b20cf27c54461c1bfd0002e1338"
+    },
+    {
+      "name": "video_analysis_brief",
+      "path": "artifacts/video_analysis_brief.json",
+      "artifact_sha256": "84643c1030bf98762ee8e94c06fbc771f8ef3c68acd0ca001a44d0574bc5d0a8"
+    },
+    {
+      "name": "source_media_review",
+      "path": "artifacts/source_media_review.json",
+      "artifact_sha256": "682df702247872635d92ac6267f8c149147d6de0eb0b26e87dba1192d807ccc3"
+    },
+    {
+      "name": "media_index",
+      "path": "artifacts/media_index.json",
+      "artifact_sha256": "28694a0dd32e09f71eb312a4ec2366dbf29aee7402f22eb439e0f4355ecde44b"
+    },
+    {
+      "name": "reference_fingerprint",
+      "path": "artifacts/reference_fingerprint.json",
+      "artifact_sha256": "8989811cbffb283cbb19223830540178888d17d053cb8f2a0a341776cb79d808"
+    },
+    {
+      "name": "research_breakdown",
+      "path": "artifacts/research_breakdown.json",
+      "artifact_sha256": "c9a2d42eafe56e3c54bb5c450f48f273f7026263c52b3b03471b35d55849844b"
+    },
+    {
+      "name": "reference_source_matrix",
+      "path": "artifacts/reference_source_matrix.json",
+      "artifact_sha256": "cd5cd0b357fe70be06712018941b0688b4f439719e231d25070db97d8d41e4dc"
+    },
+    {
+      "name": "research_synthesis",
+      "path": "artifacts/research_synthesis.json",
+      "artifact_sha256": "c95b0e5f4fe5408fc66972ba1626232c60455f1cea4cb3b7d3bcfabc73885ff4"
+    },
+    {
+      "name": "research_scorecard",
+      "path": "artifacts/research_scorecard.json",
+      "artifact_sha256": "b4340680f9d34d0cfb115877756c5994dbad9e16a83c106330705f250534fcc1"
+    },
+    {
+      "name": "caption_style_fingerprint",
+      "path": "artifacts/caption_style_fingerprint.json",
+      "artifact_sha256": "c98d4c5d6786d7c8ddbb85fb94855b8fe5f814ad554738115348e830e0dce501"
+    }
+  ],
+  "runs": [
+    {
+      "template_id": "sheet-01-video1-aks-zhuodian",
+      "project_id": "template-run-sheet-01-video1-aks-zhuodian",
+      "template_run_plan_ref": {
+        "artifact_sha256": "fedef3eb62a0c949cefa304901f45e3d19fe5340b800b0e903b6387e97ecbe62"
+      },
+      "status": "in_progress",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-02-video2-aks-zhuodian",
+      "project_id": "template-run-sheet-02-video2-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-03-video3-aks-zhuodian",
+      "project_id": "template-run-sheet-03-video3-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-04-video4-zhuodian",
+      "project_id": "template-run-sheet-04-video4-zhuodian",
+      "template_run_plan_ref": {
+        "artifact_sha256": "91abea22b83666569898d964610c224aa49d292eca5d1efe7c99d8759aa6cea8"
+      },
+      "status": "in_progress",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-05-video5-aks-zhuodian",
+      "project_id": "template-run-sheet-05-video5-aks-zhuodian",
+      "template_run_plan_ref": {
+        "artifact_sha256": "54a645d65492ce320bd8e09fe3ecb6fcce207305c6e0277ab6dbc8d64058f73b"
+      },
+      "status": "in_progress",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-06-video6-aks-zhuodian",
+      "project_id": "template-run-sheet-06-video6-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-07-video7-aks-zhuodian",
+      "project_id": "template-run-sheet-07-video7-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-08-video8-aks-zhuodian",
+      "project_id": "template-run-sheet-08-video8-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-09-video9-aks-zhuodian",
+      "project_id": "template-run-sheet-09-video9-aks-zhuodian",
+      "template_run_plan_ref": {
+        "artifact_sha256": "42478fdcc7cacf73323f194883bddb8b338ac4f84238dc61afd300ecc2610ae0"
+      },
+      "status": "in_progress",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-10-video10-aks-zhuodian",
+      "project_id": "template-run-sheet-10-video10-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-11-video12-zhuodian",
+      "project_id": "template-run-sheet-11-video12-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-12-video13-aks-zhuodian",
+      "project_id": "template-run-sheet-12-video13-aks-zhuodian",
+      "template_run_plan_ref": {
+        "artifact_sha256": "f3f8f95c5b794c283c973f35fa860eb24181c6fcee03210441928945dbbbcd05"
+      },
+      "status": "in_progress",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-13-video14-aks-zhuodian",
+      "project_id": "template-run-sheet-13-video14-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-14-video15-aks-zhuodian",
+      "project_id": "template-run-sheet-14-video15-aks-zhuodian",
+      "template_run_plan_ref": {
+        "artifact_sha256": "39183f6b736cf6b04bda8ac1ff260395be64e6237a037395df1a412c48a84454"
+      },
+      "status": "in_progress",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-15-video17-aks-zhuodian",
+      "project_id": "template-run-sheet-15-video17-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-16-video18-aks-zhuodian",
+      "project_id": "template-run-sheet-16-video18-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-17-video19-aks-zhuodian",
+      "project_id": "template-run-sheet-17-video19-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-18-video20-aks-zhuodian",
+      "project_id": "template-run-sheet-18-video20-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-19-video22-aks-zhuodian",
+      "project_id": "template-run-sheet-19-video22-aks-zhuodian",
+      "template_run_plan_ref": {
+        "artifact_sha256": "eef28f2d51599ed9c4a238c1a69b44127e526f0ef01a9f6489618f3b386c4cb3"
+      },
+      "status": "in_progress",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-20-video23-aks-zhuodian",
+      "project_id": "template-run-sheet-20-video23-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-21-video25-aks-zhuodian",
+      "project_id": "template-run-sheet-21-video25-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-22-video27-aks-zhuodian",
+      "project_id": "template-run-sheet-22-video27-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-23-video28-aks-zhuodian",
+      "project_id": "template-run-sheet-23-video28-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-24-video30-aks-zhuodian",
+      "project_id": "template-run-sheet-24-video30-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-25-video31-aks-zhuodian",
+      "project_id": "template-run-sheet-25-video31-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-26-video32-aks-zhuodian",
+      "project_id": "template-run-sheet-26-video32-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-27-video33-aks-zhuodian",
+      "project_id": "template-run-sheet-27-video33-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-28-video34-aks-zhuodian",
+      "project_id": "template-run-sheet-28-video34-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-29-video35-aks-zhuodian",
+      "project_id": "template-run-sheet-29-video35-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-30-video36-aks-zhuodian",
+      "project_id": "template-run-sheet-30-video36-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-31-video37-aks-zhuodian",
+      "project_id": "template-run-sheet-31-video37-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-32-video38-aks-zhuodian",
+      "project_id": "template-run-sheet-32-video38-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-33-video39-aks-zhuodian",
+      "project_id": "template-run-sheet-33-video39-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-34-video40-aks-zhuodian",
+      "project_id": "template-run-sheet-34-video40-aks-zhuodian",
+      "template_run_plan_ref": {
+        "artifact_sha256": "09216d8558292c38a4be9302993f763a428609d9d2be30869202a806864e31d4"
+      },
+      "status": "in_progress",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-35-video41-aks-zhuodian",
+      "project_id": "template-run-sheet-35-video41-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-36-video42-aks-zhuodian",
+      "project_id": "template-run-sheet-36-video42-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-37-video43-aks-zhuodian",
+      "project_id": "template-run-sheet-37-video43-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-38-video44-aks-zhuodian",
+      "project_id": "template-run-sheet-38-video44-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-39-video45-aks-zhuodian",
+      "project_id": "template-run-sheet-39-video45-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-40-video46-aks-zhuodian",
+      "project_id": "template-run-sheet-40-video46-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-41-video47-aks-zhuodian",
+      "project_id": "template-run-sheet-41-video47-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-42-video48-yanban-zhuojia",
+      "project_id": "template-run-sheet-42-video48-yanban-zhuojia",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    },
+    {
+      "template_id": "sheet-43-video49-aks-zhuodian",
+      "project_id": "template-run-sheet-43-video49-aks-zhuodian",
+      "template_run_plan_ref": null,
+      "status": "planned",
+      "cost_usd": 0.0,
+      "attempts": 0,
+      "failure_reason": null
+    }
+  ],
+  "concurrency": {
+    "max_parallel": 2
+  },
+  "budget": {
+    "max_cost_usd": 200.0,
+    "max_retries_per_run": 1
+  },
+  "publish_policy": "selective",
+  "pilot_run_ids": [
+    "sheet-12-video13-aks-zhuodian",
+    "sheet-34-video40-aks-zhuodian",
+    "sheet-14-video15-aks-zhuodian",
+    "sheet-19-video22-aks-zhuodian",
+    "sheet-05-video5-aks-zhuodian",
+    "sheet-09-video9-aks-zhuodian",
+    "sheet-01-video1-aks-zhuodian",
+    "sheet-04-video4-zhuodian"
+  ],
+  "provider": null,
+  "render_runtime": null,
+  "model": null,
+  "decision_ref": null,
+  "status": "planned",
+  "progress": null,
+  "report_ref": null,
+  "semantic_sha256": "a3432cda8ec68f1967fce86fc2313f21ca60f01ff006d6c66e0499b100f04e45",
+  "artifact_sha256": "a56776853311d231ddf987db0f18e6009cb498dd52cdeea03466a6ae7a7fe58e"
+}

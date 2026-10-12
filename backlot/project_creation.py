@@ -100,6 +100,8 @@ class ProjectCreationService:
                 "title": title,
                 "pipeline_type": resolved_skill["manifest"]["pipeline"],
                 "skill": {"id": resolved_skill["id"], "version": resolved_skill["version"]},
+                "input_mode": intake.get("input_mode") or "reference_driven",
+                "external_reference": intake.get("external_reference") or {"present": bool(intake.get("reference_paths")), "paths": intake.get("reference_paths") or [], "usage": "analysis_only"},
             })
             snapshot_writer(directory, resolved_skill, intake)
 

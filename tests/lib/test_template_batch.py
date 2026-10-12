@@ -6,6 +6,7 @@ import pytest
 from pathlib import Path
 
 from lib.template_batch import create_template_batch, mark_pilot, refresh_template_batch_status
+from tests.lib._tablemat_research import install_tablemat_research
 
 
 def _pack() -> dict:
@@ -40,16 +41,12 @@ def test_refresh_status_reflects_completed_scene_plan(tmp_path: Path):
     from lib.template_mainline import advance_run_full
 
     ROOT = Path(__file__).resolve().parents[2]
-    anchor = ROOT / "projects/template-run-sheet-01-video1-aks-zhuodian"
-    if not anchor.is_dir():
-        import pytest
-        pytest.skip("主链路 run 产物未就绪（需先跑主链路）")
-    # 复用真实共享研究源，fork 一条干净 run，并推进到 scene_plan。
+    # 复用共享研究 JSON 与测试帧，fork 一条干净 run，并推进到 scene_plan。
     template_id = "sheet-01-video1-aks-zhuodian"
     run_id = "template-run-sheet-01-video1-aks-zhuodian"
     fork_template_run(
         run_id,
-        source_project_dir=ROOT / "projects/table-mat-mix-v8",
+        source_project_dir=install_tablemat_research(tmp_path),
         pipeline_dir=tmp_path,
         product_facts_path=ROOT / "projects/template-pilot/artifacts/product_facts.json",
     )

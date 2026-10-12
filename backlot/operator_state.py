@@ -1888,6 +1888,19 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
         "fail" if media_present is False else status,
         evaluation,
     )
+    fidelity_report = _artifact(board, "reference_alignment_report")
+    fidelity = None
+    if fidelity_report:
+        reference_score = fidelity_report.get("reference_fidelity")
+        product_score = fidelity_report.get("product_truth")
+        fidelity = {
+            "status": _safe_text(fidelity_report.get("status")),
+            "hard_gate_failures": [
+                _safe_text(item) for item in fidelity_report.get("hard_gate_failures") or []
+            ],
+            "reference_fidelity_score": reference_score.get("score") if isinstance(reference_score, Mapping) else None,
+            "product_truth_score": product_score.get("score") if isinstance(product_score, Mapping) else None,
+        }
     return {
         "type": "sample_review",
         "data": {
@@ -1900,6 +1913,7 @@ def _sample_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             "audio_tracks": audio_tracks,
             "caption_diff": caption_diff,
             "creative_rule_diff": creative_rule_diff,
+            "reference_fidelity": fidelity,
         },
     }
 

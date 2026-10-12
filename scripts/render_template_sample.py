@@ -1,8 +1,8 @@
 """模板 run 的 sample 渲染：video_compose operation=render（两层字幕，主链路）。
 
---mode full   → renders/sample-v1.mp4（1080x1920，render_plan mode=full）
---mode quick  → render-gradient sample 层：450 帧 540x960（assets/sample/sample-<key>.mp4，
-                再复制到 renders/sample-v1-540x960.mp4 供 sample 门展示）
+--mode full   → renders/sample-v1.mp4（--profile；默认 1080x1920，render_plan mode=full）
+--mode quick  → render-gradient sample 层：450 帧，profile 由 production_lock（或 --profile）
+                映射；再复制到与实际 sample 尺寸对应的 canonical review 文件供 sample 门展示。
 
 sample_payload 携带 final_props/asset_manifest/scene_plan/caption_style_fingerprint/script，
 由 build_sample_render_payload 派生 narrationSubtitles（底部口播轨）+ captionStyle（左上书法花字）。
@@ -25,6 +25,19 @@ def _load(project: Path, name: str) -> dict:
     import json
 
     return json.loads((project / "artifacts" / f"{name}.json").read_text(encoding="utf-8"))
+
+
+def resolve_sample_profile(profile: str) -> str:
+    """Return the review profile for an explicit full/sample profile."""
+    from lib.sample_contract import resolve_sample_profile as resolve
+
+    return resolve(profile)
+
+
+def _locked_output_profile(project: Path) -> str:
+    lock = _load(project, "production_lock")
+    output = (lock.get("locked_values") or {}).get("output") or {}
+    return str(output.get("profile") or "social_vertical_1080p30")
 
 
 def build_payload(project: Path) -> dict:
@@ -62,6 +75,8 @@ def render(run: str, mode: str, profile: str | None = None) -> dict:
 
     payload = build_payload(project)
     render_profile = profile or "social_vertical_1080p30"
+    effective_profile = render_profile
+    output_path: str | None = "renders/sample-v1.mp4"
     registry.discover()
     vc = registry._tools["video_compose"]
     if mode == "full":
@@ -79,7 +94,13 @@ def render(run: str, mode: str, profile: str | None = None) -> dict:
     else:
         fp = payload["final_props"]
         total_frames = int(fp.get("durationInFrames") or 0)
-        render_plan = {"mode": "sample", "profile": (profile or "social_vertical_sample_540p30"),
+        requested_profile = profile or _locked_output_profile(project)
+        sample_profile = resolve_sample_profile(requested_profile)
+        from lib.sample_contract import canonical_sample_relative_path
+
+        effective_profile = sample_profile
+        output_path = canonical_sample_relative_path(sample_profile)
+        render_plan = {"mode": "sample", "profile": sample_profile,
                        "sample": {"startFrame": 0, "endFrameExclusive": 450,
                                   "scale": 0.5, "qaMode": "quick"}}
         result = vc.execute({
@@ -91,10 +112,28 @@ def render(run: str, mode: str, profile: str | None = None) -> dict:
             "remotion_timeout_ms": 900000,
         })
         if result.success:
-            staged = Path((result.data or {}).get("output", ""))
-            if staged.is_file():
-                shutil.copy2(staged, project / "renders/sample-v1-540x960.mp4")
-    return {"success": result.success, "error": result.error, "data": result.data}
+            staged_value = (result.data or {}).get("output")
+            staged = Path(staged_value) if isinstance(staged_value, str) else None
+            if not staged or not staged.is_file():
+                result.success = False
+                result.error = (
+                    "quick render reported success but did not produce a readable output"
+                )
+                output_path = None
+            else:
+                try:
+                    shutil.copy2(staged, project / output_path)
+                except OSError as exc:
+                    result.success = False
+                    result.error = f"quick render could not publish canonical review output: {exc}"
+                    output_path = None
+    return {
+        "success": result.success,
+        "error": result.error,
+        "data": result.data,
+        "profile": effective_profile,
+        "output_path": output_path,
+    }
 
 
 def main() -> None:
@@ -106,6 +145,7 @@ def main() -> None:
     r = render(args.run, args.mode, profile=args.profile)
     print(f"== {args.mode} success:", r["success"], "| error:", r["error"])
     if r["success"]:
+        print("== profile:", r["profile"], "| output:", r["output_path"])
         print("== final_review_status:", (r["data"] or {}).get("final_review_status"))
 
 

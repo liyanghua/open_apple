@@ -7,6 +7,15 @@ from tools.video.video_compose import VideoCompose
 from tools.base_tool import ToolResult
 
 
+def _install_fake_composer(monkeypatch, tmp_path: Path) -> None:
+    """Exercise command construction without a local Remotion installation."""
+    from tools.video import video_compose
+
+    module_path = tmp_path / "checkout" / "tools" / "video" / "video_compose.py"
+    (tmp_path / "checkout" / "remotion-composer" / "node_modules").mkdir(parents=True)
+    monkeypatch.setattr(video_compose, "__file__", str(module_path))
+
+
 def test_sample_window_is_half_open_and_bounded():
     assert validate_sample_window(180, 540) == (180, 540)
 
@@ -237,6 +246,7 @@ def test_explicit_sample_output_is_not_reused_for_a_different_cache_key(
 
 
 def test_atelier_renderer_forwards_sample_frame_window(tmp_path: Path, monkeypatch):
+    _install_fake_composer(monkeypatch, tmp_path)
     entry = tmp_path / "index.tsx"
     entry.write_text("export {};", encoding="utf-8")
     output = tmp_path / "sample.mp4"
@@ -322,6 +332,7 @@ def test_render_gradient_validators():
 
 def test_atelier_still_forces_half_scale_regardless_of_bespoke_scale(tmp_path: Path, monkeypatch):
     """P2-⑦: still route must never inherit production bespoke.scale=1.0."""
+    _install_fake_composer(monkeypatch, tmp_path)
     seen = {}
     tool = VideoCompose()
 

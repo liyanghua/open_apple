@@ -14,6 +14,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from backlot.project_commit import ProjectCommitStore
 from lib.artifact_hashing import attach_hashes
 from lib.artifact_io import write_artifact_atomic
 from lib.checkpoint import init_project, refresh_checkpoint_envelopes
@@ -175,25 +176,31 @@ def build_batch(batch_id: str = "yinlizi-variants-batch") -> dict[str, Any]:
         run_plan["differentiation_plan_ref"] = diff_ref
         run_plan = attach_hashes(run_plan)
         validate_artifact("template_run_plan", run_plan)
-        _write(run_dir, "template_run_plan.json", "template_run_plan", run_plan)
-        refresh_checkpoint_envelopes(
-            PROJECTS, run_id, pipeline_type="cinematic-fast"
-        )
+        with ProjectCommitStore(run_dir).transaction(
+            action={"action_id": f"seed-variant-contract-{run_id}"}
+        ) as sink:
+            _write_env = write_artifact_atomic(
+                "artifacts/template_run_plan.json", "template_run_plan", run_plan,
+                project_dir=run_dir, sink=sink,
+            )
+            marker = sink.read_json("project.json")
+            if not isinstance(marker, dict):
+                raise SystemExit(f"{run_id}: project marker is missing")
+            marker["variant"] = {
+                "id": variant_id,
+                "label": definition["label"],
+                "hook": definition["hook"],
+                "row_order": definition["row_order"],
+                "baseline_project": SOURCE_RUN,
+                "status": "script_review_pending",
+            }
+            sink.stage_json("project.json", marker, schema="project_marker")
+            refresh_checkpoint_envelopes(
+                PROJECTS, run_id, pipeline_type="cinematic-fast", sink=sink
+            )
         run_plan_refs[str(definition["template"]["template_id"])] = {
-            "artifact_sha256": run_plan["artifact_sha256"]
+            "artifact_sha256": _write_env["artifact_sha256"]
         }
-
-        marker_path = run_dir / "project.json"
-        marker = _load(marker_path)
-        marker["variant"] = {
-            "id": variant_id,
-            "label": definition["label"],
-            "hook": definition["hook"],
-            "row_order": definition["row_order"],
-            "baseline_project": SOURCE_RUN,
-            "status": "script_review_pending",
-        }
-        marker_path.write_text(json.dumps(marker, ensure_ascii=False, indent=2), encoding="utf-8")
         advance_run_full(run_id, pipeline_dir=PROJECTS, approve_control_plan=True)
 
     template_batch = create_template_batch(
