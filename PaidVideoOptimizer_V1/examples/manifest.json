@@ -1,0 +1,34 @@
+[
+  {
+    "file": "product_30d.csv",
+    "original_name": "synthetic_product_2025-01-01_2025-01-30.csv",
+    "path": "product",
+    "window": 30,
+    "start": "2025-01-01",
+    "end": "2025-01-30"
+  },
+  {
+    "file": "product_7d.csv",
+    "original_name": "synthetic_product_2025-01-24_2025-01-30.csv",
+    "path": "product",
+    "window": 7,
+    "start": "2025-01-24",
+    "end": "2025-01-30"
+  },
+  {
+    "file": "live_30d.csv",
+    "original_name": "synthetic_live_2025-01-01_2025-01-30.csv",
+    "path": "live",
+    "window": 30,
+    "start": "2025-01-01",
+    "end": "2025-01-30"
+  },
+  {
+    "file": "live_7d.csv",
+    "original_name": "synthetic_live_2025-01-24_2025-01-30.csv",
+    "path": "live",
+    "window": 7,
+    "start": "2025-01-24",
+    "end": "2025-01-30"
+  }
+]
