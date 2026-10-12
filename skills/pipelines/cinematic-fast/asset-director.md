@@ -9,6 +9,13 @@ This first pass may inspect cache availability and estimate cost, but must not
 call paid TTS, music or generation providers and must not claim realized assets
 before approval.
 
+For `reference_fidelity`, consume the locked `replacement_matrix` and
+`fidelity_policy`. Each execution card preserves its `reference_shot_id`, target
+interval, claim, fact and evidence bindings. Reject any proposal whose owned
+reference paths or final render inputs point under `inputs/reference`; generated
+media is visual expression only and cannot prove specifications, safety,
+durability, or long-duration performance claims.
+
 Create one execution-card entry per Scene Plan shot. Bind the plan to the exact
 creative-control, script, and scene-plan versions and hashes. Each shot must say
 why it exists, timing, narration/copy, subject action, setting, framing, camera,

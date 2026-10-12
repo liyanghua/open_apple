@@ -1,0 +1,230 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2200" height="1120" viewBox="0 0 2200 1120" role="img" aria-labelledby="title desc">
+  <title id="title">混剪生产架构图：检索优先，最小生成</title>
+  <desc id="desc">一张三层架构图：上层业务增长驱动层，中层共享状态与产物协议层，底层视频生产驱动层。绿色表示已实现，黄色表示正在推进，红色表示未实现。</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#20272A" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#286B83"/>
+    </marker>
+    <style>
+      .bg { fill: #F5F6F2; }
+      .ink { fill: #20272A; }
+      .muted { fill: #667376; }
+      .blue { fill: #286B83; }
+      .green { fill: #277452; }
+      .yellow { fill: #9A6A12; }
+      .red { fill: #B4493D; }
+      .layer { fill: #FFFFFF; stroke: #CBD2D0; stroke-width: 2; }
+      .layer-title { font: 700 30px/1.2 "PingFang SC","Microsoft YaHei",sans-serif; fill: #20272A; }
+      .layer-note { font: 400 17px/1.2 "PingFang SC","Microsoft YaHei",sans-serif; fill: #667376; }
+      .node-title { font: 700 22px/1.2 "PingFang SC","Microsoft YaHei",sans-serif; fill: #20272A; }
+      .node-body { font: 400 16px/1.35 "PingFang SC","Microsoft YaHei",sans-serif; fill: #667376; }
+      .node-code { font: 400 14px/1.25 ui-monospace,"SFMono-Regular",Menlo,monospace; fill: #536165; }
+      .header-kicker { font: 700 17px/1.2 "PingFang SC","Microsoft YaHei",sans-serif; fill: #286B83; letter-spacing: 1px; }
+      .header-title { font: 800 54px/1.1 "PingFang SC","Microsoft YaHei",sans-serif; fill: #20272A; }
+      .header-sub { font: 400 20px/1.35 "PingFang SC","Microsoft YaHei",sans-serif; fill: #667376; }
+      .small { font: 400 14px/1.3 "PingFang SC","Microsoft YaHei",sans-serif; fill: #667376; }
+      .arrow { stroke: #286B83; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .dashed { stroke: #9AA7A8; stroke-width: 2; stroke-dasharray: 7 7; fill: none; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="2200" height="1120"/>
+
+  <!-- Header -->
+  <text class="header-title" x="76" y="132">混剪系统：检索优先，最小生成</text>
+  <text class="header-sub" x="78" y="178">把热点、创意、素材、生成、投放和线上反馈，映射到当前已经实现与正在补齐的模块。</text>
+  <text class="small" x="1818" y="58" text-anchor="end">当前实现地图</text>
+  <text class="small" x="1818" y="83" text-anchor="end">2026 年 9 月目标</text>
+
+  <!-- Legend -->
+  <g transform="translate(1828 116)">
+    <rect x="0" y="0" width="16" height="16" rx="3" fill="#277452"/>
+    <text class="small" x="26" y="14">已实现</text>
+    <rect x="110" y="0" width="16" height="16" rx="3" fill="#D7A52E"/>
+    <text class="small" x="136" y="14">正在推进</text>
+    <rect x="258" y="0" width="16" height="16" rx="3" fill="#B4493D"/>
+    <text class="small" x="284" y="14">未实现</text>
+  </g>
+  <line x1="76" y1="212" x2="2124" y2="212" stroke="#20272A" stroke-width="2"/>
+
+  <!-- Top layer -->
+  <rect class="layer" x="76" y="238" width="2048" height="246" rx="14" filter="url(#shadow)"/>
+  <rect x="76" y="238" width="11" height="246" rx="5" fill="#286B83"/>
+  <text class="layer-title" x="112" y="280">上层｜业务增长驱动层</text>
+  <text class="layer-note" x="2084" y="280" text-anchor="end">业务目标 → 可投放内容 → 流量反馈</text>
+
+  <!-- Top arrows first -->
+  <path class="arrow" d="M460 371 H490"/>
+  <path class="arrow" d="M850 371 H880"/>
+  <path class="arrow" d="M1240 371 H1270"/>
+  <path class="arrow" d="M1630 371 H1660"/>
+
+  <!-- Top nodes -->
+  <g>
+    <rect x="112" y="321" width="330" height="110" rx="10" fill="#FFF4D8" stroke="#9A6A12" stroke-width="2"/>
+    <rect x="112" y="321" width="7" height="110" rx="3" fill="#9A6A12"/>
+    <text class="node-title" x="136" y="355">热点抓取</text>
+    <text class="node-body" x="136" y="382">研究简报、趋势字段、受众痛点</text>
+    <text class="node-code" x="136" y="407">趋势研究字段</text>
+  </g>
+  <g>
+    <rect x="502" y="321" width="330" height="110" rx="10" fill="#E8F3EB" stroke="#277452" stroke-width="2"/>
+    <rect x="502" y="321" width="7" height="110" rx="3" fill="#277452"/>
+    <text class="node-title" x="526" y="355">创意库匹配</text>
+    <text class="node-body" x="526" y="382">模板、节奏、镜头机制、差异策略</text>
+    <text class="node-code" x="526" y="407">模板库 · 选题钩子</text>
+  </g>
+  <g>
+    <rect x="892" y="321" width="330" height="110" rx="10" fill="#FFF4D8" stroke="#9A6A12" stroke-width="2"/>
+    <rect x="892" y="321" width="7" height="110" rx="3" fill="#9A6A12"/>
+    <text class="node-title" x="916" y="355">规模化生产</text>
+    <text class="node-body" x="916" y="382">批量状态、批量事件、并发与成本</text>
+    <text class="node-code" x="916" y="407">批量状态 · 批量事件</text>
+  </g>
+  <g>
+    <rect x="1282" y="321" width="330" height="110" rx="10" fill="#FBE9E6" stroke="#B4493D" stroke-width="2"/>
+    <rect x="1282" y="321" width="7" height="110" rx="3" fill="#B4493D"/>
+    <text class="node-title" x="1306" y="355">账号流量池</text>
+    <text class="node-body" x="1306" y="382">平台、账号、发布记录、曝光</text>
+    <text class="node-code" x="1306" y="407">发布记录 · 表现快照</text>
+  </g>
+  <g>
+    <rect x="1672" y="321" width="330" height="110" rx="10" fill="#FBE9E6" stroke="#B4493D" stroke-width="2"/>
+    <rect x="1672" y="321" width="7" height="110" rx="3" fill="#B4493D"/>
+    <text class="node-title" x="1696" y="355">付费放大筛选</text>
+    <text class="node-body" x="1696" y="382">十条筛二至三条、预算与回滚</text>
+    <text class="node-code" x="1696" y="407">放大决策记录</text>
+  </g>
+  <text class="small" x="112" y="463">增长外环当前断点：账号发布与线上表现尚未形成生产连接器，不能用模型分数直接替代真实放大门。</text>
+
+  <!-- Middle layer -->
+  <rect class="layer" x="76" y="510" width="2048" height="246" rx="14" filter="url(#shadow)"/>
+  <rect x="76" y="510" width="11" height="246" rx="5" fill="#277452"/>
+  <text class="layer-title" x="112" y="552">中层｜共享状态与产物协议层</text>
+  <text class="layer-note" x="2084" y="552" text-anchor="end">业务、生产、审批、交付共用同一份可追溯事实</text>
+
+  <g>
+    <rect x="112" y="592" width="300" height="110" rx="10" fill="#E8F3EB" stroke="#277452" stroke-width="2"/>
+    <rect x="112" y="592" width="7" height="110" rx="3" fill="#277452"/>
+    <text class="node-title" x="136" y="626">商品事实与视觉身份</text>
+    <text class="node-body" x="136" y="654">商品、包装、价格、参数、禁区</text>
+    <text class="node-code" x="136" y="680">商品事实模块</text>
+  </g>
+  <g>
+    <rect x="438" y="592" width="300" height="110" rx="10" fill="#E8F3EB" stroke="#277452" stroke-width="2"/>
+    <rect x="438" y="592" width="7" height="110" rx="3" fill="#277452"/>
+    <text class="node-title" x="462" y="626">结构化产物</text>
+    <text class="node-body" x="462" y="654">剧本、分镜、素材清单、渲染产物</text>
+    <text class="node-code" x="462" y="680"><tspan x="462" dy="0">剧本 · 分镜</tspan><tspan x="462" dy="17">素材清单</tspan></text>
+  </g>
+  <g>
+    <rect x="764" y="592" width="300" height="110" rx="10" fill="#E8F3EB" stroke="#277452" stroke-width="2"/>
+    <rect x="764" y="592" width="7" height="110" rx="3" fill="#277452"/>
+    <text class="node-title" x="788" y="626">版本、审批、幂等</text>
+    <text class="node-body" x="788" y="654">唯一标识、内容指纹、原子提交</text>
+    <text class="node-code" x="788" y="680">操作审批 · 原子提交</text>
+  </g>
+  <g>
+    <rect x="1090" y="592" width="300" height="110" rx="10" fill="#E8F3EB" stroke="#277452" stroke-width="2"/>
+    <rect x="1090" y="592" width="7" height="110" rx="3" fill="#277452"/>
+    <text class="node-title" x="1114" y="626">事件、心跳、检查点</text>
+    <text class="node-body" x="1114" y="654">执行轨迹、恢复、成本、局部重跑</text>
+    <text class="node-code" x="1114" y="680">事件记录 · 检查点</text>
+  </g>
+  <g>
+    <rect x="1416" y="592" width="300" height="110" rx="10" fill="#E8F3EB" stroke="#277452" stroke-width="2"/>
+    <rect x="1416" y="592" width="7" height="110" rx="3" fill="#277452"/>
+    <text class="node-title" x="1440" y="626">批量投影与运营工作台</text>
+    <text class="node-body" x="1440" y="654">批次上下文、候选、审批、质量报告</text>
+    <text class="node-code" x="1440" y="680"><tspan x="1440" dy="0">批量工作台</tspan><tspan x="1440" dy="17">总览投影</tspan></text>
+  </g>
+  <g>
+    <rect x="1742" y="592" width="300" height="110" rx="10" fill="#FFF4D8" stroke="#9A6A12" stroke-width="2"/>
+    <rect x="1742" y="592" width="7" height="110" rx="3" fill="#9A6A12"/>
+    <text class="node-title" x="1766" y="626">交付目录与线上表现</text>
+    <text class="node-body" x="1766" y="654">交付指针已规划，发布表现待接入</text>
+    <text class="node-code" x="1766" y="680">交付版本 → 发布记录</text>
+  </g>
+  <text class="small" x="112" y="735">二开核心：不让业务层直接读零散文件，而是通过共享状态、产物协议和只读投影统一呈现生产事实。</text>
+
+  <!-- Bottom layer -->
+  <rect class="layer" x="76" y="782" width="2048" height="304" rx="14" filter="url(#shadow)"/>
+  <rect x="76" y="782" width="11" height="304" rx="5" fill="#20272A"/>
+  <text class="layer-title" x="112" y="824">底层｜视频生产驱动层</text>
+  <text class="layer-note" x="2084" y="824" text-anchor="end">核心管线 + 视频生成驱动器：命中素材优先，缺口才生成</text>
+
+  <rect x="112" y="854" width="1970" height="42" rx="8" fill="#E7F1F4" stroke="#286B83" stroke-width="2"/>
+  <text class="node-title blue" x="132" y="882" font-size="19">最小生成闸门</text>
+  <text class="node-body" x="350" y="882">命中可用素材就复用；只在素材缺口、证据缺口处局部生成，不整条重做。</text>
+
+  <!-- Bottom arrows first -->
+  <path class="arrow" d="M348 1000 H365"/>
+  <path class="arrow" d="M590 1000 H607"/>
+  <path class="arrow" d="M832 1000 H849"/>
+  <path class="arrow" d="M1074 1000 H1091"/>
+  <path class="arrow" d="M1316 1000 H1333"/>
+  <path class="arrow" d="M1558 1000 H1575"/>
+  <path class="arrow" d="M1800 1000 H1817"/>
+
+  <!-- Bottom nodes -->
+  <g>
+    <rect x="112" y="928" width="220" height="145" rx="10" fill="#E8F3EB" stroke="#277452" stroke-width="2"/>
+    <rect x="112" y="928" width="7" height="145" rx="3" fill="#277452"/>
+    <text class="node-title" x="134" y="965">事实卡</text>
+    <text class="node-body" x="134" y="994">商品与视觉身份</text>
+    <text class="node-code" x="134" y="1020">商品声明 · 视觉身份</text>
+  </g>
+  <g>
+    <rect x="374" y="928" width="220" height="145" rx="10" fill="#E8F3EB" stroke="#277452" stroke-width="2"/>
+    <rect x="374" y="928" width="7" height="145" rx="3" fill="#277452"/>
+    <text class="node-title" x="396" y="965">剧本与分镜</text>
+    <text class="node-body" x="396" y="994">口播、花字、镜头时间轴</text>
+    <text class="node-code" x="396" y="1020">分镜 · 镜头插槽</text>
+  </g>
+  <g>
+    <rect x="636" y="928" width="220" height="145" rx="10" fill="#E8F3EB" stroke="#277452" stroke-width="2"/>
+    <rect x="636" y="928" width="7" height="145" rx="3" fill="#277452"/>
+    <text class="node-title" x="658" y="965">素材检索</text>
+    <text class="node-body" x="658" y="994">按镜头动作匹配自有素材</text>
+    <text class="node-code" x="658" y="1020">模板—素材匹配</text>
+  </g>
+  <g>
+    <rect x="898" y="928" width="220" height="145" rx="10" fill="#E8F3EB" stroke="#277452" stroke-width="2"/>
+    <rect x="898" y="928" width="7" height="145" rx="3" fill="#277452"/>
+    <text class="node-title" x="920" y="965">口播与音乐</text>
+    <text class="node-body" x="920" y="994">时长、节奏、背景音乐</text>
+    <text class="node-code" x="920" y="1020">口播选择 · 时间线匹配</text>
+  </g>
+  <g>
+    <rect x="1160" y="928" width="220" height="145" rx="10" fill="#FFF4D8" stroke="#9A6A12" stroke-width="2"/>
+    <rect x="1160" y="928" width="7" height="145" rx="3" fill="#9A6A12"/>
+    <text class="node-title" x="1182" y="965">连续性约束</text>
+    <text class="node-body" x="1182" y="994">商品绿；角色与场景黄</text>
+    <text class="node-code" x="1182" y="1020">事实连续性 · 画面复用规则</text>
+  </g>
+  <g>
+    <rect x="1422" y="928" width="220" height="145" rx="10" fill="#FFF4D8" stroke="#9A6A12" stroke-width="2"/>
+    <rect x="1422" y="928" width="7" height="145" rx="3" fill="#9A6A12"/>
+    <text class="node-title" x="1444" y="965">最小生成</text>
+    <text class="node-body" x="1444" y="994">只补素材或证据缺口</text>
+    <text class="node-code" x="1444" y="1020">缺口生成策略</text>
+  </g>
+  <g>
+    <rect x="1684" y="928" width="220" height="145" rx="10" fill="#E8F3EB" stroke="#277452" stroke-width="2"/>
+    <rect x="1684" y="928" width="7" height="145" rx="3" fill="#277452"/>
+    <text class="node-title" x="1706" y="965">混剪与渲染</text>
+    <text class="node-body" x="1706" y="994">合成、运行时路由、成本</text>
+    <text class="node-code" x="1706" y="1020">视频合成 · 动态渲染</text>
+  </g>
+  <g>
+    <rect x="1946" y="928" width="136" height="145" rx="10" fill="#E8F3EB" stroke="#277452" stroke-width="2"/>
+    <rect x="1946" y="928" width="7" height="145" rx="3" fill="#277452"/>
+    <text class="node-title" x="1968" y="965" font-size="19">质检交付</text>
+    <text class="node-body" x="1968" y="994" font-size="14">质量检查、证书</text>
+    <text class="node-code" x="1968" y="1020" font-size="12">最终质量检查</text>
+  </g>
+
+</svg>

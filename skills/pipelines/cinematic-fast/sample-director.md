@@ -19,6 +19,10 @@ pacing/cuts, and caption/visual readability. Only five ``pass`` decisions may
 advance the pipeline; ``adjust`` routes to edit and ``redirect`` reopens the
 creative direction gate.
 
+For `reference_fidelity`, also produce `voice_alignment_report` and `reference_alignment_report`. Block sample approval when whole-video drift is over 120ms, any narration segment start/end drift is over 160ms, reference brand/caption pixels remain, product identity changes, or a high-risk claim has no evidence. Report Reference Fidelity and Product Truth separately; neither score may compensate for the other.
+
+## Opening preview quality
+
 Opening QA records raw pass/fail/not_run/error and predetermined scoped N/A,
 actual DOM geometry, independent final-audio ASR, source/mix/render hashes and
 cost status. An agent contact sheet or optical-flow observation is not a

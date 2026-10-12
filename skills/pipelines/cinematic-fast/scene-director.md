@@ -45,6 +45,7 @@ Mode-specific reference rules:
 
 - `reference_driven`: `direct_segment`, `structural_only`, or `none`, following
   analyzed reference evidence.
+- `reference_fidelity`: every target shot binds one unique `reference_shot_id`; copy the reference half-open interval as the default target interval and record `duration_drift_ms`. Preserve mechanism and transition intent, but every renderable `source_path` must be owned or newly generated product media. The reference remains `analysis_only`.
 - `source_led`: only `none`; set
   `metadata.reference_media_usage: not_applicable` and do not emit any
   reference scene, interval, or path.

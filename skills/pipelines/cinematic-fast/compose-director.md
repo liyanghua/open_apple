@@ -1,5 +1,7 @@
 # Compose Director - Cinematic Fastline
 
+When `project.json.input_mode` is `reference_fidelity`, `final_props` remains the only render timeline and records hashes for `reference_timeline`, `replacement_matrix`, and `voice_alignment_report`. Match the reference output FPS, normalize generated clips at compose time, and fail closed if any `inputs/reference` path enters render inputs. Produce the final `reference_alignment_report`; require Reference Fidelity >=0.85, shot/order fidelity >=0.95, Product Truth >=0.95, and product identity 100% before publish.
+
 Read the complete `skills/pipelines/cinematic/compose-director.md` and
 `skills/meta/fastline.md` before acting. Route only through `video_compose`
 using the approved `render_plan` (`full` or validated `mux_only`). Run full

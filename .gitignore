@@ -112,3 +112,16 @@ strategy/
 .pnpm-store/
 .vite/
 DEV_STATE.md
+
+# Local generation, caches, and source-data exports
+.cache/
+.superpowers/
+outputs/
+毛巾样片_2026-09-02/
+PaidVideoOptimizer_V1/examples/*.xlsx
+PaidVideoOptimizer_V1/docs/screenshots/
+PaidVideoOptimizer_V1/docs/local-demo-20260913/*.png
+PaidVideoOptimizer_V1/docs/lark-doc-read-authorization.png
+PaidVideoOptimizer_V1/docs/**/browser_test.json
+PaidVideoOptimizer_V1/docs/**/*.log
+PaidVideoOptimizer_V1/docs/自动测试日志.txt

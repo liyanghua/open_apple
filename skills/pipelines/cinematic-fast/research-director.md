@@ -10,6 +10,12 @@ analysis template, and write the canonical `research_brief`,
 analysis-only and stop after the evidence checkpoint; no creative approval is
 needed here.
 
+## Strict reference fidelity mode
+
+When `project.json.input_mode` is `reference_fidelity`, treat the reference as a timing contract. Run metadata probing, scene detection, frame sampling, transcription, audio-energy analysis, and caption OCR in parallel. Produce `fidelity_policy` and `reference_timeline` in addition to the normal grounded analysis. Every shot uses a stable `reference_shot_id` and half-open time range. The reference path may appear only in Research provenance; reject any asset or render manifest that contains it.
+
+## Opening experiments
+
 For an opening experiment, register the source of each purchase question before
 turning it into copy. A desensitized `voice_source_register` entry binds the
 document hash, row ID, excerpt, original subject if known, platform URL/record

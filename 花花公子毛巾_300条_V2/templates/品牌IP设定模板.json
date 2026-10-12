@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "ip_id": "I01",
+  "version": "v0.1",
+  "approval_status": "pending_brand_review",
+  "brand_expression_proposal": "玩趣生活家居",
+  "persona": "懂产品，也懂生活的生活主理人",
+  "promise": "认真选日用品，也认真过自己的小日子",
+  "facets": [
+    "认真选购",
+    "照顾自己",
+    "会照顾人"
+  ],
+  "working_columns": [
+    "毛巾认真测",
+    "下班后的三分钟",
+    "给你留个位置",
+    "浴室换个心情",
+    "练完也要舒服"
+  ],
+  "voice": [
+    "具体",
+    "平等",
+    "轻松",
+    "有分寸的玩趣"
+  ],
+  "stable_rules": [
+    "真实商品动作",
+    "一个主要购买理由",
+    "商品事实不变形",
+    "不伪装独立评测资质"
+  ],
+  "prohibited": [
+    "健康恐惧",
+    "关系羞辱",
+    "虚构消费者证言",
+    "擅自克隆声音",
+    "把萌兔图案默认动画化",
+    "未经授权的商标角色延展"
+  ],
+  "rights_approval_record": null,
+  "reviewed_by": null,
+  "reviewed_at": null
+}

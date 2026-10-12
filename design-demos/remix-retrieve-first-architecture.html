@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>混剪生产架构图</title>
+  <style>
+    :root {
+      --ink: #20272a;
+      --muted: #657174;
+      --line: #cbd2d0;
+      --paper: #f5f6f2;
+      --white: #ffffff;
+      --green: #277452;
+      --green-bg: #e8f3eb;
+      --yellow: #9a6a12;
+      --yellow-bg: #fff4d8;
+      --red: #b4493d;
+      --red-bg: #fbe9e6;
+      --blue: #286b83;
+      --blue-bg: #e7f1f4;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: #dfe4e1; }
+    body {
+      padding: 16px;
+      color: var(--ink);
+      font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    h1, h2, h3, p { margin: 0; }
+    .sheet {
+      width: min(1480px, 100%);
+      margin: 0 auto;
+      padding: 22px 26px 18px;
+      background: var(--paper);
+      border: 1px solid #cbd2ce;
+      box-shadow: 0 10px 24px rgba(32, 39, 42, .08);
+    }
+    .topline {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 22px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--ink);
+    }
+    .kicker {
+      color: var(--blue);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+    h1 { margin-top: 5px; font-size: 25px; line-height: 1.18; font-weight: 760; }
+    .subhead { max-width: 890px; margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .date { color: var(--muted); font-size: 10px; line-height: 1.35; text-align: right; white-space: nowrap; }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px 18px;
+      margin: 11px 0 12px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch { width: 9px; height: 9px; display: inline-block; border-radius: 2px; }
+    .swatch.green { background: var(--green); }
+    .swatch.yellow { background: #d7a52e; }
+    .swatch.red { background: var(--red); }
+
+    .architecture { display: grid; gap: 10px; }
+    .layer {
+      position: relative;
+      padding: 12px 13px 13px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.66);
+    }
+    .layer.business { border-top: 4px solid var(--blue); }
+    .layer.shared { border-top: 4px solid var(--green); }
+    .layer.production { border-top: 4px solid var(--ink); }
+    .layer-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 9px;
+    }
+    .layer-heading h2 { font-size: 16px; line-height: 1.2; font-weight: 760; }
+    .layer-heading p { color: var(--muted); font-size: 10px; line-height: 1.35; text-align: right; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      align-items: stretch;
+    }
+    .flow.shared-flow { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .flow.production-flow { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+    .flow-item { min-width: 0; display: flex; align-items: stretch; gap: 8px; }
+    .flow-item:not(:last-child)::after {
+      content: "→";
+      align-self: center;
+      color: var(--blue);
+      font-size: 20px;
+      line-height: 1;
+      transform: translateX(2px);
+    }
+    .flow-item > .node { flex: 1; }
+    .node {
+      min-width: 0;
+      min-height: 68px;
+      padding: 9px 10px 8px;
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--ink);
+      background: var(--white);
+    }
+    .node.green { border-left-color: var(--green); background: var(--green-bg); }
+    .node.yellow { border-left-color: #d7a52e; background: var(--yellow-bg); }
+    .node.red { border-left-color: var(--red); background: var(--red-bg); }
+    .node.blue { border-left-color: var(--blue); background: var(--blue-bg); }
+    .node h3 { font-size: 12px; line-height: 1.25; font-weight: 740; overflow-wrap: anywhere; }
+    .node p { margin-top: 4px; color: var(--muted); font-size: 9px; line-height: 1.35; overflow-wrap: anywhere; }
+    .status {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 2px 5px;
+      border: 1px solid currentColor;
+      font-size: 8px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .status.green { color: var(--green); }
+    .status.yellow { color: var(--yellow); }
+    .status.red { color: var(--red); }
+
+    .shared-grid {
+      display: grid;
+      grid-template-columns: 1.08fr 1.16fr 1.1fr 1.04fr 1fr;
+      gap: 8px;
+      align-items: stretch;
+    }
+    .shared-card { min-width: 0; padding: 9px 10px; border: 1px solid #b8cbbd; background: var(--green-bg); }
+    .shared-card h3 { font-size: 11px; line-height: 1.25; font-weight: 740; }
+    .shared-card p { margin-top: 4px; color: var(--muted); font-size: 9px; line-height: 1.35; overflow-wrap: anywhere; }
+    .shared-card.yellow { border-color: #dfc27a; background: var(--yellow-bg); }
+    .shared-card.red { border-color: #ddb0a9; background: var(--red-bg); }
+    .shared-card.green { border-color: #b8cbbd; background: var(--green-bg); }
+
+    .principle {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 10px;
+      margin: 10px 0 0;
+      padding: 8px 11px;
+      border: 2px solid var(--blue);
+      background: var(--blue-bg);
+    }
+    .principle strong { font-size: 12px; line-height: 1.25; }
+    .principle span { color: var(--muted); font-size: 9px; line-height: 1.35; }
+    .principle .mark { color: var(--blue); font-size: 18px; line-height: 1; }
+
+    .production-intro {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+      padding: 7px 9px;
+      border: 1px dashed #9cb3b8;
+      background: var(--blue-bg);
+    }
+    .production-intro strong { color: var(--blue); font-size: 11px; line-height: 1.25; }
+    .production-intro span { color: var(--muted); font-size: 9px; line-height: 1.35; text-align: right; }
+    .production-flow .node { min-height: 84px; }
+    .production-flow .node h3 { font-size: 11px; }
+    .production-flow .node p { font-size: 8.5px; }
+    .production-flow .flow-item { gap: 5px; }
+    .production-flow .flow-item:not(:last-child)::after { font-size: 17px; }
+
+    .bottomline {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--ink);
+    }
+    .bottomline article { min-width: 0; }
+    .bottomline h3 { font-size: 10px; line-height: 1.25; }
+    .bottomline p { margin-top: 3px; color: var(--muted); font-size: 9px; line-height: 1.35; }
+    .bottomline article:nth-child(2) h3 { color: var(--yellow); }
+    .bottomline article:nth-child(3) h3 { color: var(--red); }
+
+    @media (max-width: 1120px) {
+      body { padding: 0; }
+      .sheet { min-height: 100vh; padding: 20px 18px 16px; border: 0; box-shadow: none; }
+      .flow.production-flow { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .production-flow .flow-item:nth-child(4)::after { display: none; }
+      .production-flow .flow-item:nth-child(4) { margin-bottom: 0; }
+      .shared-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width: 720px) {
+      .topline { align-items: flex-start; flex-direction: column; gap: 8px; }
+      .date, .layer-heading p, .production-intro span { text-align: left; }
+      .layer-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
+      .flow, .flow.shared-flow, .flow.production-flow, .shared-grid, .bottomline { grid-template-columns: 1fr; }
+      .flow-item { display: grid; grid-template-columns: 1fr; gap: 3px; }
+      .flow-item:not(:last-child)::after { content: "↓"; justify-self: center; transform: none; }
+      .production-flow .flow-item:nth-child(4)::after { display: block; }
+      .production-flow .node { min-height: 70px; }
+      .principle { grid-template-columns: 1fr; gap: 4px; }
+      .principle .mark { display: none; }
+      h1 { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="sheet" aria-label="混剪生产架构图">
+    <header class="topline">
+      <div>
+        <div class="kicker">九月增长系统 · 混剪架构</div>
+        <h1>检索优先，最小生成</h1>
+        <p class="subhead">先抓热点和趋势，再从创意库、产品事实与自有素材中找到可复用证据；只在素材或证据缺口处局部生成，最后用一致性约束和质量门锁住可投放版本。</p>
+      </div>
+      <div class="date">当前实现地图<br>2026 年 9 月目标</div>
+    </header>
+
+    <div class="legend" aria-label="实现状态图例">
+      <span><i class="swatch green"></i>已实现</span>
+      <span><i class="swatch yellow"></i>正在推进</span>
+      <span><i class="swatch red"></i>未实现</span>
+      <span>颜色只表示实现状态，不代表优先级</span>
+    </div>
+
+    <section class="architecture">
+      <section class="layer business" aria-labelledby="business-title">
+        <div class="layer-heading">
+          <h2 id="business-title">上层｜业务增长驱动层</h2>
+          <p>把内容生产接到流量、投放和创意迭代上</p>
+        </div>
+        <div class="flow">
+          <div class="flow-item"><article class="node yellow"><h3>热点与趋势抓取</h3><p>时间窗、讨论热度、受众痛点</p><span class="status yellow">正在推进</span></article></div>
+          <div class="flow-item"><article class="node green"><h3>创意库匹配</h3><p>模板、节奏、镜头机制、原创边界</p><span class="status green">已实现</span></article></div>
+          <div class="flow-item"><article class="node yellow"><h3>规模化内容生产</h3><p>目标：一天十条，条条具备投放条件</p><span class="status yellow">正在推进</span></article></div>
+          <div class="flow-item"><article class="node red"><h3>前端账号流量池</h3><p>账号矩阵、发布记录、自然与付费分发</p><span class="status red">未实现</span></article></div>
+          <div class="flow-item"><article class="node red"><h3>今日付费放大</h3><p>十条筛二至三条，进入预算护栏</p><span class="status red">未实现</span></article></div>
+        </div>
+        <div class="principle"><strong>内容表现 → 失败标签 → 创意假设 → 下一批验证</strong><span class="mark">↺</span><span>流量与内容的飞轮：线上表现回流创意库后，才能形成可复用的增长规律。</span></div>
+      </section>
+
+      <section class="layer shared" aria-labelledby="shared-title">
+        <div class="layer-heading">
+          <h2 id="shared-title">中层｜共享状态与产物协议层</h2>
+          <p>让业务决策、生产执行和交付结果使用同一份可追溯事实</p>
+        </div>
+        <div class="shared-grid">
+          <article class="shared-card green"><h3>事实与视觉身份</h3><p>商品、包装、价格、参数、不可改动边界</p><span class="status green">已实现</span></article>
+          <article class="shared-card green"><h3>结构化产物</h3><p>剧本、分镜、素材清单、渲染与交付产物</p><span class="status green">已实现</span></article>
+          <article class="shared-card green"><h3>版本与审批</h3><p>唯一标识、内容指纹、版本、审批、幂等提交</p><span class="status green">已实现</span></article>
+          <article class="shared-card green"><h3>事件与恢复</h3><p>执行轨迹、心跳、检查点、成本和局部重跑</p><span class="status green">已实现</span></article>
+          <article class="shared-card yellow"><h3>交付与线上表现</h3><p>交付版本目录、当前指针、发布与表现快照</p><span class="status yellow">部分推进</span></article>
+        </div>
+      </section>
+
+      <section class="layer production" aria-labelledby="production-title">
+        <div class="layer-heading">
+          <h2 id="production-title">底层｜视频生产驱动层</h2>
+          <p>生产驱动层：检索优先，只有缺口才触发最小生成</p>
+        </div>
+        <div class="production-intro"><strong>最小生成闸门</strong><span>命中可用素材就复用；找不到足够证据时，只补生成缺口，不整条重做。</span></div>
+        <div class="flow production-flow">
+          <div class="flow-item"><article class="node green"><h3>产品事实</h3><p>商品与视觉身份约束</p><span class="status green">已实现</span></article></div>
+          <div class="flow-item"><article class="node green"><h3>剧本与分镜</h3><p>创意方向、口播、花字、镜头时间轴</p><span class="status green">已实现</span></article></div>
+          <div class="flow-item"><article class="node green"><h3>素材检索</h3><p>按镜头动作、证据窗口匹配自有素材</p><span class="status green">已实现</span></article></div>
+          <div class="flow-item"><article class="node green"><h3>口播与音乐匹配</h3><p>声音时长、节奏与背景音乐对齐</p><span class="status green">基础已实现</span></article></div>
+          <div class="flow-item"><article class="node yellow"><h3>角色与场景连续</h3><p>角色身份、场景光线、动作关系统一</p><span class="status yellow">正在推进</span></article></div>
+          <div class="flow-item"><article class="node yellow"><h3>局部生成补位</h3><p>只补素材缺口，保留原有镜头和证据链</p><span class="status yellow">正在推进</span></article></div>
+          <div class="flow-item"><article class="node green"><h3>混剪与质量检查</h3><p>合成、质量门、人工确认和交付证书</p><span class="status green">已实现</span></article></div>
+          <div class="flow-item"><article class="node yellow"><h3>投放版本</h3><p>媒体、输入产物、质量证据绑定后交付</p><span class="status yellow">正在推进</span></article></div>
+        </div>
+      </section>
+    </section>
+
+    <footer class="bottomline">
+      <article><h3>当前判断</h3><p>单条生产的事实、产物、审批、恢复和质量链已经成立；混剪主链具备继续扩展的基础。</p></article>
+      <article><h3>九月关键补齐</h3><p>趋势适配器、十二个以上素材池、批量执行器、交付指针和一天十条验收。</p></article>
+      <article><h3>暂不能宣称</h3><p>一百至五百万曝光、完整流量飞轮、十条筛二至三条付费放大，需线上连接器与数据验证。</p></article>
+    </footer>
+  </main>
+</body>
+</html>

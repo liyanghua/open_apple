@@ -30,6 +30,8 @@ evidence matrix, not a synthetic reference-video artifact. Every section MUST
 declare non-empty, explicit `scene_id`, `claim_ids`, `action_keys`, and
 `evidence_row_ids`.
 
+For `reference_fidelity`, every section binds exactly one `reference_shot_id`, its narration interval, claim IDs, product-fact refs and evidence rows. Preserve slot order, cadence and pauses, but rewrite all spoken and on-screen words for the current product. First adjust segment-level TTS rate/pause, then inter-segment silence, then rewrite the section; never speed up the whole video. Produce `replacement_matrix` with the approved script. High-risk claims without source evidence are `omit` or `awaiting_human`.
+
 For each source-led section:
 
 1. Source-led v1 requires exactly one `evidence_row_id` per section (one

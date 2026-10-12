@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenMontage / 八月月度复盘</title>
+  <style>
+    :root {
+      --ink: #1a1a2e;
+      --ink-2: #16213e;
+      --accent: #e94560;
+      --blue: #0f3460;
+      --muted: #6b7280;
+      --line: #d8dbe2;
+      --paper: #fafafa;
+      --soft: #f1f3f6;
+      --white: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; background: #dde0e6; }
+    body {
+      color: var(--ink);
+      font-family: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      overflow: hidden;
+    }
+
+    .deck { width: 100vw; height: 100vh; position: relative; }
+    .slide {
+      width: min(100vw, 177.777vh);
+      height: min(56.25vw, 100vh);
+      aspect-ratio: 16 / 9;
+      position: absolute;
+      left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+      padding: 56px 76px 48px;
+      background: var(--paper);
+      display: none;
+      overflow: hidden;
+    }
+    .slide.active { display: block; }
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background-image: radial-gradient(rgba(26,26,46,.035) .6px, transparent .6px);
+      background-size: 7px 7px;
+      opacity: .35;
+    }
+    .slide > * { position: relative; z-index: 1; }
+
+    .chrome {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 25px;
+      border-bottom: 1px solid var(--ink);
+      padding-bottom: 13px;
+      margin-bottom: 36px;
+      font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .kicker { color: var(--accent); font-weight: 700; }
+    .meta { color: var(--muted); }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 40px; line-height: 1.16; letter-spacing: 0; font-weight: 700; max-width: 780px; text-wrap: balance; }
+    h2 { font-size: 40px; line-height: 1.12; font-weight: 700; letter-spacing: 0; }
+    .lead { margin-top: 17px; color: var(--muted); font-size: 20px; line-height: 1.55; max-width: 980px; }
+    .rule { width: 74px; height: 5px; margin: 26px 0 26px; background: var(--accent); }
+    .bottom {
+      position: absolute;
+      bottom: 21px;
+      left: 76px;
+      right: 76px;
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+      font-size: 11px;
+      letter-spacing: .04em;
+    }
+    .bottom b { color: var(--ink); }
+
+    /* Slide 1 */
+    .hero-grid { display: grid; grid-template-columns: 1.28fr .72fr; gap: 42px; align-items: start; margin-top: 18px; }
+    .hero-grid > div:first-child { min-width: 0; }
+    .hero-grid .lead { max-width: 780px; }
+    .hero-note { margin-top: 20px; }
+    .hero-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 26px; }
+    .stat { border-top: 2px solid var(--ink); padding-top: 12px; }
+    .stat .num { display: block; font-size: 43px; font-weight: 700; line-height: 1; }
+    .stat .label { display: block; margin-top: 9px; color: var(--muted); font-size: 14px; line-height: 1.35; }
+    .architecture {
+      margin-top: 31px;
+      display: grid;
+      grid-template-columns: 1fr 36px 1fr 36px 1fr 36px 1fr;
+      align-items: center;
+    }
+    .node { min-height: 102px; border: 1px solid var(--ink); background: var(--white); padding: 13px 15px; }
+    .node.hot { border: 2px solid var(--accent); }
+    .node .eyebrow { color: var(--accent); font-family: "IBM Plex Mono", monospace; font-size: 11px; text-transform: uppercase; }
+    .node strong { display: block; margin-top: 9px; font-size: 18px; line-height: 1.2; }
+    .node span { display: block; margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.42; }
+    .arrow { text-align: center; color: var(--accent); font-size: 29px; font-family: monospace; }
+    .hero-note { border-left: 3px solid var(--accent); padding-left: 17px; font-size: 17px; line-height: 1.55; max-width: 420px; }
+
+    /* Slide 2 */
+    .score-layout { display: grid; grid-template-columns: 1.04fr .96fr; gap: 50px; margin-top: 32px; }
+    .panel-title { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 11px; margin-bottom: 18px; }
+    .panel-title strong { font-size: 17px; }
+    .panel-title span { color: var(--muted); font-size: 12px; font-family: monospace; }
+    .score-row { display: grid; grid-template-columns: 130px 1fr 55px; gap: 13px; align-items: center; margin: 16px 0; }
+    .score-row label { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--ink-2); }
+    .bar { height: 13px; background: #e6e8ed; position: relative; }
+    .bar i { display: block; height: 100%; background: var(--blue); }
+    .score-row:first-of-type .bar i { background: var(--accent); }
+    .score { text-align: right; font-size: 18px; font-weight: 700; }
+    .score-foot { display: flex; gap: 25px; margin-top: 24px; padding-top: 15px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    .efficiency { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+    .eff-card { border: 1px solid var(--line); background: var(--white); padding: 16px; min-height: 112px; }
+    .eff-card .big { display: block; font-size: 29px; font-weight: 700; line-height: 1; }
+    .eff-card .small { display: block; margin-top: 9px; color: var(--muted); font-size: 13px; line-height: 1.35; }
+    .status-line { margin-top: 15px; border-top: 2px solid var(--ink); padding-top: 12px; display: flex; justify-content: space-between; font-size: 14px; }
+    .status-line b { color: var(--accent); }
+    .transition { margin-top: 20px; }
+    .transition .track { display: flex; height: 12px; gap: 3px; }
+    .transition .track i { flex: 1; background: var(--blue); }
+    .transition .track i.off { background: #e6e8ed; }
+    .transition p { color: var(--muted); font-size: 13px; margin-top: 8px; }
+
+    /* Slide 3 */
+    .layers { margin-top: 34px; display: grid; grid-template-columns: 1fr 1fr; gap: 50px; align-items: start; }
+    .ladder { display: grid; gap: 8px; }
+    .layer { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 15px; min-height: 58px; padding: 9px 14px; border-left: 4px solid var(--ink); background: var(--white); }
+    .layer:nth-child(2) { margin-left: 18px; }
+    .layer:nth-child(3) { margin-left: 36px; }
+    .layer:nth-child(4) { margin-left: 54px; }
+    .layer:nth-child(5) { margin-left: 72px; border-left-color: var(--accent); }
+    .layer .index { font-family: monospace; color: var(--muted); font-size: 12px; }
+    .layer strong { font-size: 17px; }
+    .layer span { color: var(--muted); font-size: 12px; }
+    .callout { border-top: 2px solid var(--ink); padding-top: 14px; }
+    .callout h3 { font-size: 23px; line-height: 1.2; }
+    .callout p { margin-top: 14px; color: var(--muted); font-size: 16px; line-height: 1.55; }
+    .gold { margin-top: 28px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+    .gold div { border: 1px solid var(--line); padding: 12px; background: var(--white); }
+    .gold b { display: block; font-size: 23px; }
+    .gold span { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; }
+    .evaluation-note { margin-top: 24px; padding: 14px 16px; background: var(--ink); color: #f3f4f6; font-size: 14px; line-height: 1.5; }
+    .evaluation-note b { color: #ffb3bf; }
+
+    /* Slide 4 */
+    .harness-map { margin-top: 32px; display: grid; grid-template-columns: 1fr 62px 1fr; align-items: center; gap: 18px; }
+    .harness-col { display: grid; gap: 9px; }
+    .harness-col h3 { font-size: 17px; margin-bottom: 4px; }
+    .hnode { min-height: 57px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; background: var(--white); border: 1px solid var(--ink); }
+    .hnode b { font-size: 16px; }
+    .hnode span { color: var(--muted); font-size: 12px; text-align: right; }
+    .hnode.active { border-left: 4px solid var(--accent); }
+    .hnode.future { border-style: dashed; border-color: var(--muted); background: transparent; }
+    .h-arrow { color: var(--accent); font-size: 34px; text-align: center; font-family: monospace; }
+    .roadmap { margin-top: 30px; border-top: 2px solid var(--ink); padding-top: 13px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; }
+    .roadmap .step { position: relative; padding-left: 17px; border-left: 3px solid var(--accent); }
+    .roadmap .step b { display: block; font-size: 16px; }
+    .roadmap .step p { margin-top: 6px; color: var(--muted); font-size: 13px; line-height: 1.4; }
+    .verdict { margin-top: 26px; font-size: 20px; line-height: 1.35; max-width: 1150px; }
+    .verdict strong { color: var(--accent); }
+
+    /* September target slide */
+    .sept-grid { margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+    .sept-card { min-height: 174px; padding: 16px 17px; border: 1px solid var(--line); background: var(--white); }
+    .sept-card.hot { border-top: 4px solid var(--accent); }
+    .sept-card.cool { border-top: 4px solid var(--blue); }
+    .sept-card h3 { font-size: 18px; line-height: 1.25; }
+    .sept-card .target { margin-top: 7px; font-size: 24px; font-weight: 700; line-height: 1; }
+    .sept-card .target span { color: var(--muted); font-size: 12px; font-weight: 400; }
+    .sept-card p { margin-top: 10px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .sept-state { display: flex; align-items: center; gap: 9px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.35; }
+    .sept-state b { color: var(--accent); }
+    .sept-state.done b { color: var(--blue); }
+    .sept-flow { margin-top: 22px; display: grid; grid-template-columns: 1fr 28px 1fr 28px 1fr 28px 1fr; align-items: center; }
+    .sept-flow .box { min-height: 68px; padding: 11px 12px; border: 1px solid var(--ink); background: var(--white); }
+    .sept-flow .box b { display: block; font-size: 14px; }
+    .sept-flow .box span { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+    .sept-flow .arrow { font-size: 24px; }
+    .sept-note { margin-top: 20px; padding: 12px 15px; border-left: 3px solid var(--accent); color: var(--ink); font-size: 15px; line-height: 1.45; }
+
+    .harness-slide .chrome, .september-slide .chrome { margin-bottom: 20px; }
+    .harness-slide h2, .september-slide h2 { font-size: 34px; line-height: 1.1; }
+    .harness-slide .lead, .september-slide .lead { margin-top: 10px; font-size: 16px; line-height: 1.4; }
+    .harness-slide .harness-map { margin-top: 18px; }
+    .harness-slide .harness-col { gap: 6px; }
+    .harness-slide .hnode { min-height: 43px; padding: 7px 11px; }
+    .harness-slide .hnode b { font-size: 14px; }
+    .harness-slide .hnode span { font-size: 10.5px; }
+    .harness-slide .roadmap { margin-top: 16px; padding-top: 10px; }
+    .harness-slide .roadmap .step b { font-size: 14px; }
+    .harness-slide .roadmap .step p { margin-top: 4px; font-size: 11px; line-height: 1.3; }
+    .harness-slide .verdict { margin-top: 13px; font-size: 16px; }
+    .september-slide .sept-grid { margin-top: 16px; gap: 11px 15px; }
+    .september-slide .sept-card { min-height: 126px; padding: 11px 14px; }
+    .september-slide .sept-card h3 { font-size: 15px; }
+    .september-slide .sept-card .target { margin-top: 5px; font-size: 21px; }
+    .september-slide .sept-card p { margin-top: 7px; font-size: 11px; line-height: 1.35; }
+    .september-slide .sept-state { margin-top: 7px; padding-top: 7px; font-size: 10.5px; }
+    .september-slide .sept-flow { margin-top: 12px; }
+    .september-slide .sept-flow .box { min-height: 52px; padding: 8px 10px; }
+    .september-slide .sept-flow .box b { font-size: 12px; }
+    .september-slide .sept-flow .box span { margin-top: 4px; font-size: 9.5px; }
+    .september-slide .sept-note { margin-top: 10px; padding: 8px 12px; font-size: 12px; line-height: 1.35; }
+
+    .hint { position: fixed; right: 18px; bottom: 12px; color: #747986; font: 11px monospace; opacity: .7; }
+    @media (max-width: 1100px) {
+      .slide { padding: 38px 46px 42px; }
+      h1 { font-size: 36px; line-height: 1.18; }
+      h2 { font-size: 32px; }
+      .bottom { left: 46px; right: 46px; }
+      .hero-grid, .score-layout, .layers { gap: 28px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck" aria-label="OpenMontage 八月月度复盘简图">
+    <section class="slide active" data-title="架构演进">
+      <div class="chrome"><span class="kicker">OpenMontage / Monthly Review</span><span class="meta">2026.08 &middot; Architecture</span></div>
+      <div class="hero-grid">
+        <div>
+          <h1>八月，生产系统<br>从「能出片」走向「可交付」</h1>
+          <div class="rule"></div>
+          <p class="lead">把 Agent 的临场判断，收敛为可追踪的契约、可复用的模板、可验证的质量门。</p>
+        </div>
+        <p class="hero-note">核心变化不是增加更多工具，而是让每一条视频都能回答：用了什么输入、经过哪些决策、哪里失败、为什么可以发布。</p>
+      </div>
+      <div class="hero-stats">
+        <div class="stat"><span class="num">114</span><span class="label">相对基线新增提交</span></div>
+        <div class="stat"><span class="num">472</span><span class="label">变化文件</span></div>
+        <div class="stat"><span class="num">1992</span><span class="label">Python 全量测试通过</span></div>
+      </div>
+      <div class="architecture">
+        <div class="node"><span class="eyebrow">01 / Input</span><strong>Agent + Pipeline</strong><span>YAML 阶段契约<br>指令驱动编排</span></div>
+        <div class="arrow">&rarr;</div>
+        <div class="node hot"><span class="eyebrow">02 / Reference</span><strong>template_pack</strong><span>43 条结构化模板<br>slot / action / treatment</span></div>
+        <div class="arrow">&rarr;</div>
+        <div class="node"><span class="eyebrow">03 / Lineage</span><strong>Canonical Artifacts</strong><span>script / scene / asset<br>显式 ID 链路</span></div>
+        <div class="arrow">&rarr;</div>
+        <div class="node hot"><span class="eyebrow">04 / Delivery</span><strong>QA + Certificate</strong><span>L1a 硬门<br>证书绑定后发布</span></div>
+      </div>
+      <div class="bottom"><span>结论：生产链路完成第一次工程化收敛</span><span><b>01</b> / 05</span></div>
+    </section>
+
+    <section class="slide" data-title="复刻基线">
+      <div class="chrome"><span class="kicker">OpenMontage / Monthly Review</span><span class="meta">Reference Remix / Evidence</span></div>
+      <h2>视频复刻：6 条样本给出了可复制的基线</h2>
+      <p class="lead">质量已经稳定在可用区间，当前主要矛盾从「能不能做」转向「能否一次通过、能否批量运营」。</p>
+      <div class="score-layout">
+        <div>
+          <div class="panel-title"><strong>3-seed L3 创意评分</strong><span>rubric l3-v1.0 / qwen-vl-max</span></div>
+          <div class="score-row"><label>sheet-01</label><div class="bar"><i style="width:86%"></i></div><span class="score">8.60</span></div>
+          <div class="score-row"><label>sheet-05</label><div class="bar"><i style="width:83.6%"></i></div><span class="score">8.36</span></div>
+          <div class="score-row"><label>sheet-04</label><div class="bar"><i style="width:82.5%"></i></div><span class="score">8.25</span></div>
+          <div class="score-row"><label>sheet-09</label><div class="bar"><i style="width:80.6%"></i></div><span class="score">8.06</span></div>
+          <div class="score-row"><label>sheet-14 / 19</label><div class="bar"><i style="width:79.4%"></i></div><span class="score">7.94</span></div>
+          <div class="score-foot"><span>平均 <b>8.19</b></span><span>最高 <b>8.60</b></span><span>主要短板 <b>Hook</b></span></div>
+        </div>
+        <div>
+          <div class="panel-title"><strong>效率与交付状态</strong><span>6 historical runs</span></div>
+          <div class="efficiency">
+            <div class="eff-card"><span class="big">$0.0536</span><span class="small">平均单片现金成本<br>自有素材成本为 $0</span></div>
+            <div class="eff-card"><span class="big">15-25 min</span><span class="small">40 秒片媒体准备<br>TTS 并发后约 10 min</span></div>
+            <div class="eff-card"><span class="big">12-15 min</span><span class="small">40 秒片 Full Render<br>必须单并发</span></div>
+            <div class="eff-card"><span class="big">6 / 6</span><span class="small">L1a、分辨率、时长、字幕<br>均通过</span></div>
+          </div>
+          <div class="status-line"><span>交付证书</span><b>4 / 6 已绑定</b></div>
+          <div class="transition"><div class="track"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i></div><p>新链路转场：17/21、18/22、19/21、28/30；探索期样本仍为硬切。</p></div>
+        </div>
+      </div>
+      <div class="bottom"><span>判断：质量可用，人工审片与返工仍是吞吐瓶颈</span><span><b>02</b> / 05</span></div>
+    </section>
+
+    <section class="slide" data-title="评价体系">
+      <div class="chrome"><span class="kicker">OpenMontage / Monthly Review</span><span class="meta">Evaluation Plane</span></div>
+      <h2>评价不再是一个总分，而是一组有证据的判断</h2>
+      <p class="lead">硬门、创意建议、人工确认和业务结果分层处理，避免用 VLM 高分掩盖事实错误或交付缺陷。</p>
+      <div class="layers">
+        <div class="ladder">
+          <div class="layer"><span class="index">L1</span><strong>技术与事实硬门</strong><span>黑帧 / 响度 / SKU / 价格</span></div>
+          <div class="layer"><span class="index">L2</span><strong>Grounding</strong><span>素材与卖点是否对应</span></div>
+          <div class="layer"><span class="index">L3</span><strong>Creative Quality</strong><span>Hook / 节奏 / 文字 / 画面</span></div>
+          <div class="layer"><span class="index">L4</span><strong>Human Approval</strong><span>方向与最终效果确认</span></div>
+          <div class="layer"><span class="index">L5</span><strong>Market Outcome</strong><span>留存 / CTR / CVR / GMV</span></div>
+        </div>
+        <div class="callout">
+          <h3>当前最重要的变化</h3>
+          <p>每个结论都绑定对象版本、媒体 hash、judge/rubric、证据位置和修复范围。评价从「说它好不好」变成「下一步应该改什么」。</p>
+          <div class="gold"><div><b>Gold</b><span>sheet-01 / 8.60</span></div><div><b>Silver</b><span>sheet-04 / 8.25</span></div><div><b>Bad</b><span>sheet-09 Hook / 6.0</span></div></div>
+          <div class="evaluation-note"><b>诚实边界：</b>线上播放、完播、CTR、CVR、GMV、ROI 仍是外部依赖；L3 目前是 advisory，不替代 L1a 和人工批准。</div>
+        </div>
+      </div>
+      <div class="bottom"><span>评价原则：数据不足不是通过，创意高分不能覆盖硬失败</span><span><b>03</b> / 05</span></div>
+    </section>
+
+    <section class="slide harness-slide" data-title="Harness 路线">
+      <div class="chrome"><span class="kicker">OpenMontage / Monthly Review</span><span class="meta">Video Generation Harness</span></div>
+      <h2>Harness：审批控制面已成形，增长外环待接入</h2>
+      <p class="lead">8 月完成了从生产状态到审批状态的收敛；9 月要把它推进到可规模化交付和可验证放大。</p>
+      <div class="harness-map">
+        <div class="harness-col">
+          <h3>已落地 / Inner Loop + 审批面</h3>
+          <div class="hnode active"><b>Trace</b><span>事件、成本、执行轨迹</span></div>
+          <div class="hnode active"><b>IR</b><span>script / scene / asset 结构化</span></div>
+          <div class="hnode active"><b>Eval</b><span>L1a / L3 / Gold Set / replay</span></div>
+          <div class="hnode active"><b>Repair</b><span>Hook、素材、字幕、节奏局部修复</span></div>
+          <div class="hnode active"><b>Candidate</b><span>差异轴、预算、候选选择</span></div>
+          <div class="hnode active"><b>Workbench</b><span>批量 / 单条审批、revision、异常恢复</span></div>
+        </div>
+        <div class="h-arrow">&rarr;</div>
+        <div class="harness-col">
+          <h3>9 月要完成 / Scale + Growth Outer Loop</h3>
+          <div class="hnode future"><b>Batch Runner</b><span>1 天 10 条、断点、失败隔离</span></div>
+          <div class="hnode future"><b>Traffic Pool</b><span>账号、平台、曝光与版本绑定</span></div>
+          <div class="hnode future"><b>Amplification Gate</b><span>10 条筛 2–3 条付费放大</span></div>
+          <div class="hnode future"><b>Flywheel</b><span>表现 → 失败标签 → 创意库更新</span></div>
+          <div class="hnode future"><b>Held-out / Canary</b><span>质量校准、实验和回滚</span></div>
+        </div>
+      </div>
+      <div class="roadmap">
+        <div class="step"><b>09 月 1：10 条 / 天</b><p>runner、素材池 12+、音频覆盖、交付版本和真实发布验收。</p></div>
+        <div class="step"><b>09 月 2：100–500W 曝光</b><p>账号连接、publication、24h/7d/30d 表现快照和 cohort 基线。</p></div>
+        <div class="step"><b>09 月 3：10 → 2–3 放大</b><p>质量门 + 有效曝光 + 业务指标 + 预算护栏，形成可回滚决策。</p></div>
+      </div>
+      <p class="verdict"><strong>当前定位：</strong>生产和审批已经可控；规模化吞吐、账号流量和付费放大仍需用真实业务数据证明。</p>
+      <div class="bottom"><span>路线：Trace &rarr; IR &rarr; Eval &rarr; Repair &rarr; Candidate &rarr; Market</span><span><b>04</b> / 05</span></div>
+    </section>
+
+    <section class="slide september-slide" data-title="九月进展">
+      <div class="chrome"><span class="kicker">OpenMontage / September Plan</span><span class="meta">2026.09 &middot; Growth Loop</span></div>
+      <h2>九月要交付四个结果，而不是再堆一层功能</h2>
+      <p class="lead">每个结果都有清晰的验收对象：可投放视频、可回溯曝光、可学习反馈、可解释的放大选择。</p>
+      <div class="sept-grid">
+        <article class="sept-card hot">
+          <h3>规模化生产</h3>
+          <div class="target">1 天 / 10 条 <span>可投放</span></div>
+          <p>生产定义为 delivery certificate + L1a pass + 样片人工通过，不以“生成了 10 个 MP4”计数。</p>
+          <div class="sept-state"><b>当前</b><span>5 条候选批次已证明吞吐；真实 runner 和 10 条发布验收待完成。</span></div>
+        </article>
+        <article class="sept-card cool">
+          <h3>账号流量池</h3>
+          <div class="target">100–500W <span>可回溯曝光</span></div>
+          <p>按平台、账号、内容类型、自然 / 付费分发记录每条 exact delivery version。</p>
+          <div class="sept-state"><b>当前</b><span>publication / performance snapshot 仍是外部依赖。</span></div>
+        </article>
+        <article class="sept-card cool">
+          <h3>内容增长飞轮</h3>
+          <div class="target">流量 → 内容 → 流量</div>
+          <p>24h/7d/30d 表现快照回写失败标签、Hook 机制和模板策略，再进入下一批剧本。</p>
+          <div class="sept-state done"><b>当前</b><span>研究、模板、评价、修复内环已成形；线上回流未闭合。</span></div>
+        </article>
+        <article class="sept-card hot">
+          <h3>今日付费放大</h3>
+          <div class="target">10 → 2–3 <span>候选</span></div>
+          <p>质量硬门、有效曝光、同 cohort 基线、预算和负反馈护栏共同决定，不把 VLM 分数当作 reward。</p>
+          <div class="sept-state"><b>当前</b><span>已有 1–2 条候选选择前置能力，线上放大门待接入。</span></div>
+        </article>
+      </div>
+      <div class="sept-flow">
+        <div class="box"><b>Hot / Trend</b><span>极速抓取，进入研究与创意库</span></div>
+        <div class="arrow">&rarr;</div>
+        <div class="box"><b>Retrieve-first</b><span>先复用素材，缺口才生成</span></div>
+        <div class="arrow">&rarr;</div>
+        <div class="box"><b>10 条生产</b><span>统一 QA、证书和版本</span></div>
+        <div class="arrow">&rarr;</div>
+        <div class="box"><b>投放 + 放大</b><span>表现回流下一轮创意</span></div>
+      </div>
+      <div class="sept-note"><b>月末判断：</b>如果没有准确绑定的曝光与转化数据，只能说“生产系统完成”，不能说“增长飞轮完成”。</div>
+      <div class="bottom"><span>九月主线：可投放产能 → 曝光池 → 反馈回流 → 付费放大</span><span><b>05</b> / 05</span></div>
+    </section>
+  </main>
+  <div class="hint">Arrow keys / click to navigate &middot; Home / End</div>
+  <script>
+    const slides = [...document.querySelectorAll('.slide')];
+    let index = 0;
+    function show(next) {
+      index = (next + slides.length) % slides.length;
+      slides.forEach((slide, i) => slide.classList.toggle('active', i === index));
+      document.title = `OpenMontage / ${slides[index].dataset.title}`;
+    }
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') show(index + 1);
+      if (event.key === 'ArrowLeft' || event.key === 'PageUp') show(index - 1);
+      if (event.key === 'Home') show(0);
+      if (event.key === 'End') show(slides.length - 1);
+    });
+    document.addEventListener('click', (event) => {
+      if (event.target.closest('a, button')) return;
+      show(index + 1);
+    });
+  </script>
+</body>
+</html>

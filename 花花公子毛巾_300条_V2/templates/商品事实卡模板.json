@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "example_only": true,
+  "product_family_id": "S08",
+  "source": {
+    "type": "user_provided_text",
+    "note": "本次对话给出的名称与参考价，不是实时商品系统核验"
+  },
+  "product_name_as_provided": "纯棉萌兔款",
+  "reference_price_cny": 49.9,
+  "platform_product_id": null,
+  "platform_sku_id": null,
+  "product_url": null,
+  "sale_price_cny": null,
+  "price_verified_at": null,
+  "in_stock": null,
+  "physical_facts": {
+    "fiber_composition": null,
+    "dimensions_cm": null,
+    "weight_g": null,
+    "pattern_photo_asset_id": null,
+    "package_contents": null,
+    "care_label_asset_id": null
+  },
+  "economic_facts": {
+    "expected_net_revenue_per_paid_order": null,
+    "variable_cost_per_paid_order": null,
+    "content_cost_per_paid_order": null,
+    "ad_fee_cap": null,
+    "target_contribution_margin": null,
+    "refund_maturity_rule": null,
+    "cost_scope_note": null
+  },
+  "claims": [
+    {
+      "claim_id": "C-S08-001",
+      "text": "[待核实的实物属性表述]",
+      "claim_type": "verifiable_attribute",
+      "source_evidence_ids": [],
+      "sku_scope": [],
+      "batch_scope": null,
+      "conditions": null,
+      "approval_status": "pending",
+      "approved_by": null,
+      "approved_at": null,
+      "expires_at": null
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "E-S08-001",
+      "type": "label_or_original_photo",
+      "asset_id": null,
+      "sku_scope": [],
+      "captured_at": null,
+      "test_conditions": null,
+      "repeat_count": null,
+      "review_status": "pending",
+      "reviewer": null
+    }
+  ],
+  "rights": {
+    "trademark_use_approved": null,
+    "pattern_animation_derivative_approved": null,
+    "person_voice_approved": null,
+    "commercial_music_approved": null,
+    "permitted_channels": [],
+    "territory": null,
+    "expires_at": null
+  },
+  "forbidden_unverified_claims": [
+    "更吸水",
+    "更柔软",
+    "抗菌/抑菌",
+    "婴幼儿或特殊皮肤适用",
+    "完全不掉毛",
+    "绝不缩水",
+    "不存在的礼盒/套装",
+    "未确认的图案角色延展"
+  ],
+  "release_gate": "只有SKU/事实/声明/权利/交易条件通过人工审批，才允许发布；未知字段不是0或默认通过",
+  "version": "v0.1",
+  "approved": false
+}
