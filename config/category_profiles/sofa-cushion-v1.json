@@ -1,0 +1,157 @@
+{
+  "version": "1.0",
+  "profile_id": "sofa-cushion-v1",
+  "category_id": "sofa_cushion",
+  "action_keys": [
+    "full_sofa_view",
+    "place_and_smooth",
+    "corner_flip",
+    "border_trace",
+    "texture_touch"
+  ],
+  "action_labels": {
+    "full_sofa_view": "沙发实铺全貌",
+    "place_and_smooth": "铺设并抚平",
+    "corner_flip": "掀角展示背面",
+    "border_trace": "沿包边展示细节",
+    "texture_touch": "触摸表面织纹"
+  },
+  "action_visible_results": {
+    "full_sofa_view": "坐垫、靠背与扶手上的覆盖范围及当前花色清楚可辨",
+    "place_and_smooth": "手部完成铺设或抚平，画面保留铺设后的边缘与整体状态",
+    "corner_flip": "同一块垫子的正反面在连续动作中可辨，背面颗粒形态清楚",
+    "border_trace": "手指沿实际包边移动，包边宽度、颜色与走向可辨",
+    "texture_touch": "触摸动作与表面织纹同框，织纹没有被生成过程改写"
+  },
+  "evidence_action_map": {
+    "whole_product": "full_sofa_view",
+    "placement": "place_and_smooth",
+    "backing": "corner_flip",
+    "border": "border_trace",
+    "weave": "texture_touch"
+  },
+  "evidence_requirements": {
+    "whole_product": {
+      "source_types": [
+        "owned_image",
+        "owned_video",
+        "product_page"
+      ],
+      "visible_result": "当前 SKU 的实铺全貌与颜色",
+      "sku_bound": true
+    },
+    "placement": {
+      "source_types": [
+        "owned_video",
+        "generated_video"
+      ],
+      "visible_result": "铺设或抚平的连续动作及落位结果",
+      "sku_bound": true
+    },
+    "backing": {
+      "source_types": [
+        "owned_image",
+        "owned_video",
+        "generated_video"
+      ],
+      "visible_result": "翻角后同一商品的背面颗粒可见；功能效果须另有实测证据",
+      "sku_bound": true
+    },
+    "border": {
+      "source_types": [
+        "owned_image",
+        "owned_video",
+        "generated_video"
+      ],
+      "visible_result": "包边与实物参考图一致",
+      "sku_bound": true
+    },
+    "weave": {
+      "source_types": [
+        "owned_image",
+        "owned_video",
+        "generated_video"
+      ],
+      "visible_result": "表面织纹与实物参考图一致",
+      "sku_bound": true
+    }
+  },
+  "allowed_structures": [
+    "P1",
+    "P2",
+    "P4",
+    "P6"
+  ],
+  "default_action": "full_sofa_view",
+  "direction_action_rules": {
+    "detail_first": {
+      "any_of": [
+        "corner_flip",
+        "border_trace",
+        "texture_touch"
+      ],
+      "message": "细节开头必须在画面中兑现背面、包边或织纹的具体观察点。"
+    },
+    "scene_first": {
+      "any_of": [
+        "full_sofa_view",
+        "place_and_smooth"
+      ],
+      "message": "场景开头必须交代同一商品在沙发上的覆盖关系。"
+    }
+  },
+  "forbidden_wording_defaults": [
+    "永不滑动",
+    "绝对不抓坏",
+    "永久抗菌"
+  ],
+  "transaction_cta_default": "核对沙发尺寸和颜色后选择",
+  "shot_timing": {
+    "raw_action_seconds": {
+      "min": 3.0,
+      "max": 5.0
+    },
+    "body_cut_seconds": {
+      "min": 1.8,
+      "max": 3.2
+    },
+    "default_raw_seconds": 4.0,
+    "by_structure": {
+      "P4": {
+        "body_cut_seconds": {
+          "min": 2.0,
+          "max": 3.5
+        }
+      }
+    }
+  },
+  "identity_checks": [
+    "当前 SKU 的花色、织纹、包边颜色和背面颗粒与参考图一致",
+    "坐垫、靠背、扶手的覆盖关系符合商品参考图，不凭空增加独立配件",
+    "不同颜色或系列不得在同一镜头中被误认为同一 SKU"
+  ],
+  "qa_checks": [
+    {
+      "id": "product_identity",
+      "label": "商品身份",
+      "review_instruction": "核对颜色、织纹、包边、背面与绑定的自家商品参考图一致。"
+    },
+    {
+      "id": "placement_geometry",
+      "label": "铺设关系",
+      "review_instruction": "核对沙发与垫子的比例、扶手和靠背覆盖位置，以及动作前后连续性。"
+    },
+    {
+      "id": "claim_evidence",
+      "label": "功能宣称",
+      "review_instruction": "防滑、耐磨、抗菌和母婴级等功能或检测数字，须由当前 SKU 的批准事实和对应证据支持；商品图中的字样不等于实测完成。"
+    }
+  ],
+  "review_guidance": {
+    "product_identity": "先核对当前 SKU 的系列、颜色、织纹、包边和背面，再判断生成画面是否为同一商品。",
+    "opening_motion": "开头三秒必须有可见的铺设、翻角、沿边或触摸动作和明确结果，不能用静态主图模拟运动。",
+    "opening_preview_fact": "只使用当前 SKU 已批准的描述；有争议的面料名、等级和检测数字保持禁用。"
+  },
+  "semantic_sha256": "ec5882507ed185ed67a7fde6e0c00aa44bf3a23fd38010e7edbce0ce04d39565",
+  "artifact_sha256": "b18fd99b9ae9f4fb32126c47f73b4c351e5e087657a6347c7c40a5f00d721238"
+}
