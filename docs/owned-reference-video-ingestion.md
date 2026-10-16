@@ -32,6 +32,6 @@
 
 实拍来源JSON：`kind:"owned_live_action"`、`owner_id:"user:…"`、`media_sha256`、`source_original_ref:{path,sha256}`、`ownership_authorization_ref:{path,sha256}`。所有权授权要求 `status:"approved"`、`approved_by` 与 `owner_id` 一致，并通过 `owned_source_sha256` 数组覆盖原片。裁片增加 `source_interval_seconds:[start,end]`、`transform_description`，媒体声明中的 `parent_media_ref` 必须与原片一致。
 
-将完整上传回执保存到项目受控运行数据，再把 `remote`、`availability` 绑定到同一媒体声明。签名链接不进入git、公开报告或控制台；过期后对同一哈希对象再次调用工具可重新签名和GET复验，不重新PUT。远端超时后下一次仍先HEAD；存储费用为待结算。桶ACL和策略属于独立配置，HEAD/GET成功不证明桶策略为私有，本工具不修改它们。
+将完整上传回执保存到项目受控运行数据，并把 `availability` 单独保存为JSON。媒体声明的 `remote` 使用回执中的URL和有效期，再增加 `availability_evidence_ref:{path,sha256}` 指向该JSON，供既有参考预检核对。签名链接不进入git、公开报告或控制台；过期后对同一哈希对象再次调用工具可重新签名和GET复验，不重新PUT。远端超时后下一次仍先HEAD；存储费用为待结算。桶ACL和策略属于独立配置，HEAD/GET成功不证明桶策略为私有，本工具不修改它们。
 
 官方接口依据：[TOS Python SDK](https://pypi.org/project/tos/)、[列桶](https://docs.volcengine.com/docs/TorchObjectStorage/ListbucketsPythonSDK?lang=en)、[文件上传](https://docs.volcengine.com/docs/TorchObjectStorage/OrdinaryuploadPythonSDK?lang=zh)。
