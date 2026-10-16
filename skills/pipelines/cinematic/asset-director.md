@@ -58,7 +58,7 @@ Before batch-generating support assets, produce one sample of each expensive gen
 
 If `motion_required = true`, the representative visual must be a video clip sample, not a still image sample.
 
-If rejected, adjust parameters and retry (max 3 iterations). Do not batch until approved.
+If rejected, propose the smallest repair and retry only within the approved lock's remaining amount and attempt limits (never exceed the general maximum of 3 iterations). Stop automatic retries when either limit is reached; unresolved required criteria remain failed/pending under `skills/meta/reviewer.md`. Do not batch until approved.
 
 Before the sample is generated, tell the user exactly which generation path will be used:
 

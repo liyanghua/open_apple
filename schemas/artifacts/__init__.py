@@ -31,6 +31,8 @@ ARTIFACT_NAMES = [
     "source_media_review",
     "final_review",
     "evaluation_report",
+    "shot_source_plan",
+    "shot_source_record",
     "delivery_review",
     "character_qa_report",
     "video_analysis_brief",
@@ -355,7 +357,19 @@ def validate_artifact(name: str, data: dict[str, Any], *, project_dir: Path | No
             raise jsonschema.ValidationError(
                 "research scorecard cannot pass below 8/10 or with unresolved checks"
             )
+    elif name == "shot_source_plan":
+        from lib.shot_source_contracts import validate_source_plan_semantics
+        try:
+            validate_source_plan_semantics(data)
+        except ValueError as exc:
+            raise jsonschema.ValidationError(str(exc)) from exc
     elif name == "evaluation_report":
+        if data.get("scope") == "source_clip":
+            from lib.shot_source_contracts import validate_source_evaluation_semantics
+            try:
+                validate_source_evaluation_semantics(data)
+            except ValueError as exc:
+                raise jsonschema.ValidationError(str(exc)) from exc
         hard_gate = data["hard_gate"]
         status = data["status"]
         fatal_failures = [

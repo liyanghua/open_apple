@@ -7,6 +7,7 @@ belong to the same approved version. It never submits a task or grants review.
 
 from __future__ import annotations
 
+from decimal import Decimal, localcontext
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -76,6 +77,8 @@ def validate_generation_gate(root: Path, packet: Mapping[str, Any]) -> dict[str,
     seen_keys: set[str] = set()
     seen_outputs: set[str] = set()
     ledger_path: Path | None = None
+    native_mode: bool | None = None
+    seen_reservations: set[str] = set()
     verified = []
     for row in items:
         inputs = _bound_json(root, row["generation_inputs_ref"])
@@ -85,10 +88,29 @@ def validate_generation_gate(root: Path, packet: Mapping[str, Any]) -> dict[str,
                              ("generate_audio", "generate_audio")):
             _require(inputs.get(name) == lock.get(locked), f"{row['slot_id']}: {name} differs from lock")
         _require(inputs.get("task_action") == "generate", "Pilot input is not a generation request")
+        native = bool(inputs.get("parent_budget_id") or str(inputs.get("reservation_id", "")).startswith("native_"))
+        _require(native_mode is None or native == native_mode, "Pilot cannot mix native and legacy ledgers")
+        native_mode = native
         _require(inputs.get("idempotency_key") and inputs.get("reservation_id")
-                 and inputs.get("cost_log_path") and inputs.get("task_journal_path"),
+                 and (native or inputs.get("cost_log_path")) and inputs.get("task_journal_path"),
                  "Pilot lacks reservation, journal or idempotency key")
-        current_ledger = _absolute_project_file(root, inputs["cost_log_path"])
+        if native:
+            _require(all(inputs.get(key) for key in ("project_dir", "parent_budget_id", "shot_id", "lineage_id")),
+                     "Pilot native budget lacks parent, shot or lineage identity")
+            _require(Path(inputs["project_dir"]).resolve() == root, "Pilot native parent budget project differs")
+            for name in ("parent_budget_id", "shot_id", "lineage_id"):
+                plan = inputs.get("shot_source_plan")
+                locked_identity = (inputs.get(name) == lock[name] if name in lock else (
+                    isinstance(plan, Mapping) and plan.get(name) == inputs.get(name)
+                    and (plan.get('dependencies') or {}).get('production_lock') == packet['lock_ref']))
+                _require(locked_identity,
+                    f"Pilot native {name} differs from production lock or source plan")
+            canonical = root / "artifacts/budgets/generation.json"
+            declared = Path(inputs.get("cost_log_path") or canonical)
+            _require(declared.resolve() == canonical, "Pilot native budget requires the canonical ledger")
+            current_ledger = _absolute_project_file(root, str(canonical))
+        else:
+            current_ledger = _absolute_project_file(root, inputs["cost_log_path"])
         _require(ledger_path is None or current_ledger == ledger_path,
                  "Pilot items use different cost ledgers")
         ledger_path = current_ledger
@@ -100,20 +122,60 @@ def validate_generation_gate(root: Path, packet: Mapping[str, Any]) -> dict[str,
                  "Pilot would duplicate a paid attempt or overwrite another source")
         seen_keys.add(key)
         seen_outputs.add(output)
+        _require(inputs["reservation_id"] not in seen_reservations, "Pilot would duplicate a paid reservation")
+        seen_reservations.add(inputs["reservation_id"])
         selected = {(_absolute_project_file(root, path), file_sha256(Path(path)))
                     for path in inputs.get("reference_image_paths") or []}
         _require(selected == references, f"{row['slot_id']}: product references differ from lock")
+        from lib.generation_references import preflight_generation_references
+        reference_preflight = preflight_generation_references(root, inputs,
+            reference_media=inputs.get("reference_media", lock.get("reference_media")),
+            remote_availability=bool(inputs.get("require_remote_availability", False)),
+            tool=lock["tool"], provider=lock["provider"])
+        _require(reference_preflight["valid"],
+                 f"{row['slot_id']}: reference provenance or authorization failed: "
+                 + ', '.join(issue['code'] for issue in reference_preflight['issues']))
         verified.append({"slot_id": row["slot_id"], "model": inputs["model"],
                          "idempotency_key": key, "reservation_id": inputs["reservation_id"],
-                         "source_output_path": output})
+                         "source_output_path": output, "native_budget": native,
+                         **{name: inputs.get(name) for name in ("parent_budget_id", "shot_id", "lineage_id",
+                                                               "request_id", "revision_id")}})
     ledger = read_object(root, ledger_path.relative_to(root).as_posix())
+    _require(ledger.get('ledger_kind') != 'native_generation' or native_mode,
+             "Pilot native generation ledger requires explicit parent budget identity")
     entries = ledger.get("entries") or []
-    _require(isinstance(entries, list) and len(entries) <= cap,
+    _require(isinstance(entries, list) and (native_mode or len(entries) <= cap),
              "Pilot ledger exceeds approved paid-submission count")
+    if native_mode:
+        _require(ledger.get("ledger_kind") == "native_generation", "Pilot native ledger kind differs")
+        try:
+            from lib.generation_budget import GenerationBudgetLedger
+            from lib.cost_persistence import ledger_lock
+            # Validate one coherent read without opening the write transaction
+            # used by CostTracker.snapshot_parent_budget.
+            with ledger_lock(ledger_path), localcontext() as context:
+                context.prec = 256
+                ledger = read_object(root, ledger_path.relative_to(root).as_posix())
+                store = GenerationBudgetLedger(root, declared_path=ledger_path)
+                store.validate(ledger)
+                entries = ledger['entries']
+                for parent_id in {item['parent_budget_id'] for item in verified}:
+                    parent = store.parent(ledger, parent_id)
+                    snapshot = store.summary(ledger, parent)
+                    _require(snapshot['paid_calls'] <= snapshot['max_paid_calls']
+                             and Decimal(snapshot['remaining_amount']) >= 0,
+                             "Pilot native parent budget exceeds its global amount or call limit")
+        except (ValueError, KeyError, TypeError) as exc:
+            raise PilotEvidenceError(f"Pilot native parent budget is invalid: {exc}") from exc
     for item in verified:
         matching = [entry for entry in entries if entry.get("id") == item["reservation_id"]]
         _require(len(matching) == 1, f"{item['slot_id']}: paid reservation differs from locked request")
         entry = matching[0]
+        if native_mode:
+            for name in ("parent_budget_id", "shot_id", "lineage_id", "request_id", "revision_id"):
+                _require(item.get(name) is None or item[name] == entry.get(name),
+                         f"{item['slot_id']}: native reservation {name} differs from locked request")
+            item['provider_task_id'] = entry.get('provider_task_id')
         _require(entry.get("tool") == lock["tool"] and entry.get("operation") == lock["operation"],
                  f"{item['slot_id']}: paid reservation differs from locked request")
         bound_key = entry.get("idempotency_key")
@@ -147,6 +209,10 @@ def validate_preview_evidence(root: Path, packet: Mapping[str, Any]) -> dict[str
         source = _bound_file(root, row["source_ref"])
         _require(generation.get("success") is True, f"{slot}: generation did not succeed")
         data = generation.get("data") or {}
+        budget_item = next(item for item in gate['items'] if item['slot_id'] == slot)
+        if budget_item.get('native_budget'):
+            _require(budget_item.get('provider_task_id') == data.get('task_id'),
+                     f"{slot}: native reservation task differs from generation receipt")
         _require(data.get("task_id") and data.get("model") == inputs["model"]
                  and data.get("operation") == inputs["operation"]
                  and str(data.get("provider", "")).casefold() == str(gate["provider"]).casefold(),

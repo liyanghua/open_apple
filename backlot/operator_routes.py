@@ -680,6 +680,19 @@ def create_operator_router(
             raise OperatorError.validation_failed("找不到此条成片的生产记录")
         return ReviewService(project_dir).create_production_review(record_path=entry["record_path"], submitted_by=session.actor.user_id)
 
+    @router.post("/projects/{project_id}/source-reviews/{shot_id}/{revision}/prepare")
+    async def prepare_source_review(project_id: str, shot_id: str, revision: str, request: Request) -> dict:
+        session = authenticate(request, project_id, "submit", csrf=True)
+        import re
+        if any(not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*", value) for value in (shot_id, revision)):
+            raise OperatorError.validation_failed("镜头或修订标识无效")
+        payload = await body(request)
+        return ReviewService(project(project_id)).create_source_clip_review(
+            record_path=f"artifacts/shot_sources/{shot_id}/{revision}/record.json",
+            purpose_id=str(payload.get("purpose_id") or ""), interval=payload.get("interval"),
+            submitted_by=session.actor.user_id,
+        )
+
     @router.post("/projects/{project_id}/opening-results")
     async def import_opening_result(project_id: str, request: Request) -> dict:
         session = authenticate(request, project_id, "edit", csrf=True)

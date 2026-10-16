@@ -4,7 +4,7 @@
 // 不含编辑器、草稿、版本历史或影响计算；技术字段只进入“查看制作记录”折叠区。
 // 数据全部来自现有 operator-state 投影与 review API
 // （script_editor / asset_review / sample_review / delivery_review 均为只读事实）。
-import { decideReview, prepareProductionReview, submitProductionReviewNote, importOpeningResult } from "./api.js";
+import { decideReview, prepareProductionReview, prepareSourceReview, submitProductionReviewNote, importOpeningResult } from "./api.js";
 import { parseBatchContext } from "./store.js";
 import {
   STAGE_LABELS,
@@ -1410,7 +1410,29 @@ export function renderProductionReviews(container, payload, options = {}) {
     card.dataset.structureId = item.content_structure?.structure_id || "";
     card.id = `production-card-${item.id}`;
     const previewOnly = item.review_kind === "opening_preview" || item.opening_group?.scope === "preview";
+    const sourceOnly = item.review_kind === "source_clip";
     card.append(node("h3", "approval-detail-group-title", `${item.id} · ${item.title}`));
+    if (sourceOnly) {
+      card.append(detailRow("审核范围", "原始动作源片的指定用途；预览与完整片另审"));
+      card.append(detailRow("原任务", `${item.original_purpose_id || '待核对'} · ${item.original_purpose_status || '待检查'}`));
+      card.append(detailRow("所审用途与选段", `${item.purpose_id || '待核对'} · ${(item.interval || []).join('–')} 秒`));
+      for (const requirement of item.requirements || []) {
+        const observation = (item.source_observations || []).find(row => row.id === requirement.id);
+        card.append(detailRow(requirement.description || requirement.id, `${observation?.effective_status || 'not_run'} · ${observation?.observed || '待检查'} · ${observation?.method || '未提供方法'}`));
+      }
+      for (const reference of item.references || []) {
+        if (!reference.url) continue;
+        if (reference.media_type !== "image") {
+          const link = node("a", "quiet-button", `查看参考：${(reference.roles || []).join('、')}`);
+          link.href = reference.url; link.target = "_blank"; link.rel = "noopener";
+          card.append(link); continue;
+        }
+        const image = node("img", "approval-reference-image");
+        image.src = reference.url; image.alt = `参考用途：${(reference.roles || []).join('、')}`;
+        image.loading = "lazy"; image.style.maxHeight = "180px"; image.style.maxWidth = "100%";
+        card.append(image);
+      }
+    }
     if (item.content_structure) {
       card.append(detailRow("内容结构", `${item.content_structure.structure_label} · ${item.content_structure.fit === 'P2_partial' || item.content_structure.fit === 'P6_partial' ? '原方案雏形' : '展示试点'}`));
       card.append(detailRow("与 300 条结构的关系", item.content_structure.planned_structure_relation));
@@ -1475,7 +1497,7 @@ export function renderProductionReviews(container, payload, options = {}) {
       }
     let seekReviewTime = null;
     if (item.video_url) {
-      const video = mediaVideo(item.video_url, null, `${item.id} ${previewOnly ? '开头预览' : '成片预览'}`);
+      const video = mediaVideo(item.video_url, null, `${item.id} ${sourceOnly ? '原始源片' : previewOnly ? '开头预览' : '成片预览'}`);
       let openingLoop = Boolean(item.opening_group);
       let mode = null;
       video.addEventListener("play", () => {
@@ -1510,7 +1532,7 @@ export function renderProductionReviews(container, payload, options = {}) {
     card.append(detailRow("人工审核", item.review_status));
     if (item.scope_error) card.append(detailRow("登记状态", item.scope_error));
     if (previewOnly) renderOpeningPreviewGuide(card, item);
-    else renderProductionCheckList(card, item, seekReviewTime);
+    else if (!sourceOnly) renderProductionCheckList(card, item, seekReviewTime);
     renderCategoryReviewGuide(card, item);
     const rawChecks = node("details", "approval-detail-group");
     rawChecks.append(node("summary", "", "查看机器检查原始状态"));
@@ -1568,8 +1590,8 @@ export function renderProductionReviews(container, payload, options = {}) {
         finally { submit.disabled = false; }
       });
       card.append(input, submit, status);
-      if ((item.review || item.final_review)?.status !== "approved" && item.review_kind !== null) {
-        const approve = node("button", "primary-button", previewOnly ? "确认开头预览反馈" : "验收当前成片");
+      if ((item.review || item.final_review)?.status !== "approved" && item.review_kind !== null && (!sourceOnly || item.review_allowed)) {
+        const approve = node("button", "primary-button", sourceOnly ? "确认本源片用途" : previewOnly ? "确认开头预览反馈" : "验收当前成片");
         const reject = node("button", "quiet-button", "退回修改");
         approve.type = reject.type = "button";
         const reasonChoice = node("select", "production-review-reason");
@@ -1582,10 +1604,10 @@ export function renderProductionReviews(container, payload, options = {}) {
           approve.disabled = reject.disabled = true;
           try {
             const currentReview = item.review || item.final_review;
-            const review = currentReview?.status === "awaiting_human" ? currentReview : await prepareProductionReview(projectId, item.id);
-            await decideReview(projectId, review.review_id, decision, input.value.trim() || (previewOnly ? "开头预览反馈通过" : "验收当前成片通过"), null,
+            const review = currentReview?.status === "awaiting_human" ? currentReview : sourceOnly ? await prepareSourceReview(projectId, item) : await prepareProductionReview(projectId, item.id);
+            await decideReview(projectId, review.review_id, decision, input.value.trim() || (sourceOnly ? "本源片用途通过" : previewOnly ? "开头预览反馈通过" : "验收当前成片通过"), null,
               review.subject_version, review.subject_hash, decision === "rejected" ? [reasonChoice.value] : null);
-            status.textContent = decision === "approved" ? (previewOnly ? "开头预览反馈已保存；未验收成片" : "当前版本已验收；检查证据仍按实际完成情况显示") : "已退回修改";
+            status.textContent = decision === "approved" ? (sourceOnly ? "本源片用途已批准；原任务结果保留，完整片另审" : previewOnly ? "开头预览反馈已保存；未验收成片" : "当前版本已验收；检查证据仍按实际完成情况显示") : "已退回修改";
             window.location.reload();
           } catch (error) {status.textContent=error.message || "验收未保存，请刷新后重试";approve.disabled=reject.disabled=false;}
         };
@@ -1845,6 +1867,7 @@ const STAGE_DETAIL_READERS = {
   // 成片
   final_video: renderMediaObjectDetail,
   production_reviews: renderProductionReviews,
+  source_reviews: renderProductionReviews,
   production_panorama: renderProductionPanorama,
   picture_sound: renderPictureSoundDetail,
   quality_conclusion: renderQualityConclusionDetail,

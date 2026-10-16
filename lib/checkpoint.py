@@ -646,6 +646,10 @@ def _validate_artifacts_for_stage(
                 f"Artifact {artifact_name!r} failed schema validation: {exc}"
             ) from exc
 
+    if (stage in {"sample", "compose", "publish"} and status in {"completed", "awaiting_human"}
+            and (validated_artifacts.get("evaluation_report") or {}).get("scope") == "source_clip"):
+        raise CheckpointValidationError("source_clip evaluation cannot complete a sample, compose or publish film gate")
+
     if (
         pipeline_type == "cinematic-fast"
         and stage in {"sample", "compose", "publish"}
@@ -665,6 +669,8 @@ def _validate_artifacts_for_stage(
                             f"publish gate: cannot read {filename}: {exc}"
                         ) from exc
                     break
+        if isinstance(evaluation, dict) and evaluation.get("scope") == "source_clip":
+            raise CheckpointValidationError("source_clip evaluation cannot supply a film completion gate")
         current_hashes: dict[str, str] = {}
         for canonical_name in ("script", "scene_plan", "shot_execution_plan", "final_props"):
             current = validated_artifacts.get(canonical_name)

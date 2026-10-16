@@ -2302,6 +2302,11 @@
             "narration_status": {
               "type": "string"
             },
+            "source_reviews": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/source_clip_review_item"},
+              "description": "按媒体版本和用途绑定的原始镜头审核；不计入成片"
+            },
             "subtitle_status": {
               "type": "string"
             },
@@ -3190,7 +3195,7 @@
             "production_reviews": {
               "type": "array",
               "items": {
-                "$ref": "#/$defs/production_review_item"
+                "oneOf": [{"$ref": "#/$defs/production_review_item"}, {"$ref": "#/$defs/source_clip_review_item"}]
               }
             },
             "production_panorama": {"type": "object", "required": ["campaign_id", "summary", "slots"]}
@@ -3852,6 +3857,19 @@
         "path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
         "version": {"type": "string"}, "seconds": {"type": "number"}
       }, "additionalProperties": false
+    },
+    "source_clip_review_item": {
+      "type": "object",
+      "required": ["id", "title", "review_kind", "review_allowed", "counts_as_film", "record_path"],
+      "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "review_kind": {"const": "source_clip"},
+        "review_allowed": {"type": "boolean"},
+        "counts_as_film": {"const": false},
+        "record_path": {"type": "string"}
+      },
+      "additionalProperties": true
     },
     "production_review_item": {
       "type": "object",

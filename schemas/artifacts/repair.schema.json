@@ -135,7 +135,7 @@
         },
         "scope": {
           "type": "string",
-          "enum": ["sample", "final"],
+          "enum": ["sample", "final", "preview", "full_variant", "source_clip"],
           "description": "该修复针对的评价 scope（sample/final）；RepairPlan 必须与该 scope 绑定"
         }
       },

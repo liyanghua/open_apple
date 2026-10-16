@@ -47,6 +47,12 @@ export async function prepareProductionReview(projectId, contentSlotId) {
   });
 }
 
+export async function prepareSourceReview(projectId, item) {
+  return call(`/api/v2/projects/${encodeURIComponent(projectId)}/source-reviews/${encodeURIComponent(item.shot_id)}/${encodeURIComponent(item.revision)}/prepare`, {
+    method: "POST", body: {purpose_id: item.purpose_id, interval: item.interval}, mutation: true,
+  });
+}
+
 export async function importOpeningResult(projectId, payload) {
   return call(`/api/v2/projects/${encodeURIComponent(projectId)}/opening-results`, {
     method: "POST", body: payload, mutation: true,

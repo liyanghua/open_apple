@@ -36,6 +36,16 @@ from tools.base_tool import (
 )
 
 
+class ArkProviderError(RuntimeError):
+    """Provider response identity, independent of settlement or retry policy."""
+
+    def __init__(self, message: str, *, http_status: int | None, code: str | None,
+                 request_id: str | None, task_id: str | None, task_creation: str):
+        super().__init__(message)
+        self.evidence = dict(http_status=http_status, code=code, request_id=request_id,
+                             task_id=task_id, task_creation=task_creation)
+
+
 class SeedanceArkVideo(BaseTool):
     """Generate Seedance 2.0 video through Volcengine Ark's official REST API."""
 
@@ -78,7 +88,12 @@ class SeedanceArkVideo(BaseTool):
 
     # Official 2026-07-26 on-demand prices, CNY per million completion tokens.
     PRICE_CNY_PER_MILLION = {
-        "2.5": {"without_video": {"720p": 70.0}},
+        "2.5": {
+            "without_video": {"720p": 70.0},
+            # CNY 0.042 / 1K tokens for 720p with reference video:
+            # https://docs.volcengine.com/docs/ark/seedance-2-0-model-resource-pack-rules
+            "with_video": {"720p": 42.0},
+        },
         "standard": {
             "without_video": {
                 "480p": 46.0,
@@ -192,6 +207,15 @@ class SeedanceArkVideo(BaseTool):
             "idempotency_key": {"type": "string", "description": "Stable logical attempt key; retrying queries the existing task."},
             "task_journal_path": {"type": "string", "description": "Shared account journal; defaults to ARK_TASK_JOURNAL_PATH or .cache/ark_generation_attempts.json."},
             "cost_log_path": {"type": "string"},
+            "project_dir": {"type": "string"},
+            "project_id": {"type": "string"},
+            "revision_id": {"type": "string"},
+            "parent_budget_id": {"type": "string"},
+            "shot_id": {"type": "string"},
+            "lineage_id": {"type": "string"},
+            "reference_media": {"type": "array", "items": {"type": "object"}},
+            "shot_source_plan": {"type": "object"},
+            "production_lock_ref": {"type": "object"},
             "reservation_id": {"type": "string"},
             "attempt_kind": {"type": "string", "enum": ["initial", "creative_retry", "judge_format_repair"], "default": "initial"},
             "parent_attempt_id": {"type": "string"},
@@ -543,10 +567,15 @@ class SeedanceArkVideo(BaseTool):
                         ),
                     }
                 )
+            result["parameter_valid"] = True
             result["valid"] = True
         except (TypeError, ValueError, OSError) as exc:
             result["valid"] = False
+            result["parameter_valid"] = False
             result["error"] = self._safe_error(exc)
+        if action not in {"query", "cancel"}:
+            result["reference_preflight"] = self._reference_preflight(inputs)
+            result["valid"] = result["valid"] and result["reference_preflight"]["valid"]
         return result
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
@@ -605,11 +634,23 @@ class SeedanceArkVideo(BaseTool):
                     concurrency_limit=int(inputs.get("concurrency_limit", 2)),
                     attempt_kind=str(inputs.get("attempt_kind", "initial")),
                     parent_attempt_id=inputs.get("parent_attempt_id"),
-                    metadata={k: inputs[k] for k in ("cost_log_path", "reservation_id") if inputs.get(k)},
+                    metadata={**{k: inputs[k] for k in ("cost_log_path", "reservation_id", "project_dir", "project_id", "revision_id",
+                              "parent_budget_id", "shot_id", "lineage_id", "shot_source_plan",
+                              "production_lock_ref") if inputs.get(k)},
+                              "model": payload["model"], "resolution": payload.get("resolution", "720p"),
+                              "operation": str(inputs.get("operation", "text_to_video")),
+                              "input_includes_video": bool(inputs.get("reference_video_url") or inputs.get("reference_video_urls")),
+                              "source_inputs_fingerprint": journal.fingerprint(inputs)},
                 )
                 if not is_new:
                     task_id = attempt.get("task_id")
                     if not task_id:
+                        if attempt.get("status") == "provider_rejected":
+                            return ToolResult(success=False, cost_usd=None, data={
+                                "attempt_id": attempt["attempt_id"], "status": "provider_rejected",
+                                "provider_error": attempt.get("provider_error"),
+                                "recovery_action": "review_provider_rejection"},
+                                error="Provider rejected this attempt; it will not be resubmitted")
                         return ToolResult(success=False, cost_usd=None, data={
                             "attempt_id": attempt["attempt_id"], "status": "submission_result_unknown",
                             "recovery_action": "resolve_remote_task_id"},
@@ -623,6 +664,7 @@ class SeedanceArkVideo(BaseTool):
                 attempt = attempt or journal.find_task(task_id, account=account)
                 if attempt:
                     inputs = self._bound_inputs(inputs, attempt)
+                    self._recover_native_task_binding(inputs, attempt, task_id)
                 task = self._query_task(task_id, api_key)
                 if requested_action == "generate" and task.get("status") not in self.TERMINAL_STATUSES:
                     task = self._poll_task(task_id, api_key, inputs)
@@ -637,7 +679,8 @@ class SeedanceArkVideo(BaseTool):
                                       error=f"Ark Seedance task {task.get('status', 'unknown')}")
                 return ToolResult(
                     success=True,
-                    data={"task": task, **accounting, **({"attempt_id": attempt["attempt_id"]} if attempt else {})},
+                    data={"task": task, "model": task.get("model"), **accounting,
+                          **(self._attempt_receipt(inputs, attempt) if attempt else {})},
                     cost_usd=None,
                     model=task.get("model"),
                 )
@@ -653,11 +696,18 @@ class SeedanceArkVideo(BaseTool):
                     },
                 )
 
+            reference_preflight = self._reference_preflight(inputs)
+            if not reference_preflight["valid"]:
+                journal.mark_result(attempt["attempt_id"], "preflight_rejected")
+                return ToolResult(success=False, cost_usd=0.0,
+                    data={"status": "preflight_rejected", "reference_preflight": reference_preflight},
+                    error="Reference provenance or authorization preflight failed")
             self._bind_reservation(inputs, attempt)
             submission_started = True
             journal.mark_submission_started(attempt["attempt_id"])
             task_id = self._create_task(payload, api_key)
             journal.mark_submitted(attempt["attempt_id"], task_id)
+            attempt = {**attempt, "task_id": task_id}
             self._bind_reservation(inputs, attempt, task_id=task_id)
             model = str(payload["model"])
             if action == "create":
@@ -672,6 +722,7 @@ class SeedanceArkVideo(BaseTool):
                         "estimated_cost_cny": self.estimate_cost_cny(inputs),
                         "provider": self.provider,
                         "model": model,
+                        **self._attempt_receipt(inputs, attempt),
                     },
                     cost_usd=None,
                     model=model,
@@ -701,11 +752,24 @@ class SeedanceArkVideo(BaseTool):
             return self._completed_result(task, inputs, started, accounting, attempt, payload=payload)
         except Exception as exc:
             error_data: dict[str, Any] = {}
+            provider_error = None
+            if isinstance(exc, ArkProviderError):
+                provider_error = {k: self._safe_error(RuntimeError(v), api_key) if isinstance(v, str) else v
+                                  for k, v in exc.evidence.items()}
+                if (submission_started and not task_id and provider_error.get("task_id")
+                        and journal and attempt):
+                    task_id = provider_error["task_id"]
+                    journal.mark_submitted(attempt["attempt_id"], task_id)
             if attempt and journal:
-                journal.mark_result(attempt["attempt_id"], "submitted_result_unknown" if task_id else (
-                    "submission_result_unknown" if submission_started else "preflight_rejected"))
+                rejected = submission_started and not task_id and provider_error and provider_error["task_creation"] == "not_created"
+                journal.mark_result(attempt["attempt_id"], "provider_rejected" if rejected else (
+                    "submitted_result_unknown" if task_id else (
+                    "submission_result_unknown" if submission_started else "preflight_rejected")),
+                    provider_error=provider_error)
                 error_data = {"attempt_id": attempt["attempt_id"], "status": "submission_result_unknown",
                               "recovery_action": "resolve_remote_task_id"}
+                if rejected:
+                    error_data.update(status="provider_rejected", recovery_action="review_provider_rejection")
             if task_id:
                 error_data = {
                     **error_data,
@@ -717,6 +781,8 @@ class SeedanceArkVideo(BaseTool):
                 error_data = {"task_id": str(inputs["task_id"])}
             if attempt and not task_id and not submission_started:
                 error_data.update(status="preflight_rejected", recovery_action="repair_preflight")
+            if provider_error is not None:
+                error_data["provider_error"] = provider_error
             return ToolResult(
                 success=False,
                 data=error_data,
@@ -742,6 +808,7 @@ class SeedanceArkVideo(BaseTool):
         self._download_video(str(video_url), output_path)
 
         from tools.video._shared import probe_output
+        from lib.production_evidence import file_sha256
 
         probed = probe_output(output_path)
         return ToolResult(
@@ -764,6 +831,9 @@ class SeedanceArkVideo(BaseTool):
                 "generate_audio": task.get("generate_audio"),
                 "usage": task.get("usage") or {},
                 "attempt_id": attempt["attempt_id"],
+                "media_sha256": file_sha256(output_path),
+                "account_fingerprint": attempt["account"],
+                **self._attempt_receipt(inputs, attempt),
                 **accounting,
                 **probed,
             },
@@ -777,7 +847,11 @@ class SeedanceArkVideo(BaseTool):
     def _bound_inputs(inputs: dict[str, Any], attempt: dict[str, Any]) -> dict[str, Any]:
         """A task's ledger association is immutable after its first submission."""
         metadata = attempt.get("metadata") or {}
-        for key in ("cost_log_path", "reservation_id"):
+        for key in ("cost_log_path", "reservation_id", "project_dir", "project_id", "revision_id",
+                    "parent_budget_id", "shot_id", "lineage_id", "shot_source_plan", "production_lock_ref",
+                    "model", "resolution", "operation", "input_includes_video", "source_inputs_fingerprint"):
+            if key in {"model", "resolution", "operation", "input_includes_video"} and key not in metadata:
+                continue  # Historical journals predate the optional receipt bindings.
             if key in inputs:
                 value, expected = inputs.get(key), metadata.get(key)
                 if key == "cost_log_path" and value and expected:
@@ -788,16 +862,82 @@ class SeedanceArkVideo(BaseTool):
             raise ValueError("cannot override bound task attempt_id")
         return {**inputs, **metadata}
 
-    def _bind_reservation(self, inputs: dict[str, Any], attempt: dict[str, Any], *, task_id: str | None = None) -> None:
-        if not inputs.get("cost_log_path") or not inputs.get("reservation_id"):
-            raise ValueError("paid generation requires cost_log_path and reservation_id")
-        if inputs.get("cost_log_path"):
-            from tools.cost_tracker import CostTracker
-            tracker = CostTracker(cost_log_path=Path(inputs["cost_log_path"]))
+    def _attempt_receipt(self, inputs: dict[str, Any], attempt: dict[str, Any]) -> dict[str, Any]:
+        """Expose persisted production identity, never recompute it from a GET."""
+        metadata = attempt.get("metadata") or {}
+        plan = metadata.get("shot_source_plan") or {}
+        request_id = None
+        if metadata.get("parent_budget_id"):
+            request_id = self._cost_tracker({**inputs, **metadata}).get_native_entry(
+                str(metadata["reservation_id"]))["request_id"]
+        return {"attempt_id": attempt["attempt_id"], "task_id": attempt.get("task_id"),
+                "provider": self.provider,
+                "account_fingerprint": attempt["account"],
+                "idempotency_key": attempt["idempotency_key"],
+                "request_fingerprint": attempt["request_fingerprint"],
+                "source_inputs_fingerprint": metadata.get("source_inputs_fingerprint"),
+                "request_id": request_id, "project_id": metadata.get("project_id") or plan.get("project_id"),
+                "revision": metadata.get("revision_id") or plan.get("revision"),
+                **{key: metadata.get(key) for key in ("shot_id", "parent_budget_id", "lineage_id")}}
+
+    def _recover_native_task_binding(self, inputs: dict[str, Any], attempt: dict[str, Any], task_id: str) -> None:
+        """Repair only a journal-proven crash after the original budget bind."""
+        if not inputs.get("parent_budget_id"):
+            return
+        tracker = self._cost_tracker(inputs)
+        entry = tracker.get_native_entry(str(inputs["reservation_id"]))
+        expected = {"attempt_id": attempt["attempt_id"], "idempotency_key": attempt["idempotency_key"],
+                    "tool": self.name, "operation": str(inputs.get("operation") or entry["operation"]),
+                    **{key: inputs[key] for key in ("parent_budget_id", "shot_id", "lineage_id")}}
+        if (attempt.get("task_id") != task_id or any(entry.get(key) != value for key, value in expected.items())
+                or entry.get("provider_task_id") not in {None, task_id}):
+            raise ValueError("native recovery requires the original journal and reservation binding")
+        if entry.get("provider_task_id") is None:
+            # The original money/tool/operation check already succeeded before
+            # POST. Recovery only repairs task identity, without re-estimating
+            # a historical request from incomplete GET parameters.
             tracker.bind_submission(str(inputs["reservation_id"]), tool=self.name,
+                attempt_id=attempt["attempt_id"], idempotency_key=attempt["idempotency_key"],
+                task_id=task_id, operation=entry["operation"])
+
+    @staticmethod
+    def _reference_preflight(inputs: dict[str, Any]) -> dict[str, Any]:
+        from lib.generation_references import preflight_generation_references
+        return preflight_generation_references(Path(inputs.get("project_dir") or Path.cwd()), inputs,
+            tool="seedance_ark", provider="ark",
+            remote_availability=bool(inputs.get("require_remote_availability", False)))
+
+    def _bind_reservation(self, inputs: dict[str, Any], attempt: dict[str, Any], *, task_id: str | None = None) -> None:
+        native = bool(inputs.get("parent_budget_id") or str(inputs.get("reservation_id", "")).startswith("native_")
+                      or inputs.get("shot_source_plan"))
+        if not inputs.get("reservation_id") or (not native and not inputs.get("cost_log_path")):
+            raise ValueError("paid generation requires cost_log_path and reservation_id")
+        tracker = self._cost_tracker(inputs)
+        if native:
+            tracker.assert_reserved(str(inputs["reservation_id"]), self.name,
+                str(inputs.get("operation", "text_to_video")),
+                currency="CNY",
+                **{key: inputs[key] for key in ("parent_budget_id", "shot_id", "lineage_id")})
+        tracker.bind_submission(str(inputs["reservation_id"]), tool=self.name,
                                     attempt_id=attempt["attempt_id"], idempotency_key=attempt["idempotency_key"],
                                     task_id=task_id, operation=str(inputs.get("operation", "text_to_video")),
-                                    minimum_usd=self.estimate_cost(inputs), minimum_cny=self.estimate_cost_cny(inputs))
+                                    minimum_usd=None if native else self.estimate_cost(inputs),
+                                    minimum_cny=self.estimate_cost_cny(inputs))
+
+    @staticmethod
+    def _cost_tracker(inputs: dict[str, Any]):
+        from tools.cost_tracker import CostTracker
+        native = bool(inputs.get("parent_budget_id") or str(inputs.get("reservation_id", "")).startswith("native_")
+                      or inputs.get("shot_source_plan"))
+        if native:
+            if not all(inputs.get(key) for key in ("project_dir", "parent_budget_id", "shot_id", "lineage_id")):
+                raise ValueError("source generation requires project_dir, parent_budget_id, shot_id and lineage_id")
+            root = Path(inputs["project_dir"]).resolve()
+            canonical = root / "artifacts/budgets/generation.json"
+            if inputs.get("cost_log_path") and Path(inputs["cost_log_path"]).resolve() != canonical:
+                raise ValueError("parent budget requires the canonical generation ledger")
+            return CostTracker(project_dir=root)
+        return CostTracker(cost_log_path=Path(inputs["cost_log_path"]))
 
     def reconcile_task(self, task: dict[str, Any], inputs: dict[str, Any]) -> dict[str, Any]:
         """Account for a query receipt, with no API call and no currency guessing."""
@@ -814,10 +954,14 @@ class SeedanceArkVideo(BaseTool):
                   "estimated_cost_cny": amount, "provider_billing_status": "unconfirmed",
                   "settlement_provenance": provenance,
                   "cost_estimate_status": "catalog_estimate_from_usage" if estimate else "unknown_custom_model_or_missing_usage"}
-        if (task.get("status") in self.TERMINAL_STATUSES and inputs.get("cost_log_path")
+        if (task.get("status") in self.TERMINAL_STATUSES and (inputs.get("cost_log_path") or inputs.get("parent_budget_id"))
                 and inputs.get("reservation_id")):
-            from tools.cost_tracker import CostTracker
-            tracker = CostTracker(cost_log_path=Path(inputs["cost_log_path"]))
+            tracker = self._cost_tracker(inputs)
+            if inputs.get("parent_budget_id"):
+                entry = tracker.get_native_entry(str(inputs["reservation_id"]))
+                if (entry.get("provider_task_id") != task.get("id") or
+                        any(entry.get(key) != inputs.get(key) for key in ("parent_budget_id", "shot_id", "lineage_id"))):
+                    raise ValueError("native task accounting requires the original task and parent lineage binding")
             tracker.reconcile(str(inputs["reservation_id"]), actual_usd=None,
                               success=task.get("status") == "succeeded", usage=task.get("usage") or {},
                               catalog_estimate=estimate, provider_status=task.get("status"),
@@ -1398,10 +1542,18 @@ class SeedanceArkVideo(BaseTool):
             json=payload,
             timeout=30,
         )
-        self._raise_for_status(response)
-        data = response.json()
-        task_id = data.get("id")
-        self._validate_task_id(task_id)
+        self._raise_for_status(response, creating=True)
+        try:
+            data = response.json()
+            if not isinstance(data, dict):
+                raise ValueError("Ark creation returned a non-object response")
+            task_id = data.get("id")
+            self._validate_task_id(task_id)
+        except (ValueError, TypeError) as exc:
+            headers = getattr(response, "headers", {}) or {}
+            raise ArkProviderError(str(exc), http_status=getattr(response, "status_code", None),
+                code=None, request_id=headers.get("X-Request-Id") or headers.get("X-Tt-Logid"),
+                task_id=None, task_creation="unknown") from exc
         return str(task_id)
 
     def _query_task(self, task_id: str, api_key: str) -> dict[str, Any]:
@@ -1492,14 +1644,16 @@ class SeedanceArkVideo(BaseTool):
             raise ValueError("task_id is missing or invalid")
 
     @staticmethod
-    def _raise_for_status(response: Any) -> None:
+    def _raise_for_status(response: Any, *, creating: bool = False) -> None:
         try:
             response.raise_for_status()
         except Exception as exc:
             detail = ""
+            payload, error = {}, {}
             try:
                 payload = response.json()
-                error = payload.get("error") if isinstance(payload, dict) else None
+                payload = payload if isinstance(payload, dict) else {}
+                error = payload.get("error") or {}
                 if isinstance(error, dict):
                     detail = ": ".join(
                         str(error.get(key))
@@ -1508,7 +1662,21 @@ class SeedanceArkVideo(BaseTool):
                     )
             except Exception:
                 pass
-            raise RuntimeError(f"{exc}" + (f"; {detail}" if detail else "")) from exc
+            error = error if isinstance(error, dict) else {}
+            task_id = payload.get("id") or payload.get("task_id") or error.get("task_id")
+            if not SeedanceArkVideo.TASK_ID_PATTERN.fullmatch(str(task_id or "")):
+                task_id = None
+            status = getattr(response, "status_code", None)
+            code = error.get("code")
+            # Only a structured request rejection confirms non-creation. An
+            # intermediary/5xx or malformed response leaves the POST uncertain.
+            not_created = creating and status in {400, 401, 403, 404, 422} and bool(code) and not task_id
+            headers = getattr(response, "headers", {}) or {}
+            request_id = payload.get("request_id") or error.get("request_id") or headers.get("X-Request-Id") or headers.get("X-Tt-Logid")
+            raise ArkProviderError(f"{exc}" + (f"; {detail}" if detail else ""),
+                http_status=status, code=str(code) if code else None,
+                request_id=str(request_id) if request_id else None, task_id=task_id,
+                task_creation="created" if task_id else ("not_created" if not_created else "unknown")) from exc
 
     @staticmethod
     def _task_error(task: dict[str, Any]) -> str:

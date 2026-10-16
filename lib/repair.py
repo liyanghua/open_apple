@@ -192,6 +192,7 @@ def repairs_from_evaluation_report(
     *,
     production_lock_hash: str,
     rework_round: int = 1,
+    evaluation_report_path: str | None = None,
 ) -> list[dict[str, Any]]:
     """P1-3 修复执行器：把 evaluation_report.repair_targets 转成 sealed repair 制品。
 
@@ -206,10 +207,17 @@ def repairs_from_evaluation_report(
     repairs: list[dict[str, Any]] = []
     # 绑定评价 scope/subject_hash：RepairPlan 必须指向它实际针对的 sample/final 评价。
     eval_scope = str(evaluation_report.get("scope") or "final")
-    eval_path = (
-        "artifacts/evaluation_report.final.json" if eval_scope == "final"
-        else "artifacts/evaluation_report.sample.json"
-    )
+    if eval_scope == "source_clip":
+        from lib.shot_source_contracts import source_artifact_path
+        review = evaluation_report.get("source_review") or {}
+        expected = source_artifact_path(review.get("shot_id"), review.get("revision"), "evaluation")
+        if evaluation_report_path != expected:
+            raise ValueError("source_clip repair requires explicit original evaluation path")
+        eval_path = expected
+    elif eval_scope in {"sample", "final", "preview", "full_variant"}:
+        eval_path = evaluation_report_path or f"artifacts/evaluation_report.{eval_scope}.json"
+    else:
+        raise ValueError(f"Unknown evaluation scope: {eval_scope}")
     eval_ref: dict[str, Any] = {
         "name": "evaluation_report",
         "path": eval_path,
@@ -245,6 +253,8 @@ def repairs_from_evaluation_report(
         rerun_scope = str(target.get("rerun_scope") or "")
         # shorten_shot 会移动时间轴，必须 full_render；其余按 rerun_scope 映射。
         render_route = None if action == "shorten_shot" else _scope_to_route(rerun_scope)
+        if eval_scope == "source_clip":
+            render_route = "no_render"
         note_parts: list[str] = []
         if target.get("upstream_stage"):
             note_parts.append(f"upstream_stage={target['upstream_stage']}")

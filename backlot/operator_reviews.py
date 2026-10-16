@@ -105,6 +105,7 @@ class ReviewService:
         approval_scope: str | None = None,
         approval_subject_hashes: list[str] | None = None,
         production_subject: dict[str, Any] | None = None,
+        source_subject: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Stage a review inside the producer's existing project transaction."""
         review_id = (
@@ -131,10 +132,13 @@ class ReviewService:
         if kind in {"final_review", "opening_preview"}:
             self._validate_production_subject(production_subject, subject_hash, subject_id, kind=kind)
             review["production_subject"] = production_subject
+        if kind == "source_clip":
+            self._validate_source_subject(source_subject, subject_hash, subject_id)
+            review["source_subject"] = source_subject
         self._validate(review)
         for current in self.list():
             if (current.get("kind") == kind and current.get("status") == "awaiting_human"
-                    and (kind not in {"final_review", "opening_preview"} or current.get("subject_id") == subject_id)):
+                    and (kind not in {"final_review", "opening_preview", "source_clip"} or current.get("subject_id") == subject_id)):
                 superseded = dict(current)
                 superseded.update(
                     status="superseded",
@@ -194,6 +198,7 @@ class ReviewService:
         approval_scope: str | None = None,
         approval_subject_hashes: list[str] | None = None,
         production_subject: dict[str, Any] | None = None,
+        source_subject: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         with self.store.transaction(
             action={"action_id": f"create-{kind}-{subject_id}", "type": "create_review"},
@@ -210,8 +215,36 @@ class ReviewService:
                 approval_scope=approval_scope,
                 approval_subject_hashes=approval_subject_hashes,
                 production_subject=production_subject,
+                source_subject=source_subject,
             )
         return review
+
+    def _validate_source_subject(self, subject: Any, expected_hash: str, subject_id: str) -> None:
+        from lib.shot_source_contracts import source_subject_hash, verify_source_subject
+
+        if (not isinstance(subject, dict) or subject.get("content_slot_id") != subject_id
+                or source_subject_hash(subject) != expected_hash
+                or not verify_source_subject(self.project_dir, subject)):
+            raise OperatorError("review_stale", "源片、镜头要求或所审用途已变化，请重新提交审核", 409)
+
+    def create_source_clip_review(self, *, record_path: str, purpose_id: str,
+                                  submitted_by: str, interval: list[float] | None = None) -> dict[str, Any]:
+        from lib.shot_source_contracts import build_source_subject, source_subject_hash
+
+        try:
+            subject = build_source_subject(self.project_dir, record_path, purpose_id, interval)
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            raise OperatorError.validation_failed("源片依据不完整、版本已变化或所选用途未满足，请核对后提交") from exc
+        digest = source_subject_hash(subject)
+        previous = [r for r in self.list() if r.get("kind") == "source_clip"
+                    and r.get("subject_id") == subject["content_slot_id"]]
+        latest = max(previous, key=lambda r: r.get("subject_version", 0), default=None)
+        if latest and latest.get("subject_hash") == digest and latest.get("status") in {"approved", "awaiting_human"}:
+            self._validate_source_subject(latest.get("source_subject"), digest, subject["content_slot_id"])
+            return latest
+        return self.create(kind="source_clip", subject_id=subject["content_slot_id"],
+                           subject_version=int((latest or {}).get("subject_version", 0)) + 1,
+                           subject_hash=digest, submitted_by=submitted_by, source_subject=subject)
 
     def _validate_production_subject(self, subject: Any, expected_hash: str, subject_id: str, *, kind: str) -> None:
         from lib.production_evidence import production_subject_hash, verify_production_subject
@@ -451,6 +484,11 @@ class ReviewService:
         batch_decision: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         initial = self._find(review_id)
+        if initial.get("kind") == "source_clip":
+            if initial.get("subject_version") != expected_version or initial.get("subject_hash") != expected_hash:
+                raise OperatorError("review_stale", "待确认源片版本已变化", 409)
+            if decision == "approved":
+                self._validate_source_subject(initial.get("source_subject"), expected_hash, initial["subject_id"])
         if initial.get("kind") in {"final_review", "opening_preview"}:
             if initial.get("subject_version") != expected_version or initial.get("subject_hash") != expected_hash:
                 raise OperatorError("review_stale", "待确认成片版本已变化", 409)
@@ -484,6 +522,8 @@ class ReviewService:
                 audit={"event_type": f"review_{decision}", "actor_id": actor_id},
             ) as sink:
                 review = self._find(review_id)
+                if review.get("kind") == "source_clip" and decision == "approved":
+                    self._validate_source_subject(review.get("source_subject"), expected_hash, review["subject_id"])
                 if review.get("kind") in {"final_review", "opening_preview"} and decision == "approved":
                     self._validate_production_subject(review.get("production_subject"), expected_hash, review["subject_id"], kind=review["kind"])
                 if review.get("status") == decision:
@@ -532,14 +572,14 @@ class ReviewService:
                             sink=sink,
                         )
                 stage = (
-                    "compose" if review["kind"] in {"final_review", "opening_preview"}
+                    "compose" if review["kind"] in {"final_review", "opening_preview", "source_clip"}
                     else "assets" if review["kind"] == "creative_lock"
                     else "sample" if review["kind"] == "sample"
                     else "script"
                 )
                 checkpoint_path = self.project_dir / f"checkpoint_{stage}.json"
                 checkpoint = None
-                if checkpoint_path.exists() and review["kind"] not in {"final_review", "opening_preview"}:
+                if checkpoint_path.exists() and review["kind"] not in {"final_review", "opening_preview", "source_clip"}:
                     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
                 cleanup_only = (
                     review.get("kind") == "creative_lock"

@@ -4,6 +4,8 @@
 
 ## 版本与绑定
 
+2026-10-16镜头级扩展见[通用能力实施方案](superpowers/plans/2026-10-16-shot-production-generalization.md)。沙发垫新增 `config/category_profiles/sofa-cushion-v2.json`，补尺度、接触与构图承诺核看；v1保留原字节，历史审批继续绑定v1，新生产锁显式选择v2。源片按镜头／修订／用途审核，局部用途通过不替代原全貌任务或完整片审批。
+
 新计划、内容配方、模板运行计划和单条生产记录使用 `1.1`。每份文件的 `category_profile_ref` 包含 `path`、`profile_id`、`category_id`、`version`、`artifact_sha256`。路径只允许项目内 `artifacts/` 或仓库的 `config/category_profiles/`，读取时核对内容哈希和身份。`production_record` 还须绑定带文件 SHA-256 的 `fact_snapshot_ref` 与 `brand_profile_ref`；最终审核的依赖闭包包含品类配置的实际文件字节。任一事实、品牌、品类配置或成片版本改变，旧审核不再对新版本有效。
 
 现有毛巾 `1.0` 记录继续按原格式读取；其动作词表及证据映射已收进 [毛巾品类配置](../config/category_profiles/towel-v1.json)。旧记录不补造 `1.1` 字段或历史审批。新记录缺少品类引用时直接阻断，未知品类的证据不能回退到毛巾动作。展示类毛巾主体剪入时长维持已批准的 1.8–2.6 秒；不同内容结构要在配置中明确声明自己的范围。

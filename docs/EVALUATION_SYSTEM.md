@@ -4,6 +4,7 @@
 > 基线日期：2026-08-25
 > 适用范围：OpenMontage 全部视频生产 pipeline、Backlot 审核台、批量候选与后续质量优化
 > 文档角色：评价体系统一入口。历史设计稿保留论证和演进记录；发生冲突时，以代码、schema、pipeline manifest 和本文件标注的“当前实现边界”为准。
+> 2026-10-16 补充：镜头级通用能力已在独立研发分支接入，实施与验证记录见[镜头生产升级方案](superpowers/plans/2026-10-16-shot-production-generalization.md)。下述历史基线不等于该分支已合并到主干。
 
 ## 1. 目标与边界
 
@@ -88,6 +89,12 @@ OpenMontage 的评价体系不是一个“视频总分”，而是一组分层�
 在线上业务评价中，样本不足也必须单列为 `insufficient_data`，不能按业务失败或成功结算。
 
 ## 3. 评价架构
+
+### 原始镜头补充：`source_clip`
+
+原始镜头使用 `artifacts/shot_sources/<shot_id>/<revision>/` 下的计划、评价和记录，并通过独立的源片用途审核。技术检查、原用途兑现、候选用途和人工审批分别保存；例如全貌失败、局部轻抚合格可同时成立。商品身份等全用途要求不能被改用途绕开。源片报告不能完成 sample、compose 或 publish 门，也不计入完整作品数量。
+
+达到批准的重试或预算上限只停止重试，不将未解决的关键问题转为通过。审核必须说明实际使用完整回放还是抽帧证据；无声原始素材的声音项不适用，但完整片必要声音检查缺失仍为未完成。使用[源片验收卡](templates/shot-source-review-card.md)及[迭代对照卡](templates/shot-iteration-comparison-card.md)记录，不用一个总分抵消原用途硬失败。
 
 ### 3.1 阶段级 Agent 自评
 

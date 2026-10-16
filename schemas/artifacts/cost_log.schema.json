@@ -2,289 +2,588 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "openmontage/artifacts/cost_log",
   "title": "Cost Log",
-  "description": "USD budget commitments, provider usage, original-currency catalog estimates and nullable invoiced settlement.",
-  "type": "object",
-  "required": [
-    "version",
-    "entries"
+  "description": "Legacy USD governance and canonical native-currency parent/child generation budgets; amounts and settlement evidence remain separate.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/legacy"
+    },
+    {
+      "$ref": "#/$defs/native"
+    }
   ],
-  "properties": {
-    "version": {
-      "type": "string",
-      "enum": [
-        "1.0",
-        "1.1"
-      ]
-    },
-    "budget_total_usd": {
-      "type": "number",
-      "minimum": 0
-    },
-    "budget_reserved_usd": {
-      "type": "number",
-      "minimum": 0
-    },
-    "budget_spent_usd": {
-      "type": "number",
-      "minimum": 0
-    },
-    "entries": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": [
-          "id",
-          "tool",
-          "operation",
-          "status",
-          "timestamp"
-        ],
-        "properties": {
-          "id": {
+  "$defs": {
+    "legacy": {
+      "type": "object",
+      "required": [
+        "version",
+        "entries"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "enum": [
+            "1.0",
+            "1.1"
+          ]
+        },
+        "budget_total_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "budget_reserved_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "budget_spent_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "tool",
+              "operation",
+              "status",
+              "timestamp"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "estimated",
+                  "reserved",
+                  "completed",
+                  "failed",
+                  "refunded"
+                ]
+              },
+              "estimated_usd": {
+                "type": "number",
+                "minimum": 0
+              },
+              "reserved_usd": {
+                "type": "number",
+                "minimum": 0
+              },
+              "actual_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "details": {
+                "type": "string"
+              },
+              "actual_cost": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "required": [
+                  "amount",
+                  "currency"
+                ],
+                "properties": {
+                  "amount": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "catalog_estimate": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "required": [
+                  "amount",
+                  "currency"
+                ],
+                "properties": {
+                  "amount": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "budget_currency": {
+                "const": "USD"
+              },
+              "budget_commitment_usd": {
+                "type": "number",
+                "minimum": 0
+              },
+              "usage": {
+                "type": "object"
+              },
+              "provider_billing_status": {
+                "type": "string",
+                "enum": [
+                  "not_submitted",
+                  "unconfirmed",
+                  "settled"
+                ]
+              },
+              "settlement_provenance": {
+                "type": "object"
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "preflight_rejected",
+                  "creative_accepted",
+                  "provider_success_then_creative_reject"
+                ]
+              },
+              "budget_warning": {
+                "type": "boolean"
+              },
+              "saved_seconds": {
+                "type": "number",
+                "minimum": 0
+              },
+              "provider_status": {
+                "type": "string"
+              },
+              "provider_task_id": {
+                "type": "string"
+              },
+              "attempt_id": {
+                "type": "string"
+              },
+              "idempotency_key": {
+                "type": "string"
+              },
+              "submission_status": {
+                "type": "string"
+              },
+              "budget_warning_message": {
+                "type": "string"
+              },
+              "cache_key": {
+                "type": "string"
+              },
+              "reused_from": {
+                "type": "string"
+              },
+              "budget_equivalent_cny": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "budget_equivalence_provenance": {
+                "type": "object",
+                "required": [
+                  "approval_ref"
+                ],
+                "properties": {
+                  "approval_ref": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "budget_currency": {
+          "const": "USD"
+        },
+        "budget_commitment_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "budget_spent_basis": {
+          "const": "known_USD_settlements_only"
+        },
+        "approved_tools": {
+          "type": "array",
+          "items": {
             "type": "string"
+          }
+        },
+        "policy": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "enum": [
+                "observe",
+                "warn",
+                "cap"
+              ]
+            },
+            "reserve_pct": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "single_action_approval_usd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "require_approval_for_new_paid_tool": {
+              "type": "boolean"
+            }
           },
-          "tool": {
-            "type": "string"
-          },
-          "operation": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "estimated",
-              "reserved",
-              "completed",
-              "failed",
-              "refunded"
-            ]
-          },
-          "estimated_usd": {
-            "type": "number",
-            "minimum": 0
-          },
-          "reserved_usd": {
-            "type": "number",
-            "minimum": 0
-          },
-          "actual_usd": {
+          "additionalProperties": false
+        },
+        "actual_spend_by_currency": {
+          "type": "object",
+          "additionalProperties": {
             "type": [
               "number",
               "null"
             ],
             "minimum": 0
-          },
-          "timestamp": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "details": {
-            "type": "string"
-          },
-          "actual_cost": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "required": [
-              "amount",
-              "currency"
-            ],
-            "properties": {
-              "amount": {
-                "type": "number",
-                "minimum": 0
-              },
-              "currency": {
-                "type": "string",
-                "pattern": "^[A-Z]{3}$"
-              }
-            },
-            "additionalProperties": true
-          },
-          "catalog_estimate": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "required": [
-              "amount",
-              "currency"
-            ],
-            "properties": {
-              "amount": {
-                "type": "number",
-                "minimum": 0
-              },
-              "currency": {
-                "type": "string",
-                "pattern": "^[A-Z]{3}$"
-              }
-            },
-            "additionalProperties": true
-          },
-          "budget_currency": {
-            "const": "USD"
-          },
-          "budget_commitment_usd": {
-            "type": "number",
-            "minimum": 0
-          },
-          "usage": {
-            "type": "object"
-          },
-          "provider_billing_status": {
-            "type": "string",
-            "enum": [
-              "not_submitted",
-              "unconfirmed",
-              "settled"
-            ]
-          },
-          "settlement_provenance": {
-            "type": "object"
-          },
-          "outcome": {
-            "type": "string",
-            "enum": [
-              "preflight_rejected",
-              "creative_accepted",
-              "provider_success_then_creative_reject"
-            ]
-          },
-          "budget_warning": {
-            "type": "boolean"
-          },
-          "saved_seconds": {
-            "type": "number",
-            "minimum": 0
-          },
-          "provider_status": {
-            "type": "string"
-          },
-          "provider_task_id": {
-            "type": "string"
-          },
-          "attempt_id": {
-            "type": "string"
-          },
-          "idempotency_key": {
-            "type": "string"
-          },
-          "submission_status": {
-            "type": "string"
-          },
-          "budget_warning_message": {
-            "type": "string"
-          },
-          "cache_key": {
-            "type": "string"
-          },
-          "reused_from": {
-            "type": "string"
-          },
-          "budget_equivalent_cny": {
-            "type": "number",
-            "exclusiveMinimum": 0
-          },
-          "budget_equivalence_provenance": {
-            "type": "object",
-            "required": [
-              "approval_ref"
-            ],
-            "properties": {
-              "approval_ref": {
-                "type": "string",
-                "minLength": 1
-              }
-            },
-            "additionalProperties": true
           }
         },
-        "additionalProperties": false
-      }
-    },
-    "metadata": {
-      "type": "object"
-    },
-    "budget_currency": {
-      "const": "USD"
-    },
-    "budget_commitment_usd": {
-      "type": "number",
-      "minimum": 0
-    },
-    "budget_spent_basis": {
-      "const": "known_USD_settlements_only"
-    },
-    "approved_tools": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "policy": {
-      "type": "object",
-      "properties": {
-        "mode": {
-          "enum": [
-            "observe",
-            "warn",
-            "cap"
-          ]
+        "known_actual_spend_by_currency": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          }
         },
-        "reserve_pct": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
+        "catalog_estimate_by_currency": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          }
         },
-        "single_action_approval_usd": {
-          "type": "number",
+        "unknown_settlement_count": {
+          "type": "integer",
           "minimum": 0
         },
-        "require_approval_for_new_paid_tool": {
+        "unknown_settlement_currency": {
           "type": "boolean"
         }
       },
       "additionalProperties": false
     },
-    "actual_spend_by_currency": {
+    "native": {
       "type": "object",
-      "additionalProperties": {
-        "type": [
-          "number",
-          "null"
-        ],
-        "minimum": 0
-      }
-    },
-    "known_actual_spend_by_currency": {
-      "type": "object",
-      "additionalProperties": {
-        "type": [
-          "number",
-          "null"
-        ],
-        "minimum": 0
-      }
-    },
-    "catalog_estimate_by_currency": {
-      "type": "object",
-      "additionalProperties": {
-        "type": [
-          "number",
-          "null"
-        ],
-        "minimum": 0
-      }
-    },
-    "unknown_settlement_count": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "unknown_settlement_currency": {
-      "type": "boolean"
+      "required": [
+        "version",
+        "ledger_kind",
+        "project_dir",
+        "parent_budgets",
+        "entries"
+      ],
+      "properties": {
+        "version": {
+          "const": "2.0"
+        },
+        "ledger_kind": {
+          "const": "native_generation"
+        },
+        "project_dir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_budgets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "parent_budget_id",
+              "shot_id",
+              "lineage_id",
+              "authorization_ref",
+              "currency",
+              "amount",
+              "max_paid_calls"
+            ],
+            "properties": {
+              "parent_budget_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "shot_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "lineage_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "authorization_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "currency": {
+                "enum": [
+                  "USD",
+                  "CNY",
+                  "EUR",
+                  "GBP",
+                  "JPY",
+                  "CAD",
+                  "AUD",
+                  "HKD",
+                  "SGD",
+                  "CHF",
+                  "INR",
+                  "KRW",
+                  "TWD"
+                ]
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+              },
+              "max_paid_calls": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "tool",
+              "operation",
+              "parent_budget_id",
+              "shot_id",
+              "lineage_id",
+              "request_id",
+              "timestamp",
+              "currency",
+              "status",
+              "paid_call_counted",
+              "estimated_amount",
+              "reservation_amount",
+              "reserved_amount",
+              "commitment_amount",
+              "actual_cost",
+              "catalog_estimate",
+              "revision_id",
+              "provider_billing_status"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tool": {
+                "type": "string",
+                "minLength": 1
+              },
+              "operation": {
+                "type": "string",
+                "minLength": 1
+              },
+              "parent_budget_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "shot_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "lineage_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "request_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "timestamp": {
+                "type": "string",
+                "minLength": 1
+              },
+              "revision_id": {
+                "type": "string"
+              },
+              "currency": {
+                "enum": [
+                  "USD",
+                  "CNY",
+                  "EUR",
+                  "GBP",
+                  "JPY",
+                  "CAD",
+                  "AUD",
+                  "HKD",
+                  "SGD",
+                  "CHF",
+                  "INR",
+                  "KRW",
+                  "TWD"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "estimated",
+                  "reserved",
+                  "completed",
+                  "failed",
+                  "refunded"
+                ]
+              },
+              "paid_call_counted": {
+                "type": "boolean"
+              },
+              "actual_cost": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "required": [
+                  "amount",
+                  "currency"
+                ],
+                "properties": {
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+                  },
+                  "currency": {
+                    "enum": [
+                      "USD",
+                      "CNY",
+                      "EUR",
+                      "GBP",
+                      "JPY",
+                      "CAD",
+                      "AUD",
+                      "HKD",
+                      "SGD",
+                      "CHF",
+                      "INR",
+                      "KRW",
+                      "TWD"
+                    ]
+                  }
+                },
+                "additionalProperties": true
+              },
+              "catalog_estimate": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "required": [
+                  "amount",
+                  "currency"
+                ],
+                "properties": {
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+                  },
+                  "currency": {
+                    "enum": [
+                      "USD",
+                      "CNY",
+                      "EUR",
+                      "GBP",
+                      "JPY",
+                      "CAD",
+                      "AUD",
+                      "HKD",
+                      "SGD",
+                      "CHF",
+                      "INR",
+                      "KRW",
+                      "TWD"
+                    ]
+                  }
+                },
+                "additionalProperties": true
+              },
+              "estimated_amount": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+              },
+              "reservation_amount": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+              },
+              "reserved_amount": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+              },
+              "commitment_amount": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+              },
+              "provider_billing_status": {
+                "type": "string"
+              },
+              "provider_status": {
+                "type": "string"
+              },
+              "provider_task_id": {
+                "type": "string"
+              },
+              "attempt_id": {
+                "type": "string"
+              },
+              "idempotency_key": {
+                "type": "string"
+              },
+              "submission_status": {
+                "type": "string"
+              },
+              "outcome": {
+                "type": "string"
+              },
+              "usage": {
+                "type": "object"
+              },
+              "settlement_provenance": {
+                "type": "object"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
     }
-  },
-  "additionalProperties": false
+  }
 }

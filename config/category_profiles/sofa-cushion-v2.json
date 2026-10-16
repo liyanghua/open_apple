@@ -1,0 +1,172 @@
+{
+  "version": "1.0",
+  "profile_id": "sofa-cushion-v2",
+  "category_id": "sofa_cushion",
+  "action_keys": [
+    "full_sofa_view",
+    "place_and_smooth",
+    "corner_flip",
+    "border_trace",
+    "texture_touch"
+  ],
+  "action_labels": {
+    "full_sofa_view": "沙发实铺全貌",
+    "place_and_smooth": "铺设并抚平",
+    "corner_flip": "掀角展示背面",
+    "border_trace": "沿包边展示细节",
+    "texture_touch": "触摸表面织纹"
+  },
+  "action_visible_results": {
+    "full_sofa_view": "坐垫、靠背与扶手上的覆盖范围及当前花色清楚可辨",
+    "place_and_smooth": "手部完成铺设或抚平，画面保留铺设后的边缘与整体状态",
+    "corner_flip": "同一块垫子的正反面在连续动作中可辨，背面颗粒形态清楚",
+    "border_trace": "手指沿实际包边移动，包边宽度、颜色与走向可辨",
+    "texture_touch": "触摸动作与表面织纹同框，织纹没有被生成过程改写"
+  },
+  "evidence_action_map": {
+    "whole_product": "full_sofa_view",
+    "placement": "place_and_smooth",
+    "backing": "corner_flip",
+    "border": "border_trace",
+    "weave": "texture_touch"
+  },
+  "evidence_requirements": {
+    "whole_product": {
+      "source_types": [
+        "owned_image",
+        "owned_video",
+        "product_page"
+      ],
+      "visible_result": "当前 SKU 的实铺全貌与颜色",
+      "sku_bound": true
+    },
+    "placement": {
+      "source_types": [
+        "owned_video",
+        "generated_video"
+      ],
+      "visible_result": "铺设或抚平的连续动作及落位结果",
+      "sku_bound": true
+    },
+    "backing": {
+      "source_types": [
+        "owned_image",
+        "owned_video",
+        "generated_video"
+      ],
+      "visible_result": "翻角后同一商品的背面颗粒可见；功能效果须另有实测证据",
+      "sku_bound": true
+    },
+    "border": {
+      "source_types": [
+        "owned_image",
+        "owned_video",
+        "generated_video"
+      ],
+      "visible_result": "包边与实物参考图一致",
+      "sku_bound": true
+    },
+    "weave": {
+      "source_types": [
+        "owned_image",
+        "owned_video",
+        "generated_video"
+      ],
+      "visible_result": "表面织纹与实物参考图一致",
+      "sku_bound": true
+    }
+  },
+  "allowed_structures": [
+    "P1",
+    "P2",
+    "P4",
+    "P6"
+  ],
+  "default_action": "full_sofa_view",
+  "direction_action_rules": {
+    "detail_first": {
+      "any_of": [
+        "corner_flip",
+        "border_trace",
+        "texture_touch"
+      ],
+      "message": "细节开头必须在画面中兑现背面、包边或织纹的具体观察点。"
+    },
+    "scene_first": {
+      "any_of": [
+        "full_sofa_view",
+        "place_and_smooth"
+      ],
+      "message": "场景开头必须交代同一商品在沙发上的覆盖关系。"
+    }
+  },
+  "forbidden_wording_defaults": [
+    "永不滑动",
+    "绝对不抓坏",
+    "永久抗菌"
+  ],
+  "transaction_cta_default": "核对沙发尺寸和颜色后选择",
+  "shot_timing": {
+    "raw_action_seconds": {
+      "min": 3.0,
+      "max": 5.0
+    },
+    "body_cut_seconds": {
+      "min": 1.8,
+      "max": 3.2
+    },
+    "default_raw_seconds": 4.0,
+    "by_structure": {
+      "P4": {
+        "body_cut_seconds": {
+          "min": 2.0,
+          "max": 3.5
+        }
+      }
+    }
+  },
+  "identity_checks": [
+    "当前 SKU 的花色、织纹、包边颜色和背面颗粒与参考图一致",
+    "坐垫、靠背、扶手的覆盖关系符合商品参考图，不凭空增加独立配件",
+    "不同颜色或系列不得在同一镜头中被误认为同一 SKU"
+  ],
+  "qa_checks": [
+    {
+      "id": "product_identity",
+      "label": "商品身份",
+      "review_instruction": "核对颜色、织纹、包边、背面与绑定的自家商品参考图一致。"
+    },
+    {
+      "id": "placement_geometry",
+      "label": "铺设关系",
+      "review_instruction": "核对沙发与垫子的比例、扶手和靠背覆盖位置，以及动作前后连续性。"
+    },
+    {
+      "id": "claim_evidence",
+      "label": "功能宣称",
+      "review_instruction": "防滑、耐磨、抗菌和母婴级等功能或检测数字，须由当前 SKU 的批准事实和对应证据支持；商品图中的字样不等于实测完成。"
+    },
+    {
+      "id": "physical_scale",
+      "label": "尺度与纵深",
+      "review_instruction": "核对可辨尺度参照、手与身体连接及纵深，避免孤立前景巨手；不强制所有镜头出现全身人物。"
+    },
+    {
+      "id": "contact_result",
+      "label": "接触与可见结果",
+      "review_instruction": "实际接触部位、动作完成及结果应可见；按单镜头锁的时点和范围核验，轻抚不冒充整理或性能证明。"
+    },
+    {
+      "id": "framing_promise",
+      "label": "构图承诺",
+      "review_instruction": "对照单镜头必见区域；全貌需完整覆盖锁定的坐垫、靠背及扶手，局部素材不得替代全貌通过。"
+    }
+  ],
+  "review_guidance": {
+    "product_identity": "先核对当前 SKU 的系列、颜色、织纹、包边和背面，再判断生成画面是否为同一商品。",
+    "opening_motion": "开头三秒必须有可见的铺设、翻角、沿边或触摸动作和明确结果，不能用静态主图模拟运动。 核对镜头要求与实际动作时间，重试耗尽不降低门槛；局部改用需要绑定用途的独立审核。",
+    "opening_preview_fact": "只使用当前 SKU 已批准的描述；有争议的面料名、等级和检测数字保持禁用。"
+  },
+  "semantic_sha256": "377c123ec8c61a3d32c341f3c39d0100108f7cd216e57fdf0024d0e8de96a9d9",
+  "artifact_sha256": "d837909fd5b4cc78fe1c0b51c70e839884bcfab0c50824d6993575ed2e160658"
+}

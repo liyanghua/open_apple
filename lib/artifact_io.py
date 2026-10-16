@@ -13,7 +13,13 @@ from schemas.artifacts import validate_artifact
 
 
 def _validate_with_project_context(name: str, data: dict, project_dir: Path) -> None:
-    if name in {"campaign_plan", "content_recipe"} and data.get("category_profile_ref") is not None:
+    if name == "shot_source_plan":
+        from lib.shot_source_contracts import validate_source_plan
+        validate_source_plan(project_dir, data)
+    elif name == "shot_source_record":
+        from lib.shot_source_contracts import validate_source_record
+        validate_source_record(project_dir, data)
+    elif name in {"campaign_plan", "content_recipe"} and data.get("category_profile_ref") is not None:
         validate_artifact(name, data, project_dir=project_dir)
     else:
         validate_artifact(name, data)
@@ -78,13 +84,15 @@ def canonical_artifact_path(
 # and in the board projection instead of the later stage overwriting the earlier
 # one (sample/compose were overwriting each other's render_plan.json).
 SCOPED_ARTIFACTS: dict[str, tuple[str, ...]] = {
-    "evaluation_report": ("sample", "final"),
+    "evaluation_report": ("sample", "final", "source_clip"),
     "render_plan": ("sample", "final"),
 }
 
 
 def scoped_artifact_relative_path(name: str, scope: str) -> PurePosixPath:
     """Return the canonical project-relative path for a scoped artifact."""
+    if name == "evaluation_report" and scope == "source_clip":
+        raise ValueError("source_clip requires an explicit shot_sources shot/revision evaluation path")
     scopes = SCOPED_ARTIFACTS.get(name)
     if not scopes or scope not in scopes:
         raise ValueError(
@@ -143,6 +151,17 @@ def write_artifact_atomic(
         raise ValueError("Artifact name must be a non-empty string")
     if not isinstance(data, dict):
         raise TypeError("Artifact data must be a JSON object")
+
+    source_filename = {"shot_source_plan": "plan", "shot_source_record": "record"}.get(name)
+    identity = data
+    if name == "evaluation_report" and data.get("scope") == "source_clip":
+        source_filename = "evaluation"
+        identity = data.get("source_review") or {}
+    if source_filename:
+        from lib.shot_source_contracts import source_artifact_path
+        expected = source_artifact_path(identity.get("shot_id"), identity.get("revision"), source_filename)
+        if relative.as_posix() != expected:
+            raise ValueError("Source artifacts require their explicit canonical shot_sources path")
 
     attached = attach_hashes(data)
     _validate_with_project_context(

@@ -144,3 +144,75 @@ def test_existing_extra_paid_attempt_blocks_a_new_submission(tmp_path):
     ledger.write_text(json.dumps(data))
     with pytest.raises(PilotEvidenceError, match="approved paid-submission count"):
         validate_generation_gate(tmp_path, packet)
+
+
+def _native_pilot(root):
+    from tools.cost_tracker import CostTracker
+    packet = _pilot(root)
+    tracker = CostTracker(project_dir=root)
+    for parent, shot, lineage in [('parent-a', 'slot-a', 'lineage-a'), ('parent-b', 'slot-b', 'lineage-b')]:
+        tracker.create_parent_budget(parent, currency='CNY', amount='20', max_paid_calls=4,
+            authorization_ref='approved:parent', shot_id=shot, lineage_id=lineage)
+    ids = []
+    for request, revision, parent, shot, lineage in [('prior-revision', 'v1', 'parent-a', 'slot-a', 'lineage-a'),
+        ('other-parent', 'v1', 'parent-b', 'slot-b', 'lineage-b'),
+        ('current-revision', 'v2', 'parent-a', 'slot-a', 'lineage-a')]:
+        eid = tracker.estimate_native('seedance_ark', 'reference_to_video', '2', currency='CNY',
+            parent_budget_id=parent, shot_id=shot, lineage_id=lineage, request_id=request, revision_id=revision)
+        tracker.reserve(eid)
+        ids.append(eid)
+    lock = json.loads((root / packet['lock_ref']['path']).read_text())
+    lock.update(parent_budget_id='parent-a', shot_id='slot-a', lineage_id='lineage-a')
+    packet['lock_ref'] = _write(root, packet['lock_ref']['path'], lock)
+    ref = packet['items'][0]['generation_inputs_ref']
+    inputs = json.loads((root / ref['path']).read_text())
+    inputs.pop('cost_log_path')
+    inputs.update(project_dir=str(root), parent_budget_id='parent-a', shot_id='slot-a',
+        lineage_id='lineage-a', revision_id='v2', request_id='current-revision', reservation_id=ids[-1])
+    packet['items'][0]['generation_inputs_ref'] = _write(root, ref['path'], inputs)
+    return packet, tracker, inputs
+
+
+def test_native_pilot_gate_counts_packet_and_allows_prior_revisions_and_other_parents(tmp_path):
+    packet, _, _ = _native_pilot(tmp_path)
+    ledger = tmp_path / 'artifacts/budgets/generation.json'
+    before = ledger.stat().st_mtime_ns, ledger.read_bytes()
+    assert validate_generation_gate(tmp_path, packet)['status'] == 'ready'
+    assert (ledger.stat().st_mtime_ns, ledger.read_bytes()) == before
+
+
+@pytest.mark.parametrize('mutation', ['parent', 'lineage', 'path', 'project'])
+def test_native_pilot_gate_rejects_budget_identity_or_noncanonical_path(tmp_path, mutation):
+    packet, _, inputs = _native_pilot(tmp_path)
+    if mutation == 'parent':
+        inputs['parent_budget_id'] = 'parent-b'
+    elif mutation == 'lineage':
+        inputs['lineage_id'] = 'lineage-b'
+    elif mutation == 'project':
+        inputs['project_dir'] = str(tmp_path / 'other-project')
+    else:
+        inputs['cost_log_path'] = str(tmp_path / 'artifacts/cost.json')
+    ref = packet['items'][0]['generation_inputs_ref']
+    packet['items'][0]['generation_inputs_ref'] = _write(tmp_path, ref['path'], inputs)
+    with pytest.raises(PilotEvidenceError, match='native|parent|canonical|lineage'):
+        validate_generation_gate(tmp_path, packet)
+
+
+@pytest.mark.parametrize('limit', ['amount', 'calls'])
+def test_native_pilot_gate_checks_parent_global_budget_snapshot(tmp_path, limit):
+    packet, _, _ = _native_pilot(tmp_path)
+    ledger = tmp_path / 'artifacts/budgets/generation.json'
+    data = json.loads(ledger.read_text())
+    data['parent_budgets'][0]['amount' if limit == 'amount' else 'max_paid_calls'] = '1' if limit == 'amount' else 1
+    ledger.write_text(json.dumps(data))
+    with pytest.raises(PilotEvidenceError, match='native|parent|budget|call'):
+        validate_generation_gate(tmp_path, packet)
+
+
+def test_native_pilot_preview_replays_completed_bound_reservation(tmp_path):
+    packet, tracker, inputs = _native_pilot(tmp_path)
+    tracker.bind_submission(inputs['reservation_id'], tool='seedance_ark', operation='reference_to_video',
+        attempt_id='pilot-attempt', idempotency_key=inputs['idempotency_key'], task_id='remote-task-1')
+    tracker.reconcile(inputs['reservation_id'], success=True, actual_cost=None,
+        provider_task_id='remote-task-1', provider_status='succeeded')
+    assert validate_preview_evidence(tmp_path, packet)['status'] == 'ready_for_preview_review'

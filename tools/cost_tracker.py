@@ -67,13 +67,20 @@ class CostTracker:
         require_approval_for_new_paid_tool: bool = True,
         mode: BudgetMode = BudgetMode.WARN,
         cost_log_path: Optional[Path] = None,
+        project_dir: Optional[Path] = None,
     ) -> None:
         self.budget_total_usd = budget_total_usd
         self.reserve_pct = reserve_pct
         self.single_action_approval_usd = single_action_approval_usd
         self.require_approval_for_new_paid_tool = require_approval_for_new_paid_tool
         self.mode = mode
-        self.cost_log_path = Path(cost_log_path) if cost_log_path else None
+        declared_path = Path(cost_log_path).resolve() if cost_log_path else None
+        if project_dir is None and declared_path is not None and declared_path.parts[-3:] == ("artifacts", "budgets", "generation.json"):
+            project_dir = declared_path.parents[2]
+        self.project_dir = Path(project_dir).resolve() if project_dir is not None else None
+        self._declared_cost_log_path = declared_path
+        native_path = self.project_dir / "artifacts/budgets/generation.json" if self.project_dir else None
+        self.cost_log_path = None if declared_path == native_path else declared_path
         self._memory_lock = threading.RLock()
         self.entries: list[dict[str, Any]] = []
         self._approved_tools: set[str] = set()
@@ -158,6 +165,37 @@ class CostTracker:
 
     # ---- Core operations ----
 
+    def _native_ledger(self):
+        from lib.generation_budget import GenerationBudgetLedger
+        if self.project_dir is None:
+            raise ValueError("native parent budgets require a project_dir and canonical ledger")
+        return GenerationBudgetLedger(self.project_dir, declared_path=self._declared_cost_log_path)
+
+    def create_parent_budget(self, parent_budget_id: str, *, currency: str, amount,
+                             max_paid_calls: int, authorization_ref: str, shot_id: str,
+                             lineage_id: str) -> dict[str, Any]:
+        """Bind an immutable authorization to one shot lineage in the project ledger."""
+        return self._native_ledger().create_parent(dict(parent_budget_id=parent_budget_id, currency=currency,
+            amount=amount, max_paid_calls=max_paid_calls, authorization_ref=authorization_ref,
+            shot_id=shot_id, lineage_id=lineage_id))
+
+    def estimate_native(self, tool: str, operation: str, estimated_amount, *, currency: str,
+                        parent_budget_id: str, shot_id: str, lineage_id: str, request_id: str,
+                        revision_id: str = "") -> str:
+        """Record one idempotent native-price child request, without reserving yet."""
+        return self._native_ledger().estimate(dict(tool=tool, operation=operation,
+            estimated_amount=estimated_amount, currency=currency, parent_budget_id=parent_budget_id,
+            shot_id=shot_id, lineage_id=lineage_id, request_id=request_id, revision_id=revision_id))
+
+    def snapshot_parent_budget(self, parent_budget_id: str) -> dict[str, Any]:
+        return self._native_ledger().snapshot(parent_budget_id)
+
+    def get_native_entry(self, entry_id: str) -> dict[str, Any]:
+        from copy import deepcopy
+        ledger = self._native_ledger()
+        with ledger.transaction() as data:
+            return deepcopy(ledger.find(data, entry_id))
+
     @_transaction
     def estimate(self, tool: str, operation: str, estimated_usd: float, *,
                  budget_equivalent_cny: float | None = None,
@@ -197,6 +235,12 @@ class CostTracker:
         Raises BudgetExceededError in cap mode, or ApprovalRequiredError
         when the action exceeds the single-action approval threshold.
         """
+        if entry_id.startswith("native_"):
+            from lib.generation_budget import NativeBudgetExceeded
+            try:
+                return self._native_ledger().reserve(entry_id)
+            except NativeBudgetExceeded as error:
+                raise BudgetExceededError(str(error)) from error
         entry = self._find(entry_id)
         if entry["status"] == "reserved":
             return
@@ -239,9 +283,19 @@ class CostTracker:
 
     @_transaction
     def assert_reserved(
-        self, entry_id: str, tool: str, operation: str, estimated_usd: float
+        self, entry_id: str, tool: str, operation: str, estimated_usd: float | None = None,
+        *, estimated_amount=None, currency: str | None = None, parent_budget_id: str | None = None,
+        shot_id: str | None = None, lineage_id: str | None = None,
     ) -> None:
         """Verify a reservation still authorizes the exact paid operation."""
+        if entry_id.startswith("native_"):
+            if estimated_usd is not None:
+                if currency not in {None, "USD"} or estimated_amount is not None:
+                    raise ValueError("native reservation requires an explicit native currency and amount")
+                estimated_amount, currency = estimated_usd, "USD"
+            return self._native_ledger().assert_reserved(entry_id, tool, operation,
+                estimated_amount=estimated_amount, currency=currency, parent_budget_id=parent_budget_id,
+                shot_id=shot_id, lineage_id=lineage_id)
         entry = self._find(entry_id)
         if entry.get("status") != EntryStatus.RESERVED.value:
             raise ValueError("cost reservation is not active")
@@ -293,6 +347,11 @@ class CostTracker:
         CNY settlement cannot release a USD commitment without explicit FX evidence.
         Legacy numeric actual_usd calls remain supported as caller-reported charges.
         """
+        if entry_id.startswith("native_"):
+            return self._native_ledger().reconcile(entry_id, actual_usd=actual_usd, success=success,
+                usage=usage, catalog_estimate=catalog_estimate, actual_cost=actual_cost,
+                provider_status=provider_status, provider_task_id=provider_task_id,
+                settlement_provenance=settlement_provenance)
         entry = self._find(entry_id)
         if entry["status"] == "refunded":
             raise ValueError("cannot reconcile a refunded preflight entry")
@@ -340,6 +399,10 @@ class CostTracker:
                         operation: str | None = None, minimum_usd: float | None = None,
                         minimum_cny: float | None = None) -> None:
         """Attach durable submission identity before the POST can leave the process."""
+        if entry_id.startswith("native_"):
+            return self._native_ledger().bind(entry_id, tool=tool, attempt_id=attempt_id,
+                idempotency_key=idempotency_key, task_id=task_id, operation=operation,
+                minimum_usd=minimum_usd, minimum_cny=minimum_cny)
         entry = self._find(entry_id)
         if entry.get("tool") != tool or entry["status"] != "reserved":
             raise ValueError("submission requires an active reservation for this tool")
@@ -370,6 +433,8 @@ class CostTracker:
 
     @_transaction
     def record_creative_outcome(self, entry_id: str, *, accepted: bool) -> None:
+        if entry_id.startswith("native_"):
+            return self._native_ledger().creative_outcome(entry_id, accepted)
         entry = self._find(entry_id)
         if entry["status"] != "completed":
             raise ValueError("creative outcome requires provider success")
@@ -380,6 +445,8 @@ class CostTracker:
     @_transaction
     def refund(self, entry_id: str) -> None:
         """Release only an unexecuted reservation; a creative reject still costs."""
+        if entry_id.startswith("native_"):
+            return self._native_ledger().refund(entry_id)
         entry = self._find(entry_id)
         if entry["status"] == "refunded":
             return

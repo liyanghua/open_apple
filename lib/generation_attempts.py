@@ -26,7 +26,7 @@ class AttemptLimitError(ValueError):
 
 
 class GenerationAttempts:
-    TERMINAL = {'succeeded', 'failed', 'cancelled', 'expired', 'preflight_rejected'}
+    TERMINAL = {'succeeded', 'failed', 'cancelled', 'expired', 'preflight_rejected', 'provider_rejected'}
 
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -118,14 +118,20 @@ class GenerationAttempts:
                 record['status'] = 'submitted'
             record['updated_at'] = datetime.now(timezone.utc).isoformat()
 
-    def mark_result(self, attempt_id: str, status: str):
+    def mark_result(self, attempt_id: str, status: str, *, provider_error: dict[str, Any] | None = None):
         with self._transaction() as attempts:
             record = self._find(attempts, attempt_id)
             if record['status'] in self.TERMINAL and record['status'] != status:
                 return  # A stale query must not reopen a completed task.
             if status == 'preflight_rejected' and (record.get('post_started') is not False or record.get('task_id')):
                 status = 'submitted_result_unknown' if record.get('task_id') else 'submission_result_unknown'
+            if status == 'provider_rejected' and (
+                    not provider_error or provider_error.get('task_creation') != 'not_created'
+                    or record.get('task_id')):
+                raise ValueError('provider rejection requires evidence that no task was created')
             record['status'] = status
+            if provider_error is not None:
+                record['provider_error'] = dict(provider_error)
             record['updated_at'] = datetime.now(timezone.utc).isoformat()
 
     def find_task(self, task_id: str, *, account: str) -> dict[str, Any] | None:

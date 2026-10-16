@@ -60,6 +60,255 @@ def test_no_implicit_exchange_rate(configured):
     assert configured.estimate_cost_cny({'model_variant': '2.5'}) > 0
 
 
+def test_confirmed_provider_rejection_keeps_evidence_budget_and_releases_slot(configured, monkeypatch, tmp_path):
+    response = requests.Response()
+    response.status_code = 400
+    response._content = b'{"error":{"code":"InvalidParameter","message":"bad ratio"},"request_id":"req-rejected"}'
+    response.headers['X-Request-Id'] = 'req-rejected'
+    calls = []
+    monkeypatch.setattr(requests, 'post', lambda *a, **kw: calls.append('post') or response)
+    inputs = {**paid_inputs(tmp_path), 'prompt': 'A towel', 'model_variant': '2.5',
+              'idempotency_key': 'rejected', 'account_concurrency_limit': 1}
+    result = configured.execute(inputs)
+    assert result.data['status'] == 'provider_rejected'
+    assert result.data['provider_error'] == {
+        'http_status': 400, 'code': 'InvalidParameter', 'request_id': 'req-rejected',
+        'task_id': None, 'task_creation': 'not_created'}
+    journal = json.loads((tmp_path / 'tasks.json').read_text())['attempts']
+    assert journal[0]['status'] == 'provider_rejected'
+    assert journal[0]['provider_error'] == result.data['provider_error']
+    assert configured.execute(inputs).data['status'] == 'provider_rejected'
+    assert calls == ['post']
+    entry = json.loads(Path(inputs['cost_log_path']).read_text())['entries'][0]
+    assert entry['actual_usd'] is None
+    from lib.generation_attempts import GenerationAttempts
+    GenerationAttempts(tmp_path / 'tasks.json').claim('other', 'new-fp', account=journal[0]['account'], account_limit=1)
+
+
+def test_unstructured_server_error_preserves_unknown_creation(configured, monkeypatch, tmp_path):
+    response = requests.Response()
+    response.status_code = 500
+    response._content = b'{"error":{"code":"InternalError","message":"failure"},"request_id":"req-unknown"}'
+    monkeypatch.setattr(requests, 'post', lambda *a, **kw: response)
+    result = configured.execute({**paid_inputs(tmp_path), 'prompt': 'A towel', 'model_variant': '2.5'})
+    assert result.data['status'] == 'submission_result_unknown'
+    assert result.data['provider_error']['task_creation'] == 'unknown'
+    assert result.data['provider_error']['http_status'] == 500
+
+
+@pytest.mark.parametrize('status,content', [(200, b'not-json'), (200, b'{}'), (400, b'<html>gateway failure</html>')])
+def test_malformed_response_does_not_claim_task_was_rejected(configured, monkeypatch, tmp_path, status, content):
+    response = requests.Response()
+    response.status_code = status
+    response._content = content
+    response.headers['X-Request-Id'] = 'req-malformed'
+    monkeypatch.setattr(requests, 'post', lambda *a, **kw: response)
+    result = configured.execute({**paid_inputs(tmp_path), 'prompt': 'A towel', 'model_variant': '2.5'})
+    assert result.data['status'] == 'submission_result_unknown'
+    assert result.data['provider_error']['task_creation'] == 'unknown'
+    assert result.data['provider_error']['http_status'] == status
+    assert result.data['provider_error']['request_id'] == 'req-malformed'
+
+
+def test_error_response_with_task_identity_is_recovered_by_get(configured, monkeypatch, tmp_path):
+    response = requests.Response()
+    response.status_code = 500
+    response._content = b'{"id":"task-1","error":{"code":"InternalError"}}'
+    calls = []
+    monkeypatch.setattr(requests, 'post', lambda *a, **kw: calls.append('post') or response)
+    inputs = {**paid_inputs(tmp_path), 'prompt': 'A towel', 'model_variant': '2.5', 'idempotency_key': 'has-task'}
+    first = configured.execute(inputs)
+    assert first.data['task_id'] == 'task-1'
+    assert first.data['provider_error']['task_creation'] == 'created'
+    monkeypatch.setattr(configured, '_query_task', lambda *_: calls.append('get') or TASK)
+    assert configured.execute({**inputs, 'output_path': str(tmp_path / 'out.mp4')}).success
+    assert calls == ['post', 'get']
+
+
+def native_inputs(tmp_path, estimate='6.048'):
+    tracker = CostTracker(project_dir=tmp_path)
+    tracker.create_parent_budget('parent', currency='CNY', amount='30', max_paid_calls=3,
+        authorization_ref='approval:local', shot_id='shot', lineage_id='lineage')
+    reservation = tracker.estimate_native('seedance_ark', 'text_to_video', estimate, currency='CNY',
+        parent_budget_id='parent', shot_id='shot', lineage_id='lineage', request_id='request-one')
+    tracker.reserve(reservation)
+    return {'project_dir': str(tmp_path), 'parent_budget_id': 'parent', 'shot_id': 'shot',
+        'lineage_id': 'lineage', 'reservation_id': reservation, 'model_variant': '2.5',
+        'duration': 4, 'generate_audio': False, 'prompt': 'A towel', 'idempotency_key': 'native-key',
+        'output_path': str(tmp_path / 'native.mp4')}
+
+
+def test_native_parent_budget_is_bound_without_usd_proxy(configured, monkeypatch, tmp_path):
+    inputs = native_inputs(tmp_path)
+    monkeypatch.setattr(configured, '_create_task', lambda *_: 'task-native')
+    task = {**TASK, 'id': 'task-native'}
+    monkeypatch.setattr(configured, '_poll_task', lambda *_: task)
+    result = configured.execute(inputs)
+    assert result.success
+    entry = CostTracker(project_dir=tmp_path).get_native_entry(inputs['reservation_id'])
+    assert entry['provider_task_id'] == 'task-native'
+    assert entry['actual_cost'] is None
+    assert entry['catalog_estimate']['currency'] == 'CNY'
+    assert result.cost_usd is None
+
+
+def test_native_cny_budget_does_not_use_optional_usd_exchange_rate(configured, monkeypatch, tmp_path):
+    inputs = native_inputs(tmp_path)
+    monkeypatch.setenv('ARK_CNY_PER_USD', '7')
+    monkeypatch.setattr(configured, '_create_task', lambda *_: 'task-native-fx')
+    monkeypatch.setattr(configured, '_poll_task', lambda *_: {**TASK, 'id': 'task-native-fx'})
+    assert configured.execute(inputs).success
+
+
+def test_native_reservation_can_cover_price_with_approved_headroom(configured, monkeypatch, tmp_path):
+    inputs = native_inputs(tmp_path, estimate='8')
+    monkeypatch.setattr(configured, '_create_task', lambda *_: 'task-native-headroom')
+    monkeypatch.setattr(configured, '_poll_task', lambda *_: {**TASK, 'id': 'task-native-headroom'})
+    assert configured.execute(inputs).success
+
+
+def test_generated_receipt_binds_downloaded_bytes_and_account(configured, monkeypatch, tmp_path):
+    from lib.production_evidence import file_sha256
+    inputs = {**paid_inputs(tmp_path), 'prompt': 'A towel', 'model_variant': '2.5',
+              'output_path': str(tmp_path / 'receipt-video.mp4')}
+    monkeypatch.setattr(configured, '_create_task', lambda *_: 'task-1')
+    monkeypatch.setattr(configured, '_poll_task', lambda *_: TASK)
+    result = configured.execute(inputs)
+    assert result.success
+    assert result.data['media_sha256'] == file_sha256(tmp_path / 'receipt-video.mp4')
+    journal = json.loads((tmp_path / 'tasks.json').read_text())['attempts'][0]
+    assert result.data['account_fingerprint'] == journal['account']
+
+
+def test_native_read_only_query_cannot_adopt_unbound_reservation(configured, monkeypatch, tmp_path):
+    inputs = native_inputs(tmp_path)
+    inputs.update(task_action='query', task_id='task-1')
+    monkeypatch.setattr(configured, '_query_task', lambda *_: TASK)
+    result = configured.execute(inputs)
+    assert not result.success
+    assert 'binding' in result.error
+    entry = CostTracker(project_dir=tmp_path).get_native_entry(inputs['reservation_id'])
+    assert entry.get('provider_task_id') is None
+    assert entry['status'] == 'reserved'
+
+
+@pytest.mark.parametrize('recovery_action', ['generate', 'query'])
+def test_native_recovery_repairs_crash_between_journal_task_and_ledger_binding(configured, monkeypatch, tmp_path, recovery_action):
+    inputs = native_inputs(tmp_path)
+    calls = []
+    original_bind = configured._bind_reservation
+    def interrupted_bind(inputs, attempt, *, task_id=None):
+        if task_id:
+            raise RuntimeError('crash after journal task binding')
+        return original_bind(inputs, attempt)
+    monkeypatch.setattr(configured, '_bind_reservation', interrupted_bind)
+    monkeypatch.setattr(configured, '_create_task', lambda *_: calls.append('post') or 'task-1')
+    assert not configured.execute(inputs).success
+    entry = CostTracker(project_dir=tmp_path).get_native_entry(inputs['reservation_id'])
+    assert entry['attempt_id'] and entry.get('provider_task_id') is None
+    monkeypatch.setattr(configured, '_bind_reservation', original_bind)
+    monkeypatch.setattr(configured, '_query_task', lambda *_: calls.append('get') or TASK)
+    recovery_inputs = inputs if recovery_action == 'generate' else {
+        'task_action': 'query', 'task_id': 'task-1', **{key: inputs[key] for key in
+            ('project_dir', 'parent_budget_id', 'shot_id', 'lineage_id', 'reservation_id')}}
+    recovered = configured.execute(recovery_inputs)
+    assert recovered.success
+    assert calls == ['post', 'get']
+    entry = CostTracker(project_dir=tmp_path).get_native_entry(inputs['reservation_id'])
+    assert entry['provider_task_id'] == 'task-1'
+
+
+def test_native_recovery_does_not_adopt_reservation_without_original_attempt_binding(configured, monkeypatch, tmp_path):
+    from lib.generation_attempts import GenerationAttempts
+    inputs = native_inputs(tmp_path)
+    journal = GenerationAttempts(tmp_path / 'tasks.json')
+    account = journal.fingerprint({'base_url': configured._get_base_url(), 'api_key': 'not-a-real-key'})
+    attempt, _ = journal.claim(inputs['idempotency_key'], journal.fingerprint(configured._build_payload(inputs)),
+        account=account, metadata={key: inputs[key] for key in ('project_dir', 'parent_budget_id', 'shot_id',
+                                  'lineage_id', 'reservation_id')})
+    journal.mark_submitted(attempt['attempt_id'], 'task-1')
+    monkeypatch.setattr(configured, '_query_task', lambda *_: pytest.fail('unbound reservation must stop before GET'))
+    result = configured.execute(inputs)
+    assert not result.success
+    assert 'binding' in result.error
+
+
+def test_native_receipt_identity_is_real_and_stable_across_create_query_recovery(configured, monkeypatch, tmp_path):
+    from lib.generation_attempts import GenerationAttempts
+    inputs = native_inputs(tmp_path)
+    inputs.update(task_action='create', project_id='project', revision_id='v1')
+    source_fp = GenerationAttempts.fingerprint(inputs)
+    request_fp = GenerationAttempts.fingerprint(configured._build_payload(inputs))
+    monkeypatch.setattr(configured, '_create_task', lambda *_: 'task-1')
+    created = configured.execute(inputs)
+    assert created.success
+    monkeypatch.setattr(configured, '_query_task', lambda *_: TASK)
+    queried = configured.execute({'task_action': 'query', 'task_id': 'task-1'})
+    assert queried.success
+    for result in (created, queried):
+        assert result.data['task_id'] == 'task-1'
+        assert result.data['model'] == TASK['model']
+        assert result.data['provider'] == 'ark'
+        assert len(result.data['account_fingerprint']) == 64
+        assert result.data['project_id'] == 'project'
+        assert result.data['revision'] == 'v1'
+        assert result.data['shot_id'] == 'shot'
+        assert result.data['lineage_id'] == 'lineage'
+        assert result.data['parent_budget_id'] == 'parent'
+        assert result.data['request_id'] == 'request-one'
+        assert result.data['source_inputs_fingerprint'] == source_fp
+        assert result.data['request_fingerprint'] == request_fp
+        assert result.data['idempotency_key'] == inputs['idempotency_key']
+    recovered = configured.execute({**inputs, 'task_action': 'generate'})
+    assert recovered.success
+    assert recovered.data['source_inputs_fingerprint'] == source_fp
+    assert recovered.data['request_id'] == 'request-one'
+    assert recovered.data['task_id'] == 'task-1'
+
+
+def test_legacy_journal_without_new_receipt_metadata_still_recovers(configured, monkeypatch, tmp_path):
+    inputs = {**paid_inputs(tmp_path), 'prompt': 'A towel', 'model': TASK['model'],
+              'operation': 'text_to_video', 'resolution': '720p',
+              'idempotency_key': 'legacy-journal', 'output_path': str(tmp_path / 'legacy.mp4')}
+    monkeypatch.setattr(configured, '_create_task', lambda *_: 'task-1')
+    monkeypatch.setattr(configured, '_poll_task', lambda *_: (_ for _ in ()).throw(requests.ReadTimeout()))
+    assert not configured.execute(inputs).success
+    journal_path = tmp_path / 'tasks.json'
+    journal = json.loads(journal_path.read_text())
+    journal['attempts'][0]['metadata'] = {key: inputs[key] for key in ('cost_log_path', 'reservation_id')}
+    journal_path.write_text(json.dumps(journal))
+    monkeypatch.setattr(configured, '_query_task', lambda *_: TASK)
+    result = configured.execute(inputs)
+    assert result.success
+    assert result.data['model'] == TASK['model']
+    assert result.data['source_inputs_fingerprint'] is None
+
+
+def test_receipt_identity_does_not_overwrite_observed_provider_model(configured, monkeypatch, tmp_path):
+    inputs = {**paid_inputs(tmp_path), 'prompt': 'A towel', 'model_variant': '2.5',
+              'output_path': str(tmp_path / 'observed-model.mp4')}
+    monkeypatch.setattr(configured, '_create_task', lambda *_: 'task-1')
+    monkeypatch.setattr(configured, '_poll_task', lambda *_: {**TASK, 'model': 'observed-other-model'})
+    result = configured.execute(inputs)
+    assert result.success
+    assert result.data['model'] == 'observed-other-model'
+
+
+@pytest.mark.parametrize('mutation', ['parent', 'lineage', 'ledger'])
+def test_native_parent_identity_cannot_be_replaced_before_post(configured, monkeypatch, tmp_path, mutation):
+    inputs = native_inputs(tmp_path)
+    if mutation == 'parent':
+        inputs['parent_budget_id'] = 'other-parent'
+    elif mutation == 'lineage':
+        inputs['lineage_id'] = 'other-lineage'
+    else:
+        inputs['cost_log_path'] = str(tmp_path / 'other-ledger.json')
+    monkeypatch.setattr(configured, '_create_task', lambda *_: pytest.fail('invalid binding reached paid POST'))
+    result = configured.execute(inputs)
+    assert not result.success
+    assert result.data['status'] == 'preflight_rejected'
+
+
 def test_timeout_recovery_queries_existing_task_without_post(configured, monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(configured, '_create_task', lambda *_: calls.append('post') or 'task-1')

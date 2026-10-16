@@ -9,7 +9,13 @@
     "schema_version": {"const": "1.0"},
     "review_id": {"type": "string", "minLength": 1},
     "project_id": {"type": "string", "minLength": 1},
-    "kind": {"enum": ["creative_lock", "sample", "script_lock", "final_review", "opening_preview"]},
+    "kind": {"enum": ["creative_lock", "sample", "script_lock", "final_review", "opening_preview", "source_clip"]},
+    "source_subject": {
+      "type": "object",
+      "required": ["kind", "record_path", "shot_id", "revision", "purpose_id", "content_slot_id", "source", "dependencies", "summary"],
+      "properties": {"kind": {"const": "source_clip"}},
+      "additionalProperties": true
+    },
     "production_subject": {
       "type": "object",
       "required": ["version", "content_slot_id", "record_path", "render", "dependencies"],

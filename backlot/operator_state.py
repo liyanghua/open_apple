@@ -1780,9 +1780,12 @@ def _asset_editor(board: Mapping[str, Any]) -> dict[str, Any]:
             else None
         },
     }
+    from backlot.source_clip_review_items import source_clip_review_items
+    source_reviews = source_clip_review_items(Path(board["_project_dir"]), board.get("review_notes") or []) if board.get("_project_dir") else []
     return {
         "type": "asset_review",
         "data": {
+            "source_reviews": source_reviews,
             "narration_status": narration_status,
             "subtitle_status": subtitle_status,
             "music_status": music_status,
@@ -2378,6 +2381,8 @@ def _delivery_editor(
             Path(board["_project_dir"]), _artifact(board, "production_review_index"),
             board.get("review_notes") or [],
         )
+        from backlot.source_clip_review_items import source_clip_review_items
+        items += source_clip_review_items(Path(board["_project_dir"]), board.get("review_notes") or [])
         if items:
             data["production_reviews"] = items
         from backlot.campaign_production import campaign_production_panorama

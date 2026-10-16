@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "provenance": "retrospective_labels_from_sofa_round_review",
+  "evidence_limit": "Contract replay of recorded observations, not a new visual assessment or a Gold Set; original media is project-local and not committed.",
+  "cases": [
+    {"id":"v3-scale","observations":{"scale":"fail"},"expected_original":"fail","note":"User reported giant hand / miniature-sofa impression; other dimensions not inferred."},
+    {"id":"v4b-texture","observations":{"scale":"pass","texture":"fail"},"expected_original":"fail","note":"Earlier scoped preview acceptance does not waive later texture mismatch."},
+    {"id":"image-attempt-04","observations":{"texture":"pass","full-view":"fail"},"expected_original":"fail","note":"Texture improved but arm cropped; cannot use for full framing."},
+    {"id":"image-attempt-05","observations":{"full-view":"pass","texture":"not_run"},"expected_original":"not_run","note":"Best composition candidate; residual texture concern not certified away by selection."},
+    {"id":"image-attempt-06","observations":{"texture":"fail"},"expected_original":"fail","note":"Later image edit strengthened unwanted pattern; newest is not necessarily best."},
+    {"id":"v6-local","observations":{"scale":"pass","texture":"pass","full-view":"fail","release":"fail"},"expected_original":"fail","note":"Only visible local weave assessed; missing full view and late release remain failed."}
+  ]
+}

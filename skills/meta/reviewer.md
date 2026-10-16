@@ -84,7 +84,7 @@ Count findings by severity:
 |----------|--------|
 | 0 critical, any suggestions/nitpicks | **Pass** — proceed to checkpoint. Note suggestions for the record. |
 | 1+ critical findings | **Revise** — fix all critical findings, then re-review (max 2 rounds). |
-| After 2 revision rounds, still critical | **Pass with warnings** — proceed anyway, note unresolved issues. Never block indefinitely. |
+| After 2 revision rounds, still critical | **Revise** — stop automatic retries, preserve unresolved findings and request a scoped human decision: repair, abandon, or propose a different use. Never waive a required fact, identity, framing or delivery gate because retries are exhausted. |
 
 ### Step 7: Record Review
 
@@ -93,7 +93,7 @@ Structure your review as:
 ```
 ## Review: [stage_name] — Round [N]
 
-**Decision:** PASS / REVISE / PASS_WITH_WARNINGS
+**Decision:** PASS / REVISE (accepted noncritical suggestions may be recorded as warnings; unresolved critical findings remain REVISE)
 
 ### Findings
 
@@ -121,7 +121,7 @@ Structure your review as:
 
 2. **Critical means critical.** Don't inflate severity. A missing schema field is critical. A slightly wordy paragraph is a suggestion. A comma splice is a nitpick.
 
-3. **Two rounds max.** The goal is shipping, not perfection. After two revision rounds, pass with warnings and move on. Perfectionism kills pipelines.
+3. **Two rounds max unless separately authorized.** The limit stops automatic retries; it never converts unresolved critical findings into a pass. Keep the original use failed/pending. A different candidate use needs its own requirements, media-bound review and approval, without rewriting the original outcome.
 
 4. **Review the artifact, not the process.** You're checking the output, not how it was produced. If the brief is compelling, it doesn't matter if the agent used an unusual approach.
 

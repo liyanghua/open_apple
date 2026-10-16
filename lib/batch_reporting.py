@@ -146,7 +146,8 @@ def _scoped_eval(child_dir: Path) -> dict[str, Any] | None:
     final = None
     for name in ("evaluation_report.final.json", "evaluation_report.json", "evaluation_report.sample.json"):
         data = _read_json(child_dir / "artifacts" / name)
-        if isinstance(data, dict) and final is None:
+        if (isinstance(data, dict) and final is None
+                and data.get("scope", "final") in {"sample", "final", "preview", "full_variant"}):
             final = data
     if final is None:
         return None

@@ -21,7 +21,7 @@ model, product claim, or creative concept in place of the approved lock.
    exhausted. Unknown remote status is queried by task/attempt ID first.
 3. After each source returns, save the result and actual usage. A successful
    but rejected source still has cost. Probe and watch the source for actual
-   towel motion, product identity, texture and frame stability. Generated
+   product motion, product identity, texture and frame stability. Generated
    imagery may illustrate a use concern; it does not prove a performance claim.
 4. Compose the approved opening window as moving footage with the existing
    brand profile, real TTS timing, captions and approved music. Keep the brand
@@ -51,3 +51,9 @@ expression for human review. The agent may select a better approved asset or
 request a local edit within the locked budget; changing provider/model,
 claim or paid-task scope requires a new lock. Human preview approval binds only
 the exact three-second render and does not release later full variants.
+
+## Source-level acceptance before preview composition
+
+For newly planned source shots, pin the shot_source_plan requirements and reference responsibilities. Raw source reviews use source_clip scope and remain distinct from opening_preview and final_review. Check identity, required framing, actual action timing and result hold against the plan, then compare improvements and regressions against the baseline. Technical pass does not establish semantic acceptance. Record full-playback versus sampled-frame evidence honestly; silent raw footage does not require narration checks.
+
+Stop at the approved retry/fund limit without converting unresolved required failures into passes. Propose an alternate use only as a separate purpose/interval-bound review, preserving the original failed purpose. Derive category actions and timing from the bound category profile; do not impose towel defaults on another product category. Keep creative framing, action choice and cut points with the Agent and explain each choice.
