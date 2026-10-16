@@ -234,3 +234,229 @@ def test_dry_run_collects_parameter_and_reference_problems_together(reference_ca
     assert result['valid'] is False
     assert result['parameter_valid'] is False
     assert 'authorization_missing' in {issue['code'] for issue in result['reference_preflight']['issues']}
+
+
+@pytest.fixture
+def owned_reference_case(reference_case, monkeypatch):
+    root, inputs = reference_case
+    media = inputs['reference_media'][0]
+    media.pop('generation_receipt_ref')
+    media['provenance_kind'] = 'owned_live_action'
+    ownership = root / 'ownership.json'
+    ownership.write_text(json.dumps({'status': 'approved', 'approved_by': 'user:owner',
+        'owner_id': 'user:owner', 'owned_source_sha256': [media['source']['sha256']]}))
+    provenance = root / 'source-provenance.json'
+    provenance.write_text(json.dumps({'kind': 'owned_live_action', 'owner_id': 'user:owner',
+        'media_sha256': media['source']['sha256'], 'source_original_ref': media['source'],
+        'ownership_authorization_ref': ref(ownership)}))
+    media['source_provenance_ref'] = ref(provenance)
+    monkeypatch.setattr('lib.generation_references._local_duration',
+        lambda path: 54.17 if path.name == 'original.mp4' else 4.125)
+    return root, inputs
+
+
+def update_owned_document(root, inputs, filename, changes):
+    path = root / filename
+    doc = json.loads(path.read_text())
+    changes(doc)
+    path.write_text(json.dumps(doc))
+    media = inputs['reference_media'][0]
+    if filename == 'ownership.json':
+        update_owned_document(root, inputs, 'source-provenance.json',
+            lambda value: value.update(ownership_authorization_ref=ref(path)))
+    else:
+        media['source_provenance_ref'] = ref(path)
+
+
+def make_owned_clip(root, inputs):
+    media = inputs['reference_media'][0]
+    original = root / 'original.mp4'
+    original.write_bytes(b'owned-original-live-action-video')
+    media.update(origin='derived', parent_media_ref=ref(original))
+    update_owned_document(root, inputs, 'ownership.json',
+        lambda doc: doc.update(owned_source_sha256=[ref(original)['sha256']]))
+    update_owned_document(root, inputs, 'source-provenance.json',
+        lambda doc: doc.update(source_original_ref=ref(original),
+            source_interval_seconds=[42.0, 46.125],
+            transform_description='Single continuous trim without speed change'))
+
+
+def test_owned_live_action_binds_ownership_without_fabricating_generation_task(owned_reference_case, monkeypatch):
+    root, inputs = owned_reference_case
+    monkeypatch.setattr('requests.get', lambda *a, **kw: pytest.fail('network forbidden'))
+    result = check(root, inputs)
+    assert result['valid'], result['issues']
+    row = result['references'][0]
+    assert row['provenance_kind'] == 'owned_live_action'
+    assert row['owner_id'] == 'user:owner'
+    assert row['measured_duration_seconds'] == 4.125
+    assert 'generation_task_id' not in row
+    assert result['network_accessed'] is False
+
+
+def test_owned_derived_clip_binds_original_trim_and_current_media(owned_reference_case):
+    root, inputs = owned_reference_case
+    make_owned_clip(root, inputs)
+    assert check(root, inputs)['valid']
+
+
+@pytest.mark.parametrize('mutation', ['missing_provenance', 'missing_ownership',
+    'ordinary_generation_authorization', 'pending_ownership', 'wrong_approver',
+    'non_user_owner', 'wrong_owner', 'wrong_hash', 'changed_media', 'wrong_kind',
+    'fabricated_task', 'fabricated_nested_model', 'generation_receipt_present'])
+def test_owned_live_action_rejects_unbound_or_generated_provenance(owned_reference_case, mutation):
+    root, inputs = owned_reference_case
+    media = inputs['reference_media'][0]
+    if mutation == 'missing_provenance':
+        media.pop('source_provenance_ref')
+    elif mutation == 'missing_ownership':
+        update_owned_document(root, inputs, 'source-provenance.json',
+            lambda doc: doc.pop('ownership_authorization_ref'))
+    elif mutation == 'ordinary_generation_authorization':
+        update_owned_document(root, inputs, 'source-provenance.json',
+            lambda doc: doc.update(ownership_authorization_ref=media['authorization_refs'][0]))
+    elif mutation in {'pending_ownership', 'wrong_approver', 'non_user_owner', 'wrong_owner', 'wrong_hash'}:
+        changes = {
+            'pending_ownership': {'status': 'pending'},
+            'wrong_approver': {'approved_by': 'user:someone-else'},
+            'non_user_owner': {'owner_id': 'agent:owner', 'approved_by': 'agent:owner'},
+            'wrong_owner': {'owner_id': 'user:someone-else'},
+            'wrong_hash': {'owned_source_sha256': ['0' * 64]},
+        }[mutation]
+        update_owned_document(root, inputs, 'ownership.json', lambda doc: doc.update(changes))
+    elif mutation == 'changed_media':
+        update_owned_document(root, inputs, 'source-provenance.json',
+            lambda doc: doc.update(media_sha256='0' * 64))
+    elif mutation == 'wrong_kind':
+        update_owned_document(root, inputs, 'source-provenance.json',
+            lambda doc: doc.update(kind='generated'))
+    elif mutation == 'fabricated_task':
+        update_owned_document(root, inputs, 'source-provenance.json',
+            lambda doc: doc.update(task_id='made-up-task'))
+    elif mutation == 'fabricated_nested_model':
+        update_owned_document(root, inputs, 'source-provenance.json',
+            lambda doc: doc.update(generation={'model': 'seedance-2.5'}))
+    elif mutation == 'generation_receipt_present':
+        media['generation_receipt_ref'] = ref(root / 'receipt.json')
+    result = check(root, inputs)
+    assert not result['valid']
+    assert 'owned_provenance_invalid' in {issue['code'] for issue in result['issues']}
+
+
+@pytest.mark.parametrize('mutation', ['missing_parent', 'different_parent', 'changed_original',
+    'missing_interval', 'invalid_interval', 'non_finite_interval', 'outside_original',
+    'retimed_interval', 'missing_transform'])
+def test_owned_derived_clip_requires_verifiable_unretimed_original_interval(owned_reference_case, mutation):
+    root, inputs = owned_reference_case
+    make_owned_clip(root, inputs)
+    media = inputs['reference_media'][0]
+    if mutation == 'missing_parent':
+        media.pop('parent_media_ref')
+    elif mutation == 'different_parent':
+        media['parent_media_ref'] = media['source']
+    elif mutation == 'changed_original':
+        (root / 'original.mp4').write_bytes(b'replaced-original')
+    elif mutation == 'missing_transform':
+        update_owned_document(root, inputs, 'source-provenance.json',
+            lambda doc: doc.pop('transform_description'))
+    else:
+        def change(doc):
+            if mutation == 'missing_interval':
+                doc.pop('source_interval_seconds')
+            else:
+                doc['source_interval_seconds'] = {
+                    'invalid_interval': [44, 42], 'non_finite_interval': [float('nan'), 44],
+                    'outside_original': [52, 56.125], 'retimed_interval': [42, 44],
+                }[mutation]
+        update_owned_document(root, inputs, 'source-provenance.json', change)
+    result = check(root, inputs)
+    assert not result['valid']
+    assert 'owned_provenance_invalid' in {issue['code'] for issue in result['issues']}
+
+
+@pytest.mark.parametrize('mutation, code', [('remote', 'remote_reference_missing'),
+    ('expired', 'remote_expired'), ('authorization', 'authorization_missing'),
+    ('duration', 'duration_mismatch')])
+def test_owned_video_retains_existing_transmission_and_duration_gates(owned_reference_case, mutation, code):
+    root, inputs = owned_reference_case
+    media = inputs['reference_media'][0]
+    if mutation == 'remote':
+        media.pop('remote')
+    elif mutation == 'expired':
+        media['remote']['expires_at'] = '2026-10-15T00:00:00Z'
+    elif mutation == 'authorization':
+        media['authorization_refs'] = []
+    elif mutation == 'duration':
+        media['duration_seconds'] = 2
+    result = check(root, inputs)
+    assert not result['valid']
+    assert code in {issue['code'] for issue in result['issues']}
+
+
+def test_unknown_video_provenance_kind_cannot_fall_back_to_valid_generated_receipt(reference_case):
+    root, inputs = reference_case
+    inputs['reference_media'][0]['provenance_kind'] = 'unknown-kind'
+    result = check(root, inputs)
+    assert not result['valid']
+    assert 'provenance_kind_invalid' in {issue['code'] for issue in result['issues']}
+
+
+def test_explicit_generated_provenance_keeps_receipt_required(reference_case):
+    root, inputs = reference_case
+    media = inputs['reference_media'][0]
+    media['provenance_kind'] = 'generated'
+    assert check(root, inputs)['valid']
+    media.pop('generation_receipt_ref')
+    assert 'receipt_source_mismatch' in {issue['code'] for issue in check(root, inputs)['issues']}
+
+
+@pytest.mark.parametrize('value', [[], {}, None])
+def test_malformed_provenance_kind_reports_issue_instead_of_crashing(reference_case, value):
+    root, inputs = reference_case
+    inputs['reference_media'][0]['provenance_kind'] = value
+    result = check(root, inputs)
+    assert not result['valid']
+    assert 'provenance_kind_invalid' in {issue['code'] for issue in result['issues']}
+
+
+def test_ownership_hash_authority_must_be_an_explicit_list(owned_reference_case):
+    root, inputs = owned_reference_case
+    update_owned_document(root, inputs, 'ownership.json',
+        lambda doc: doc.update(owned_source_sha256=inputs['reference_media'][0]['source']['sha256']))
+    result = check(root, inputs)
+    assert not result['valid']
+    assert 'owned_provenance_invalid' in {issue['code'] for issue in result['issues']}
+
+
+def test_owned_source_can_retain_ordinary_download_receipt_reference(owned_reference_case):
+    root, inputs = owned_reference_case
+    download = root / 'download-receipt.json'
+    download.write_text(json.dumps({'downloaded': True, 'source': 'owned merchant listing'}))
+    update_owned_document(root, inputs, 'source-provenance.json',
+        lambda doc: doc.update(download_receipt_ref=ref(download)))
+    assert check(root, inputs)['valid']
+
+
+def test_seedance_dry_run_accepts_bound_owned_reference_without_network(owned_reference_case, monkeypatch):
+    from tools.video.seedance_ark import SeedanceArkVideo
+    root, inputs = owned_reference_case
+    make_owned_clip(root, inputs)
+    monkeypatch.setattr('requests.post', lambda *a, **kw: pytest.fail('dry run cannot POST'))
+    monkeypatch.setattr('requests.get', lambda *a, **kw: pytest.fail('dry run cannot GET'))
+    inputs.update(prompt='Single normal-speed edge stroke', model_variant='2.5',
+        model='doubao-seedance-2-5-260628', operation='reference_to_video',
+        duration=4, resolution='720p', aspect_ratio='adaptive', project_dir=str(root))
+    result = SeedanceArkVideo().dry_run(inputs)
+    assert result['parameter_valid'] and result['valid'], result
+    assert result['reference_preflight']['references'][0]['provenance_kind'] == 'owned_live_action'
+
+
+@pytest.mark.parametrize('interval', [[0, 10**400], [False, 4.125]])
+def test_owned_source_interval_rejects_overflow_and_boolean_seconds(owned_reference_case, interval):
+    root, inputs = owned_reference_case
+    make_owned_clip(root, inputs)
+    update_owned_document(root, inputs, 'source-provenance.json',
+        lambda doc: doc.update(source_interval_seconds=interval))
+    result = check(root, inputs)
+    assert not result['valid']
+    assert 'owned_provenance_invalid' in {issue['code'] for issue in result['issues']}

@@ -51,6 +51,71 @@ def _local_duration(path: Path) -> float:
     return duration
 
 
+def _contains_generation_identity(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        keys = {'task_id', 'generation_task_id', 'model', 'model_variant',
+                'account_fingerprint', 'generation_receipt_ref'}
+        return bool(keys.intersection(value)) or any(
+            _contains_generation_identity(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_generation_identity(item) for item in value)
+    return False
+
+
+def _owned_clip_interval(root: Path, media: Mapping[str, Any], provenance: Mapping[str, Any],
+                         original_path: Path, measured: float) -> None:
+    parent = media['parent_media_ref']
+    if (_bound(root, parent) != original_path
+            or parent['sha256'] != provenance['source_original_ref']['sha256']):
+        raise ValueError('derived parent differs from the owned original')
+    interval = provenance['source_interval_seconds']
+    if not isinstance(interval, list) or len(interval) != 2:
+        raise ValueError('derived clip requires a two-value source interval')
+    if any(isinstance(value, bool) for value in interval):
+        raise ValueError('source interval seconds cannot be boolean')
+    try:
+        start, end = map(float, interval)
+    except OverflowError as exc:
+        raise ValueError('source interval seconds exceed finite numeric range') from exc
+    original_duration = _local_duration(original_path)
+    if not (math.isfinite(start) and math.isfinite(end)
+            and 0 <= start < end <= original_duration):
+        raise ValueError('source interval is outside the measured original')
+    if abs(end - start - measured) > .001:
+        raise ValueError('owned clip duration differs from its unretimed source interval')
+    transform = provenance.get('transform_description')
+    if not isinstance(transform, str) or not transform.strip():
+        raise ValueError('derived clip requires a transform description')
+
+
+def _owned_live_action(root: Path, media: Mapping[str, Any], source_path: Path | None,
+                       measured: float | None) -> dict[str, Any]:
+    provenance = _bound(root, media['source_provenance_ref'], json_object=True)
+    if media.get('generation_receipt_ref') or _contains_generation_identity(provenance):
+        raise ValueError('owned live action cannot inherit generated-media identifiers')
+    owner = provenance.get('owner_id')
+    if (provenance.get('kind') != 'owned_live_action'
+            or not isinstance(owner, str) or not owner.startswith('user:')
+            or not owner.removeprefix('user:').strip()
+            or provenance.get('media_sha256') != media['source']['sha256']):
+        raise ValueError('owned provenance does not bind current bytes and user owner')
+    original_ref = provenance['source_original_ref']
+    original_path = _bound(root, original_ref)
+    approval = _bound(root, provenance['ownership_authorization_ref'], json_object=True)
+    owned_hashes = approval.get('owned_source_sha256')
+    if (approval.get('status') != 'approved' or approval.get('owner_id') != owner
+            or approval.get('approved_by') != owner
+            or not isinstance(owned_hashes, list) or original_ref['sha256'] not in owned_hashes):
+        raise ValueError('separate user ownership approval does not bind the original')
+    if source_path is None or measured is None:
+        raise ValueError('owned media bytes and duration must be verified')
+    if media.get('origin') == 'derived':
+        _owned_clip_interval(root, media, provenance, original_path, measured)
+    elif original_path != source_path or original_ref['sha256'] != media['source']['sha256']:
+        raise ValueError('unmodified owned media must be its bound original')
+    return {'owner_id': owner, 'owned_source_sha256': original_ref['sha256']}
+
+
 def _input_media(inputs: Mapping[str, Any]) -> list[tuple[str, str]]:
     result = []
     for kind in ('image', 'video', 'audio'):
@@ -204,20 +269,25 @@ def preflight_generation_references(
         if kind == 'video':
             if not url:
                 issue('remote_reference_missing', 'Video reference requires bound remote URL', rid)
-            try:
-                receipt = _bound(root, media['generation_receipt_ref'], json_object=True)
-                if receipt.get('success') is False:
-                    raise ValueError('generation receipt reports failure')
-                receipt = receipt.get('data', receipt)
-                if not isinstance(receipt, Mapping):
-                    raise ValueError('generation receipt data is not an object')
-                if (receipt.get('media_sha256') != sha or not receipt.get('task_id')
-                        or not receipt.get('provider') or not receipt.get('model')
-                        or not re.fullmatch('[a-f0-9]{64}', str(receipt.get('account_fingerprint') or ''))):
-                    raise ValueError('receipt does not bind original bytes, task, model and account fingerprint')
-                row['generation_task_id'] = receipt['task_id']
-            except (KeyError, ValueError, TypeError, OSError) as exc:
-                issue('receipt_source_mismatch', f'Cannot bind generation receipt: {exc}', rid)
+            provenance_kind = media.get('provenance_kind', 'generated')
+            row['provenance_kind'] = provenance_kind
+            if not isinstance(provenance_kind, str) or provenance_kind not in {'generated', 'owned_live_action'}:
+                issue('provenance_kind_invalid', 'Unknown video provenance kind', rid)
+            elif provenance_kind == 'generated':
+                try:
+                    receipt = _bound(root, media['generation_receipt_ref'], json_object=True)
+                    if receipt.get('success') is False:
+                        raise ValueError('generation receipt reports failure')
+                    receipt = receipt.get('data', receipt)
+                    if not isinstance(receipt, Mapping):
+                        raise ValueError('generation receipt data is not an object')
+                    if (receipt.get('media_sha256') != sha or not receipt.get('task_id')
+                            or not receipt.get('provider') or not receipt.get('model')
+                            or not re.fullmatch('[a-f0-9]{64}', str(receipt.get('account_fingerprint') or ''))):
+                        raise ValueError('receipt does not bind original bytes, task, model and account fingerprint')
+                    row['generation_task_id'] = receipt['task_id']
+                except (KeyError, ValueError, TypeError, OSError) as exc:
+                    issue('receipt_source_mismatch', f'Cannot bind generation receipt: {exc}', rid)
             if source_path:
                 try:
                     measured = _local_duration(source_path)
@@ -234,6 +304,12 @@ def preflight_generation_references(
                             issue('duration_mismatch', 'Tool duration does not bind measured reference duration', rid)
                 except (KeyError, ValueError, TypeError, OSError, subprocess.SubprocessError) as exc:
                     issue('duration_unverified', f'Cannot measure original video duration: {exc}', rid)
+            if provenance_kind == 'owned_live_action':
+                try:
+                    row.update(_owned_live_action(root, media, source_path,
+                        row.get('measured_duration_seconds')))
+                except (KeyError, ValueError, TypeError, OSError, subprocess.SubprocessError) as exc:
+                    issue('owned_provenance_invalid', f'Cannot bind owned live action: {exc}', rid)
         verified.append(row)
     if strict:
         for kind, location in actual:
