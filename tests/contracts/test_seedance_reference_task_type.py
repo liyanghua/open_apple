@@ -5,7 +5,7 @@ from tools.video.seedance_ark import SeedanceArkVideo
 
 
 def request(**changes):
-    return dict(model_variant='2.5', operation='reference_to_video',
+    return dict(model_variant='2.5', model=SeedanceArkVideo.MODEL_IDS['2.5'], operation='reference_to_video',
                 prompt='Generate a NEW product shot; borrow only the hand action.',
                 reference_video_urls=['https://example.test/motion.mp4'],
                 reference_video_durations=[2], duration=4, aspect_ratio='9:16',
@@ -29,6 +29,7 @@ def test_unsupported_task_types_fail_before_payment(value):
 def test_reference_type_is_only_available_for_seedance25_reference_operation():
     inputs = request()
     inputs['model_variant'] = 'standard'
+    inputs['model'] = SeedanceArkVideo.MODEL_IDS['standard']
     with pytest.raises(ValueError):
         SeedanceArkVideo()._build_payload(inputs)
 
