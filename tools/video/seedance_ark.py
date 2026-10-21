@@ -236,6 +236,11 @@ class SeedanceArkVideo(BaseTool):
                 "enum": ["2.5", "standard", "fast", "mini"],
                 "default": "standard",
             },
+            "omni_reference_task_type": {
+                "type": "string",
+                "enum": ["auto", "reference"],
+                "description": "Seedance 2.5 reference generation only; edit/extend are not supported by this adapter.",
+            },
             "model": {
                 "type": "string",
                 "description": (
@@ -375,6 +380,7 @@ class SeedanceArkVideo(BaseTool):
         "reference_image_paths",
         "reference_video_urls",
         "reference_audio_urls",
+        "omni_reference_task_type",
     ]
     side_effects = [
         "submits a paid task to the Volcengine Ark API",
@@ -1174,6 +1180,12 @@ class SeedanceArkVideo(BaseTool):
             "watermark": bool(inputs.get("watermark", False)),
             "return_last_frame": bool(inputs.get("return_last_frame", False)),
         }
+        if inputs.get("omni_reference_task_type") is not None:
+            task_type = inputs["omni_reference_task_type"]
+            if (variant != "2.5" or operation != "reference_to_video"
+                    or task_type not in ("auto", "reference")):
+                raise ValueError("omni_reference_task_type supports auto/reference only for Seedance 2.5 reference_to_video")
+            payload["omni_reference_task_type"] = task_type
         optional = (
             "callback_url",
             "execution_expires_after",

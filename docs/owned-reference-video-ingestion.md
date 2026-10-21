@@ -26,6 +26,18 @@
 
 ## 调用与记录
 
+### 方舟托管路径（无需自建TOS桶）
+
+现有方舟API Key可通过注册工具 `ark_reference_upload` 将本地二进制视频传至官方 Files API：`POST /api/v3/files`，`purpose=user_data`，不传 `tos`。文件保存到方舟默认托管空间，本流程默认保留25小时，为官方最少一天的限制预留传输时差。原始文件ID只是Files ID，不得拼成 `asset://`。
+
+上传前原子记录当前账号指纹、媒体哈希与 `uploading` 状态。未知POST结果必须停下对账，不能再次POST；已知文件ID后使用GET查询恢复。仅当查询返回 `active` 和可读取的 `download_url`，且URL实际签名有效期、HTTPS主机、完整字节数和SHA-256均通过验证时，才能形成既有 `remote` 与 `availability` 证据。文件保留期不等于下载URL有效期。若账号接口不返回可验证链接，保持未完成；不可伪造素材ID、URL或有效期。
+
+该路径复用 `volcengine_ark` 外传授权，不增加其它接收方。Files上传和Seedance视频输入是两个官方接口的组合，实际模型是否接受须在既有生成流程核验，不提前声称已被Seedance支持。
+
+官方依据：[上传本地文件](https://docs.volcengine.com/docs/ark/upload-files-api?lang=zh)、[查询文件与临时下载地址](https://docs.volcengine.com/docs/ark/search-files-api?lang=zh)。
+
+### 同账户TOS路径
+
 可选依赖：`pip install -r requirements-media-upload.txt`（官方 `tos==2.9.3`）。凭据只在本机配置 `VOLC_ACCESSKEY`、`VOLC_SECRETKEY`；不得写入提交。至少需要指定对象前缀的 `tos:PutObject`、`tos:GetObject`，列桶另需 `tos:ListBuckets`。
 
 只读操作：`{"operation":"list_buckets","region":"cn-beijing"}`。上传操作还需要 `project_dir`、项目内 `input_path`、`bucket`、`purpose`、`authorization_ref:{path,sha256}`，有效期 `expires_seconds` 为300–86400秒，默认3600秒。授权JSON应为 `status:"approved"`、`approved_by:"user:…"`，并以数组绑定 `media_sha256`、`purposes` 和 `recipients:["volcengine_tos"]`。由注册表调用，不写临时网络脚本。

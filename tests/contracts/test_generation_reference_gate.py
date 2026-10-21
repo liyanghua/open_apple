@@ -13,6 +13,13 @@ def ref(path):
 @pytest.fixture
 def reference_case(tmp_path, monkeypatch):
     from types import SimpleNamespace
+    from lib import generation_references
+    class FixtureClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 16, 2, tzinfo=timezone.utc)
+    monkeypatch.setattr(generation_references, 'datetime', FixtureClock)
+    monkeypatch.setenv('ARK_API_KEY', 'offline-reference-fixture-key')
     monkeypatch.setattr('subprocess.run', lambda *a, **kw: SimpleNamespace(returncode=0,
                         stdout=json.dumps({'format': {'duration': '4.125'}}), stderr=''))
     monkeypatch.setattr('shutil.which', lambda _: '/fake/ffprobe')
