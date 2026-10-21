@@ -47,3 +47,9 @@
 将完整上传回执保存到项目受控运行数据，并把 `availability` 单独保存为JSON。媒体声明的 `remote` 使用回执中的URL和有效期，再增加 `availability_evidence_ref:{path,sha256}` 指向该JSON，供既有参考预检核对。签名链接不进入git、公开报告或控制台；过期后对同一哈希对象再次调用工具可重新签名和GET复验，不重新PUT。远端超时后下一次仍先HEAD；存储费用为待结算。桶ACL和策略属于独立配置，HEAD/GET成功不证明桶策略为私有，本工具不修改它们。
 
 官方接口依据：[TOS Python SDK](https://pypi.org/project/tos/)、[列桶](https://docs.volcengine.com/docs/TorchObjectStorage/ListbucketsPythonSDK?lang=en)、[文件上传](https://docs.volcengine.com/docs/TorchObjectStorage/OrdinaryuploadPythonSDK?lang=zh)。
+
+## 首次接入观察（2026-10-21）
+
+沙发垫实拍裁片已通过方舟Files二进制上传，查询为active，但当前账户返回中没有可验证的 `download_url`。因此“文件已上传”和“Seedance可用的连续视频参考”仍是两个状态，后者本次未达成；TOS路径因本地未配置所需AK/SK和桶而未实际上传。不得把工具契约测试通过写成上述两种存储路径都已在账户实测成功。
+
+本次镜头实际使用本地抽取的三张实拍动作关键帧加两张商品参考图，继续通过已批准的Seedance 2.5生成新动态视频；这不是连续视频条件输入。生成成功不等于商品一致性通过：新片包边结构及离手时点失败，只导出了无声动作诊断片，未替换完整成片。具体状态见[首镜修订执行记录](sofa-cushion-touch-shot-revision-20261016.md#12-执行记录与当前放行结论2026-10-21)。
